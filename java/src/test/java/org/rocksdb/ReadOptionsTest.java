@@ -256,6 +256,14 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void asyncIo() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setAsyncIo(true);
+      assertThat(opt.asyncIo()).isTrue();
+    }
+  }
+
+  @Test
   public void failSetVerifyChecksumUninitialized() {
     try (final ReadOptions readOptions =
              setupUninitializedReadOptions(exception)) {

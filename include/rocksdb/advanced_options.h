@@ -51,6 +51,8 @@ enum CompactionPri : char {
   // First compact files whose ratio between overlapping size in next level
   // and its size is the smallest. It in many cases can optimize write
   // amplification.
+  // Files marked for compaction will be prioritized over files that are not
+  // marked.
   kMinOverlappingRatio = 0x3,
   // Keeps a cursor(s) of the successor of the file (key range) was/were
   // compacted before, and always picks the next files (key range) in that
@@ -76,9 +78,16 @@ struct CompressionOptions {
   // zlib only: windowBits parameter. See https://www.zlib.net/manual.html
   int window_bits = -14;
 
-  // Compression "level" applicable to zstd, zlib, LZ4. Except for
+  // Compression "level" applicable to zstd, zlib, LZ4, and LZ4HC. Except for
   // kDefaultCompressionLevel (see above), the meaning of each value depends
-  // on the compression algorithm.
+  // on the compression algorithm. Decreasing across non-
+  // `kDefaultCompressionLevel` values will either favor speed over
+  // compression ratio or have no effect.
+  //
+  // In LZ4 specifically, the absolute value of a negative `level` internally
+  // configures the `acceleration` parameter. For example, set `level=-10` for
+  // `acceleration=10`. This negation is necessary to ensure decreasing `level`
+  // values favor speed over compression ratio.
   int level = kDefaultCompressionLevel;
 
   // zlib only: strategy parameter. See https://www.zlib.net/manual.html
@@ -268,7 +277,8 @@ struct CompactionOptionsFIFO {
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
-  kNonVolatileBlockTier = 0x01,
+  kVolatileCompressedTier = 0x01,
+  kNonVolatileBlockTier = 0x02,
 };
 
 enum UpdateStatus {     // Return status For inplace update callback
@@ -706,7 +716,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   std::vector<int> max_bytes_for_level_multiplier_additional =
-      std::vector<int>(num_levels, 1);
+      std::vector<int>(static_cast<size_t>(num_levels), 1);
 
   // We try to limit number of bytes in one compaction to be lower than this
   // threshold. But it's not guaranteed.
@@ -904,7 +914,9 @@ struct AdvancedColumnFamilyOptions {
   //
   // Leveled: files older than `periodic_compaction_seconds` will be picked up
   //    for compaction and will be re-written to the same level as they were
-  //    before.
+  //    before if level_compaction_dynamic_level_bytes is disabled. Otherwise,
+  //    it will rewrite files to the next level except for the last level files
+  //    to the same level.
   //
   // FIFO: not supported. Setting this option has no effect for FIFO compaction.
   //

@@ -11,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -24,6 +25,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/secondary_cache.h"
+#include "util/atomic.h"
 #include "util/autovector.h"
 #include "util/math.h"
 
@@ -368,11 +370,19 @@ struct ClockHandle : public ClockHandleBasicData {
   // TODO: make these coundown values tuning parameters for eviction?
 
   // See above. Mutable for read reference counting.
-  mutable std::atomic<uint64_t> meta{};
+  mutable AcqRelAtomic<uint64_t> meta{};
 };  // struct ClockHandle
 
 class BaseClockTable {
  public:
+  struct BaseOpts {
+    explicit BaseOpts(int _eviction_effort_cap)
+        : eviction_effort_cap(_eviction_effort_cap) {}
+    explicit BaseOpts(const HyperClockCacheOptions& opts)
+        : BaseOpts(opts.eviction_effort_cap) {}
+    int eviction_effort_cap;
+  };
+
   BaseClockTable(CacheMetadataChargePolicy metadata_charge_policy,
                  MemoryAllocator* allocator,
                  const Cache::EvictionCallback* eviction_callback,
@@ -385,36 +395,37 @@ class BaseClockTable {
   template <class Table>
   typename Table::HandleImpl* CreateStandalone(ClockHandleBasicData& proto,
                                                size_t capacity,
-                                               bool strict_capacity_limit,
+                                               uint32_t eec_and_scl,
                                                bool allow_uncharged);
 
   template <class Table>
   Status Insert(const ClockHandleBasicData& proto,
                 typename Table::HandleImpl** handle, Cache::Priority priority,
-                size_t capacity, bool strict_capacity_limit);
+                size_t capacity, uint32_t eec_and_scl);
 
   void Ref(ClockHandle& handle);
 
-  size_t GetOccupancy() const {
-    return occupancy_.load(std::memory_order_relaxed);
-  }
+  size_t GetOccupancy() const { return occupancy_.LoadRelaxed(); }
 
-  size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
+  size_t GetUsage() const { return usage_.LoadRelaxed(); }
 
-  size_t GetStandaloneUsage() const {
-    return standalone_usage_.load(std::memory_order_relaxed);
-  }
+  size_t GetStandaloneUsage() const { return standalone_usage_.LoadRelaxed(); }
 
   uint32_t GetHashSeed() const { return hash_seed_; }
 
-  uint64_t GetYieldCount() const { return yield_count_.load(); }
+  uint64_t GetYieldCount() const { return yield_count_.LoadRelaxed(); }
+
+  uint64_t GetEvictionEffortExceededCount() const {
+    return eviction_effort_exceeded_count_.LoadRelaxed();
+  }
 
   struct EvictionData {
     size_t freed_charge = 0;
     size_t freed_count = 0;
+    size_t seen_pinned_count = 0;
   };
 
-  void TrackAndReleaseEvictedEntry(ClockHandle* h, EvictionData* data);
+  void TrackAndReleaseEvictedEntry(ClockHandle* h);
 
 #ifndef NDEBUG
   // Acquire N references
@@ -439,6 +450,7 @@ class BaseClockTable {
   template <class Table>
   Status ChargeUsageMaybeEvictStrict(size_t total_charge, size_t capacity,
                                      bool need_evict_for_occupancy,
+                                     uint32_t eviction_effort_cap,
                                      typename Table::InsertState& state);
 
   // Helper for updating `usage_` for new entry with given `total_charge`
@@ -452,6 +464,7 @@ class BaseClockTable {
   template <class Table>
   bool ChargeUsageMaybeEvictNonStrict(size_t total_charge, size_t capacity,
                                       bool need_evict_for_occupancy,
+                                      uint32_t eviction_effort_cap,
                                       typename Table::InsertState& state);
 
  protected:  // data
@@ -460,21 +473,29 @@ class BaseClockTable {
   // operations in ClockCacheShard.
 
   // Clock algorithm sweep pointer.
-  std::atomic<uint64_t> clock_pointer_{};
+  // (Relaxed: only needs to be consistent with itself.)
+  RelaxedAtomic<uint64_t> clock_pointer_{};
 
   // Counter for number of times we yield to wait on another thread.
-  std::atomic<uint64_t> yield_count_{};
+  // It is normal for this to occur rarely in normal operation.
+  // (Relaxed: a simple stat counter.)
+  RelaxedAtomic<uint64_t> yield_count_{};
+
+  // Counter for number of times eviction effort cap is exceeded.
+  // It is normal for this to occur rarely in normal operation.
+  // (Relaxed: a simple stat counter.)
+  RelaxedAtomic<uint64_t> eviction_effort_exceeded_count_{};
 
   // TODO: is this separation needed if we don't do background evictions?
   ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.
-  std::atomic<size_t> occupancy_{};
+  AcqRelAtomic<size_t> occupancy_{};
 
   // Memory usage by entries tracked by the cache (including standalone)
-  std::atomic<size_t> usage_{};
+  AcqRelAtomic<size_t> usage_{};
 
   // Part of usage by standalone entries (not in table)
-  std::atomic<size_t> standalone_usage_{};
+  AcqRelAtomic<size_t> standalone_usage_{};
 
   ALIGN_AS(CACHE_LINE_SIZE)
   const CacheMetadataChargePolicy metadata_charge_policy_;
@@ -500,7 +521,11 @@ class FixedHyperClockTable : public BaseClockTable {
   struct ALIGN_AS(64U) HandleImpl : public ClockHandle {
     // The number of elements that hash to this slot or a lower one, but wind
     // up in this slot or a higher one.
-    std::atomic<uint32_t> displacements{};
+    // (Relaxed: within a Cache op, does not need consistency with entries
+    // inserted/removed during that op. For example, a Lookup() that
+    // happens-after an Insert() will see an appropriate displacements value
+    // for the entry to be in a published state.)
+    RelaxedAtomic<uint32_t> displacements{};
 
     // Whether this is a "deteched" handle that is independently allocated
     // with `new` (so must be deleted with `delete`).
@@ -514,17 +539,19 @@ class FixedHyperClockTable : public BaseClockTable {
     inline void SetStandalone() { standalone = true; }
   };  // struct HandleImpl
 
-  struct Opts {
-    explicit Opts(size_t _estimated_value_size)
-        : estimated_value_size(_estimated_value_size) {}
-    explicit Opts(const HyperClockCacheOptions& opts) {
+  struct Opts : public BaseOpts {
+    explicit Opts(size_t _estimated_value_size, int _eviction_effort_cap)
+        : BaseOpts(_eviction_effort_cap),
+          estimated_value_size(_estimated_value_size) {}
+    explicit Opts(const HyperClockCacheOptions& opts)
+        : BaseOpts(opts.eviction_effort_cap) {
       assert(opts.estimated_entry_charge > 0);
       estimated_value_size = opts.estimated_entry_charge;
     }
     size_t estimated_value_size;
   };
 
-  FixedHyperClockTable(size_t capacity, bool strict_capacity_limit,
+  FixedHyperClockTable(size_t capacity,
                        CacheMetadataChargePolicy metadata_charge_policy,
                        MemoryAllocator* allocator,
                        const Cache::EvictionCallback* eviction_callback,
@@ -546,7 +573,8 @@ class FixedHyperClockTable : public BaseClockTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
+             uint32_t eviction_effort_cap);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -787,32 +815,33 @@ class AutoHyperClockTable : public BaseClockTable {
 
     // See above. The head pointer is logically independent of the rest of
     // the entry, including the chain next pointer.
-    std::atomic<uint64_t> head_next_with_shift{kUnusedMarker};
-    std::atomic<uint64_t> chain_next_with_shift{kUnusedMarker};
+    AcqRelAtomic<uint64_t> head_next_with_shift{kUnusedMarker};
+    AcqRelAtomic<uint64_t> chain_next_with_shift{kUnusedMarker};
 
     // For supporting CreateStandalone and some fallback cases.
     inline bool IsStandalone() const {
-      return head_next_with_shift.load(std::memory_order_acquire) ==
-             kStandaloneMarker;
+      return head_next_with_shift.Load() == kStandaloneMarker;
     }
 
     inline void SetStandalone() {
-      head_next_with_shift.store(kStandaloneMarker, std::memory_order_release);
+      head_next_with_shift.Store(kStandaloneMarker);
     }
   };  // struct HandleImpl
 
-  struct Opts {
-    explicit Opts(size_t _min_avg_value_size)
-        : min_avg_value_size(_min_avg_value_size) {}
+  struct Opts : public BaseOpts {
+    explicit Opts(size_t _min_avg_value_size, int _eviction_effort_cap)
+        : BaseOpts(_eviction_effort_cap),
+          min_avg_value_size(_min_avg_value_size) {}
 
-    explicit Opts(const HyperClockCacheOptions& opts) {
+    explicit Opts(const HyperClockCacheOptions& opts)
+        : BaseOpts(opts.eviction_effort_cap) {
       assert(opts.estimated_entry_charge == 0);
       min_avg_value_size = opts.min_avg_entry_charge;
     }
     size_t min_avg_value_size;
   };
 
-  AutoHyperClockTable(size_t capacity, bool strict_capacity_limit,
+  AutoHyperClockTable(size_t capacity,
                       CacheMetadataChargePolicy metadata_charge_policy,
                       MemoryAllocator* allocator,
                       const Cache::EvictionCallback* eviction_callback,
@@ -822,6 +851,7 @@ class AutoHyperClockTable : public BaseClockTable {
   // For BaseClockTable::Insert
   struct InsertState {
     uint64_t saved_length_info = 0;
+    size_t likely_empty_slot = 0;
   };
 
   void StartInsert(InsertState& state);
@@ -838,7 +868,8 @@ class AutoHyperClockTable : public BaseClockTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
+             uint32_t eviction_effort_cap);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -903,7 +934,8 @@ class AutoHyperClockTable : public BaseClockTable {
   // with proper handling to ensure all existing data is seen even in the
   // presence of concurrent insertions, etc. (See implementation.)
   template <class OpData>
-  void PurgeImpl(OpData* op_data, size_t home = SIZE_MAX);
+  void PurgeImpl(OpData* op_data, size_t home = SIZE_MAX,
+                 EvictionData* data = nullptr);
 
   // An RAII wrapper for locking a chain of entries for removals. See
   // implementation.
@@ -913,7 +945,7 @@ class AutoHyperClockTable : public BaseClockTable {
   // implementation.
   template <class OpData>
   void PurgeImplLocked(OpData* op_data, ChainRewriteLock& rewrite_lock,
-                       size_t home);
+                       size_t home, EvictionData* data);
 
   // Update length_info_ as much as possible without waiting, given a known
   // usable (ready for inserts and lookups) grow_home. (Previous grow_homes
@@ -938,22 +970,25 @@ class AutoHyperClockTable : public BaseClockTable {
   // log time to find the correct chain, but normally this value enables
   // readers to find the correct chain on the first try.
   //
-  // NOTES: length_info_ is only updated at the end of a Grow operation,
-  // so that waiting in Grow operations isn't done while entries are pinned
-  // for internal operation purposes. Thus, Lookup and Insert have to
-  // detect and support cases where length_info hasn't caught up to updated
-  // chains. Winning grow thread is the one that transitions
-  // head_next_with_shift from zeros. Grow threads can spin/yield wait for
-  // preconditions and postconditions to be met.
-  std::atomic<uint64_t> length_info_;
+  // To maximize parallelization of Grow() operations, this field is only
+  // updated opportunistically after Grow() operations and in DoInsert() where
+  // it is found to be out-of-date. See CatchUpLengthInfoNoWait().
+  AcqRelAtomic<uint64_t> length_info_;
 
   // An already-computed version of the usable length times the max load
   // factor. Could be slightly out of date but GrowIfNeeded()/Grow() handle
   // that internally.
-  std::atomic<size_t> occupancy_limit_;
+  // (Relaxed: allowed to lag behind length_info_ by a little)
+  RelaxedAtomic<size_t> occupancy_limit_;
+
+  // The next index to use from array_ upon the next Grow(). Might be ahead of
+  // length_info_.
+  // (Relaxed: self-contained source of truth for next grow home)
+  RelaxedAtomic<size_t> grow_frontier_;
 
   // See explanation in AutoHyperClockTable::Evict
-  std::atomic<size_t> clock_pointer_mask_;
+  // (Relaxed: allowed to lag behind clock_pointer_ and length_info_ state)
+  RelaxedAtomic<size_t> clock_pointer_mask_;
 };  // class AutoHyperClockTable
 
 // A single shard of sharded cache.
@@ -1069,10 +1104,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   Table table_;
 
   // Maximum total charge of all elements stored in the table.
-  std::atomic<size_t> capacity_;
+  // (Relaxed: eventual consistency/update is OK)
+  RelaxedAtomic<size_t> capacity_;
 
-  // Whether to reject insertion if cache reaches its full capacity.
-  std::atomic<bool> strict_capacity_limit_;
+  // Encodes eviction_effort_cap (bottom 31 bits) and strict_capacity_limit
+  // (top bit). See HyperClockCacheOptions::eviction_effort_cap etc.
+  // (Relaxed: eventual consistency/update is OK)
+  RelaxedAtomic<uint32_t> eec_and_scl_;
 };  // class ClockCacheShard
 
 template <class Table>

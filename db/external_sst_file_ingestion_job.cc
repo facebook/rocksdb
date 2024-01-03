@@ -226,7 +226,8 @@ Status ExternalSstFileIngestionJob::Prepare(
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
             db_options_.allow_mmap_reads, io_tracer_,
-            db_options_.rate_limiter.get(), ro);
+            db_options_.rate_limiter.get(), ro, db_options_.stats,
+            db_options_.clock);
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -709,7 +710,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // If customized readahead size is needed, we can pass a user option
     // all the way to here. Right now we just rely on the default readahead
     // to keep things simple.
-    // TODO: plumb Env::IOActivity
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     ReadOptions ro;
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
@@ -763,13 +764,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->num_range_deletions = props->num_range_deletions;
 
   ParsedInternalKey key;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
-  std::unique_ptr<InternalIterator> range_del_iter(
-      table_reader->NewRangeTombstoneIterator(ro));
 
   // Get first (smallest) and last (largest) key from file.
   file_to_ingest->smallest_internal_key =
@@ -791,8 +790,33 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     }
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
-    iter->SeekToLast();
-    pik_status = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+    Slice largest;
+    if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
+      // PlainTable iterator does not support SeekToLast().
+      largest = iter->key();
+      for (; iter->Valid(); iter->Next()) {
+        if (cfd_->internal_comparator().Compare(iter->key(), largest) > 0) {
+          largest = iter->key();
+        }
+      }
+      if (!iter->status().ok()) {
+        return iter->status();
+      }
+    } else {
+      iter->SeekToLast();
+      if (!iter->Valid()) {
+        if (iter->status().ok()) {
+          // The file contains at least 1 key since iter is valid after
+          // SeekToFirst().
+          return Status::Corruption("Can not find largest key in sst file");
+        } else {
+          return iter->status();
+        }
+      }
+      largest = iter->key();
+    }
+
+    pik_status = ParseInternalKey(largest, &key, allow_data_in_errors);
     if (!pik_status.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
                                 pik_status.getState());
@@ -803,8 +827,12 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->largest_internal_key.SetFrom(key);
 
     bounds_set = true;
+  } else if (!iter->status().ok()) {
+    return iter->status();
   }
 
+  std::unique_ptr<InternalIterator> range_del_iter(
+      table_reader->NewRangeTombstoneIterator(ro));
   // We may need to adjust these key bounds, depending on whether any range
   // deletion tombstones extend past them.
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
@@ -874,7 +902,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
   bool overlap_with_db = false;
   Arena arena;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   ro.total_order_seek = true;
   int target_level = 0;
@@ -1067,7 +1095,7 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
       &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
       db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get(),
-      ro);
+      ro, db_options_.stats, db_options_.clock);
   if (!io_s.ok()) {
     return io_s;
   }

@@ -7,6 +7,7 @@ package org.rocksdb;
 
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Options to control the behavior of a database.  It will be used
@@ -16,14 +17,8 @@ import java.util.*;
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class Options extends RocksObject
-    implements DBOptionsInterface<Options>,
-    MutableDBOptionsInterface<Options>,
-    ColumnFamilyOptionsInterface<Options>,
-    MutableColumnFamilyOptionsInterface<Options> {
-  static {
-    RocksDB.loadLibrary();
-  }
-
+    implements DBOptionsInterface<Options>, MutableDBOptionsInterface<Options>,
+               ColumnFamilyOptionsInterface<Options>, MutableColumnFamilyOptionsInterface<Options> {
   /**
    * Converts the input properties into a Options-style formatted string
    * @param properties   The set of properties to convert
@@ -50,7 +45,7 @@ public class Options extends RocksObject
    * an {@code rocksdb::Options} in the c++ side.
    */
   public Options() {
-    super(newOptions());
+    super(newOptionsInstance());
     env_ = Env.getDefault();
   }
 
@@ -2129,6 +2124,39 @@ public class Options extends RocksObject
   // END options for blobs (integrated BlobDB)
   //
 
+  /**
+   * Return copy of TablePropertiesCollectorFactory list. Modifying this list will not change
+   * underlying options C++ object. {@link #setTablePropertiesCollectorFactory(List)
+   * setTablePropertiesCollectorFactory} must be called to propagate changes. All instance must be
+   * properly closed to prevent memory leaks.
+   * @return copy of TablePropertiesCollectorFactory list.
+   */
+  public List<TablePropertiesCollectorFactory> tablePropertiesCollectorFactory() {
+    long[] factoryHandlers = tablePropertiesCollectorFactory(nativeHandle_);
+
+    return Arrays.stream(factoryHandlers)
+        .mapToObj(factoryHandle -> TablePropertiesCollectorFactory.newWrapper(factoryHandle))
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Set TablePropertiesCollectorFactory in underlying C++ object.
+   * This method create its own copy of the list. Caller is responsible for
+   * closing all the instances in the list.
+   * @param factories
+   */
+  public void setTablePropertiesCollectorFactory(List<TablePropertiesCollectorFactory> factories) {
+    long[] factoryHandlers = new long[factories.size()];
+    for (int i = 0; i < factoryHandlers.length; i++) {
+      factoryHandlers[i] = factories.get(i).getNativeHandle();
+    }
+    setTablePropertiesCollectorFactory(nativeHandle_, factoryHandlers);
+  }
+
+  private static long newOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newOptions();
+  }
   private static native long newOptions();
   private static native long newOptions(long dbOptHandle, long cfOptHandle);
   private static native long copyOptions(long handle);
@@ -2539,7 +2567,6 @@ public class Options extends RocksObject
   private static native void setBgerrorResumeRetryInterval(
       final long handle, final long bgerrorResumeRetryInterval);
   private static native long bgerrorResumeRetryInterval(final long handle);
-
   private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
   private native boolean enableBlobFiles(final long nativeHandle_);
   private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);
@@ -2566,6 +2593,9 @@ public class Options extends RocksObject
   private native void setPrepopulateBlobCache(
       final long nativeHandle_, final byte prepopulateBlobCache);
   private native byte prepopulateBlobCache(final long nativeHandle_);
+  private static native long[] tablePropertiesCollectorFactory(long nativeHandle);
+  private static native void setTablePropertiesCollectorFactory(
+      long nativeHandle, long[] factoryHandlers);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

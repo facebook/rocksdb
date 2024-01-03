@@ -1168,4 +1168,16 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
   return s;
 }
 
+Status PessimisticTransaction::CollapseKey(const ReadOptions& options,
+                                           const Slice& key,
+                                           ColumnFamilyHandle* column_family) {
+  auto* cfh = column_family ? column_family : db_impl_->DefaultColumnFamily();
+  std::string value;
+  const auto status = GetForUpdate(options, cfh, key, &value, true, true);
+  if (!status.ok()) {
+    return status;
+  }
+  return Put(column_family, key, value);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

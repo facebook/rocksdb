@@ -727,6 +727,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   assert(GetId() > 0);
   Status s;
   auto read_at_seq = kMaxSequenceNumber;
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions roptions;
   // to prevent callback's seq to be overrriden inside DBImpk::Get
   roptions.snapshot = wpt_db_->GetMaxSnapshot();
@@ -882,6 +883,7 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   assert(save_points_ != nullptr && save_points_->size() > 0);
   const LockTracker& tracked_keys = *save_points_->top().new_locks_;
 
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions roptions;
   roptions.snapshot = top.snapshot_->snapshot();
   SequenceNumber min_uncommitted =
@@ -1037,7 +1039,8 @@ Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wupt_db_->NewIterator(options, column_family, this);
   assert(db_iter);
 
-  auto iter = write_batch_.NewIteratorWithBase(column_family, db_iter);
+  auto iter =
+      write_batch_.NewIteratorWithBase(column_family, db_iter, &options);
   active_iterators_.push_back(iter);
   iter->RegisterCleanup(CleanupWriteUnpreparedWBWIIterator, this, iter);
   return iter;

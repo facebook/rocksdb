@@ -197,6 +197,8 @@ class DBImpl : public DB {
   Status PutEntity(const WriteOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;
+  Status PutEntity(const WriteOptions& options, const Slice& key,
+                   const AttributeGroups& attribute_groups) override;
 
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
@@ -242,6 +244,8 @@ class DBImpl : public DB {
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableWideColumns* columns) override;
+  Status GetEntity(const ReadOptions& options, const Slice& key,
+                   PinnableAttributeGroups* result) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
@@ -311,17 +315,47 @@ class DBImpl : public DB {
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableWideColumns* results, Status* statuses,
                       bool sorted_input) override;
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      const Slice* keys,
+                      PinnableAttributeGroups* results) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
-                                    ColumnFamilyHandle** handle) override;
+                                    ColumnFamilyHandle** handle) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return CreateColumnFamily(ReadOptions(), WriteOptions(), cf_options,
+                              column_family, handle);
+  }
+  virtual Status CreateColumnFamily(const ReadOptions& read_options,
+                                    const WriteOptions& write_options,
+                                    const ColumnFamilyOptions& cf_options,
+                                    const std::string& column_family,
+                                    ColumnFamilyHandle** handle);
   virtual Status CreateColumnFamilies(
       const ColumnFamilyOptions& cf_options,
       const std::vector<std::string>& column_family_names,
-      std::vector<ColumnFamilyHandle*>* handles) override;
+      std::vector<ColumnFamilyHandle*>* handles) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return CreateColumnFamilies(ReadOptions(), WriteOptions(), cf_options,
+                                column_family_names, handles);
+  }
+  virtual Status CreateColumnFamilies(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const ColumnFamilyOptions& cf_options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles);
+
   virtual Status CreateColumnFamilies(
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles) override;
+      std::vector<ColumnFamilyHandle*>* handles) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return CreateColumnFamilies(ReadOptions(), WriteOptions(), column_families,
+                                handles);
+  }
+  virtual Status CreateColumnFamilies(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles);
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
   virtual Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families) override;
@@ -433,7 +467,12 @@ class DBImpl : public DB {
   virtual Status Flush(
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
-  virtual Status FlushWAL(bool sync) override;
+  virtual Status FlushWAL(bool sync) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return FlushWAL(WriteOptions(), sync);
+  }
+
+  virtual Status FlushWAL(const WriteOptions& write_options, bool sync);
   bool WALBufferIsEmpty();
   virtual Status SyncWAL() override;
   virtual Status LockWAL() override;
@@ -643,8 +682,8 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.value
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
-  Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options);
+  virtual Status GetImpl(const ReadOptions& options, const Slice& key,
+                         GetImplOptions& get_impl_options);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
@@ -1183,6 +1222,7 @@ class DBImpl : public DB {
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
+  const autovector<uint64_t>& TEST_GetFilesToQuarantine() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   uint64_t TEST_GetCurrentLogNumber() const {
@@ -1197,6 +1237,10 @@ class DBImpl : public DB {
 
   const PeriodicTaskScheduler& TEST_GetPeriodicTaskScheduler() const;
 
+  static Status TEST_ValidateOptions(const DBOptions& db_options) {
+    return ValidateOptions(db_options);
+  }
+
 #endif  // NDEBUG
 
   // persist stats to column family "_persistent_stats"
@@ -1208,8 +1252,11 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-  // record current sequence number to time mapping
-  void RecordSeqnoToTimeMapping();
+  // record current sequence number to time mapping. If
+  // populate_historical_seconds > 0 then pre-populate all the
+  // sequence numbers from [1, last] to map to [now minus
+  // populate_historical_seconds, now].
+  void RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds);
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1383,15 +1430,16 @@ class DBImpl : public DB {
     autovector<ColumnFamilyData*> cfds_;
     autovector<const MutableCFOptions*> mutable_cf_opts_;
     autovector<autovector<VersionEdit*>> edit_lists_;
-    // files_to_delete_ contains sst files
-    std::unordered_set<std::string> files_to_delete_;
+    // Stale SST files to delete found upon recovery. This stores a mapping from
+    // such a file's absolute path to its parent directory.
+    std::unordered_map<std::string, std::string> files_to_delete_;
+    bool is_new_db_ = false;
   };
 
-  // Except in DB::Open(), WriteOptionsFile can only be called when:
-  // Persist options to options file.
-  // If need_mutex_lock = false, the method will lock DB mutex.
-  // If need_enter_write_thread = false, the method will enter write thread.
-  Status WriteOptionsFile(bool need_mutex_lock, bool need_enter_write_thread);
+  // Persist options to options file. Must be holding options_mutex_.
+  // Will lock DB mutex if !db_mutex_already_held.
+  Status WriteOptionsFile(const WriteOptions& write_options,
+                          bool db_mutex_already_held);
 
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
@@ -1517,7 +1565,8 @@ class DBImpl : public DB {
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Setup DB identity file, and write DB ID to manifest if necessary.
-  Status SetupDBId(bool read_only, RecoveryContext* recovery_ctx);
+  Status SetupDBId(const WriteOptions& write_options, bool read_only,
+                   RecoveryContext* recovery_ctx);
   // Assign db_id_ and write DB ID to manifest if necessary.
   void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
 
@@ -1644,7 +1693,8 @@ class DBImpl : public DB {
       return w;
     }
     Status ClearWriter() {
-      Status s = writer->WriteBuffer();
+      // TODO: plumb Env::IOActivity, Env::IOPriority
+      Status s = writer->WriteBuffer(WriteOptions());
       delete writer;
       writer = nullptr;
       return s;
@@ -1819,9 +1869,17 @@ class DBImpl : public DB {
 
   const Status CreateArchivalDirectory();
 
-  Status CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
+  // Create a column family, without some of the follow-up work yet
+  Status CreateColumnFamilyImpl(const ReadOptions& read_options,
+                                const WriteOptions& write_options,
+                                const ColumnFamilyOptions& cf_options,
                                 const std::string& cf_name,
                                 ColumnFamilyHandle** handle);
+
+  // Follow-up work to user creating a column family or (families)
+  Status WrapUpCreateColumnFamilies(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
 
@@ -1852,7 +1910,9 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals);
+  IOStatus SyncClosedLogs(const WriteOptions& write_options,
+                          JobContext* job_context, VersionEdit* synced_wals,
+                          bool error_recovery_in_prog);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
@@ -1947,6 +2007,8 @@ class DBImpl : public DB {
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
 
+  Status RetryFlushesForErrorRecovery(FlushReason flush_reason, bool wait);
+
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                                            bool* flush_needed);
@@ -2035,12 +2097,10 @@ class DBImpl : public DB {
                     WriteBatch* tmp_batch, WriteBatch** merged_batch,
                     size_t* write_with_wal, WriteBatch** to_be_cached_state);
 
-  // rate_limiter_priority is used to charge `DBOptions::rate_limiter`
-  // for automatic WAL flush (`Options::manual_wal_flush` == false)
-  // associated with this WriteToWAL
-  IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
-                      uint64_t* log_used, uint64_t* log_size,
-                      Env::IOPriority rate_limiter_priority,
+  IOStatus WriteToWAL(const WriteBatch& merged_batch,
+                      const WriteOptions& write_options,
+                      log::Writer* log_writer, uint64_t* log_used,
+                      uint64_t* log_size,
                       LogFileNumberSize& log_file_number_size);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
@@ -2095,6 +2155,12 @@ class DBImpl : public DB {
 #endif /* !NDEBUG */
   };
 
+  // In case of atomic flush, generates a `FlushRequest` for the latest atomic
+  // cuts for these `cfds`. Atomic cuts are recorded in
+  // `AssignAtomicFlushSeq()`. For each entry in `cfds`, all CFDs sharing the
+  // same latest atomic cut must also be present.
+  //
+  // REQUIRES: mutex held
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
 
@@ -2146,7 +2212,9 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker();
+  Status RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
+                                       const WriteOptions& write_options,
+                                       bool is_new_db);
 
   void PrintStatistics();
 
@@ -2174,7 +2242,9 @@ class DBImpl : public DB {
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
-  Status ApplyWALToManifest(const ReadOptions& read_options, VersionEdit* edit);
+  Status ApplyWALToManifest(const ReadOptions& read_options,
+                            const WriteOptions& write_options,
+                            VersionEdit* edit);
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
@@ -2226,6 +2296,7 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
+  void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,
@@ -2245,8 +2316,9 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
-  IOStatus CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                     size_t preallocate_block_size, log::Writer** new_log);
+  IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
+                     uint64_t recycle_log_number, size_t preallocate_block_size,
+                     log::Writer** new_log);
 
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);
@@ -2322,8 +2394,8 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
-  // `unref_only` being set to true indicates that the SuperVersions were
-  // obtained from the ColumnFamilyData, whereas false indicates they are thread
+  // `sv_from_thread_local` being set to false indicates that the SuperVersion
+  // obtained from the ColumnFamilyData, whereas true indicates they are thread
   // local.
   // A non-OK status will be returned if for a column family that enables
   // user-defined timestamp feature, the specified `ReadOptions.timestamp`
@@ -2333,7 +2405,7 @@ class DBImpl : public DB {
       const ReadOptions& read_options, ReadCallback* callback,
       std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
           iter_deref_func,
-      T* cf_list, SequenceNumber* snapshot, bool* unref_only);
+      T* cf_list, SequenceNumber* snapshot, bool* sv_from_thread_local);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number
@@ -2343,6 +2415,11 @@ class DBImpl : public DB {
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
+
+  void MultiGetWithCallbackImpl(
+      const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+      ReadCallback* callback,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
 
   Status DisableFileDeletionsWithLock();
 
@@ -2354,9 +2431,19 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // In addition to mutex_, log_write_mutex_ protected writes to stats_history_
+  // Guards changes to DB and CF options to ensure consistency between
+  // * In-memory options objects
+  // * Settings in effect
+  // * Options file contents
+  // while allowing the DB mutex to be released during slow operations like
+  // persisting options file or modifying global periodic task timer.
+  // Always acquired *before* DB mutex when this one is applicable.
+  InstrumentedMutex options_mutex_;
+
+  // Guards reads and writes to in-memory stats_history_.
   InstrumentedMutex stats_history_mutex_;
-  // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
+
+  // In addition to mutex_, log_write_mutex_ protects writes to logs_ and
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
@@ -2633,9 +2720,6 @@ class DBImpl : public DB {
   // initialized with startup time.
   uint64_t delete_obsolete_files_last_run_;
 
-  // last time stats were dumped to LOG
-  std::atomic<uint64_t> last_stats_dump_time_microsec_;
-
   // The thread that wants to switch memtable, can wait on this cv until the
   // pending writes to memtable finishes.
   std::condition_variable switch_cv_;
@@ -2746,9 +2830,9 @@ class DBImpl : public DB {
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
 
-  // seqno_time_mapping_ stores the sequence number to time mapping, it's not
+  // seqno_to_time_mapping_ stores the sequence number to time mapping, it's not
   // thread safe, both read and write need db mutex hold.
-  SeqnoToTimeMapping seqno_time_mapping_;
+  SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Stop write token that is acquired when first LockWAL() is called.
   // Destroyed when last UnlockWAL() is called. Controlled by DB mutex.
@@ -2828,7 +2912,9 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
 
 inline Status DBImpl::FailIfCfHasTs(
     const ColumnFamilyHandle* column_family) const {
-  column_family = column_family ? column_family : DefaultColumnFamily();
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
   assert(column_family);
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);

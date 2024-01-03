@@ -67,6 +67,7 @@ struct ThreadStatus;
 class FileSystem;
 class SystemClock;
 struct ConfigOptions;
+struct IOOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -280,7 +281,7 @@ class Env : public Customizable {
                                    const EnvOptions& options);
 
   // Open `fname` for random read and write, if file doesn't exist the file
-  // will be created.  On success, stores a pointer to the new file in
+  // will not be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
@@ -446,6 +447,8 @@ class Env : public Customizable {
     kDBIterator = 5,
     kVerifyDBChecksum = 6,
     kVerifyFileChecksums = 7,
+    kGetEntity = 8,
+    kMultiGetEntity = 9,
     kUnknown,  // Keep last for easy array of non-unknowns
   };
 
@@ -1350,7 +1353,8 @@ extern void Fatal(Logger* info_log, const char* format, ...)
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,
                                 const std::string& fname,
-                                bool should_sync = false);
+                                bool should_sync = false,
+                                const IOOptions* io_options = nullptr);
 
 // A utility routine: read contents of named file into *data
 extern Status ReadFileToString(Env* env, const std::string& fname,

@@ -355,6 +355,7 @@ class InternalKeyComparator
 
   // Same as Compare except that it excludes the value type from comparison
   int CompareKeySeq(const Slice& a, const Slice& b) const;
+  int CompareKeySeq(const ParsedInternalKey& a, const Slice& b) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -422,7 +423,7 @@ class InternalKey {
 
   void Set(const Slice& _user_key_with_ts, SequenceNumber s, ValueType t,
            const Slice& ts) {
-    ParsedInternalKey pik = ParsedInternalKey(_user_key_with_ts, s, t);
+    ParsedInternalKey pik(_user_key_with_ts, s, t);
     // Should not call pik.SetTimestamp() directly as it overwrites the buffer
     // containing _user_key.
     SetFrom(pik, ts);
@@ -967,6 +968,26 @@ inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
         DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes) >> 8;
     const uint64_t bnum =
         DecodeFixed64(bkey.data() + bkey.size() - kNumInternalBytes) >> 8;
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+inline int InternalKeyComparator::CompareKeySeq(const ParsedInternalKey& a,
+                                                const Slice& b) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  int r = user_comparator_.Compare(a.user_key, ExtractUserKey(b));
+  if (r == 0) {
+    // Shift the number to exclude the last byte which contains the value type
+    const uint64_t anum = a.sequence;
+    const uint64_t bnum =
+        DecodeFixed64(b.data() + b.size() - kNumInternalBytes) >> 8;
     if (anum > bnum) {
       r = -1;
     } else if (anum < bnum) {

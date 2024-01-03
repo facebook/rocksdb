@@ -5,8 +5,7 @@
 
 #include "table/plain/plain_table_builder.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <limits>
 #include <map>
 #include <string>
@@ -40,7 +39,7 @@ IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
                     uint64_t* offset, BlockHandle* block_handle) {
   block_handle->set_offset(*offset);
   block_handle->set_size(block_contents.size());
-  IOStatus io_s = file->Append(block_contents);
+  IOStatus io_s = file->Append(IOOptions(), block_contents);
 
   if (io_s.ok()) {
     *offset += block_contents.size();
@@ -119,9 +118,12 @@ PlainTableBuilder::PlainTableBuilder(
   for (auto& factory : *int_tbl_prop_collector_factories) {
     assert(factory);
 
-    table_properties_collectors_.emplace_back(
+    std::unique_ptr<IntTblPropCollector> collector{
         factory->CreateIntTblPropCollector(column_family_id,
-                                           level_at_creation));
+                                           level_at_creation)};
+    if (collector) {
+      table_properties_collectors_.emplace_back(std::move(collector));
+    }
   }
 }
 
@@ -136,6 +138,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   // temp buffer for metadata bytes between key and value.
   char meta_bytes_buf[6];
   size_t meta_bytes_buf_size = 0;
+  const IOOptions opts;
 
   ParsedInternalKey internal_key;
   if (!ParseInternalKey(key, &internal_key, false /* log_err_key */)
@@ -176,12 +179,13 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
         EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
     assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
     meta_bytes_buf_size = end_ptr - meta_bytes_buf;
-    io_status_ = file_->Append(Slice(meta_bytes_buf, meta_bytes_buf_size));
+    io_status_ =
+        file_->Append(opts, Slice(meta_bytes_buf, meta_bytes_buf_size));
   }
 
   // Write value
   if (io_status_.ok()) {
-    io_status_ = file_->Append(value);
+    io_status_ = file_->Append(opts, value);
     offset_ += value_size + meta_bytes_buf_size;
   }
 
@@ -265,12 +269,16 @@ Status PlainTableBuilder::Finish() {
   PropertyBlockBuilder property_block_builder;
   // -- Add basic properties
   property_block_builder.AddTableProperty(properties_);
-
+  // -- Add eixsting user collected properties
   property_block_builder.Add(properties_.user_collected_properties);
-
-  // -- Add user collected properties
+  // -- Add more user collected properties
+  UserCollectedProperties more_user_collected_properties;
   NotifyCollectTableCollectorsOnFinish(
-      table_properties_collectors_, ioptions_.logger, &property_block_builder);
+      table_properties_collectors_, ioptions_.logger, &property_block_builder,
+      more_user_collected_properties, properties_.readable_properties);
+  properties_.user_collected_properties.insert(
+      more_user_collected_properties.begin(),
+      more_user_collected_properties.end());
 
   // -- Write property block
   BlockHandle property_block_handle;
@@ -300,7 +308,7 @@ Status PlainTableBuilder::Finish() {
     status_ = s;
     return status_;
   }
-  io_status_ = file_->Append(footer.GetSlice());
+  io_status_ = file_->Append(IOOptions(), footer.GetSlice());
   if (io_status_.ok()) {
     offset_ += footer.GetSlice().size();
   }

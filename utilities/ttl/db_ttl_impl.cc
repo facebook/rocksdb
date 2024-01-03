@@ -19,9 +19,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 static std::unordered_map<std::string, OptionTypeInfo> ttl_merge_op_type_info =
-    {{"user_operator",
-      OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
-          0, OptionVerificationType::kByName, OptionTypeFlags::kNone)}};
+    {{"user_operator", OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
+                           0, OptionVerificationType::kByNameAllowNull,
+                           OptionTypeFlags::kNone)}};
 
 TtlMergeOperator::TtlMergeOperator(
     const std::shared_ptr<MergeOperator>& merge_op, SystemClock* clock)

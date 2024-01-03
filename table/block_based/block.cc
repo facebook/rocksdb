@@ -49,8 +49,12 @@ struct DecodeEntry {
       // Fast path: all three values are encoded in one byte each
       p += 3;
     } else {
-      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
-      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) {
+        return nullptr;
+      }
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) {
+        return nullptr;
+      }
       if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) {
         return nullptr;
       }
@@ -82,8 +86,12 @@ struct CheckAndDecodeEntry {
       // Fast path: all three values are encoded in one byte each
       p += 3;
     } else {
-      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
-      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) {
+        return nullptr;
+      }
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) {
+        return nullptr;
+      }
       if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) {
         return nullptr;
       }
@@ -113,15 +121,21 @@ struct DecodeKeyV4 {
     // We need 2 bytes for shared and non_shared size. We also need one more
     // byte either for value size or the actual value in case of value delta
     // encoding.
-    if (limit - p < 3) return nullptr;
+    if (limit - p < 3) {
+      return nullptr;
+    }
     *shared = reinterpret_cast<const unsigned char*>(p)[0];
     *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
     if ((*shared | *non_shared) < 128) {
       // Fast path: all three values are encoded in one byte each
       p += 2;
     } else {
-      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
-      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) {
+        return nullptr;
+      }
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) {
+        return nullptr;
+      }
     }
     return p;
   }
@@ -140,7 +154,9 @@ struct DecodeEntryV4 {
 
 void DataBlockIter::NextImpl() {
 #ifndef NDEBUG
-  if (TEST_Corrupt_Callback("DataBlockIter::NextImpl")) return;
+  if (TEST_Corrupt_Callback("DataBlockIter::NextImpl")) {
+    return;
+  }
 #endif
   bool is_shared = false;
   ParseNextDataKey(&is_shared);
@@ -446,7 +462,9 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
 
 void IndexBlockIter::SeekImpl(const Slice& target) {
 #ifndef NDEBUG
-  if (TEST_Corrupt_Callback("IndexBlockIter::SeekImpl")) return;
+  if (TEST_Corrupt_Callback("IndexBlockIter::SeekImpl")) {
+    return;
+  }
 #endif
   TEST_SYNC_POINT("IndexBlockIter::Seek:0");
   PERF_TIMER_GUARD(block_seek_nanos);
@@ -560,7 +578,9 @@ void MetaBlockIter::SeekToFirstImpl() {
 
 void IndexBlockIter::SeekToFirstImpl() {
 #ifndef NDEBUG
-  if (TEST_Corrupt_Callback("IndexBlockIter::SeekToFirstImpl")) return;
+  if (TEST_Corrupt_Callback("IndexBlockIter::SeekToFirstImpl")) {
+    return;
+  }
 #endif
   if (data_ == nullptr) {  // Not init yet
     return;
@@ -910,7 +930,9 @@ bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
       // Key at "target" is <= "mid". Therefore all blocks
       // after "mid" are uninteresting.
       // If there is only one block left, we found it.
-      if (left == right) break;
+      if (left == right) {
+        break;
+      }
       right = mid;
     }
   }

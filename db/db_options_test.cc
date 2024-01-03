@@ -19,6 +19,8 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/utilities/options_util.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -740,6 +742,55 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   Close();
 }
 
+TEST_F(DBOptionsTest, SetStatsDumpPeriodSecRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and the behavior in effect for the DB, after the last
+  // modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetDBOptions(
+          {{"stats_dump_period_sec", i % 2 ? "100" : "0"}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  bool stats_dump_set = dbfull()->GetDBOptions().stats_dump_period_sec > 0;
+  bool task_enabled = dbfull()->TEST_GetPeriodicTaskScheduler().TEST_HasTask(
+      PeriodicTaskType::kDumpStats);
+
+  ASSERT_EQ(stats_dump_set, task_enabled);
+}
+
+TEST_F(DBOptionsTest, SetOptionsAndFileRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and what is persisted in the options file, after the
+  // last modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetOptions({{"ttl", std::to_string(i * 100)}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  auto setting_in_mem = dbfull()->GetOptions().ttl;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  DBOptions db_options;
+  ConfigOptions cfg;
+  cfg.env = env_;
+  ASSERT_OK(LoadLatestOptions(cfg, dbname_, &db_options, &cf_descs, nullptr));
+  ASSERT_EQ(cf_descs.size(), 1);
+  ASSERT_EQ(setting_in_mem, cf_descs[0].options.ttl);
+}
+
 TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
@@ -908,6 +959,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
   options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleFIFO;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.write_buffer_size = 10 << 10;  // 10KB
   options.arena_block_size = 4096;
   options.compression = kNoCompression;
@@ -941,12 +993,19 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+
   // Set ttl to 1 minute. So all files should get deleted.
   ASSERT_OK(dbfull()->SetOptions({{"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
@@ -971,6 +1030,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+
   // Set max_table_files_size to 12 KB. So only 1 file should remain now.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo", "{max_table_files_size=12288;}"}}));
@@ -979,6 +1041,10 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // Test dynamically changing compaction_options_fifo.allow_compaction
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
@@ -1031,6 +1097,184 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(fifo_temp_opt[0].age, 10);
   ASSERT_EQ(fifo_temp_opt[1].temperature, Temperature::kCold);
   ASSERT_EQ(fifo_temp_opt[1].age, 30000);
+}
+
+TEST_F(DBOptionsTest, OffpeakTimes) {
+  Options options;
+  options.create_if_missing = true;
+  Random rnd(test::RandomSeed());
+
+  auto verify_invalid = [&]() {
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsInvalidArgument());
+  };
+
+  auto verify_valid = [&]() {
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_OK(s);
+    ASSERT_FALSE(s.IsInvalidArgument());
+  };
+  std::vector<std::string> invalid_cases = {
+      "06:30-",
+      "-23:30",  // Both need to be set
+      "00:00-00:00",
+      "06:30-06:30"  //  Start time cannot be the same as end time
+      "12:30 PM-23:30",
+      "12:01AM-11:00PM",  // Invalid format
+      "01:99-22:00",      // Invalid value for minutes
+      "00:00-24:00",      // 24:00 is an invalid value
+      "6-7",
+      "6:-7",
+      "06:31.42-7:00",
+      "6.31:42-7:00",
+      "6:0-7:",
+      "15:0.2-3:.7",
+      ":00-00:02",
+      "02:00-:00",
+      "random-value",
+      "No:No-Hi:Hi",
+  };
+
+  std::vector<std::string> valid_cases = {
+      "",  // Not enabled. Valid case
+      "06:30-11:30",
+      "06:30-23:30",
+      "13:30-14:30",
+      "00:00-23:59",  // Entire Day
+      "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case.
+      "1:0000000000000-2:000000000042",  // Weird, but we can parse the int.
+  };
+
+  for (std::string invalid_case : invalid_cases) {
+    options.daily_offpeak_time_utc = invalid_case;
+    verify_invalid();
+  }
+  for (std::string valid_case : valid_cases) {
+    options.daily_offpeak_time_utc = valid_case;
+    verify_valid();
+  }
+
+  auto verify_offpeak_info = [&](bool expected_is_now_off_peak,
+                                 int expected_seconds_till_next_offpeak_start,
+                                 int now_utc_hour, int now_utc_minute,
+                                 int now_utc_second = 0) {
+    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    // Add some extra random days to current time
+    int days = rnd.Uniform(100);
+    mock_clock->SetCurrentTime(
+        days * OffpeakTimeOption::kSecondsPerDay +
+        now_utc_hour * OffpeakTimeOption::kSecondsPerHour +
+        now_utc_minute * OffpeakTimeOption::kSecondsPerMinute + now_utc_second);
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_OK(s);
+    auto offpeak_option = OffpeakTimeOption(options.daily_offpeak_time_utc);
+    int64_t now;
+    ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+    auto offpeak_info = offpeak_option.GetOffpeakTimeInfo(now);
+    ASSERT_EQ(expected_is_now_off_peak, offpeak_info.is_now_offpeak);
+    ASSERT_EQ(expected_seconds_till_next_offpeak_start,
+              offpeak_info.seconds_till_next_offpeak_start);
+  };
+
+  options.daily_offpeak_time_utc = "";
+  verify_offpeak_info(false, 0, 12, 30);
+
+  options.daily_offpeak_time_utc = "06:30-11:30";
+  verify_offpeak_info(false, 1 * OffpeakTimeOption::kSecondsPerHour, 5, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 20 * OffpeakTimeOption::kSecondsPerHour, 10, 30);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 11, 30);
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 13, 30);
+
+  options.daily_offpeak_time_utc = "23:30-04:30";
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 23, 30);
+  verify_offpeak_info(true,
+                      23 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      0, 0);
+  verify_offpeak_info(true,
+                      22 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      1, 0);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 4, 30);
+  verify_offpeak_info(false,
+                      18 * OffpeakTimeOption::kSecondsPerHour +
+                          59 * OffpeakTimeOption::kSecondsPerMinute,
+                      4, 31);
+
+  // Entire day offpeak
+  options.daily_offpeak_time_utc = "00:00-23:59";
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 0, 0);
+  verify_offpeak_info(true, 12 * OffpeakTimeOption::kSecondsPerHour, 12, 00);
+  verify_offpeak_info(true, 1 * OffpeakTimeOption::kSecondsPerMinute, 23, 59);
+  verify_offpeak_info(true, 59, 23, 59, 1);
+  verify_offpeak_info(true, 1, 23, 59, 59);
+
+  // Start with a valid option
+  options.daily_offpeak_time_utc = "01:30-04:15";
+  DestroyAndReopen(options);
+  ASSERT_EQ("01:30-04:15", dbfull()->GetDBOptions().daily_offpeak_time_utc);
+
+  int may_schedule_compaction_called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScheduleFlushOrCompaction:Start",
+      [&](void*) { may_schedule_compaction_called++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Make sure calling SetDBOptions with invalid option does not change the
+  // value nor call MaybeScheduleFlushOrCompaction()
+  for (std::string invalid_case : invalid_cases) {
+    ASSERT_NOK(
+        dbfull()->SetDBOptions({{"daily_offpeak_time_utc", invalid_case}}));
+    ASSERT_EQ("01:30-04:15", dbfull()
+                                 ->GetVersionSet()
+                                 ->offpeak_time_option()
+                                 .daily_offpeak_time_utc);
+    ASSERT_EQ(1 * kSecondInHour + 30 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_start_time_utc);
+    ASSERT_EQ(4 * kSecondInHour + 15 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_end_time_utc);
+  }
+  ASSERT_EQ(0, may_schedule_compaction_called);
+
+  // Changing to new valid values should call MaybeScheduleFlushOrCompaction()
+  // and sets the offpeak_time_option in VersionSet
+  int expected_count = 0;
+  for (std::string valid_case : valid_cases) {
+    if (dbfull()
+            ->GetVersionSet()
+            ->offpeak_time_option()
+            .daily_offpeak_time_utc != valid_case) {
+      expected_count++;
+    }
+    ASSERT_OK(dbfull()->SetDBOptions({{"daily_offpeak_time_utc", valid_case}}));
+    ASSERT_EQ(valid_case, dbfull()->GetDBOptions().daily_offpeak_time_utc);
+    ASSERT_EQ(valid_case, dbfull()
+                              ->GetVersionSet()
+                              ->offpeak_time_option()
+                              .daily_offpeak_time_utc);
+  }
+  ASSERT_EQ(expected_count, may_schedule_compaction_called);
+
+  // Changing to the same value should not call MaybeScheduleFlushOrCompaction()
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"daily_offpeak_time_utc", "06:30-11:30"}}));
+  may_schedule_compaction_called = 0;
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"daily_offpeak_time_utc", "06:30-11:30"}}));
+  ASSERT_EQ(0, may_schedule_compaction_called);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {

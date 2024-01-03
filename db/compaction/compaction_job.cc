@@ -288,23 +288,23 @@ void CompactionJob::Prepare() {
 
   if (preserve_time_duration > 0) {
     const ReadOptions read_options(Env::IOActivity::kCompaction);
-    // setup seqno_time_mapping_
-    seqno_time_mapping_.SetMaxTimeDuration(preserve_time_duration);
+    // setup seqno_to_time_mapping_
+    seqno_to_time_mapping_.SetMaxTimeDuration(preserve_time_duration);
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
         Status s =
             cfd->current()->GetTableProperties(read_options, &tp, fmd, nullptr);
         if (s.ok()) {
-          seqno_time_mapping_.Add(tp->seqno_to_time_mapping)
+          seqno_to_time_mapping_.Add(tp->seqno_to_time_mapping)
               .PermitUncheckedError();
-          seqno_time_mapping_.Add(fmd->fd.smallest_seqno,
-                                  fmd->oldest_ancester_time);
+          seqno_to_time_mapping_.Add(fmd->fd.smallest_seqno,
+                                     fmd->oldest_ancester_time);
         }
       }
     }
 
-    auto status = seqno_time_mapping_.Sort();
+    auto status = seqno_to_time_mapping_.Sort();
     if (!status.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Invalid sequence number to time mapping: Status: %s",
@@ -320,13 +320,17 @@ void CompactionJob::Prepare() {
       preserve_time_min_seqno_ = 0;
       preclude_last_level_min_seqno_ = 0;
     } else {
-      seqno_time_mapping_.TruncateOldEntries(_current_time);
+      seqno_to_time_mapping_.TruncateOldEntries(_current_time);
       uint64_t preserve_time =
           static_cast<uint64_t>(_current_time) > preserve_time_duration
               ? _current_time - preserve_time_duration
               : 0;
+      // GetProximalSeqnoBeforeTime tells us the last seqno known to have been
+      // written at or before the given time. + 1 to get the minimum we should
+      // preserve without excluding anything that might have been written on or
+      // after the given time.
       preserve_time_min_seqno_ =
-          seqno_time_mapping_.GetOldestSequenceNum(preserve_time);
+          seqno_to_time_mapping_.GetProximalSeqnoBeforeTime(preserve_time) + 1;
       if (c->immutable_options()->preclude_last_level_data_seconds > 0) {
         uint64_t preclude_last_level_time =
             static_cast<uint64_t>(_current_time) >
@@ -335,7 +339,9 @@ void CompactionJob::Prepare() {
                       c->immutable_options()->preclude_last_level_data_seconds
                 : 0;
         preclude_last_level_min_seqno_ =
-            seqno_time_mapping_.GetOldestSequenceNum(preclude_last_level_time);
+            seqno_to_time_mapping_.GetProximalSeqnoBeforeTime(
+                preclude_last_level_time) +
+            1;
       }
     }
   }
@@ -844,7 +850,8 @@ Status CompactionJob::Run() {
   return status;
 }
 
-Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
+Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
+                              bool* compaction_released) {
   assert(compact_);
 
   AutoThreadOperationStageUpdater stage_updater(
@@ -860,7 +867,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
                                             compaction_stats_);
 
   if (status.ok()) {
-    status = InstallCompactionResults(mutable_cf_options);
+    status = InstallCompactionResults(mutable_cf_options, compaction_released);
   }
   if (!versions_->io_status().ok()) {
     io_status_ = versions_->io_status();
@@ -1123,6 +1130,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
 
+  const WriteOptions write_options(Env::IOPriority::IO_LOW,
+                                   Env::IOActivity::kCompaction);
+
   // Remove the timestamps from boundaries because boundaries created in
   // GenSubcompactionBoundaries doesn't strip away the timestamp.
   size_t ts_sz = cfd->user_comparator()->timestamp_size();
@@ -1257,8 +1267,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
           ? new BlobFileBuilder(
                 versions_, fs_.get(),
                 sub_compact->compaction->immutable_options(),
-                mutable_cf_options, &file_options_, db_id_, db_session_id_,
-                job_id_, cfd->GetID(), cfd->GetName(), Env::IOPriority::IO_LOW,
+                mutable_cf_options, &file_options_, &write_options, db_id_,
+                db_session_id_, job_id_, cfd->GetID(), cfd->GetName(),
                 write_hint_, io_tracer_, blob_callback_,
                 BlobFileCreationReason::kCompaction, &blob_file_paths,
                 sub_compact->Current().GetBlobFileAdditionsPtr())
@@ -1569,7 +1579,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   const uint64_t current_entries = outputs.NumEntries();
 
-  s = outputs.Finish(s, seqno_time_mapping_);
+  s = outputs.Finish(s, seqno_to_time_mapping_);
 
   if (s.ok()) {
     // With accurate smallest and largest key, we can get a slightly more
@@ -1697,12 +1707,14 @@ Status CompactionJob::FinishCompactionOutputFile(
 }
 
 Status CompactionJob::InstallCompactionResults(
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, bool* compaction_released) {
   assert(compact_);
 
   db_mutex_->AssertHeld();
 
   const ReadOptions read_options(Env::IOActivity::kCompaction);
+  const WriteOptions write_options(Env::IOActivity::kCompaction);
+
   auto* compaction = compact_->compaction;
   assert(compaction);
 
@@ -1779,9 +1791,16 @@ Status CompactionJob::InstallCompactionResults(
     }
   }
 
-  return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options, read_options, edit,
-                                db_mutex_, db_directory_);
+  auto manifest_wcb = [&compaction, &compaction_released](const Status& s) {
+    compaction->ReleaseCompactionFiles(s);
+    *compaction_released = true;
+  };
+
+  return versions_->LogAndApply(
+      compaction->column_family_data(), mutable_cf_options, read_options,
+      write_options, edit, db_mutex_, db_directory_,
+      /*new_descriptor_log=*/false,
+      /*column_family_options=*/nullptr, manifest_wcb);
 }
 
 void CompactionJob::RecordCompactionIOStats() {
@@ -1887,6 +1906,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
           sub_compact->start.has_value() ? &tmp_start : nullptr,
           sub_compact->end.has_value() ? &tmp_end : nullptr);
   if (oldest_ancester_time == std::numeric_limits<uint64_t>::max()) {
+    // TODO: fix DBSSTTest.GetTotalSstFilesSize and use
+    //  kUnknownOldestAncesterTime
     oldest_ancester_time = current_time;
   }
 
@@ -1928,12 +1949,17 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       sub_compact->compaction->immutable_options()->listeners;
   outputs.AssignFileWriter(new WritableFileWriter(
       std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
-      db_options_.stats, listeners, db_options_.file_checksum_gen_factory.get(),
+      db_options_.stats, Histograms::SST_WRITE_MICROS, listeners,
+      db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile), false));
 
+  // TODO(hx235): pass in the correct `oldest_key_time` instead of `0`
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  const WriteOptions write_options(Env::IOActivity::kCompaction);
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
-      cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+      read_options, write_options, cfd->internal_comparator(),
+      cfd->int_tbl_prop_collector_factories(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),
@@ -1972,7 +1998,7 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
 
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
-  const auto& input_table_properties = compaction->GetTableProperties();
+  const auto& input_table_properties = compaction->GetInputTableProperties();
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {

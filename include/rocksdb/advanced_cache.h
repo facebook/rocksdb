@@ -13,7 +13,9 @@
 #include <string>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/memory_allocator.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
@@ -66,7 +68,7 @@ class Cache {
   enum class Priority { HIGH, LOW, BOTTOM };
 
   // A set of callbacks to allow objects in the primary block cache to be
-  // be persisted in a secondary cache. The purpose of the secondary cache
+  // persisted in a secondary cache. The purpose of the secondary cache
   // is to support other ways of caching the object, such as persistent or
   // compressed data, that may require the object to be parsed and transformed
   // in some way. Since the primary cache holds C++ objects and the secondary
@@ -109,13 +111,18 @@ class Cache {
   // pointer into static data).
   using DeleterFn = void (*)(ObjectPtr obj, MemoryAllocator* allocator);
 
-  // The CreateCallback is takes in a buffer from the NVM cache and constructs
-  // an object using it. The callback doesn't have ownership of the buffer and
+  // The CreateCallback is takes in a buffer from the secondary  cache and
+  // constructs an object using it. The buffer could be compressed or
+  // uncompressed, as indicated by the type argument. If compressed,
+  // the callback is responsible for uncompressing it using information
+  // from the context, such as compression dictionary.
+  // The callback doesn't have ownership of the buffer and
   // should copy the contents into its own buffer. The CreateContext* is
   // provided by Lookup and may be used to follow DB- or CF-specific settings.
   // In case of some error, non-OK is returned and the caller should ignore
   // any result in out_obj. (The implementation must clean up after itself.)
-  using CreateCallback = Status (*)(const Slice& data, CreateContext* context,
+  using CreateCallback = Status (*)(const Slice& data, CompressionType type,
+                                    CacheTier source, CreateContext* context,
                                     MemoryAllocator* allocator,
                                     ObjectPtr* out_obj, size_t* out_charge);
 
@@ -242,12 +249,19 @@ class Cache {
   // the item is only inserted into the primary cache. It may
   // defer the insertion to the secondary cache as it sees fit.
   //
+  // Along with the object pointer, the caller may pass a Slice pointing to
+  // the compressed serialized data of the object. If compressed is
+  // non-empty, then the caller must pass the type indicating the compression
+  // algorithm used. The cache may, optionally, also insert the compressed
+  // block into one or more cache tiers.
+  //
   // When the inserted entry is no longer needed, it will be destroyed using
   // helper->del_cb (if non-nullptr).
-  virtual Status Insert(const Slice& key, ObjectPtr obj,
-                        const CacheItemHelper* helper, size_t charge,
-                        Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) = 0;
+  virtual Status Insert(
+      const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
+      Priority priority = Priority::LOW, const Slice& compressed = Slice(),
+      CompressionType type = CompressionType::kNoCompression) = 0;
 
   // Similar to Insert, but used for creating cache entries that cannot
   // be found with Lookup, such as for memory charging purposes. The
@@ -360,6 +374,14 @@ class Cache {
 
   // Returns the helper for the specified entry.
   virtual const CacheItemHelper* GetCacheItemHelper(Handle* handle) const = 0;
+
+  virtual Status GetSecondaryCacheCapacity(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
+
+  virtual Status GetSecondaryCachePinnedUsage(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
 
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
@@ -536,11 +558,14 @@ class CacheWrapper : public Cache {
   // Only function that derived class must provide
   // const char* Name() const override { ... }
 
-  Status Insert(const Slice& key, ObjectPtr value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    return target_->Insert(key, value, helper, charge, handle, priority);
+  Status Insert(
+      const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
+      Priority priority = Priority::LOW,
+      const Slice& compressed_value = Slice(),
+      CompressionType type = CompressionType::kNoCompression) override {
+    return target_->Insert(key, value, helper, charge, handle, priority,
+                           compressed_value, type);
   }
 
   Handle* CreateStandalone(const Slice& key, ObjectPtr obj,
@@ -578,6 +603,14 @@ class CacheWrapper : public Cache {
     return target_->HasStrictCapacityLimit();
   }
 
+  size_t GetOccupancyCount() const override {
+    return target_->GetOccupancyCount();
+  }
+
+  size_t GetTableAddressCount() const override {
+    return target_->GetTableAddressCount();
+  }
+
   size_t GetCapacity() const override { return target_->GetCapacity(); }
 
   size_t GetUsage() const override { return target_->GetUsage(); }
@@ -612,6 +645,14 @@ class CacheWrapper : public Cache {
   void WaitAll(AsyncLookupHandle* async_handles, size_t count) override {
     target_->WaitAll(async_handles, count);
   }
+
+  uint32_t GetHashSeed() const override { return target_->GetHashSeed(); }
+
+  void ReportProblems(const std::shared_ptr<Logger>& info_log) const override {
+    target_->ReportProblems(info_log);
+  }
+
+  const std::shared_ptr<Cache>& GetTarget() { return target_; }
 
  protected:
   std::shared_ptr<Cache> target_;

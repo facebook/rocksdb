@@ -1202,26 +1202,136 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
   ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-
   ASSERT_EQ(
       options.statistics->getTickerCount(COMPACTION_RANGE_DEL_DROP_OBSOLETE),
       1);
+
+  // Tests that we only compact keys up to penultimate level
+  // that are within penultimate level input's internal key range.
+  {
+    MutexLock l(&mutex);
+    hot_start = Key(0);
+    hot_end = Key(100);
+  }
+  const Snapshot* temp_snap = db_->GetSnapshot();
+  // Key(0) and Key(1) here are inserted with higher sequence number
+  // than Key(0) and Key(1) inserted above.
+  // Only Key(0) in last level will be compacted up, not Key(1).
+  ASSERT_OK(Put(Key(0), "value" + std::to_string(0)));
+  ASSERT_OK(Put(Key(1), "value" + std::to_string(100)));
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  {
+    std::vector<LiveFileMetaData> metas;
+    db_->GetLiveFilesMetaData(&metas);
+    for (const auto& f : metas) {
+      if (f.temperature == Temperature::kUnknown) {
+        // Expect Key(0), Key(0), Key(1)
+        ASSERT_EQ(f.num_entries, 3);
+        ASSERT_EQ(f.smallestkey, Key(0));
+        ASSERT_EQ(f.largestkey, Key(1));
+      } else {
+        ASSERT_EQ(f.temperature, Temperature::kCold);
+        // Key(2)-Key(49) and Key(100).
+        ASSERT_EQ(f.num_entries, 50);
+      }
+    }
+  }
+  db_->ReleaseSnapshot(temp_snap);
 }
 
 INSTANTIATE_TEST_CASE_P(TieredCompactionTest, TieredCompactionTest,
                         testing::Bool());
+
+TEST_P(TieredCompactionTest, CheckInternalKeyRange) {
+  // When compacting keys from the last level to penultimate level,
+  // output to penultimate level should be within internal key range
+  // of input files from penultimate level.
+  // Set up:
+  // L5:
+  //  File 1: DeleteRange[1, 3)@4, File 2: [3@5, 100@6]
+  // L6:
+  // File 3: [2@1, 3@2], File 4: [50@3]
+  //
+  // When File 1 and File 3 are being compacted,
+  // Key(3) cannot be compacted up, otherwise it causes
+  // inconsistency where File 3's Key(3) has a lower sequence number
+  // than File 2's Key(3).
+  const int kNumLevels = 7;
+  auto options = CurrentOptions();
+  SetColdTemperature(options);
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
+  options.statistics = CreateDBStatistics();
+  options.max_subcompactions = 10;
+  options.preclude_last_level_data_seconds = 10000;
+  DestroyAndReopen(options);
+  auto cmp = options.comparator;
+
+  std::string hot_start = Key(0);
+  std::string hot_end = Key(0);
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
+        auto context = static_cast<PerKeyPlacementContext*>(arg);
+        context->output_to_penultimate_level =
+            cmp->Compare(context->key, hot_start) >= 0 &&
+            cmp->Compare(context->key, hot_end) < 0;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  // File 1
+  ASSERT_OK(Put(Key(2), "val2"));
+  ASSERT_OK(Put(Key(3), "val3"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  // File 2
+  ASSERT_OK(Put(Key(50), "val50"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  hot_end = Key(100);
+  std::string start = Key(1);
+  std::string end = Key(3);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // File 3
+  ASSERT_OK(Put(Key(3), "vall"));
+  ASSERT_OK(Put(Key(100), "val100"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // Try to compact keys up
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  start = Key(1);
+  end = Key(2);
+  Slice begin_slice(start);
+  Slice end_slice(end);
+  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
+  // Without internal key range checking, we get the following error:
+  // Corruption: force_consistency_checks(DEBUG): VersionBuilder: L5 has
+  // overlapping ranges: file #18 largest key: '6B6579303030303033' seq:102,
+  // type:1 vs. file #15 smallest key: '6B6579303030303033' seq:104, type:1
+  db_->ReleaseSnapshot(snapshot);
+}
 
 class PrecludeLastLevelTest : public DBTestBase {
  public:
   PrecludeLastLevelTest()
       : DBTestBase("preclude_last_level_test", /*env_do_fsync=*/false) {
     mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    mock_clock_->SetCurrentTime(kMockStartTime);
     mock_env_ = std::make_unique<CompositeEnvWrapper>(env_, mock_clock_);
   }
 
  protected:
   std::unique_ptr<Env> mock_env_;
   std::shared_ptr<MockSystemClock> mock_clock_;
+
+  // Sufficient starting time that preserve time doesn't under-flow into
+  // pre-history
+  static constexpr uint32_t kMockStartTime = 10000000;
 
   void SetUp() override {
     mock_clock_->InstallTimedWaitFixCallback();
@@ -1231,7 +1341,7 @@ class PrecludeLastLevelTest : public DBTestBase {
               reinterpret_cast<PeriodicTaskScheduler*>(arg);
           periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
-    mock_clock_->SetCurrentTime(0);
+    mock_clock_->SetCurrentTime(kMockStartTime);
   }
 };
 
@@ -1248,11 +1358,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
-
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
@@ -1310,11 +1415,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
-
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
@@ -1386,11 +1486,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
-
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
@@ -1514,11 +1609,6 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
   for (; sst_num < kNumTrigger; sst_num++) {
@@ -1591,11 +1681,6 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
-
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   Random rnd(301);
   int sst_num = 0;
@@ -1906,11 +1991,6 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
-
   Random rnd(301);
 
   for (int i = 0; i < 300; i++) {
@@ -2016,12 +2096,6 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   options.num_levels = kNumLevels;
   options.target_file_size_base = kFileBytes;
   DestroyAndReopen(options);
-
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
-    mock_clock_->MockSleepForSeconds(static_cast<int>(kSecondsPerKey));
-  });
 
   // Flush an L0 file with the following contents (new to old):
   //
@@ -2138,7 +2212,6 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
 
   Close();
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE
 

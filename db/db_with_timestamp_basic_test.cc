@@ -525,6 +525,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
       CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                          "value" + std::to_string(i), write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     ASSERT_EQ(static_cast<size_t>(kMaxKey) - start_keys[i] + 1, count);
 
     // SeekToFirst()/SeekToLast() with lower/upper bounds.
@@ -544,6 +545,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
         CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(r - std::max(l, start_keys[i]), count);
 
       for (it->SeekToLast(), key = std::min(r, kMaxKey + 1), count = 0;
@@ -551,6 +553,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
         CheckIterUserEntry(it.get(), Key1(key - 1), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       l += (kMaxKey / 100);
       r -= (kMaxKey / 100);
     }
@@ -733,6 +736,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
       ASSERT_EQ(it->value(), value_from_get);
       ASSERT_EQ(Timestamp(1, 0), timestamp);
     }
+    ASSERT_OK(it->status());
 
     // verify MultiGet()
     constexpr uint64_t step = 2;
@@ -1065,6 +1069,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
                        write_timestamps[i - 1]);
       }
     }
+    ASSERT_OK(it->status());
     size_t expected_count = kMaxKey + 1;
     ASSERT_EQ(expected_count, count);
   }
@@ -1143,6 +1148,7 @@ TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound) {
                        write_timestamps[1]);
       }
     }
+    ASSERT_OK(it->status());
     size_t expected_count = kMaxKey + 1;
     ASSERT_EQ(expected_count, count);
   }
@@ -1173,6 +1179,7 @@ TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound) {
       CheckIterEntry(it.get(), Key1(key), kTypeDeletionWithTimestamp, Slice(),
                      write_timestamp);
     }
+    ASSERT_OK(it->status());
     ASSERT_EQ(kMaxKey + 1, count);
   }
   Close();
@@ -1278,6 +1285,7 @@ TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound_Reseek) {
       CheckIterEntry(it.get(), "a", kTypeValue, "v" + std::to_string(4 + i),
                      Timestamp(4 + i, 0));
     }
+    ASSERT_OK(it->status());
   }
 
   Close();
@@ -1615,6 +1623,219 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
 
   ASSERT_OK(statuses[0]);
   Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_early = Timestamp(1, 0);
+  std::string ts_later = Timestamp(10, 0);
+  Slice ts_later_slice = ts_later;
+
+  const Snapshot* snap_with_nothing = db_->GetSnapshot();
+  ASSERT_OK(db_->Put(write_opts, "foo", ts_early, "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo2", ts_early, "bar2"));
+  ASSERT_OK(db_->Put(write_opts, "foo3", ts_early, "bar3"));
+
+  const Snapshot* snap_with_foo = db_->GetSnapshot();
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts_later_slice;
+
+  std::string read_value;
+  std::string read_ts;
+  Status s;
+
+  int expected_hit_count = 0;
+  int expected_miss_count = 0;
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+
+  {
+    read_opts.timestamp = nullptr;
+    s = db_->Get(read_opts, "foo", &read_value);
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsInvalidArgument());
+  }
+
+  // Mix use of Get
+  {
+    read_opts.timestamp = &ts_later_slice;
+
+    // Use Get without ts first, expect cache entry to store the correct ts
+    s = db_->Get(read_opts, "foo2", &read_value);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_value, "bar2");
+
+    s = db_->Get(read_opts, "foo2", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar2");
+
+    // Use Get with ts first, expect the Get without ts can get correct record
+    s = db_->Get(read_opts, "foo3", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar3");
+
+    s = db_->Get(read_opts, "foo3", &read_value);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+    ASSERT_EQ(read_value, "bar3");
+  }
+
+  {
+    // Test with consecutive calls of Get with ts.
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar");
+
+    // Test repeated get on cache entry
+    for (int i = 0; i < 3; i++) {
+      s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+      ASSERT_OK(s);
+      ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT),
+                ++expected_hit_count);
+      ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+                expected_miss_count);
+      ASSERT_EQ(read_ts, ts_early);
+      ASSERT_EQ(read_value, "bar");
+    }
+  }
+
+  {
+    std::string ts_nothing = Timestamp(0, 0);
+    Slice ts_nothing_slice = ts_nothing;
+    read_opts.timestamp = &ts_nothing_slice;
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+  }
+
+  {
+    read_opts.snapshot = snap_with_foo;
+    read_opts.timestamp = &ts_later_slice;
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar");
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar");
+  }
+
+  {
+    read_opts.snapshot = snap_with_nothing;
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+  }
+
+  db_->ReleaseSnapshot(snap_with_nothing);
+  db_->ReleaseSnapshot(snap_with_foo);
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, GetWithRowCacheMultiSST) {
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  std::string ts_early = Timestamp(1, 0);
+  std::string ts_later = Timestamp(10, 0);
+  Slice ts_later_slice = ts_later;
+
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", ts_early, "v1"));
+  ASSERT_OK(Flush());
+
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), default_cf, "foo", Timestamp(2, 0), "v2"));
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), default_cf, "foo", Timestamp(3, 0), "v3"));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts_later_slice;
+
+  std::string read_value;
+  std::string read_ts;
+  Status s;
+
+  {
+    // Since there are two SST files, will trigger the table lookup twice.
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+    ASSERT_EQ(read_ts, Timestamp(3, 0));
+    ASSERT_EQ(read_value, "v1,v2,v3");
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+    ASSERT_EQ(read_ts, Timestamp(3, 0));
+    ASSERT_EQ(read_value, "v1,v2,v3");
+  }
 }
 
 TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
@@ -3046,6 +3267,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
                          "value" + std::to_string(i), write_ts_list[i]);
       iter->Next();
       ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
 
       // Seek to kMinKey
       iter->Seek(Key1(kMinKey));
@@ -3053,6 +3275,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
                          "value" + std::to_string(i), write_ts_list[i]);
       iter->Prev();
       ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
     }
     const std::vector<uint64_t> targets = {kMinKey, kMinKey + 0x10,
                                            kMinKey + 0x100, kMaxKey};
@@ -3091,6 +3314,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
           ++expected_key;
           it->Next();
         }
+        ASSERT_OK(it->status());
         ASSERT_EQ(expected_ub - targets[j] + 1, count);
 
         count = 0;
@@ -3109,6 +3333,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
           --expected_key;
           it->Prev();
         }
+        ASSERT_OK(it->status());
         ASSERT_EQ(targets[j] - std::max(expected_lb, kMinKey) + 1, count);
       }
     }
@@ -3214,6 +3439,7 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
       ASSERT_EQ(Key1(key), iter->key());
       ASSERT_EQ("value1" + std::to_string(key), iter->value());
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ((kMaxKey - kMinKey + 1) / 2, count);
   }
   Close();
@@ -3833,6 +4059,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, DeleteRangeBaiscReadAndIterate) {
         ++expected;
       }
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(kNum, expected);
 
     expected = kNum / 2;
@@ -3840,6 +4067,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, DeleteRangeBaiscReadAndIterate) {
       ASSERT_EQ(Key1(expected), iter->key());
       ++expected;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(kNum, expected);
 
     expected = kRangeBegin - 1;
@@ -3847,6 +4075,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, DeleteRangeBaiscReadAndIterate) {
       ASSERT_EQ(Key1(expected), iter->key());
       --expected;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(-1, expected);
 
     read_ts = Timestamp(0, 0);
@@ -4128,6 +4357,7 @@ TEST_F(DBBasicTestWithTimestamp, MergeBasic) {
         ASSERT_EQ(value, it->value());
         ASSERT_EQ(write_ts_strs[i], it->timestamp());
       }
+      EXPECT_OK(it->status());
       ASSERT_EQ(kNumOfUniqKeys, key_int_val);
 
       key_int_val = kNumOfUniqKeys - 1;
@@ -4139,6 +4369,7 @@ TEST_F(DBBasicTestWithTimestamp, MergeBasic) {
         ASSERT_EQ(value, it->value());
         ASSERT_EQ(write_ts_strs[i], it->timestamp());
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(std::numeric_limits<size_t>::max(), key_int_val);
 
       value_suffix = value_suffix + "." + std::to_string(i + 1);

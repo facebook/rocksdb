@@ -258,7 +258,9 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
+        PERF_CPU_TIMER_GUARD(
+            block_read_cpu_time,
+            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
         io_status_ =
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_);
@@ -267,7 +269,9 @@ IOStatus BlockFetcher::ReadBlockContents() {
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
+        PERF_CPU_TIMER_GUARD(
+            block_read_cpu_time,
+            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
         io_status_ =
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, used_buf_, nullptr);
@@ -336,9 +340,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif
-    compression_type_ = kNoCompression;
+    // Save the compressed block without trailer
+    slice_ = Slice(slice_.data(), block_size_);
   } else {
     GetBlockContents();
+    slice_ = Slice();
   }
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
@@ -387,7 +393,6 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
 #ifndef NDEBUG
           num_heap_buf_memcpy_++;
 #endif
-          compression_type_ = kNoCompression;
         } else {
           GetBlockContents();
         }

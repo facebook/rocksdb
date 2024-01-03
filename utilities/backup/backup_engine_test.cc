@@ -931,7 +931,7 @@ class BackupEngineTest : public testing::Test {
     }
 
     file_contents[0] = (file_contents[0] + 257) % 256;
-    return WriteStringToFile(test_db_env_.get(), file_contents, fname);
+    return WriteStringToFile(test_db_env_.get(), file_contents, fname, false);
   }
 
   void AssertDirectoryFilesMatchRegex(const std::string& dir,

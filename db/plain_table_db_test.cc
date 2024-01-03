@@ -292,7 +292,7 @@ class TestPlainTableReader : public PlainTableReader {
     table_properties_ = std::move(props);
   }
 
-  ~TestPlainTableReader() override {}
+  ~TestPlainTableReader() override = default;
 
  private:
   bool MatchBloom(uint32_t hash) const override {
@@ -897,6 +897,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }
@@ -945,6 +946,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }

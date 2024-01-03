@@ -136,6 +136,9 @@ DEFINE_uint64(db_write_buffer_size,
               ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
               "Number of bytes to buffer in all memtables before compacting");
 
+DEFINE_bool(use_write_buffer_manager, false,
+            "Charge WriteBufferManager memory to the block cache");
+
 DEFINE_int32(
     write_buffer_size,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::Options().write_buffer_size),
@@ -198,15 +201,23 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
-DEFINE_int64(compressed_cache_size, 0,
-             "Number of bytes to use as a cache of compressed data."
-             " 0 means use default settings.");
+DEFINE_uint64(compressed_secondary_cache_size, 0,
+              "Number of bytes to use as a cache of compressed data."
+              " 0 means use default settings.");
 
-DEFINE_int32(
-    compressed_cache_numshardbits, -1,
-    "Number of shards for the compressed block cache is 2 ** "
-    "compressed_cache_numshardbits. Negative value means default settings. "
-    "This is applied only if compressed_cache_size is greater than 0.");
+DEFINE_int32(compressed_secondary_cache_numshardbits, -1,
+             "Number of shards for the compressed secondary cache is 2 ** "
+             "compressed_secondary_cache_numshardbits. "
+             "Negative value means default settings. This is applied only "
+             "if compressed_secondary_cache_size is greater than 0.");
+
+DEFINE_double(compressed_secondary_cache_ratio, 0.0,
+              "Fraction of block cache memory budget to use for compressed "
+              "secondary cache");
+
+DEFINE_int32(secondary_cache_update_interval, 30 * 1000 * 1000,
+             "Interval between modification of secondary cache parameters, in "
+             "microseconds");
 
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
@@ -526,10 +537,11 @@ DEFINE_double(bloom_bits, 10,
               "Negative means use default settings.");
 
 DEFINE_int32(
-    ribbon_starting_level, 999,
+    bloom_before_level, 999,
     "Use Bloom filter on levels below specified and Ribbon beginning on level "
-    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
-    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
+    "specified. Flush is considered level -1. Setting -1 -> always Ribbon. "
+    "0 -> Ribbon except Bloom for flush. INT_MAX (typically 2147483647) -> "
+    "always Bloom.");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
@@ -1006,11 +1018,16 @@ DEFINE_string(file_checksum_impl, "none",
               "\"none\" for null.");
 
 DEFINE_int32(write_fault_one_in, 0,
-             "On non-zero, enables fault injection on write");
+             "On non-zero, enables fault injection on write. Currently only"
+             "injects write error when writing to SST files.");
 
 DEFINE_uint64(user_timestamp_size, 0,
               "Number of bytes for a user-defined timestamp. Currently, only "
               "8-byte is supported");
+
+DEFINE_bool(persist_user_defined_timestamps, true,
+            "Flag to indicate whether user-defined timestamps will be persisted"
+            " during Flush");
 
 DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "
@@ -1021,6 +1038,9 @@ DEFINE_string(secondary_cache_uri, "",
 DEFINE_int32(secondary_cache_fault_one_in, 0,
              "On non-zero, enables fault injection in secondary cache inserts"
              " and lookups");
+DEFINE_double(tiered_cache_percent_compressed, 0.0,
+              "Percentage of total block cache budget to allocate to the "
+              "compressed cache");
 DEFINE_int32(open_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file writes "
              "during DB reopen.");

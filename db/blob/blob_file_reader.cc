@@ -585,7 +585,8 @@ Status BlobFileReader::UncompressBlobIfNeeded(
   assert(result);
 
   if (compression_type == kNoCompression) {
-    BlobContentsCreator::Create(result, nullptr, value_slice, allocator);
+    BlobContentsCreator::Create(result, nullptr, value_slice, kNoCompression,
+                                allocator);
     return Status::OK();
   }
 

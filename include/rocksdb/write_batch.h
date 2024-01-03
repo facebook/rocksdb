@@ -43,13 +43,13 @@ struct SavePoints;
 struct SliceParts;
 
 struct SavePoint {
-  size_t size;  // size of rep_
-  int count;    // count of elements in rep_
+  size_t size;     // size of rep_
+  uint32_t count;  // count of elements in rep_
   uint32_t content_flags;
 
   SavePoint() : size(0), count(0), content_flags(0) {}
 
-  SavePoint(size_t _size, int _count, uint32_t _flags)
+  SavePoint(size_t _size, uint32_t _count, uint32_t _flags)
       : size(_size), count(_count), content_flags(_flags) {}
 
   void clear() {
@@ -100,11 +100,27 @@ class WriteBatch : public WriteBatchBase {
     return Put(nullptr, key, value);
   }
 
+  using WriteBatchBase::TimedPut;
+  // DO NOT USE, UNDER CONSTRUCTION
+  // Stores the mapping "key->value" in the database with the specified write
+  // time in the column family.
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    // TODO(yuzhangyu): implement take in the write time.
+    return Status::NotSupported("TimedPut is under construction");
+  }
+
   // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
   // column family specified by "column_family".
   using WriteBatchBase::PutEntity;
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;
+
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  Status PutEntity(const Slice& key,
+                   const AttributeGroups& attribute_groups) override;
 
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
@@ -395,8 +411,6 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // Experimental.
-  //
   // Update timestamps of existing entries in the write batch if
   // applicable. If a key is intended for a column family that disables
   // timestamp, then this API won't set the timestamp for this key.

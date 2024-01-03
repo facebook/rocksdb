@@ -76,11 +76,6 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
 endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-if ($ENV{CIRCLECI})
-  message(STATUS "Build for CircieCI env, a few tests may be disabled")
-  add_definitions(-DCIRCLECI)
-endif()
-
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -254,7 +249,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 
 set(PORTABLE 0 CACHE STRING "Minimum CPU arch to support, or 0 = current CPU, 1 = baseline CPU")
-if(PORTABLE STREQUAL 1)
+if(PORTABLE MATCHES "1|ON|YES|TRUE|Y")
   # Usually nothing to do; compiler default is typically the most general
   if(NOT MSVC)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
@@ -264,14 +259,7 @@ if(PORTABLE STREQUAL 1)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
     endif()
   endif()
-elseif(PORTABLE MATCHES [^0]+)
-  # Name of a CPU arch spec or feature set to require
-  if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
-  endif()
-else()
+elseif(PORTABLE MATCHES "0|OFF|NO|FALSE|N")
   if(MSVC)
     # NOTE: No auto-detection of current CPU, but instead assume some useful
     # level of optimization is supported
@@ -284,6 +272,13 @@ else()
     elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
+  endif()
+else()
+  # Name of a CPU arch spec or feature set to require
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
   endif()
 endif()
 
@@ -632,6 +627,7 @@ set(SOURCES
         cache/secondary_cache.cc
         cache/secondary_cache_adapter.cc
         cache/sharded_cache.cc
+        cache/tiered_secondary_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
         db/blob/blob_fetcher.cc
@@ -771,6 +767,7 @@ set(SOURCES
         options/configurable.cc
         options/customizable.cc
         options/db_options.cc
+        options/offpeak_time_info.cc
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
@@ -1104,11 +1101,15 @@ set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
+target_include_directories(${ROCKSDB_STATIC_LIB} PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(ROCKSDB_BUILD_SHARED)
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
+  target_include_directories(${ROCKSDB_SHARED_LIB} PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
   target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
@@ -1263,6 +1264,7 @@ if(WITH_TESTS)
         cache/cache_test.cc
         cache/compressed_secondary_cache_test.cc
         cache/lru_cache_test.cc
+        cache/tiered_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
@@ -1470,7 +1472,7 @@ if(WITH_TESTS)
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+  add_custom_target(rocksdb_check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
   target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB} ${FOLLY_LIBS})
@@ -1495,7 +1497,7 @@ if(WITH_TESTS)
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
-        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(rocksdb_check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
 
@@ -1515,7 +1517,7 @@ if(WITH_TESTS)
     add_executable(c_test db/c_test.c)
     target_link_libraries(c_test ${ROCKSDB_LIB_FOR_C} testharness)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
-    add_dependencies(check c_test)
+    add_dependencies(rocksdb_check c_test)
   endif()
 endif()
 
@@ -1594,6 +1596,3 @@ option(WITH_BENCHMARK "build benchmark tests" OFF)
 if(WITH_BENCHMARK)
   add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()
-
-target_include_directories(${PROJECT_NAME} PUBLIC
-  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)

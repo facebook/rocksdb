@@ -77,11 +77,13 @@ class BlockFetcherTest : public testing::Test {
     ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
     IntTblPropCollectorFactories factories;
+    const ReadOptions read_options;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
-        TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, CompressionOptions(),
-                            0 /* column_family_id */, kDefaultColumnFamilyName,
-                            -1 /* level */),
+        TableBuilderOptions(ioptions, moptions, read_options, write_options,
+                            comparator, &factories, compression_type,
+                            CompressionOptions(), 0 /* column_family_id */,
+                            kDefaultColumnFamilyName, -1 /* level */),
         writer.get()));
 
     // Build table.
@@ -134,7 +136,9 @@ class BlockFetcherTest : public testing::Test {
       std::array<TestStats, NumModes> expected_stats_by_mode) {
     for (CompressionType compression_type : GetSupportedCompressions()) {
       bool do_compress = compression_type != kNoCompression;
-      if (compressed != do_compress) continue;
+      if (compressed != do_compress) {
+        continue;
+      }
       std::string compression_type_str =
           CompressionTypeToString(compression_type);
 
@@ -299,7 +303,7 @@ class BlockFetcherTest : public testing::Test {
                   MemoryAllocator* heap_buf_allocator,
                   MemoryAllocator* compressed_buf_allocator,
                   BlockContents* contents, MemcpyStats* stats,
-                  CompressionType* compresstion_type) {
+                  CompressionType* compression_type) {
     ImmutableOptions ioptions(options_);
     ReadOptions roptions;
     PersistentCacheOptions persistent_cache_options;
@@ -318,7 +322,11 @@ class BlockFetcherTest : public testing::Test {
     stats->num_compressed_buf_memcpy =
         fetcher->TEST_GetNumCompressedBufMemcpy();
 
-    *compresstion_type = fetcher->get_compression_type();
+    if (do_uncompress) {
+      *compression_type = kNoCompression;
+    } else {
+      *compression_type = fetcher->get_compression_type();
+    }
   }
 
   // NOTE: expected_compression_type is the expected compression

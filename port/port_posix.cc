@@ -11,20 +11,20 @@
 
 #include "port/port_posix.h"
 
-#include <assert.h>
+#include <cassert>
 #if defined(__i386__) || defined(__x86_64__)
 #include <cpuid.h>
 #endif
-#include <errno.h>
 #include <sched.h>
-#include <signal.h>
-#include <stdio.h>
-#include <string.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <string>
 
@@ -100,7 +100,7 @@ bool Mutex::TryLock() {
   return ret;
 }
 
-void Mutex::AssertHeld() {
+void Mutex::AssertHeld() const {
 #ifndef NDEBUG
   assert(locked_);
 #endif

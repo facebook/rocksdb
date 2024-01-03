@@ -5,8 +5,7 @@
 
 #include "table/plain/plain_table_factory.h"
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 
 #include "db/dbformat.h"
@@ -157,7 +156,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       AsPattern(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t count = ParseSizeT(uri.substr(colon + 1));
           guard->reset(new VectorRepFactory(count));
@@ -170,7 +169,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       AsPattern(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t lookahead = ParseSizeT(uri.substr(colon + 1));
           guard->reset(new SkipListFactory(lookahead));
@@ -184,7 +183,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         // Expecting format: hash_linkedlist:<hash_bucket_count>
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
           guard->reset(NewHashLinkListRepFactory(hash_bucket_count));
@@ -198,7 +197,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         // Expecting format: prefix_hash:<hash_bucket_count>
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
           guard->reset(NewHashSkipListRepFactory(hash_bucket_count));

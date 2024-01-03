@@ -34,7 +34,7 @@ HistogramWindowingImpl::HistogramWindowingImpl(uint64_t num_windows,
   Clear();
 }
 
-HistogramWindowingImpl::~HistogramWindowingImpl() {}
+HistogramWindowingImpl::~HistogramWindowingImpl() = default;
 
 void HistogramWindowingImpl::Clear() {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -159,7 +159,9 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
         for (unsigned int i = 0; i < num_windows_; i++) {
           if (i != next_window) {
             uint64_t m = window_stats_[i].min();
-            if (m < new_min) new_min = m;
+            if (m < new_min) {
+              new_min = m;
+            }
           }
         }
         stats_.min_.store(new_min, std::memory_order_relaxed);
@@ -170,7 +172,9 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
         for (unsigned int i = 0; i < num_windows_; i++) {
           if (i != next_window) {
             uint64_t m = window_stats_[i].max();
-            if (m > new_max) new_max = m;
+            if (m > new_max) {
+              new_max = m;
+            }
           }
         }
         stats_.max_.store(new_max, std::memory_order_relaxed);

@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "options/options_helper.h"
 
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
@@ -45,7 +46,9 @@ Status ValidateOptions(const DBOptions& db_opts,
   auto db_cfg = DBOptionsAsConfigurable(db_opts);
   auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
   s = db_cfg->ValidateOptions(db_opts, cf_opts);
-  if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
+  if (s.ok()) {
+    s = cf_cfg->ValidateOptions(db_opts, cf_opts);
+  }
   return s;
 }
 
@@ -178,6 +181,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.lowest_used_cache_tier = immutable_db_options.lowest_used_cache_tier;
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
+  options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   return options;
 }
 
@@ -432,6 +436,10 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
     case OptionType::kSizeT:
       PutUnaligned(static_cast<size_t*>(opt_address), ParseSizeT(value));
       break;
+    case OptionType::kAtomicInt:
+      static_cast<std::atomic<int>*>(opt_address)
+          ->store(ParseInt(value), std::memory_order_release);
+      break;
     case OptionType::kString:
       *static_cast<std::string*>(opt_address) = value;
       break;
@@ -520,6 +528,10 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       break;
     case OptionType::kDouble:
       *value = std::to_string(*(static_cast<const double*>(opt_address)));
+      break;
+    case OptionType::kAtomicInt:
+      *value = std::to_string(static_cast<const std::atomic<int>*>(opt_address)
+                                  ->load(std::memory_order_acquire));
       break;
     case OptionType::kString:
       *value =
@@ -902,7 +914,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
         ConfigOptions copy = config_options;
         copy.ignore_unknown_options = false;
         copy.invoke_prepare_options = false;
-        if (opt_value.find("=") != std::string::npos) {
+        if (opt_value.find('=') != std::string::npos) {
           return config->ConfigureFromString(copy, opt_value);
         } else {
           return config->ConfigureOption(copy, opt_name, opt_value);
@@ -1037,7 +1049,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
       }
       std::string value = custom->ToString(embedded);
       if (!embedded.mutable_options_only ||
-          value.find("=") != std::string::npos) {
+          value.find('=') != std::string::npos) {
         *opt_value = value;
       } else {
         *opt_value = "";
@@ -1169,6 +1181,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
       return (v1 == v2);
     }
+    case OptionType::kAtomicInt:
+      return IsOptionEqual<std::atomic<int>>(this_offset, that_offset);
     case OptionType::kString:
       return IsOptionEqual<std::string>(this_offset, that_offset);
     case OptionType::kDouble:
@@ -1411,7 +1425,7 @@ const OptionTypeInfo* OptionTypeInfo::Find(
     *elem_name = opt_name;                   // Return the name
     return &(iter->second);  // Return the contents of the iterator
   } else {
-    auto idx = opt_name.find(".");              // Look for a separator
+    auto idx = opt_name.find('.');              // Look for a separator
     if (idx > 0 && idx != std::string::npos) {  // We found a separator
       auto siter =
           opt_map.find(opt_name.substr(0, idx));  // Look for the short name

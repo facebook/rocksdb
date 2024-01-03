@@ -483,7 +483,7 @@ class TestMemLogger : public Logger {
         options_(options),
         dbg_(dbg),
         flush_pending_(false) {}
-  ~TestMemLogger() override {}
+  ~TestMemLogger() override = default;
 
   void Flush() override {
     if (flush_pending_) {

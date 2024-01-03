@@ -19,7 +19,7 @@
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/sst_file_writer.h"
-#include "rocksdb/utilities/convenience.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/concurrent_task_limiter_impl.h"
@@ -2673,6 +2673,7 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
     keys_in_db.append(iter->key().ToString());
     keys_in_db.push_back(',');
   }
+  ASSERT_OK(iter->status());
   delete iter;
 
   std::string expected_keys;
@@ -4793,9 +4794,9 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "VersionEdit::EncodeTo:VarintOldestAncesterTime", [&](void* arg) {
             if (if_restart && if_open_all_files) {
-              std::string* encoded_fieled = static_cast<std::string*>(arg);
-              *encoded_fieled = "";
-              PutVarint64(encoded_fieled, 0);
+              std::string* encoded_field = static_cast<std::string*>(arg);
+              *encoded_field = "";
+              PutVarint64(encoded_field, 0);
             }
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -4941,9 +4942,9 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
             if (if_restart && if_open_all_files) {
-              std::string* encoded_fieled = static_cast<std::string*>(arg);
-              *encoded_fieled = "";
-              PutVarint64(encoded_fieled, 0);
+              std::string* encoded_field = static_cast<std::string*>(arg);
+              *encoded_field = "";
+              PutVarint64(encoded_field, 0);
             }
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -5016,6 +5017,106 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
 
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     }
+  }
+}
+
+TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
+  // This test simply checks if offpeak adjustment works in Leveled
+  // Compactions. For testing offpeak periodic compactions in various
+  // scenarios, please refer to
+  // DBTestUniversalCompaction2::PeriodicCompactionOffpeak
+  constexpr int kNumKeysPerFile = 32;
+  constexpr int kNumLevelFiles = 2;
+  constexpr int kValueSize = 100;
+  constexpr int kSecondsPerDay = 86400;
+  constexpr int kSecondsPerHour = 3600;
+  constexpr int kSecondsPerMinute = 60;
+
+  for (bool if_restart : {false, true}) {
+    SCOPED_TRACE("if_restart=" + std::to_string(if_restart));
+    Options options = CurrentOptions();
+    options.ttl = 0;
+    options.periodic_compaction_seconds = 5 * kSecondsPerDay;  // 5 days
+    // In the case where all files are opened and doing DB restart
+    // forcing the file creation time in manifest file to be 0 to
+    // simulate the case of reading from an old version.
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
+          if (if_restart) {
+            std::string* encoded_field = static_cast<std::string*>(arg);
+            *encoded_field = "";
+            PutVarint64(encoded_field, 0);
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    // Just to add some extra random days to current time
+    Random rnd(test::RandomSeed());
+    int days = rnd.Uniform(100);
+
+    int periodic_compactions = 0;
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+          Compaction* compaction = static_cast<Compaction*>(arg);
+          auto compaction_reason = compaction->compaction_reason();
+          if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+            periodic_compactions++;
+          }
+        });
+
+    // Starting at 12:15AM
+    int now_hour = 0;
+    int now_minute = 15;
+    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+    options.env = mock_env.get();
+    mock_clock->SetCurrentTime(days * kSecondsPerDay +
+                               now_hour * kSecondsPerHour +
+                               now_minute * kSecondsPerMinute);
+    // Offpeak is set from 12:30AM to 4:30AM
+    options.daily_offpeak_time_utc = "00:30-04:30";
+    Reopen(options);
+
+    for (int i = 0; i < kNumLevelFiles; ++i) {
+      for (int j = 0; j < kNumKeysPerFile; ++j) {
+        ASSERT_OK(
+            Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
+      }
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ("2", FilesPerLevel());
+    ASSERT_EQ(0, periodic_compactions);
+
+    // Move clock forward by 1 hour. Now at 1:15AM Day 0. No compaction.
+    mock_clock->MockSleepForSeconds(1 * kSecondsPerHour);
+    ASSERT_OK(Put("a", "1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // Assert that the files stay in the same level
+    ASSERT_EQ("3", FilesPerLevel());
+    ASSERT_EQ(0, periodic_compactions);
+    MoveFilesToLevel(1);
+    ASSERT_EQ("0,3", FilesPerLevel());
+
+    // Move clock forward by 4 days and check if it triggers periodic
+    // comapaction at 1:15AM Day 4. Files created on Day 0 at 12:15AM is
+    // expected to expire before the offpeak starts next day at 12:30AM
+    mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
+    ASSERT_OK(Put("b", "2"));
+    if (if_restart) {
+      Reopen(options);
+    } else {
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ("1,3", FilesPerLevel());
+    // The two old files go through the periodic compaction process
+    ASSERT_EQ(2, periodic_compactions);
+
+    Destroy(options);
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -10112,6 +10213,112 @@ TEST_F(DBCompactionTest, ErrorWhenReadFileHead) {
     SyncPoint::GetInstance()->DisableProcessing();
     DestroyAndReopen(opts);
   }
+}
+
+TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
+  // Tests the fix for issue #10257.
+  // Compactions are released in LogAndApply() so that picking a compaction
+  // from the new Version won't see these compactions as registered.
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  // Make sure we can run multiple compactions at the same time.
+  env_->SetBackgroundThreads(3, Env::Priority::LOW);
+  env_->SetBackgroundThreads(3, Env::Priority::BOTTOM);
+  options.max_background_compactions = 3;
+  options.num_levels = 4;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Construct the following LSM
+  // L2:  [K1-K2]  [K10-K11]      [k100-k101]
+  // L3:  [K1]     [K10]          [k100]
+  // We will have 3 threads to run 3 manual compactions.
+  // The first thread that writes to MANIFEST will not finish
+  // until the next two threads enters LogAndApply() and form
+  // a write group.
+  // We check that compactions are all released after the first
+  // thread from the write group finishes writing to MANIFEST.
+
+  // L3
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  // L2
+  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(101), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(2), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(11), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 3);
+  ASSERT_EQ(NumTableFilesAtLevel(3), 3);
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  std::atomic_int count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
+        int c = count.fetch_add(1);
+        if (c == 2) {
+          TEST_SYNC_POINT("all threads to enter LogAndApply");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"all threads to enter LogAndApply",
+        "VersionSet::LogAndApply:WriteManifestStart"}});
+  // Verify that compactions are released after writing to MANIFEST
+  std::atomic_int after_compact_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:AfterCompaction", [&](void* ptr) {
+        int c = after_compact_count.fetch_add(1);
+        if (c > 0) {
+          ColumnFamilyData* cfd = (ColumnFamilyData*)(ptr);
+          ASSERT_TRUE(
+              cfd->compaction_picker()->compactions_in_progress()->empty());
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::thread> threads;
+  threads.emplace_back(std::thread([&]() {
+    std::string k1_str = Key(1);
+    std::string k2_str = Key(2);
+    Slice k1 = k1_str;
+    Slice k2 = k2_str;
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k1, &k2));
+  }));
+  threads.emplace_back(std::thread([&]() {
+    std::string k10_str = Key(10);
+    std::string k11_str = Key(11);
+    Slice k10 = k10_str;
+    Slice k11 = k11_str;
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k10, &k11));
+  }));
+  std::string k100_str = Key(100);
+  std::string k101_str = Key(101);
+  Slice k100 = k100_str;
+  Slice k101 = k101_str;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k100, &k101));
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -108,11 +108,14 @@ DECLARE_int32(max_write_buffer_number);
 DECLARE_int32(min_write_buffer_number_to_merge);
 DECLARE_int32(max_write_buffer_number_to_maintain);
 DECLARE_int64(max_write_buffer_size_to_maintain);
+DECLARE_bool(use_write_buffer_manager);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
-DECLARE_int64(compressed_cache_size);
-DECLARE_int32(compressed_cache_numshardbits);
+DECLARE_uint64(compressed_secondary_cache_size);
+DECLARE_int32(compressed_secondary_cache_numshardbits);
+DECLARE_int32(secondary_cache_update_interval);
+DECLARE_double(compressed_secondary_cache_ratio);
 DECLARE_int32(compaction_style);
 DECLARE_int32(compaction_pri);
 DECLARE_int32(num_levels);
@@ -159,7 +162,7 @@ DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
-DECLARE_int32(ribbon_starting_level);
+DECLARE_int32(bloom_before_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_bool(detect_filter_construct_corruption);
@@ -310,6 +313,7 @@ DECLARE_uint32(memtable_protection_bytes_per_key);
 DECLARE_uint32(block_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
+DECLARE_bool(persist_user_defined_timestamps);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
 
@@ -358,6 +362,9 @@ constexpr int kValueMaxLen = 100;
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
+    compressed_secondary_cache;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
@@ -649,6 +656,8 @@ extern inline void SanitizeDoubleParam(double* param) {
 extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
+
+extern void CompressedCacheSetCapacityThread(void* v);
 
 extern void TimestampedSnapshotsThread(void* v);
 

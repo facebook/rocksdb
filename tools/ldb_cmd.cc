@@ -131,7 +131,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   std::vector<std::string> args;
   for (int i = 1; i < argc; i++) {
-    args.push_back(argv[i]);
+    args.emplace_back(argv[i]);
   }
   return InitFromCmdLineArgs(args, options, ldb_options, column_families,
                              SelectCommand);
@@ -762,6 +762,10 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     }
   }
 
+  if (options_.comparator != nullptr) {
+    cf_opts->comparator = options_.comparator;
+  }
+
   cf_opts->force_consistency_checks = force_consistency_checks_;
   if (use_table_options) {
     cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -932,7 +936,15 @@ void LDBCommand::PrepareOptions() {
                                  &column_families_);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
-      std::string msg = s.ToString();
+      std::string current_version = std::to_string(ROCKSDB_MAJOR) + "." +
+                                    std::to_string(ROCKSDB_MINOR) + "." +
+                                    std::to_string(ROCKSDB_PATCH);
+      std::string msg =
+          s.ToString() + "\nThis tool was built with version " +
+          current_version +
+          ". If your db is in a different version, please try again "
+          "with option --" +
+          LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS + ".";
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
       db_ = nullptr;
       return;
@@ -976,7 +988,7 @@ void LDBCommand::PrepareOptions() {
     // existing DB.
     if (st.ok() && cf_list.size() > 1) {
       // Ignore single column family DB.
-      for (auto cf_name : cf_list) {
+      for (const auto& cf_name : cf_list) {
         column_families_.emplace_back(cf_name, options_);
       }
     }
@@ -1092,8 +1104,7 @@ std::string LDBCommand::PrintKeyValueOrWideColumns(
     const Slice& key, const Slice& value, const WideColumns& wide_columns,
     bool is_key_hex, bool is_value_hex) {
   if (wide_columns.empty() ||
-      (wide_columns.size() == 1 &&
-       WideColumnsHelper::HasDefaultColumn(wide_columns))) {
+      WideColumnsHelper::HasDefaultColumnOnly(wide_columns)) {
     return PrintKeyValue(key.ToString(), value.ToString(), is_key_hex,
                          is_value_hex);
   }
@@ -1357,7 +1368,9 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_id*/ "", /*db_session_id*/ "");
+                      /*db_id=*/"", /*db_session_id=*/"",
+                      options.daily_offpeak_time_utc,
+                      /*error_handler=*/nullptr, /*read_only=*/true);
   Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1388,8 +1401,7 @@ ManifestDumpCommand::ManifestDumpCommand(
           options, flags, false,
           BuildCmdLineOptions({ARG_VERBOSE, ARG_PATH, ARG_HEX, ARG_JSON})),
       verbose_(false),
-      json_(false),
-      path_("") {
+      json_(false) {
   verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
   json_ = IsFlagPresent(flags, ARG_JSON);
 
@@ -1500,7 +1512,9 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_id*/ "", /*db_session_id*/ "");
+                      /*db_id=*/"", /*db_session_id=*/"",
+                      options.daily_offpeak_time_utc,
+                      /*error_handler=*/nullptr, /*read_only=*/true);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -1533,8 +1547,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, false,
-                 BuildCmdLineOptions({ARG_PATH, ARG_HEX})),
-      path_("") {
+                 BuildCmdLineOptions({ARG_PATH, ARG_HEX})) {
   auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
     path_ = itr->second;
@@ -1660,7 +1673,7 @@ void ListColumnFamiliesCommand::DoCommand() {
   } else {
     fprintf(stdout, "Column families in %s: \n{", db_path_.c_str());
     bool first = true;
-    for (auto cf : column_families) {
+    for (const auto& cf : column_families) {
       if (!first) {
         fprintf(stdout, ", ");
       }
@@ -1893,11 +1906,16 @@ void InternalDumpCommand::DoCommand() {
       s1 = 0;
       row = ikey.Encode().ToString();
       val = key_version.value;
-      for (k = 0; row[k] != '\x01' && row[k] != '\0'; k++) s1++;
-      for (k = 0; val[k] != '\x01' && val[k] != '\0'; k++) s1++;
+      for (k = 0; row[k] != '\x01' && row[k] != '\0'; k++) {
+        s1++;
+      }
+      for (k = 0; val[k] != '\x01' && val[k] != '\0'; k++) {
+        s1++;
+      }
       for (int j = 0; row[j] != delim_[0] && row[j] != '\0' && row[j] != '\x01';
-           j++)
+           j++) {
         rtype1 += row[j];
+      }
       if (rtype2.compare("") && rtype2.compare(rtype1) != 0) {
         fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
                 rtype2.c_str(), c, s2);
@@ -1943,7 +1961,9 @@ void InternalDumpCommand::DoCommand() {
     }
 
     // Terminate if maximum number of keys have been dumped
-    if (max_keys_ > 0 && count >= max_keys_) break;
+    if (max_keys_ > 0 && count >= max_keys_) {
+      break;
+    }
   }
   if (count_delim_) {
     fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
@@ -2182,9 +2202,13 @@ void DBDumperCommand::DoDumpCommand() {
   for (; iter->Valid(); iter->Next()) {
     int rawtime = 0;
     // If end marker was specified, we stop before it
-    if (!null_to_ && (iter->key().ToString() >= to_)) break;
+    if (!null_to_ && (iter->key().ToString() >= to_)) {
+      break;
+    }
     // Terminate if maximum number of keys have been dumped
-    if (max_keys == 0) break;
+    if (max_keys == 0) {
+      break;
+    }
     if (is_db_ttl_) {
       TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(iter);
       rawtime = it_ttl->ttl_timestamp();
@@ -2205,8 +2229,9 @@ void DBDumperCommand::DoDumpCommand() {
       row = iter->key().ToString();
       val = iter->value().ToString();
       s1 = row.size() + val.size();
-      for (int j = 0; row[j] != delim_[0] && row[j] != '\0'; j++)
+      for (int j = 0; row[j] != delim_[0] && row[j] != '\0'; j++) {
         rtype1 += row[j];
+      }
       if (rtype2.compare("") && rtype2.compare(rtype1) != 0) {
         fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
                 rtype2.c_str(), c, s2);
@@ -2283,7 +2308,7 @@ ReduceDBLevelsCommand::ReduceDBLevelsCommand(
 std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
     const std::string& db_path, int new_levels, bool print_old_level) {
   std::vector<std::string> ret;
-  ret.push_back("reduce_levels");
+  ret.emplace_back("reduce_levels");
   ret.push_back("--" + ARG_DB + "=" + db_path);
   ret.push_back("--" + ARG_NEW_LEVELS + "=" + std::to_string(new_levels));
   if (print_old_level) {
@@ -2321,7 +2346,9 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt, int* levels) {
   WriteBufferManager wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_id*/ "", /*db_session_id*/ "");
+                      /*db_id=*/"", /*db_session_id=*/"",
+                      opt.daily_offpeak_time_utc,
+                      /*error_handler=*/nullptr, /*read_only=*/true);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
@@ -2650,7 +2677,7 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  ~InMemoryHandler() override {}
+  ~InMemoryHandler() override = default;
 
  protected:
   Handler::OptionState WriteAfterCommit() const override {
@@ -2689,8 +2716,9 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
     // we need the log number, but ParseFilename expects dbname/NNN.log.
     std::string sanitized = wal_file;
     size_t lastslash = sanitized.rfind('/');
-    if (lastslash != std::string::npos)
+    if (lastslash != std::string::npos) {
       sanitized = sanitized.substr(lastslash + 1);
+    }
     if (!ParseFileName(sanitized, &log_number, &type)) {
       // bogus input, carry on as best we can
       log_number = 0;
@@ -2966,9 +2994,8 @@ BatchPutCommand::BatchPutCommand(
     for (size_t i = 0; i < params.size(); i += 2) {
       std::string key = params.at(i);
       std::string value = params.at(i + 1);
-      key_values_.push_back(std::pair<std::string, std::string>(
-          is_key_hex_ ? HexToString(key) : key,
-          is_value_hex_ ? HexToString(value) : value));
+      key_values_.emplace_back(is_key_hex_ ? HexToString(key) : key,
+                               is_value_hex_ ? HexToString(value) : value);
     }
   }
   create_if_missing_ = IsFlagPresent(flags_, ARG_CREATE_IF_MISSING);
@@ -4349,8 +4376,10 @@ UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
 }
 
 void UnsafeRemoveSstFileCommand::DoCommand() {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+  const WriteOptions write_options;
+
   PrepareOptions();
 
   OfflineManifestWriter w(options_, db_path_);
@@ -4375,7 +4404,7 @@ void UnsafeRemoveSstFileCommand::DoCommand() {
     s = options_.env->GetFileSystem()->NewDirectory(db_path_, IOOptions(),
                                                     &db_dir, nullptr);
     if (s.ok()) {
-      s = w.LogAndApply(read_options, cfd, &edit, db_dir.get());
+      s = w.LogAndApply(read_options, write_options, cfd, &edit, db_dir.get());
     }
   }
 

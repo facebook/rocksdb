@@ -126,6 +126,10 @@ class DBIter final : public Iterator {
   void operator=(const DBIter&) = delete;
 
   ~DBIter() override {
+    ThreadStatus::OperationType cur_op_type =
+        ThreadStatusUtil::GetThreadOperation();
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
@@ -134,6 +138,7 @@ class DBIter final : public Iterator {
     ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     iter_.DeleteIter(arena_mode_);
+    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
   void SetIter(InternalIterator* iter) {
     assert(iter_.iter() == nullptr);
@@ -209,6 +214,7 @@ class DBIter final : public Iterator {
     if (read_callback_) {
       read_callback_->Refresh(s);
     }
+    iter_.SetRangeDelReadSeqno(s);
   }
   void set_valid(bool v) { valid_ = v; }
 
@@ -312,14 +318,20 @@ class DBIter final : public Iterator {
 
   bool SetValueAndColumnsFromEntity(Slice slice);
 
+  bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
+                                         ValueType result_type);
+
   void ResetValueAndColumns() {
     value_.clear();
     wide_columns_.clear();
   }
 
+  // The following methods perform the actual merge operation for the
+  // no base value/plain base value/wide-column base value cases.
   // If user-defined timestamp is enabled, `user_key` includes timestamp.
-  bool Merge(const Slice* val, const Slice& user_key);
-  bool MergeEntity(const Slice& entity, const Slice& user_key);
+  bool MergeWithNoBaseValue(const Slice& user_key);
+  bool MergeWithPlainBaseValue(const Slice& value, const Slice& user_key);
+  bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;

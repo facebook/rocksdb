@@ -86,6 +86,7 @@ public class OptimisticTransactionDB extends RocksDB
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     otdb.storeOptionsInstance(dbOptions);
+    otdb.storeDefaultColumnFamilyHandle(otdb.makeDefaultColumnFamilyHandle());
 
     for (int i = 1; i < handles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(otdb, handles[i]));
@@ -107,6 +108,7 @@ public class OptimisticTransactionDB extends RocksDB
    *
    * @throws RocksDBException if an error occurs whilst closing.
    */
+  @Override
   public void closeE() throws RocksDBException {
     if (owningHandle_.compareAndSet(true, false)) {
       try {
@@ -128,6 +130,7 @@ public class OptimisticTransactionDB extends RocksDB
    * <p>
    * See also {@link #close()}.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
     if (owningHandle_.compareAndSet(true, false)) {

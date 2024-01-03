@@ -1496,4 +1496,20 @@ public class OptionsTest {
       assertEquals(0, listeners2.size());
     }
   }
+  @Test
+  public void tablePropertiesCollectorFactory() {
+    try (final Options options = new Options()) {
+      try (TablePropertiesCollectorFactory collectorFactory =
+               TablePropertiesCollectorFactory.NewCompactOnDeletionCollectorFactory(10, 10, 1.0)) {
+        List<TablePropertiesCollectorFactory> factories = Arrays.asList(collectorFactory);
+        options.setTablePropertiesCollectorFactory(factories);
+      }
+      List<TablePropertiesCollectorFactory> factories = options.tablePropertiesCollectorFactory();
+      try {
+        assertThat(factories).hasSize(1);
+      } finally {
+        factories.stream().forEach(TablePropertiesCollectorFactory::close);
+      }
+    }
+  }
 }

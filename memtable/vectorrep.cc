@@ -40,7 +40,7 @@ class VectorRep : public MemTableRep {
   void Get(const LookupKey& k, void* callback_args,
            bool (*callback_func)(void* arg, const char* entry)) override;
 
-  ~VectorRep() override {}
+  ~VectorRep() override = default;
 
   class Iterator : public MemTableRep::Iterator {
     class VectorRep* vrep_;
@@ -59,7 +59,7 @@ class VectorRep : public MemTableRep {
     // Initialize an iterator over the specified collection.
     // The returned iterator is not valid.
     // explicit Iterator(const MemTableRep* collection);
-    ~Iterator() override{};
+    ~Iterator() override = default;
 
     // Returns true iff the iterator is positioned at a valid node.
     bool Valid() const override;

@@ -347,8 +347,10 @@ TEST_F(RateLimiterTest, Rate) {
   // This can fail due to slow execution speed, like when using valgrind or in
   // heavily loaded CI environments
   bool skip_minimum_rate_check =
-#if (defined(CIRCLECI) && defined(OS_MACOSX)) || defined(ROCKSDB_VALGRIND_RUN)
+#if defined(ROCKSDB_VALGRIND_RUN)
       true;
+#elif defined(OS_MACOSX)
+      getenv("CIRCLECI") || getenv("GITHUB_ACTIONS");
 #else
       getenv("SANDCASTLE");
 #endif
@@ -551,6 +553,35 @@ TEST_F(RateLimiterTest, WaitHangingBug) {
   for (int i = 0; i < 3; i++) {
     request_threads[i].join();
   }
+}
+
+TEST_F(RateLimiterTest, RuntimeSingleBurstBytesChange) {
+  constexpr int kMicrosecondsPerSecond = 1000000;
+
+  const int64_t kRateBytesPerSec = 400;
+
+  const int64_t kOldSingleBurstBytes = 100;
+  const int64_t kOldRefillPeriodUs =
+      kOldSingleBurstBytes * kMicrosecondsPerSecond / kRateBytesPerSec;
+  const int64_t kNewSingleBurstBytes = kOldSingleBurstBytes * 2;
+
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(
+      kRateBytesPerSec, kOldRefillPeriodUs, 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
+      false /* auto_tuned */));
+
+  ASSERT_EQ(kOldSingleBurstBytes, limiter->GetSingleBurstBytes());
+
+  ASSERT_TRUE(limiter->SetSingleBurstBytes(0).IsInvalidArgument());
+  ASSERT_OK(limiter->SetSingleBurstBytes(kNewSingleBurstBytes));
+  ASSERT_EQ(kNewSingleBurstBytes, limiter->GetSingleBurstBytes());
+
+  // If the updated single burst bytes is not reflected in the bytes
+  // granting process, this request will hang forever.
+  limiter->Request(limiter->GetSingleBurstBytes() /* bytes */,
+                   Env::IOPriority::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

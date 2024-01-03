@@ -47,6 +47,7 @@ public class WBWIRocksIterator
   @Override final native void next0(long handle);
   @Override final native void prev0(long handle);
   @Override final native void refresh0(final long handle) throws RocksDBException;
+  @Override final native void refresh1(long handle, long snapshotHandle);
   @Override final native void seek0(long handle, byte[] target, int targetLen);
   @Override final native void seekForPrev0(long handle, byte[] target, int targetLen);
   @Override final native void status0(long handle) throws RocksDBException;
@@ -159,10 +160,10 @@ public class WBWIRocksIterator
      * no value
      */
     public DirectSlice getValue() {
-      if(!value.isOwningHandle()) {
-        return null; //TODO(AR) migrate to JDK8 java.util.Optional#empty()
-      } else {
+      if (value.isOwningHandle()) {
         return value;
+      } else {
+        return null; // TODO(AR) migrate to JDK8 java.util.Optional#empty()
       }
     }
 
@@ -178,6 +179,7 @@ public class WBWIRocksIterator
       return (key == null) ? 0 : key.hashCode();
     }
 
+    @SuppressWarnings("PMD.CloseResource")
     @Override
     public boolean equals(final Object other) {
       if(other == null) {

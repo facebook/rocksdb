@@ -389,12 +389,13 @@ class ClockCacheTest : public testing::Test {
     }
   }
 
-  void NewShard(size_t capacity, bool strict_capacity_limit = true) {
+  void NewShard(size_t capacity, bool strict_capacity_limit = true,
+                int eviction_effort_cap = 30) {
     DeleteShard();
     shard_ =
         reinterpret_cast<Shard*>(port::cacheline_aligned_alloc(sizeof(Shard)));
 
-    TableOpts opts{1 /*value_size*/};
+    TableOpts opts{1 /*value_size*/, eviction_effort_cap};
     new (shard_)
         Shard(capacity, strict_capacity_limit, kDontChargeCacheMetadata,
               /*allocator*/ nullptr, &eviction_callback_, &hash_seed_, opts);
@@ -445,10 +446,18 @@ class ClockCacheTest : public testing::Test {
     return Slice(reinterpret_cast<const char*>(&hashed_key), 16U);
   }
 
+  // A bad hash function for testing / stressing collision handling
   static inline UniqueId64x2 TestHashedKey(char key) {
     // For testing hash near-collision behavior, put the variance in
     // hashed_key in bits that are unlikely to be used as hash bits.
     return {(static_cast<uint64_t>(key) << 56) + 1234U, 5678U};
+  }
+
+  // A reasonable hash function, for testing "typical behavior" etc.
+  template <typename T>
+  static inline UniqueId64x2 CheapHash(T i) {
+    return {static_cast<uint64_t>(i) * uint64_t{0x85EBCA77C2B2AE63},
+            static_cast<uint64_t>(i) * uint64_t{0xC2B2AE3D27D4EB4F}};
   }
 
   Shard* shard_ = nullptr;
@@ -680,6 +689,53 @@ TYPED_TEST(ClockCacheTest, ClockEvictionTest) {
     EXPECT_TRUE(this->Lookup('r', /*use*/ false));
     EXPECT_TRUE(this->Lookup('s', /*use*/ false));
     EXPECT_TRUE(this->Lookup('t', /*use*/ false));
+  }
+}
+
+TYPED_TEST(ClockCacheTest, ClockEvictionEffortCapTest) {
+  using HandleImpl = typename ClockCacheTest<TypeParam>::Shard::HandleImpl;
+  for (bool strict_capacity_limit : {true, false}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+    for (int eec : {-42, 0, 1, 10, 100, 1000}) {
+      SCOPED_TRACE("eviction_effort_cap = " + std::to_string(eec));
+      constexpr size_t kCapacity = 1000;
+      // Start with much larger capacity to ensure that we can go way over
+      // capacity without reaching table occupancy limit.
+      this->NewShard(3 * kCapacity, strict_capacity_limit, eec);
+      auto& shard = *this->shard_;
+      shard.SetCapacity(kCapacity);
+
+      // Nearly fill the cache with pinned entries, then add a bunch of
+      // non-pinned entries. eviction_effort_cap should affect how many
+      // evictable entries are present beyond the cache capacity, despite
+      // being evictable.
+      constexpr size_t kCount = kCapacity - 1;
+      std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [kCount] {} };
+      for (size_t i = 0; i < 2 * kCount; ++i) {
+        UniqueId64x2 hkey = this->CheapHash(i);
+        ASSERT_OK(shard.Insert(
+            this->TestKey(hkey), hkey, nullptr /*value*/, &kNoopCacheItemHelper,
+            1 /*charge*/, i < kCount ? &ha[i] : nullptr, Cache::Priority::LOW));
+      }
+
+      if (strict_capacity_limit) {
+        // If strict_capacity_limit is enabled, the cache will never exceed its
+        // capacity
+        EXPECT_EQ(shard.GetOccupancyCount(), kCapacity);
+      } else {
+        // Rough inverse relationship between cap and possible memory
+        // explosion, which shows up as increased table occupancy count.
+        int effective_eec = std::max(int{1}, eec) + 1;
+        EXPECT_NEAR(shard.GetOccupancyCount() * 1.0,
+                    kCount * (1 + 1.4 / effective_eec),
+                    kCount * (0.6 / effective_eec) + 1.0);
+      }
+
+      for (size_t i = 0; i < kCount; ++i) {
+        shard.Release(ha[i]);
+      }
+    }
   }
 }
 
@@ -983,13 +1039,14 @@ class TestSecondaryCache : public SecondaryCache {
 
   using ResultMap = std::unordered_map<std::string, ResultType>;
 
-  explicit TestSecondaryCache(size_t capacity)
+  explicit TestSecondaryCache(size_t capacity, bool insert_saved = false)
       : cache_(NewLRUCache(capacity, 0, false, 0.5 /* high_pri_pool_ratio */,
                            nullptr, kDefaultToAdaptiveMutex,
                            kDontChargeCacheMetadata)),
         num_inserts_(0),
         num_lookups_(0),
-        inject_failure_(false) {}
+        inject_failure_(false),
+        insert_saved_(insert_saved) {}
 
   const char* Name() const override { return "TestSecondaryCache"; }
 
@@ -1020,10 +1077,22 @@ class TestSecondaryCache : public SecondaryCache {
     return cache_.Insert(key, buf, size);
   }
 
+  Status InsertSaved(const Slice& key, const Slice& saved,
+                     CompressionType /*type*/ = kNoCompression,
+                     CacheTier /*source*/ = CacheTier::kVolatileTier) override {
+    if (insert_saved_) {
+      return Insert(key, const_cast<Slice*>(&saved), &kSliceCacheItemHelper,
+                    /*force_insert=*/true);
+    } else {
+      return Status::OK();
+    }
+  }
+
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool /*wait*/,
-      bool /*advise_erase*/, bool& kept_in_sec_cache) override {
+      bool /*advise_erase*/, Statistics* /*stats*/,
+      bool& kept_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
@@ -1048,7 +1117,8 @@ class TestSecondaryCache : public SecondaryCache {
         char* ptr = cache_.Value(handle);
         size_t size = DecodeFixed64(ptr);
         ptr += sizeof(uint64_t);
-        s = helper->create_cb(Slice(ptr, size), create_context,
+        s = helper->create_cb(Slice(ptr, size), kNoCompression,
+                              CacheTier::kVolatileTier, create_context,
                               /*alloc*/ nullptr, &value, &charge);
       }
       if (s.ok()) {
@@ -1137,6 +1207,7 @@ class TestSecondaryCache : public SecondaryCache {
   uint32_t num_inserts_;
   uint32_t num_lookups_;
   bool inject_failure_;
+  bool insert_saved_;
   std::string ckey_prefix_;
   ResultMap result_map_;
 };
@@ -1167,7 +1238,7 @@ INSTANTIATE_TEST_CASE_P(DBSecondaryCacheTest, DBSecondaryCacheTest,
 
 TEST_P(BasicSecondaryCacheTest, BasicTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(4096);
+      std::make_shared<TestSecondaryCache>(4096, true);
   std::shared_ptr<Cache> cache =
       NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
                false /* strict_capacity_limit */, secondary_cache);
@@ -1224,7 +1295,7 @@ TEST_P(BasicSecondaryCacheTest, BasicTest) {
 
 TEST_P(BasicSecondaryCacheTest, StatsTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(4096);
+      std::make_shared<TestSecondaryCache>(4096, true);
   std::shared_ptr<Cache> cache =
       NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
                false /* strict_capacity_limit */, secondary_cache);
@@ -1278,7 +1349,7 @@ TEST_P(BasicSecondaryCacheTest, StatsTest) {
 
 TEST_P(BasicSecondaryCacheTest, BasicFailTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(2048);
+      std::make_shared<TestSecondaryCache>(2048, true);
   std::shared_ptr<Cache> cache =
       NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
                false /* strict_capacity_limit */, secondary_cache);
@@ -1320,7 +1391,7 @@ TEST_P(BasicSecondaryCacheTest, BasicFailTest) {
 
 TEST_P(BasicSecondaryCacheTest, SaveFailTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(2048);
+      std::make_shared<TestSecondaryCache>(2048, true);
   std::shared_ptr<Cache> cache =
       NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
                false /* strict_capacity_limit */, secondary_cache);
@@ -1361,7 +1432,7 @@ TEST_P(BasicSecondaryCacheTest, SaveFailTest) {
 
 TEST_P(BasicSecondaryCacheTest, CreateFailTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(2048);
+      std::make_shared<TestSecondaryCache>(2048, true);
   std::shared_ptr<Cache> cache =
       NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
                false /* strict_capacity_limit */, secondary_cache);
@@ -1402,7 +1473,7 @@ TEST_P(BasicSecondaryCacheTest, CreateFailTest) {
 TEST_P(BasicSecondaryCacheTest, FullCapacityTest) {
   for (bool strict_capacity_limit : {false, true}) {
     std::shared_ptr<TestSecondaryCache> secondary_cache =
-        std::make_shared<TestSecondaryCache>(2048);
+        std::make_shared<TestSecondaryCache>(2048, true);
     std::shared_ptr<Cache> cache =
         NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
                  strict_capacity_limit, secondary_cache);
@@ -2021,8 +2092,9 @@ class CacheWithStats : public CacheWrapper {
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
+                Handle** handle = nullptr, Priority priority = Priority::LOW,
+                const Slice& /*compressed*/ = Slice(),
+                CompressionType /*type*/ = kNoCompression) override {
     insert_count_++;
     return target_->Insert(key, value, helper, charge, handle, priority);
   }
@@ -2115,7 +2187,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   // we have a new cache it is empty, then, before we do the Get, we do the
   // dumpload
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(2048 * 1024);
+      std::make_shared<TestSecondaryCache>(2048 * 1024, true);
   // This time with secondary cache
   base_cache = NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
                         false /* strict_capacity_limit */, secondary_cache);
@@ -2271,7 +2343,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   // we have a new cache it is empty, then, before we do the Get, we do the
   // dumpload
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(2048 * 1024);
+      std::make_shared<TestSecondaryCache>(2048 * 1024, true);
   // This time with secondary_cache
   base_cache = NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
                         false /* strict_capacity_limit */, secondary_cache);
