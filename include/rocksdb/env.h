@@ -1207,7 +1207,7 @@ enum InfoLogLevel : unsigned char {
 // including data loss, unreported corruption, deadlocks, and more.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
+  static constexpr size_t kDoNotSupportGetLogFileSize = SIZE_MAX;
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : closed_(false), log_level_(log_level) {}
