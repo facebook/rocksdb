@@ -84,9 +84,9 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
                                 uint64_t read_len, uint64_t chunk_len,
                                 uint64_t start_offset, uint32_t index) {
   Slice result;
+  char* to_buf = bufs_[index].buffer_.BufferStart() + chunk_len;
   Status s = reader->Read(opts, start_offset + chunk_len, read_len, &result,
-                          bufs_[index].buffer_.BufferStart() + chunk_len,
-                          /*aligned_buf=*/nullptr);
+                          to_buf, /*aligned_buf=*/nullptr);
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
@@ -96,6 +96,13 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
 #endif
   if (!s.ok()) {
     return s;
+  }
+  if (result.data() != to_buf) {
+    // If the read is coming from some other buffer already in memory (such as
+    // mmap) then it would be inefficient to create another copy in this
+    // FilePrefetchBuffer. The caller is expected to exclude this case.
+    assert(false);
+    return Status::Corruption("File read didn't populate our buffer");
   }
 
   if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {

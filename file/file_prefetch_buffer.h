@@ -101,6 +101,9 @@ class FilePrefetchBuffer {
   // and max_readahead_size are passed in.
   // A user can construct a FilePrefetchBuffer without any arguments, but use
   // `Prefetch` to load data into the buffer.
+  // NOTE: FilePrefetchBuffer is incompatible with prefetching from
+  // RandomAccessFileReaders using mmap reads, so it is common to use
+  // `!use_mmap_reads` for the `enable` parameter.
   FilePrefetchBuffer(
       size_t readahead_size = 0, size_t max_readahead_size = 0,
       bool enable = true, bool track_min_offset = false,
