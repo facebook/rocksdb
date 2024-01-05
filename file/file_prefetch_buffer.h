@@ -91,7 +91,8 @@ class FilePrefetchBuffer {
   //   max_readahead_size should be greater than equal to readahead_size.
   // enable : controls whether reading from the buffer is enabled.
   //   If false, TryReadFromCache() always return false, and we only take stats
-  //   for the minimum offset if track_min_offset = true.
+  //   for the minimum offset if track_min_offset = true. See below NOTE about
+  //   mmap reads.
   // track_min_offset : Track the minimum offset ever read and collect stats on
   //   it. Used for adaptable readahead of the file footer/metadata.
   // implicit_auto_readahead : Readahead is enabled implicitly by rocksdb after
@@ -101,6 +102,9 @@ class FilePrefetchBuffer {
   // and max_readahead_size are passed in.
   // A user can construct a FilePrefetchBuffer without any arguments, but use
   // `Prefetch` to load data into the buffer.
+  // NOTE: FilePrefetchBuffer is incompatible with prefetching from
+  // RandomAccessFileReaders using mmap reads, so it is common to use
+  // `!use_mmap_reads` for the `enable` parameter.
   FilePrefetchBuffer(
       size_t readahead_size = 0, size_t max_readahead_size = 0,
       bool enable = true, bool track_min_offset = false,

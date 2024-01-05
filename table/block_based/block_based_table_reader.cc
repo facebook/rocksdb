@@ -601,7 +601,7 @@ Status BlockBasedTable::Open(
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
-  if (!ioptions.allow_mmap_reads) {
+  if (!ioptions.allow_mmap_reads && !env_options.use_mmap_reads) {
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
                      &prefetch_buffer, ioptions.stats, tail_size,
