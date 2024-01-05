@@ -713,7 +713,6 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
       // It can be due to reading error in second buffer in FilePrefetchBuffer.
       // BlockHandles already added to the queue but there was error in fetching
       // those data blocks. So in this call they need to be read again.
-      assert(block_handles_.front().is_cache_hit_ == false);
       found_first_miss_block = true;
       // Initialize prev_handles_size to 0 as all those handles need to be read
       // again.
@@ -856,7 +855,8 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     auto it_end =
         block_handles_.rbegin() + (block_handles_.size() - prev_handles_size);
 
-    while (it != it_end && (*it).is_cache_hit_) {
+    while (it != it_end && (*it).is_cache_hit_ &&
+           start_updated_offset != (*it).handle_.offset()) {
       it++;
     }
     end_updated_offset = (*it).handle_.offset() + footer + (*it).handle_.size();

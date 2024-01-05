@@ -49,6 +49,7 @@ struct ReadaheadParams {
   // after doing sequential scans for num_file_reads_for_auto_readahead.
   bool implicit_auto_readahead = false;
 
+  // TODO akanksha - Remove num_file_reads when BlockPrefetcher is refactored.
   uint64_t num_file_reads = 0;
   uint64_t num_file_reads_for_auto_readahead = 0;
 
@@ -249,15 +250,14 @@ class FilePrefetchBuffer {
       if (buf->DoesBufferContainData()) {
         // If last read was from this block and some bytes are still unconsumed.
         if (prev_offset_ >= buf->offset_ &&
-            prev_offset_ + prev_len_ <
-                buf->offset_ + buf->buffer_.CurrentSize()) {
-          bytes_discarded += buf->buffer_.CurrentSize() -
-                             (prev_offset_ + prev_len_ - buf->offset_);
+            prev_offset_ + prev_len_ < buf->offset_ + buf->CurrentSize()) {
+          bytes_discarded +=
+              buf->CurrentSize() - (prev_offset_ + prev_len_ - buf->offset_);
         }
         // If last read was from previous blocks and this block is unconsumed.
         else if (prev_offset_ < buf->offset_ &&
                  prev_offset_ + prev_len_ <= buf->offset_) {
-          bytes_discarded += buf->buffer_.CurrentSize();
+          bytes_discarded += buf->CurrentSize();
         }
       }
     }
@@ -363,7 +363,7 @@ class FilePrefetchBuffer {
 
     size_t curr_size = bufs_.front()->async_read_in_progress_
                            ? bufs_.front()->async_req_len_
-                           : bufs_.front()->buffer_.CurrentSize();
+                           : bufs_.front()->CurrentSize();
     if (implicit_auto_readahead_ && readahead_size_ > 0) {
       if ((offset + size > bufs_.front()->offset_ + curr_size) &&
           IsBlockSequential(offset) &&
@@ -378,10 +378,14 @@ class FilePrefetchBuffer {
   // Callback function passed to underlying FS in case of asynchronous reads.
   void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
 
-  void TEST_GetBufferOffsetandSize(uint32_t index, uint64_t& offset,
-                                   size_t& len) {
-    offset = bufs_[index]->offset_;
-    len = bufs_[index]->buffer_.CurrentSize();
+  void TEST_GetBufferOffsetandSize(
+      std::vector<std::pair<uint64_t, size_t>>& buffer_info) {
+    for (size_t i = 0; i < bufs_.size(); i++) {
+      buffer_info[i].first = bufs_[i]->offset_;
+      buffer_info[i].second = bufs_[i]->async_read_in_progress_
+                                  ? bufs_[i]->async_req_len_
+                                  : bufs_[i]->CurrentSize();
+    }
   }
 
  private:

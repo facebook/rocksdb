@@ -103,7 +103,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 
   file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
-  FilePrefetchBuffer prefetch_buffer(ReadaheadParams(), !fopts.use_mmap_reads /* enable */,
+  FilePrefetchBuffer prefetch_buffer(ReadaheadParams(),
+                                     !fopts.use_mmap_reads /* enable */,
                                      false /* track_min_offset */);
   if (s.ok()) {
     const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
