@@ -7,9 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
-#include <stdlib.h>
-
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -106,7 +104,7 @@ class DeleteFileTest : public DBTestBase {
     ASSERT_OK(env_->GetChildren(dir, &filenames));
 
     int log_cnt = 0, sst_cnt = 0, manifest_cnt = 0;
-    for (auto file : filenames) {
+    for (const auto& file : filenames) {
       uint64_t number;
       FileType type;
       if (ParseFileName(file, &number, &type)) {
@@ -148,9 +146,9 @@ TEST_F(DeleteFileTest, AddKeysAndQueryLevels) {
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
 
-  std::string level1file = "";
+  std::string level1file;
   int level1keycount = 0;
-  std::string level2file = "";
+  std::string level2file;
   int level2keycount = 0;
   int level1index = 0;
   int level2index = 1;

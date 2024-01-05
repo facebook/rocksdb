@@ -658,7 +658,7 @@ TEST_F(DbKVChecksumWALToWriteBatchTest, WriteBatchChecksumHandoff) {
   Options options = CurrentOptions();
   Reopen(options);
   ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
-  std::string content = "";
+  std::string content;
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch",
       [&](void* batch_ptr) {

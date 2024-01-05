@@ -107,9 +107,9 @@ class EnrichedSpecialEnv : public SpecialEnv {
 
   InstrumentedMutex env_mutex_;
   // the wal whose actual delete was skipped by the env
-  std::string skipped_wal = "";
+  std::string skipped_wal;
   // the largest WAL that was requested to be deleted
-  std::string largest_deleted_wal = "";
+  std::string largest_deleted_wal;
   // number of WALs that were successfully deleted
   std::atomic<size_t> deleted_wal_cnt = {0};
   // the WAL whose delete from fs was skipped is reopened during recovery
@@ -2227,8 +2227,7 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
     ReadOptions ropt;
     Iterator* iter = dbfull()->NewIterator(ropt);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      data.push_back(
-          std::make_pair(iter->key().ToString(), iter->value().ToString()));
+      data.emplace_back(iter->key().ToString(), iter->value().ToString());
     }
     EXPECT_OK(iter->status());
     delete iter;
@@ -2434,7 +2433,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   std::string last_log;
   uint64_t last_log_num = 0;
   ASSERT_OK(env_->GetChildren(dbname_, &filenames));
-  for (auto fname : filenames) {
+  for (const auto& fname : filenames) {
     uint64_t number;
     FileType type;
     if (ParseFileName(fname, &number, &type, nullptr)) {

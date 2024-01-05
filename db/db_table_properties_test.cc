@@ -246,7 +246,7 @@ DBTablePropertiesTest::TestGetPropertiesOfTablesInRange(
   // run the query
   TablePropertiesCollection props;
   EXPECT_OK(db_->GetPropertiesOfTablesInRange(
-      db_->DefaultColumnFamily(), &ranges[0], ranges.size(), &props));
+      db_->DefaultColumnFamily(), ranges.data(), ranges.size(), &props));
 
   // Make sure that we've received properties for those and for those files
   // only which fall within requested ranges
@@ -363,7 +363,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
     std::vector<Range> ranges;
     auto it = random_keys.begin();
     while (it != random_keys.end()) {
-      ranges.push_back(Range(*it, *(it + 1)));
+      ranges.emplace_back(*it, *(it + 1));
       it += 2;
     }
 
@@ -453,7 +453,7 @@ TEST_F(DBTablePropertiesTest, FactoryReturnsNull) {
       std::make_shared<SometimesTablePropertiesCollectorFactory>());
   // For plain table
   options.prefix_extractor.reset(NewFixedPrefixTransform(4));
-  for (std::shared_ptr<TableFactory> tf :
+  for (const std::shared_ptr<TableFactory>& tf :
        {options.table_factory,
         std::shared_ptr<TableFactory>(NewPlainTableFactory({}))}) {
     SCOPED_TRACE("Table factory = " + std::string(tf->Name()));
