@@ -613,8 +613,7 @@ Status BlockBasedTable::Open(
   } else {
     // Should not prefetch for mmap mode.
     prefetch_buffer.reset(new FilePrefetchBuffer(
-        0 /* readahead_size */, 0 /* max_readahead_size */, false /* enable */,
-        true /* track_min_offset */));
+        ReadaheadParams(), false /* enable */, true /* track_min_offset */));
   }
 
   // Read in the following order:
@@ -876,17 +875,14 @@ Status BlockBasedTable::PrefetchTail(
   if (s.ok() && !file->use_direct_io() && !force_direct_prefetch) {
     if (!file->Prefetch(opts, prefetch_off, prefetch_len).IsNotSupported()) {
       prefetch_buffer->reset(new FilePrefetchBuffer(
-          0 /* readahead_size */, 0 /* max_readahead_size */,
-          false /* enable */, true /* track_min_offset */));
+          ReadaheadParams(), false /* enable */, true /* track_min_offset */));
       return Status::OK();
     }
   }
 
   // Use `FilePrefetchBuffer`
   prefetch_buffer->reset(new FilePrefetchBuffer(
-      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
-      true /* track_min_offset */, false /* implicit_auto_readahead */,
-      0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
+      ReadaheadParams(), true /* enable */, true /* track_min_offset */,
       nullptr /* fs */, nullptr /* clock */, stats,
       /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
@@ -2499,10 +2495,11 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
                               : rep_->table_options.max_auto_readahead_size;
   // FilePrefetchBuffer doesn't work in mmap mode and readahead is not
   // needed there.
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = readahead_size;
+  readahead_params.max_readahead_size = readahead_size;
   FilePrefetchBuffer prefetch_buffer(
-      readahead_size /* readahead_size */,
-      readahead_size /* max_readahead_size */,
-      !rep_->ioptions.allow_mmap_reads /* enable */);
+      readahead_params, !rep_->ioptions.allow_mmap_reads /* enable */);
 
   for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
     s = index_iter->status();
