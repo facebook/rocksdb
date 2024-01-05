@@ -374,7 +374,7 @@ class CompactionJobTestBase : public testing::Test {
     } else if (table_type_ == TableTypeForTest::kMockTable) {
       file_size = 10;
       EXPECT_OK(mock_table_factory_->CreateMockTable(
-          env_, GenerateFileName(file_number), std::move(contents)));
+          env_, GenerateFileName(file_number), contents));
     } else {
       assert(false);
     }
