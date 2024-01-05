@@ -551,7 +551,8 @@ class FilePrefetchBuffer {
   }
 
   void FreeAllBuffers() {
-    for (auto& buf : bufs_) {
+    while (!bufs_.empty()) {
+      BufferInfo* buf = bufs_.front();
       buf->ClearBuffer();
       bufs_.pop_front();
       free_bufs_.emplace_back(buf);
