@@ -86,7 +86,7 @@ TEST_F(DBIteratorBaseTest, APICallsWithPerfContext) {
 class DBIteratorTest : public DBIteratorBaseTest,
                        public testing::WithParamInterface<bool> {
  public:
-  DBIteratorTest() {}
+  DBIteratorTest() = default;
 
   Iterator* NewIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family = nullptr) {

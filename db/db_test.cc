@@ -678,8 +678,8 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       multiget_cfs.push_back(handles_[1]);
       multiget_cfs.push_back(handles_[1]);
       std::vector<Slice> multiget_keys;
-      multiget_keys.push_back("foo");
-      multiget_keys.push_back("bar");
+      multiget_keys.emplace_back("foo");
+      multiget_keys.emplace_back("bar");
       std::vector<std::string> multiget_values;
       for (int i = 0; i < 2; i++) {
         bool batched = i == 0;
@@ -714,7 +714,7 @@ TEST_F(DBTest, ReadFromPersistedTier) {
 
       // Expect same result in multiget
       multiget_cfs.push_back(handles_[1]);
-      multiget_keys.push_back("rocksdb");
+      multiget_keys.emplace_back("rocksdb");
       multiget_values.clear();
 
       for (int i = 0; i < 2; i++) {
@@ -2701,7 +2701,7 @@ TEST_F(DBTest, PurgeInfoLogs) {
     ASSERT_OK(env_->GetChildren(
         options.db_log_dir.empty() ? dbname_ : options.db_log_dir, &files));
     int info_log_count = 0;
-    for (std::string file : files) {
+    for (const std::string& file : files) {
       if (file.find("LOG") != std::string::npos) {
         info_log_count++;
       }
@@ -2719,7 +2719,7 @@ TEST_F(DBTest, PurgeInfoLogs) {
     if (mode == 1) {
       // Cleaning up
       ASSERT_OK(env_->GetChildren(options.db_log_dir, &files));
-      for (std::string file : files) {
+      for (const std::string& file : files) {
         ASSERT_OK(env_->DeleteFile(options.db_log_dir + "/" + file));
       }
       ASSERT_OK(env_->DeleteDir(options.db_log_dir));
@@ -2879,7 +2879,9 @@ class MultiThreadedDBTest
 };
 
 TEST_P(MultiThreadedDBTest, MultiThreaded) {
-  if (option_config_ == kPipelinedWrite) return;
+  if (option_config_ == kPipelinedWrite) {
+    return;
+  }
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   Options options = CurrentOptions(options_override);
@@ -2978,7 +2980,7 @@ TEST_F(DBTest, GroupCommitTest) {
 
     Iterator* itr = db_->NewIterator(ReadOptions());
     itr->SeekToFirst();
-    for (auto x : expected_db) {
+    for (const auto& x : expected_db) {
       ASSERT_TRUE(itr->Valid());
       ASSERT_EQ(itr->key().ToString(), x);
       ASSERT_EQ(itr->value().ToString(), x);
@@ -3302,9 +3304,9 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
-  void EnableManualCompaction() override { return; }
+  void EnableManualCompaction() override {}
 
-  void DisableManualCompaction() override { return; }
+  void DisableManualCompaction() override {}
 
   virtual Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) override {
@@ -3425,7 +3427,9 @@ class ModelDB : public DB {
     ModelIter(const KVMap* map, bool owned)
         : map_(map), owned_(owned), iter_(map_->end()) {}
     ~ModelIter() override {
-      if (owned_) delete map_;
+      if (owned_) {
+        delete map_;
+      }
     }
     bool Valid() const override { return iter_ != map_->end(); }
     void SeekToFirst() override { iter_ = map_->begin(); }
@@ -3463,7 +3467,7 @@ class ModelDB : public DB {
   };
   const Options options_;
   KVMap map_;
-  std::string name_ = "";
+  std::string name_;
 };
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
@@ -3611,8 +3615,12 @@ TEST_P(DBTestRandomized, Randomized) {
       // Save a snapshot from each DB this time that we'll use next
       // time we compare things, to make sure the current state is
       // preserved with the snapshot
-      if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
-      if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
+      if (model_snap != nullptr) {
+        model.ReleaseSnapshot(model_snap);
+      }
+      if (db_snap != nullptr) {
+        db_->ReleaseSnapshot(db_snap);
+      }
 
       Reopen(options);
       ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
@@ -3621,8 +3629,12 @@ TEST_P(DBTestRandomized, Randomized) {
       db_snap = db_->GetSnapshot();
     }
   }
-  if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
-  if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
+  if (model_snap != nullptr) {
+    model.ReleaseSnapshot(model_snap);
+  }
+  if (db_snap != nullptr) {
+    db_->ReleaseSnapshot(db_snap);
+  }
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
@@ -4249,9 +4261,9 @@ TEST_F(DBTest, DISABLED_RateLimitingTest) {
 // (e.g, RateLimiter::GetTotalPendingRequests())
 class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
  public:
-  MockedRateLimiterWithNoOptionalAPIImpl() {}
+  MockedRateLimiterWithNoOptionalAPIImpl() = default;
 
-  ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
+  ~MockedRateLimiterWithNoOptionalAPIImpl() override = default;
 
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
@@ -4653,7 +4665,7 @@ void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
   int op_count = 0;
   std::vector<ThreadStatus> thread_list;
   ASSERT_OK(env->GetThreadList(&thread_list));
-  for (auto thread : thread_list) {
+  for (const auto& thread : thread_list) {
     if (thread.operation_type == op_type) {
       op_count++;
     }
@@ -4693,7 +4705,7 @@ TEST_F(DBTest, GetThreadStatus) {
         s = env_->GetThreadList(&thread_list);
         ASSERT_OK(s);
         memset(thread_type_counts, 0, sizeof(thread_type_counts));
-        for (auto thread : thread_list) {
+        for (const auto& thread : thread_list) {
           ASSERT_LT(thread.thread_type, ThreadStatus::NUM_THREAD_TYPES);
           thread_type_counts[thread.thread_type]++;
         }
@@ -4974,7 +4986,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
     }
 
     ASSERT_OK(env_->GetThreadList(&thread_list));
-    for (auto thread : thread_list) {
+    for (const auto& thread : thread_list) {
       operation_count[thread.operation_type]++;
     }
 
@@ -4999,7 +5011,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
     operation_count[i] = 0;
   }
   ASSERT_OK(env_->GetThreadList(&thread_list));
-  for (auto thread : thread_list) {
+  for (const auto& thread : thread_list) {
     operation_count[thread.operation_type]++;
   }
   ASSERT_EQ(operation_count[ThreadStatus::OP_COMPACTION], 0);
@@ -5061,7 +5073,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
     }
 
     ASSERT_OK(env_->GetThreadList(&thread_list));
-    for (auto thread : thread_list) {
+    for (const auto& thread : thread_list) {
       operation_count[thread.operation_type]++;
     }
 
@@ -5086,7 +5098,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
     operation_count[i] = 0;
   }
   ASSERT_OK(env_->GetThreadList(&thread_list));
-  for (auto thread : thread_list) {
+  for (const auto& thread : thread_list) {
     operation_count[thread.operation_type]++;
   }
   ASSERT_EQ(operation_count[ThreadStatus::OP_COMPACTION], 0);
@@ -5171,7 +5183,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   }));
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
-  for (auto file : cf_meta.levels[4].files) {
+  for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
     ASSERT_OK(dbfull()->DeleteFile(file.name));
   }
@@ -5669,7 +5681,7 @@ TEST_F(DBTest, FileCreationRandomFailure) {
 
   std::vector<std::string> values;
   for (int i = 0; i < kTestSize; ++i) {
-    values.push_back("NOT_FOUND");
+    values.emplace_back("NOT_FOUND");
   }
   for (int j = 0; j < kTotalIteration; ++j) {
     if (j == kRandomFailureTest) {
@@ -7115,7 +7127,7 @@ TEST_F(DBTest, ReusePinnableSlice) {
 
   {
     std::vector<Slice> multiget_keys;
-    multiget_keys.push_back("foo");
+    multiget_keys.emplace_back("foo");
     std::vector<PinnableSlice> multiget_values(1);
     std::vector<Status> statuses({Status::NotFound()});
     ReadOptions ropt;
@@ -7142,7 +7154,7 @@ TEST_F(DBTest, ReusePinnableSlice) {
     std::vector<ColumnFamilyHandle*> multiget_cfs;
     multiget_cfs.push_back(dbfull()->DefaultColumnFamily());
     std::vector<Slice> multiget_keys;
-    multiget_keys.push_back("foo");
+    multiget_keys.emplace_back("foo");
     std::vector<PinnableSlice> multiget_values(1);
     std::vector<Status> statuses({Status::NotFound()});
     ReadOptions ropt;

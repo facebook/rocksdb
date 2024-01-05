@@ -296,7 +296,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   for (int i = 0; i < kNumThreads; i++) {
-    threads.push_back(port::Thread(
+    threads.emplace_back(
         [&](int index) {
           // All threads should fail.
           auto res = Put("key" + std::to_string(index), "value");
@@ -313,7 +313,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
             ASSERT_FALSE(res.ok());
           }
         },
-        i));
+        i);
   }
   for (int i = 0; i < kNumThreads; i++) {
     threads[i].join();

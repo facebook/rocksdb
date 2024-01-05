@@ -27,8 +27,8 @@ class DBSSTTest : public DBTestBase {
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
+  FlushedFileCollector() = default;
+  ~FlushedFileCollector() override = default;
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -38,7 +38,7 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> GetFlushedFiles() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> result;
-    for (auto fname : flushed_files_) {
+    for (const auto& fname : flushed_files_) {
       result.push_back(fname);
     }
     return result;
@@ -661,7 +661,7 @@ class DBSSTTestRateLimit : public DBSSTTest,
                            public ::testing::WithParamInterface<bool> {
  public:
   DBSSTTestRateLimit() : DBSSTTest() {}
-  ~DBSSTTestRateLimit() override {}
+  ~DBSSTTestRateLimit() override = default;
 };
 
 TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
@@ -1093,10 +1093,10 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   int num_wal_files = 0;
   std::vector<std::string> db_files;
   ASSERT_OK(env_->GetChildren(dbname_, &db_files));
-  for (std::string f : db_files) {
-    if (f.substr(f.find_last_of(".") + 1) == "sst") {
+  for (const std::string& f : db_files) {
+    if (f.substr(f.find_last_of('.') + 1) == "sst") {
       num_sst_files++;
-    } else if (f.substr(f.find_last_of(".") + 1) == "log") {
+    } else if (f.substr(f.find_last_of('.') + 1) == "log") {
       num_wal_files++;
     }
   }

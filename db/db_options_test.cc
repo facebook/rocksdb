@@ -1146,11 +1146,11 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
       "1:0000000000000-2:000000000042",  // Weird, but we can parse the int.
   };
 
-  for (std::string invalid_case : invalid_cases) {
+  for (const std::string& invalid_case : invalid_cases) {
     options.daily_offpeak_time_utc = invalid_case;
     verify_invalid();
   }
-  for (std::string valid_case : valid_cases) {
+  for (const std::string& valid_case : valid_cases) {
     options.daily_offpeak_time_utc = valid_case;
     verify_valid();
   }

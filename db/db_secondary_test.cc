@@ -103,7 +103,7 @@ void DBSecondaryTestBase::CheckFileTypeCounts(const std::string& dir,
   ASSERT_OK(env_->GetChildren(dir, &filenames));
 
   int log_cnt = 0, sst_cnt = 0, manifest_cnt = 0;
-  for (auto file : filenames) {
+  for (const auto& file : filenames) {
     uint64_t number;
     FileType type;
     if (ParseFileName(file, &number, &type)) {
