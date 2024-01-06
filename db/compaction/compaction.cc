@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/dbformat.h"
 #include "logging/logging.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/sst_partitioner.h"
@@ -20,9 +21,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-const uint64_t kRangeTombstoneSentinel =
-    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
 
 int sstableKeyCompare(const Comparator* uc, const Slice& a, const Slice& b) {
   auto c = uc->CompareWithoutTimestamp(ExtractUserKey(a), ExtractUserKey(b));

@@ -714,8 +714,6 @@ def finalize_and_sanitize(src_params):
             dest_params["use_write_buffer_manager"] = 0
     if dest_params["user_timestamp_size"] > 0 and dest_params["persist_user_defined_timestamps"] == 0:
         # Features that are not compatible with UDT in memtable only feature.
-        dest_params["delpercent"] += dest_params["delrangepercent"]
-        dest_params["delrangepercent"] = 0
         dest_params["enable_blob_files"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
         dest_params["atomic_flush"] = 0

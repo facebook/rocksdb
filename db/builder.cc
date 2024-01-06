@@ -210,7 +210,7 @@ Status BuildTable(
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
     const size_t ts_sz = ucmp->timestamp_size();
-    const bool strip_timestamp =
+    const bool logical_strip_timestamp =
         ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
 
     std::string key_after_flush_buf;
@@ -224,7 +224,7 @@ Status BuildTable(
       // the in memory version of the key act logically the same as one with a
       // minimum timestamp. We update the timestamp here so file boundary and
       // output validator, block builder all see the effect of the stripping.
-      if (strip_timestamp) {
+      if (logical_strip_timestamp) {
         key_after_flush_buf.clear();
         ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
         key_after_flush = key_after_flush_buf;
@@ -267,9 +267,12 @@ Status BuildTable(
       Slice last_tombstone_start_user_key{};
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
            range_del_it->Next()) {
-        auto tombstone = range_del_it->Tombstone();
-        auto kv = tombstone.Serialize();
-        // TODO(yuzhangyu): handle range deletion for UDT in memtables only.
+        // When user timestamp should not be persisted, we logically strip a
+        // range tombstone's start and end key's timestamp (replace it with min
+        // timestamp) before passing them along to table builder and to update
+        // file boundaries.
+        auto tombstone = range_del_it->Tombstone(logical_strip_timestamp);
+        std::pair<InternalKey, Slice> kv = tombstone.Serialize();
         builder->Add(kv.first.Encode(), kv.second);
         InternalKey tombstone_end = tombstone.SerializeEndKey();
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,

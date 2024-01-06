@@ -1072,8 +1072,16 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.logger);
 
   } else if (value_type == kTypeRangeDeletion) {
-    // TODO(yuzhangyu): handle range deletion entries for UDT in memtable only.
-    r->range_del_block.Add(key, value);
+    Slice persisted_end = value;
+    // When timestamps should not be persisted, we physically strip away range
+    // tombstone end key's user timestamp before passing it along to block
+    // builder. Physically stripping away start key's user timestamp is
+    // handled at the block builder level in the same way as the other data
+    // blocks.
+    if (r->ts_sz > 0 && !r->persist_user_defined_timestamps) {
+      persisted_end = StripTimestampFromUserKey(value, r->ts_sz);
+    }
+    r->range_del_block.Add(key, persisted_end);
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(key, value, r->get_offset(),
                                       r->table_properties_collectors,
