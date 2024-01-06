@@ -130,16 +130,4 @@ public class BuiltinComparatorTest {
       }
     }
   }
-
-  @Test
-  public void builtinComparatorEnum(){
-    assertThat(BuiltinComparator.BYTEWISE_COMPARATOR.ordinal())
-        .isEqualTo(0);
-    assertThat(
-        BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR.ordinal())
-        .isEqualTo(1);
-    assertThat(BuiltinComparator.values().length).isEqualTo(2);
-    assertThat(BuiltinComparator.valueOf("BYTEWISE_COMPARATOR")).
-        isEqualTo(BuiltinComparator.BYTEWISE_COMPARATOR);
-  }
 }

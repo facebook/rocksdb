@@ -147,46 +147,24 @@ jboolean Java_org_rocksdb_Options_createMissingColumnFamilies(JNIEnv*, jobject,
 /*
  * Class:     org_rocksdb_Options
  * Method:    setComparatorHandle
- * Signature: (JI)V
+ * Signature: (JB)V
  */
-void Java_org_rocksdb_Options_setComparatorHandle__JI(JNIEnv*, jobject,
-                                                      jlong jhandle,
-                                                      jint builtinComparator) {
-  switch (builtinComparator) {
-    case 1:
-      reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->comparator =
-          ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
-      break;
-    default:
-      reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->comparator =
-          ROCKSDB_NAMESPACE::BytewiseComparator();
-      break;
-  }
+void Java_org_rocksdb_Options_setComparatorHandle__JB(
+    JNIEnv*, jobject, jlong jhandle, jbyte jbuiltin_comparator) {
+  auto* comparator =
+      ROCKSDB_NAMESPACE::BuiltinComparatorJni::toCppBuiltinComparator(
+          jbuiltin_comparator);
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->comparator =
+      comparator;
 }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    setComparatorHandle
- * Signature: (JJB)V
- */
 void Java_org_rocksdb_Options_setComparatorHandle__JJB(JNIEnv*, jobject,
                                                        jlong jopt_handle,
                                                        jlong jcomparator_handle,
                                                        jbyte jcomparator_type) {
-  ROCKSDB_NAMESPACE::Comparator* comparator = nullptr;
-  switch (jcomparator_type) {
-    // JAVA_COMPARATOR
-    case 0x0:
-      comparator = reinterpret_cast<ROCKSDB_NAMESPACE::ComparatorJniCallback*>(
-          jcomparator_handle);
-      break;
-
-    // JAVA_NATIVE_COMPARATOR_WRAPPER
-    case 0x1:
-      comparator =
-          reinterpret_cast<ROCKSDB_NAMESPACE::Comparator*>(jcomparator_handle);
-      break;
-  }
+  ROCKSDB_NAMESPACE::Comparator* comparator =
+      ROCKSDB_NAMESPACE::AbstractComparatorJni::castCppComparator(
+          jcomparator_handle, jcomparator_type);
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jopt_handle);
   opt->comparator = comparator;
 }
@@ -4179,20 +4157,15 @@ void Java_org_rocksdb_ColumnFamilyOptions_optimizeUniversalStyleCompaction(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setComparatorHandle
- * Signature: (JI)V
+ * Signature: (JB)V
  */
-void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JI(
-    JNIEnv*, jobject, jlong jhandle, jint builtinComparator) {
-  switch (builtinComparator) {
-    case 1:
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
-          ->comparator = ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
-      break;
-    default:
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
-          ->comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
-      break;
-  }
+void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JB(
+    JNIEnv*, jobject, jlong jhandle, jbyte jbuiltin_comparator) {
+  auto* comparator =
+      ROCKSDB_NAMESPACE::BuiltinComparatorJni::toCppBuiltinComparator(
+          jbuiltin_comparator);
+  reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->comparator = comparator;
 }
 
 /*
@@ -4203,20 +4176,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JI(
 void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJB(
     JNIEnv*, jobject, jlong jopt_handle, jlong jcomparator_handle,
     jbyte jcomparator_type) {
-  ROCKSDB_NAMESPACE::Comparator* comparator = nullptr;
-  switch (jcomparator_type) {
-    // JAVA_COMPARATOR
-    case 0x0:
-      comparator = reinterpret_cast<ROCKSDB_NAMESPACE::ComparatorJniCallback*>(
-          jcomparator_handle);
-      break;
-
-    // JAVA_NATIVE_COMPARATOR_WRAPPER
-    case 0x1:
-      comparator =
-          reinterpret_cast<ROCKSDB_NAMESPACE::Comparator*>(jcomparator_handle);
-      break;
-  }
+  ROCKSDB_NAMESPACE::Comparator* comparator =
+      ROCKSDB_NAMESPACE::AbstractComparatorJni::castCppComparator(
+          jcomparator_handle, jcomparator_type);
   auto* opt =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jopt_handle);
   opt->comparator = comparator;

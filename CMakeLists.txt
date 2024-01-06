@@ -893,6 +893,7 @@ set(SOURCES
         utilities/memory/memory_util.cc
         utilities/merge_operators.cc
         utilities/merge_operators/bytesxor.cc
+        utilities/merge_operators/collection/collection_merge_operator.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
         utilities/merge_operators/sortlist.cc
@@ -1439,6 +1440,7 @@ if(WITH_TESTS)
         utilities/checkpoint/checkpoint_test.cc
         utilities/env_timed_test.cc
         utilities/memory/memory_test.cc
+        utilities/merge_operators/collection/collection_merge_operator_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/object_registry_test.cc
         utilities/option_change_migration/option_change_migration_test.cc

@@ -1375,6 +1375,9 @@ cache_test: $(OBJ_DIR)/cache/cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 coding_test: $(OBJ_DIR)/util/coding_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+collection_merge_operator_test:  $(OBJ_DIR)/utilities/merge_operators/collection/collection_merge_operator_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 hash_test: $(OBJ_DIR)/util/hash_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

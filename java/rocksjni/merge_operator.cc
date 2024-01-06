@@ -14,12 +14,12 @@
 #include <stdlib.h>
 
 #include <memory>
-#include <string>
 
 #include "include/org_rocksdb_StringAppendOperator.h"
 #include "include/org_rocksdb_UInt64AddOperator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
@@ -61,8 +61,7 @@ jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator__Ljava
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_StringAppendOperator_disposeInternal(JNIEnv* /*env*/,
-                                                           jobject /*jobj*/,
+void Java_org_rocksdb_StringAppendOperator_disposeInternal(JNIEnv*, jobject,
                                                            jlong jhandle) {
   auto* sptr_string_append_op =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
@@ -88,8 +87,7 @@ jlong Java_org_rocksdb_UInt64AddOperator_newSharedUInt64AddOperator(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_UInt64AddOperator_disposeInternal(JNIEnv* /*env*/,
-                                                        jobject /*jobj*/,
+void Java_org_rocksdb_UInt64AddOperator_disposeInternal(JNIEnv*, jobject,
                                                         jlong jhandle) {
   auto* sptr_uint64_add_op =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(

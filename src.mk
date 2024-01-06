@@ -282,6 +282,7 @@ LIB_SOURCES =                                                   \
   utilities/fault_injection_secondary_cache.cc                  \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/memory/memory_util.cc                               \
+  utilities/merge_operators/collection/collection_merge_operator.cc    \
   utilities/merge_operators.cc                                  \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
@@ -613,6 +614,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/env_timed_test.cc                                           \
   utilities/memory/memory_test.cc                                       \
+  utilities/merge_operators/collection/collection_merge_operator_test.cc    \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/object_registry_test.cc                                     \
   utilities/option_change_migration/option_change_migration_test.cc     \
@@ -646,6 +648,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backup_engine_options.cc                      \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/clock_cache.cc                                \
+  java/rocksjni/collection_merge_operator.cc                  \
   java/rocksjni/cache.cc                                      \
   java/rocksjni/columnfamilyhandle.cc                         \
   java/rocksjni/compact_range_options.cc                      \

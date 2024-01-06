@@ -17,6 +17,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.Cache\
 	org.rocksdb.CassandraCompactionFilter\
 	org.rocksdb.CassandraValueMergeOperator\
+	org.rocksdb.CollectionMergeOperator\
 	org.rocksdb.ColumnFamilyHandle\
 	org.rocksdb.ColumnFamilyOptions\
 	org.rocksdb.CompactionJobInfo\
@@ -118,6 +119,7 @@ JAVA_TESTS = \
 	org.rocksdb.util.BytewiseComparatorIntTest\
 	org.rocksdb.CheckPointTest\
 	org.rocksdb.ClockCacheTest\
+	org.rocksdb.CollectionMergeOperatorTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
 	org.rocksdb.ColumnFamilyTest\
 	org.rocksdb.CompactionFilterFactoryTest\
