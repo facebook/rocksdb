@@ -82,7 +82,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     }
     if (s.ok()) {
       CO_AWAIT(t->MultiGet)
-      (options, &table_range, prefix_extractor.get(), skip_filters);
+      (options, &table_range, prefix_extractor.get(), skip_filters,
+       skip_range_deletions);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
         Status* status = iter->s;

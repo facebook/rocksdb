@@ -323,7 +323,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 using MultiGetRange = MultiGetContext::Range;
 DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 (const ReadOptions& read_options, const MultiGetRange* mget_range,
- const SliceTransform* prefix_extractor, bool skip_filters) {
+ const SliceTransform* prefix_extractor, bool skip_filters,
+ bool filters_matched) {
   if (mget_range->empty()) {
     // Caller should ensure non-empty (performance bug)
     assert(false);
@@ -334,6 +335,12 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       !skip_filters ? rep_->filter.get() : nullptr;
   MultiGetRange sst_file_range(*mget_range, mget_range->begin(),
                                mget_range->end());
+  // Irrespective of skip_filters, if filter block is not present, then clear
+  // filters_matched to avoid updating bloom filter true positive stat
+  // later on
+  if (!rep_->filter.get()) {
+    filters_matched = false;
+  }
 
   // First check the full filter
   // If full filter not useful, Then go into each block
@@ -759,7 +766,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         iiter->Next();
       } while (iiter->Valid());
 
-      if (matched && filter != nullptr) {
+      if (matched && (filter != nullptr || filters_matched)) {
         if (rep_->whole_key_filtering) {
           RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
         } else {

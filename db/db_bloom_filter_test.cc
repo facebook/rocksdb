@@ -3562,6 +3562,48 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
   }
 }
 
+TEST_F(DBBloomFilterTest, MultiGetTruePositiveStat) {
+  constexpr int maxKey = 10;
+  auto PutFn = [&]() {
+    int i;
+    // Put
+    for (i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(Key(i), Key(i)));
+    }
+    Flush();
+  };
+
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  // Test 1: bits per key < 0.5 means skip filters -> no filter
+  // constructed or read.
+  table_options.filter_policy = Create(10, kAutoBloom);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutFn();
+
+  std::vector<std::string> key_strs;
+  std::vector<Slice> key_slices;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+  ReadOptions ropts;
+  int i;
+  for (i = 0; i < maxKey; ++i) {
+    key_strs.emplace_back(Key(i));
+  }
+  for (i = 0; i < maxKey; ++i) {
+    key_slices.emplace_back(key_strs[i]);
+  }
+  values.resize(maxKey);
+  statuses.resize(maxKey);
+
+  db_->MultiGet(ropts, db_->DefaultColumnFamily(), maxKey, &key_slices[0],
+                &values[0], &statuses[0]);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), maxKey);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+            maxKey);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

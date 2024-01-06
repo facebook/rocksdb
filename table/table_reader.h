@@ -146,10 +146,15 @@ class TableReader {
     return Status::NotSupported();
   }
 
+  // The filters_matched argument indicates whether the bloom filter lookup
+  // was already done or not. If its true, then the
+  // BLOOM_FILTER_TRUE_POSITIVE ticker stat is updated. If its false, then
+  // skip_filters determines whether the bloom filter is consulted or not.
   virtual void MultiGet(const ReadOptions& readOptions,
                         const MultiGetContext::Range* mget_range,
                         const SliceTransform* prefix_extractor,
-                        bool skip_filters = false) {
+                        bool skip_filters = false,
+                        bool /*filters_matched*/ = false) {
     for (auto iter = mget_range->begin(); iter != mget_range->end(); ++iter) {
       *iter->s = Get(readOptions, iter->ikey, iter->get_context,
                      prefix_extractor, skip_filters);
@@ -159,8 +164,10 @@ class TableReader {
 #if USE_COROUTINES
   virtual folly::coro::Task<void> MultiGetCoroutine(
       const ReadOptions& readOptions, const MultiGetContext::Range* mget_range,
-      const SliceTransform* prefix_extractor, bool skip_filters = false) {
-    MultiGet(readOptions, mget_range, prefix_extractor, skip_filters);
+      const SliceTransform* prefix_extractor, bool skip_filters = false,
+      bool filters_matched = false) {
+    MultiGet(readOptions, mget_range, prefix_extractor, skip_filters,
+             filters_matched);
     co_return;
   }
 #endif  // USE_COROUTINES

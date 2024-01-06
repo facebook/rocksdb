@@ -154,7 +154,8 @@ class BlockBasedTable : public TableReader {
                                   const ReadOptions& readOptions,
                                   const MultiGetContext::Range* mget_range,
                                   const SliceTransform* prefix_extractor,
-                                  bool skip_filters = false);
+                                  bool skip_filters = false,
+                                  bool filters_matched = false);
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
