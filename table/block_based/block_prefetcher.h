@@ -22,7 +22,8 @@ class BlockPrefetcher {
       const BlockBasedTable::Rep* rep, const BlockHandle& handle,
       size_t readahead_size, bool is_for_compaction,
       const bool no_sequential_checking, const ReadOptions& read_options,
-      const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb);
+      const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
+      bool is_async_io_prefetch);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
   void UpdateReadPattern(const uint64_t& offset, const size_t& len) {

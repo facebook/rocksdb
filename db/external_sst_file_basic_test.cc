@@ -244,7 +244,7 @@ class ChecksumVerifyHelper {
 
  public:
   ChecksumVerifyHelper(Options& options) : options_(options) {}
-  ~ChecksumVerifyHelper() {}
+  ~ChecksumVerifyHelper() = default;
 
   Status GetSingleFileChecksumAndFuncName(
       const std::string& file_path, std::string* file_checksum,
@@ -472,7 +472,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   std::vector<LiveFileMetaData> live_files;
   dbfull()->GetLiveFilesMetaData(&live_files);
   std::set<std::string> set1;
-  for (auto f : live_files) {
+  for (const auto& f : live_files) {
     set1.insert(f.name);
     ASSERT_EQ(f.file_checksum, kUnknownFileChecksum);
     ASSERT_EQ(f.file_checksum_func_name, kUnknownFileChecksumFuncName);
@@ -521,7 +521,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files1;
   dbfull()->GetLiveFilesMetaData(&live_files1);
-  for (auto f : live_files1) {
+  for (const auto& f : live_files1) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_EQ(f.file_checksum, file_checksum2);
       ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name2);
@@ -538,7 +538,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files2;
   dbfull()->GetLiveFilesMetaData(&live_files2);
-  for (auto f : live_files2) {
+  for (const auto& f : live_files2) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_EQ(f.file_checksum, file_checksum3);
       ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name3);
@@ -561,7 +561,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files3;
   dbfull()->GetLiveFilesMetaData(&live_files3);
-  for (auto f : live_files3) {
+  for (const auto& f : live_files3) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_FALSE(f.file_checksum == file_checksum4);
       ASSERT_EQ(f.file_checksum, "asd");
@@ -581,7 +581,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files4;
   dbfull()->GetLiveFilesMetaData(&live_files4);
-  for (auto f : live_files4) {
+  for (const auto& f : live_files4) {
     if (set1.find(f.name) == set1.end()) {
       std::string cur_checksum5, cur_checksum_func_name5;
       ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
@@ -603,7 +603,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files6;
   dbfull()->GetLiveFilesMetaData(&live_files6);
-  for (auto f : live_files6) {
+  for (const auto& f : live_files6) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_EQ(f.file_checksum, file_checksum6);
       ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name6);

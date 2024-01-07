@@ -92,20 +92,21 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   fopts.temperature = file_temp_;
   Status s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   if (s.ok()) {
+    // check empty file
+    // if true, skip further processing of this file
     s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
-  }
-
-  // check empty file
-  // if true, skip further processing of this file
-  if (file_size == 0) {
-    return Status::Aborted(file_path, "Empty file");
+    if (s.ok()) {
+      if (file_size == 0) {
+        return Status::Aborted(file_path, "Empty file");
+      }
+    }
   }
 
   file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
-  FilePrefetchBuffer prefetch_buffer(
-      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
-      false /* track_min_offset */);
+  FilePrefetchBuffer prefetch_buffer(ReadaheadParams(),
+                                     !fopts.use_mmap_reads /* enable */,
+                                     false /* track_min_offset */);
   if (s.ok()) {
     const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
     uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)

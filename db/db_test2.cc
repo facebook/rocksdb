@@ -80,9 +80,8 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
-  column_families.push_back(ColumnFamilyDescriptor("goku", cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
+  column_families.emplace_back("goku", cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   // OpenForReadOnly should fail but will create <dbname> in the file system
   ASSERT_NOK(
@@ -748,7 +747,7 @@ TEST_F(DBTest2, WalFilterTest) {
         // we expect all records to be processed
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
-            keys_must_exist.push_back(Slice(batch_keys[i][j]));
+            keys_must_exist.emplace_back(batch_keys[i][j]);
           }
         }
         break;
@@ -762,9 +761,9 @@ TEST_F(DBTest2, WalFilterTest) {
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
             if (i == apply_option_for_record_index) {
-              keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_not_exist.emplace_back(batch_keys[i][j]);
             } else {
-              keys_must_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_exist.emplace_back(batch_keys[i][j]);
             }
           }
         }
@@ -780,9 +779,9 @@ TEST_F(DBTest2, WalFilterTest) {
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
             if (i >= apply_option_for_record_index) {
-              keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_not_exist.emplace_back(batch_keys[i][j]);
             } else {
-              keys_must_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_exist.emplace_back(batch_keys[i][j]);
             }
           }
         }
@@ -922,9 +921,9 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
   for (size_t i = 0; i < batch_keys.size(); i++) {
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
       if (i >= change_records_from_index && j >= num_keys_to_add_in_new_batch) {
-        keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
+        keys_must_not_exist.emplace_back(batch_keys[i][j]);
       } else {
-        keys_must_exist.push_back(Slice(batch_keys[i][j]));
+        keys_must_exist.emplace_back(batch_keys[i][j]);
       }
     }
   }
@@ -1012,7 +1011,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatchExtraKeys) {
 
   for (size_t i = 0; i < batch_keys.size(); i++) {
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      keys_must_exist.push_back(Slice(batch_keys[i][j]));
+      keys_must_exist.emplace_back(batch_keys[i][j]);
     }
   }
 
@@ -2350,7 +2349,7 @@ class MockPersistentCache : public PersistentCache {
         "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
   }
 
-  ~MockPersistentCache() override {}
+  ~MockPersistentCache() override = default;
 
   PersistentCache::StatsType Stats() override {
     return PersistentCache::StatsType();
@@ -3036,7 +3035,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   // Remember file name before compaction is triggered
   std::vector<LiveFileMetaData> files_meta;
   dbfull()->GetLiveFilesMetaData(&files_meta);
-  for (auto file : files_meta) {
+  for (const auto& file : files_meta) {
     files_before_compact.push_back(file.name);
   }
 
@@ -3051,7 +3050,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   // Get file names after compaction is stopped
   files_meta.clear();
   dbfull()->GetLiveFilesMetaData(&files_meta);
-  for (auto file : files_meta) {
+  for (const auto& file : files_meta) {
     files_after_compact.push_back(file.name);
   }
 
@@ -3071,7 +3070,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   files_meta.clear();
   files_after_compact.clear();
   dbfull()->GetLiveFilesMetaData(&files_meta);
-  for (auto file : files_meta) {
+  for (const auto& file : files_meta) {
     files_after_compact.push_back(file.name);
   }
 
@@ -4213,8 +4212,8 @@ TEST_F(DBTest2, TestNumPread) {
 
 class TraceExecutionResultHandler : public TraceRecordResult::Handler {
  public:
-  TraceExecutionResultHandler() {}
-  ~TraceExecutionResultHandler() override {}
+  TraceExecutionResultHandler() = default;
+  ~TraceExecutionResultHandler() override = default;
 
   virtual Status Handle(const StatusOnlyTraceExecutionResult& result) override {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
@@ -4399,9 +4398,8 @@ TEST_F(DBTest2, TraceAndReplay) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -4591,9 +4589,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -4868,9 +4865,8 @@ TEST_F(DBTest2, TraceWithLimit) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -4942,9 +4938,8 @@ TEST_F(DBTest2, TraceWithSampling) {
   DB* db2 = nullptr;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -5048,9 +5043,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -5098,9 +5092,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   delete db3_init;
 
   column_families.clear();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   handles.clear();
 
   DB* db3 = nullptr;
@@ -6441,7 +6434,7 @@ class RenameCurrentTest : public DBTestBase,
       : DBTestBase("rename_current_test", /*env_do_fsync=*/true),
         sync_point_(GetParam()) {}
 
-  ~RenameCurrentTest() override {}
+  ~RenameCurrentTest() override = default;
 
   void SetUp() override {
     env_->no_file_overwrite_.store(true, std::memory_order_release);
@@ -7010,7 +7003,7 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
   std::vector<LiveFileStorageInfo> infos;
   ASSERT_OK(
       dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
-  for (auto info : infos) {
+  for (const auto& info : infos) {
     temperatures.emplace(info.file_number, info.temperature);
   }
 

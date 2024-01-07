@@ -1178,10 +1178,10 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
   VersionEdit edit;
   edit.SetColumnFamily(cfd_->GetID());
   edit.SetFullHistoryTsLow(new_full_history_ts_low);
-  // TODO: plumb Env::IOActivity, Env::IOPriority
   return versions_->LogAndApply(cfd_, *cfd_->GetLatestMutableCFOptions(),
-                                ReadOptions(), WriteOptions(), &edit, db_mutex_,
-                                output_file_directory_);
+                                ReadOptions(Env::IOActivity::kFlush),
+                                WriteOptions(Env::IOActivity::kFlush), &edit,
+                                db_mutex_, output_file_directory_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -16,9 +16,11 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/sst_dump_tool.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/sst_file_dumper.h"
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -485,6 +487,39 @@ TEST_F(SSTDumpToolTest, RawOutput) {
   }
 }
 
+TEST_F(SSTDumpToolTest, SstFileDumperMmapReads) {
+  Options opts;
+  opts.env = env();
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  EnvOptions env_opts;
+  uint64_t data_size = 0;
+
+  // Test all combinations of mmap read options
+  for (int i = 0; i < 4; ++i) {
+    SaveAndRestore<bool> sar_opts(&opts.allow_mmap_reads, (i & 1) != 0);
+    SaveAndRestore<bool> sar_env_opts(&env_opts.use_mmap_reads, (i & 2) != 0);
+
+    SstFileDumper dumper(opts, file_path, Temperature::kUnknown,
+                         1024 /*readahead_size*/, true /*verify_checksum*/,
+                         false /*output_hex*/, false /*decode_blob_index*/,
+                         env_opts);
+    ASSERT_OK(dumper.getStatus());
+    std::shared_ptr<const TableProperties> tp;
+    ASSERT_OK(dumper.ReadTableProperties(&tp));
+    ASSERT_NE(tp.get(), nullptr);
+    if (i == 0) {
+      // Verify consistency of a populated field with some entropy
+      data_size = tp->data_size;
+      ASSERT_GT(data_size, 0);
+    } else {
+      ASSERT_EQ(data_size, tp->data_size);
+    }
+  }
+
+  cleanup(opts, file_path);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

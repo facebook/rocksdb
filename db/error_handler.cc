@@ -796,7 +796,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     RecordInHistogram(bg_error_stats_.get(),
                       ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
   }
-  return;
 }
 
 void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
@@ -809,7 +808,6 @@ void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
   if (bg_error_.severity() >= Status::Severity::kHardError) {
     is_db_stopped_.store(true, std::memory_order_release);
   }
-  return;
 }
 
 void ErrorHandler::EndAutoRecovery() {
@@ -827,7 +825,6 @@ void ErrorHandler::EndAutoRecovery() {
     db_mutex_->Lock();
   }
   TEST_SYNC_POINT("PostEndAutoRecovery");
-  return;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

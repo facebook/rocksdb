@@ -384,7 +384,8 @@ void BlockBasedTableIterator::InitDataBlock() {
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction,
-          /*no_sequential_checking=*/false, read_options_, readaheadsize_cb);
+          /*no_sequential_checking=*/false, read_options_, readaheadsize_cb,
+          read_options_.async_io);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -444,7 +445,7 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction, /*no_sequential_checking=*/read_options_.async_io,
-          read_options_, readaheadsize_cb);
+          read_options_, readaheadsize_cb, read_options_.async_io);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -712,7 +713,6 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
       // It can be due to reading error in second buffer in FilePrefetchBuffer.
       // BlockHandles already added to the queue but there was error in fetching
       // those data blocks. So in this call they need to be read again.
-      assert(block_handles_.front().is_cache_hit_ == false);
       found_first_miss_block = true;
       // Initialize prev_handles_size to 0 as all those handles need to be read
       // again.
@@ -855,7 +855,8 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     auto it_end =
         block_handles_.rbegin() + (block_handles_.size() - prev_handles_size);
 
-    while (it != it_end && (*it).is_cache_hit_) {
+    while (it != it_end && (*it).is_cache_hit_ &&
+           start_updated_offset != (*it).handle_.offset()) {
       it++;
     }
     end_updated_offset = (*it).handle_.offset() + footer + (*it).handle_.size();

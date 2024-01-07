@@ -8,9 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/dbformat.h"
 
-#include <stdio.h>
-
 #include <cinttypes>
+#include <cstdio>
 
 #include "db/lookup_key.h"
 #include "monitoring/perf_context_imp.h"
@@ -28,7 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 // ValueType, not the lowest).
 const ValueType kValueTypeForSeek = kTypeWideColumnEntity;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
-const std::string kDisableUserTimestamp("");
+const std::string kDisableUserTimestamp;
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {

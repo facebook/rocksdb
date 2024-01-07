@@ -16,7 +16,13 @@ void BlockPrefetcher::PrefetchIfNeeded(
     const BlockBasedTable::Rep* rep, const BlockHandle& handle,
     const size_t readahead_size, bool is_for_compaction,
     const bool no_sequential_checking, const ReadOptions& read_options,
-    const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb) {
+    const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
+    bool is_async_io_prefetch) {
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = readahead_size;
+  readahead_params.max_readahead_size = readahead_size;
+  readahead_params.num_buffers = is_async_io_prefetch ? 2 : 1;
+
   const size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
   const size_t offset = handle.offset();
   if (is_for_compaction) {
@@ -44,20 +50,18 @@ void BlockPrefetcher::PrefetchIfNeeded(
     //
     // num_file_reads is used  by FilePrefetchBuffer only when
     // implicit_auto_readahead is set.
-    rep->CreateFilePrefetchBufferIfNotExists(
-        compaction_readahead_size_, compaction_readahead_size_,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/false,
-        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0,
-        /*readaheadsize_cb=*/nullptr);
+    readahead_params.initial_readahead_size = compaction_readahead_size_;
+    readahead_params.max_readahead_size = compaction_readahead_size_;
+    rep->CreateFilePrefetchBufferIfNotExists(readahead_params,
+                                             &prefetch_buffer_,
+                                             /*readaheadsize_cb=*/nullptr);
     return;
   }
 
   // Explicit user requested readahead.
   if (readahead_size > 0) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        readahead_size, readahead_size, &prefetch_buffer_,
-        /*implicit_auto_readahead=*/false, /*num_file_reads=*/0,
-        /*num_file_reads_for_auto_readahead=*/0, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
@@ -75,14 +79,17 @@ void BlockPrefetcher::PrefetchIfNeeded(
     initial_auto_readahead_size_ = max_auto_readahead_size;
   }
 
+  readahead_params.initial_readahead_size = initial_auto_readahead_size_;
+  readahead_params.max_readahead_size = max_auto_readahead_size;
+  readahead_params.implicit_auto_readahead = true;
+  readahead_params.num_file_reads_for_auto_readahead =
+      rep->table_options.num_file_reads_for_auto_readahead;
+
   // In case of no_sequential_checking, it will skip the num_file_reads_ and
   // will always creates the FilePrefetchBuffer.
   if (no_sequential_checking) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/true,
-        /*num_file_reads=*/0,
-        rep->table_options.num_file_reads_for_auto_readahead, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
@@ -109,11 +116,10 @@ void BlockPrefetcher::PrefetchIfNeeded(
     return;
   }
 
+  readahead_params.num_file_reads = num_file_reads_;
   if (rep->file->use_direct_io()) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
-        rep->table_options.num_file_reads_for_auto_readahead, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
@@ -133,9 +139,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
       BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
-        rep->table_options.num_file_reads_for_auto_readahead, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }

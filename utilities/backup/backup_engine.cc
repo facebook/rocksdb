@@ -1556,11 +1556,10 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
   }
   ROCKS_LOG_INFO(options_.info_log,
                  "dispatch files for backup done, wait for finish.");
-  IOStatus item_io_status;
   for (auto& item : backup_items_to_finish) {
     item.result.wait();
     auto result = item.result.get();
-    item_io_status = result.io_status;
+    IOStatus item_io_status = result.io_status;
     Temperature temp = result.expected_src_temperature;
     if (result.current_src_temperature != Temperature::kUnknown &&
         (temp == Temperature::kUnknown ||
@@ -1577,7 +1576,8 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           result.db_session_id, temp));
     }
     if (!item_io_status.ok()) {
-      io_s = item_io_status;
+      io_s = std::move(item_io_status);
+      io_s.MustCheck();
     }
   }
 
@@ -2332,11 +2332,20 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     if (GetNamingNoFlags() != BackupEngineOptions::kLegacyCrc32cAndFileSize &&
         file_type != kBlobFile) {
       // Prepare db_session_id to add to the file name
-      // Ignore the returned status
-      // In the failed cases, db_id and db_session_id will be empty
-      GetFileDbIdentities(db_env_, src_env_options, src_path, src_temperature,
-                          rate_limiter, &db_id, &db_session_id)
-          .PermitUncheckedError();
+      Status s = GetFileDbIdentities(db_env_, src_env_options, src_path,
+                                     src_temperature, rate_limiter, &db_id,
+                                     &db_session_id);
+      if (s.IsPathNotFound()) {
+        // Retry with any temperature
+        s = GetFileDbIdentities(db_env_, src_env_options, src_path,
+                                Temperature::kUnknown, rate_limiter, &db_id,
+                                &db_session_id);
+      }
+      if (s.IsNotFound()) {
+        // db_id and db_session_id will be empty, which is OK for old files
+      } else if (!s.ok()) {
+        return status_to_io_status(std::move(s));
+      }
     }
     // Calculate checksum if checksum and db session id are not available.
     // If db session id is available, we will not calculate the checksum
@@ -2594,7 +2603,7 @@ Status BackupEngineImpl::GetFileDbIdentities(
   SstFileDumper sst_reader(options, file_path, file_temp,
                            2 * 1024 * 1024
                            /* readahead_size */,
-                           false /* verify_checksum */, false /* output_hex */,
+                           true /* verify_checksum */, false /* output_hex */,
                            false /* decode_blob_index */, src_env_options,
                            true /* silent */);
 
@@ -2605,6 +2614,7 @@ Status BackupEngineImpl::GetFileDbIdentities(
   if (s.ok()) {
     // Try to get table properties from the table reader of sst_reader
     if (!sst_reader.ReadTableProperties(&tp).ok()) {
+      // FIXME (peterd): this logic is untested and seems obsolete.
       // Try to use table properites from the initialization of sst_reader
       table_properties = sst_reader.GetInitTableProperties();
     } else {
