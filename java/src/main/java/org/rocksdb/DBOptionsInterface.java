@@ -191,6 +191,19 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   T setLogger(Logger logger);
 
   /**
+   * <p>Sets the native RocksDB logger to use the logger described
+   * by the given NativeLogger. This should not be used in conjunction
+   * with setLogger, which sets the RocksDB to be a Java logger
+   * invoked over the JNI.</p>
+   *
+   * @param nativeLogger {@link NativeLogger} the NativeLogger
+   *     that describes the C++ logger implementation that RocksDB
+   *     will use to log.
+   * @return the instance of the current object.
+   */
+  T setNativeLogger(NativeLogger nativeLogger);
+
+  /**
    * <p>Sets the RocksDB log level. Default level is INFO</p>
    *
    * @param infoLogLevel log level to set.

@@ -18,6 +18,9 @@ class StderrLogger : public Logger {
  public:
   explicit StderrLogger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : Logger(log_level) {}
+  explicit StderrLogger(const InfoLogLevel log_level,
+                        const std::string& log_prefix)
+      : Logger(log_level), log_prefix(std::move(log_prefix)){};
 
   ~StderrLogger() override;
 
@@ -26,6 +29,10 @@ class StderrLogger : public Logger {
   using Logger::Logv;
 
   virtual void Logv(const char* format, va_list ap) override;
+
+ private:
+  // This prefix will be appended to the beginning of every log
+  std::string log_prefix;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

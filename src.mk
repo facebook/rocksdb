@@ -680,6 +680,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/memory_util.cc                                \
   java/rocksjni/merge_operator.cc                             \
   java/rocksjni/native_comparator_wrapper_test.cc             \
+  java/rocksjni/native_logger.cc                              \
   java/rocksjni/optimistic_transaction_db.cc                  \
   java/rocksjni/optimistic_transaction_options.cc             \
   java/rocksjni/options.cc                                    \

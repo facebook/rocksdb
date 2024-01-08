@@ -52,6 +52,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/memory_util.cc
         rocksjni/memtablejni.cc
         rocksjni/merge_operator.cc
+        rocksjni/native_logger.cc
         rocksjni/native_comparator_wrapper_test.cc
         rocksjni/optimistic_transaction_db.cc
         rocksjni/optimistic_transaction_options.cc
@@ -200,6 +201,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/MutableOptionValue.java
   src/main/java/org/rocksdb/NativeComparatorWrapper.java
   src/main/java/org/rocksdb/NativeLibraryLoader.java
+  src/main/java/org/rocksdb/NativeLogger.java
   src/main/java/org/rocksdb/OperationStage.java
   src/main/java/org/rocksdb/OperationType.java
   src/main/java/org/rocksdb/OptimisticTransactionDB.java
@@ -358,6 +360,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/test/TestableEventListener.java
   src/test/java/org/rocksdb/test/RocksJunitRunner.java
   src/test/java/org/rocksdb/LoggerTest.java
+  src/test/java/org/rocksdb/NativeLoggerTest.java
   src/test/java/org/rocksdb/FilterTest.java
   src/test/java/org/rocksdb/ByteBufferUnsupportedOperationTest.java
   src/test/java/org/rocksdb/util/IntComparatorTest.java
@@ -462,6 +465,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.ReadOnlyTest
   org.rocksdb.EnvOptionsTest
   org.rocksdb.LoggerTest
+  org.rocksdb.NativeLoggerTest
   org.rocksdb.FilterTest
   # org.rocksdb.ByteBufferUnsupportedOperationTest
   # org.rocksdb.util.IntComparatorTest

@@ -45,6 +45,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.MemoryUsageType\
 	org.rocksdb.MemoryUtil\
 	org.rocksdb.MergeOperator\
+	org.rocksdb.NativeLogger\
 	org.rocksdb.NativeComparatorWrapper\
 	org.rocksdb.OptimisticTransactionDB\
 	org.rocksdb.OptimisticTransactionOptions\
@@ -160,6 +161,7 @@ JAVA_TESTS = \
 	org.rocksdb.MutableOptionsGetSetTest \
 	org.rocksdb.NativeComparatorWrapperTest\
 	org.rocksdb.NativeLibraryLoaderTest\
+	org.rocksdb.NativeLoggerTest\
 	org.rocksdb.OptimisticTransactionTest\
 	org.rocksdb.OptimisticTransactionDBTest\
 	org.rocksdb.OptimisticTransactionOptionsTest\

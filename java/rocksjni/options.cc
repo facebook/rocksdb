@@ -34,6 +34,7 @@
 #include "rocksdb/table.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/native_logger.h"
 #include "rocksjni/portal.h"
 #include "rocksjni/statisticsjni.h"
 #include "rocksjni/table_filter_jnicallback.h"
@@ -1091,6 +1092,20 @@ void Java_org_rocksdb_Options_setLogger(JNIEnv*, jobject, jlong jhandle,
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>*>(
           jlogger_handle);
   reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->info_log = *pLogger;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setNativeLogger
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setNativeLogger(JNIEnv*, jobject, jlong jhandle,
+                                              jlong jnative_logger_handle) {
+  auto* native_logger =
+      reinterpret_cast<ROCKSDB_NAMESPACE::NativeLogger*>(jnative_logger_handle);
+  assert(native_logger != nullptr);
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->info_log =
+      native_logger->logger;
 }
 
 /*
