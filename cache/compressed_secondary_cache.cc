@@ -31,7 +31,7 @@ CompressedSecondaryCache::~CompressedSecondaryCache() {}
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CacheItemHelper* helper,
     Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
-    bool& kept_in_sec_cache) {
+    Statistics* stats, bool& kept_in_sec_cache) {
   assert(helper);
   // This is a minor optimization. Its ok to skip it in TSAN in order to
   // avoid a false positive.
@@ -51,6 +51,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   void* handle_value = cache_->Value(lru_handle);
   if (handle_value == nullptr) {
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+    RecordTick(stats, COMPRESSED_SECONDARY_CACHE_DUMMY_HITS);
     return nullptr;
   }
 
@@ -137,6 +138,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   }
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
+  RecordTick(stats, COMPRESSED_SECONDARY_CACHE_HITS);
   return handle;
 }
 

@@ -213,21 +213,25 @@ void NotifyCollectTableCollectorsOnBlockAdd(
 
 bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    Logger* info_log, PropertyBlockBuilder* builder) {
+    Logger* info_log, PropertyBlockBuilder* builder,
+    UserCollectedProperties& user_collected_properties,
+    UserCollectedProperties& readable_properties) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
-    UserCollectedProperties user_collected_properties;
     Status s = collector->Finish(&user_collected_properties);
-
-    all_succeeded = all_succeeded && s.ok();
-    if (!s.ok()) {
+    if (s.ok()) {
+      for (const auto& prop : collector->GetReadableProperties()) {
+        readable_properties.insert(prop);
+      }
+      builder->Add(user_collected_properties);
+    } else {
       LogPropertiesCollectionError(info_log, "Finish" /* method */,
                                    collector->Name());
-    } else {
-      builder->Add(user_collected_properties);
+      if (all_succeeded) {
+        all_succeeded = false;
+      }
     }
   }
-
   return all_succeeded;
 }
 

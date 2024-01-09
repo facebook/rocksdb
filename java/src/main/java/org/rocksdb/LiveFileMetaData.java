@@ -16,22 +16,13 @@ public class LiveFileMetaData extends SstFileMetaData {
   /**
    * Called from JNI C++
    */
-  private LiveFileMetaData(
-      final byte[] columnFamilyName,
-      final int level,
-      final String fileName,
-      final String path,
-      final long size,
-      final long smallestSeqno,
-      final long largestSeqno,
-      final byte[] smallestKey,
-      final byte[] largestKey,
-      final long numReadsSampled,
-      final boolean beingCompacted,
-      final long numEntries,
-      final long numDeletions) {
-    super(fileName, path, size, smallestSeqno, largestSeqno, smallestKey,
-        largestKey, numReadsSampled, beingCompacted, numEntries, numDeletions);
+  private LiveFileMetaData(final byte[] columnFamilyName, final int level, final String fileName,
+      final String path, final long size, final long smallestSeqno, final long largestSeqno,
+      final byte[] smallestKey, final byte[] largestKey, final long numReadsSampled,
+      final boolean beingCompacted, final long numEntries, final long numDeletions,
+      final byte[] fileChecksum) {
+    super(fileName, path, size, smallestSeqno, largestSeqno, smallestKey, largestKey,
+        numReadsSampled, beingCompacted, numEntries, numDeletions, fileChecksum);
     this.columnFamilyName = columnFamilyName;
     this.level = level;
   }

@@ -37,6 +37,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   // MemTableInserter during recovery to actually do writes into the DB
   // instead of just dropping the in-memory write batch.
   //
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   WriteOptions w_options;
 
   class InvalidSnapshotReadCallback : public ReadCallback {
@@ -262,6 +263,7 @@ Status WriteUnpreparedTxnDB::Initialize(
       continue;
     }
 
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     WriteOptions w_options;
     w_options.sync = true;
     TransactionOptions t_options;

@@ -9,10 +9,9 @@
 
 #include "table/block_based/block_based_table_builder.h"
 
-#include <assert.h>
-#include <stdio.h>
-
 #include <atomic>
+#include <cassert>
+#include <cstdio>
 #include <list>
 #include <map>
 #include <memory>
@@ -231,7 +230,6 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
                         uint64_t /* block_compressed_bytes_slow */) override {
     // Intentionally left blank. No interest in collecting stats for
     // blocks.
-    return;
   }
 
   Status Finish(UserCollectedProperties* properties) override {
@@ -266,6 +264,7 @@ struct BlockBasedTableBuilder::Rep {
   // BEGIN from MutableCFOptions
   std::shared_ptr<const SliceTransform> prefix_extractor;
   // END from MutableCFOptions
+  const WriteOptions write_options;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   // Size in bytes for the user-defined timestamps.
@@ -441,6 +440,7 @@ struct BlockBasedTableBuilder::Rep {
       WritableFileWriter* f)
       : ioptions(tbo.ioptions),
         prefix_extractor(tbo.moptions.prefix_extractor),
+        write_options(tbo.write_options),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
         ts_sz(tbo.internal_comparator.user_comparator()->timestamp_size()),
@@ -579,9 +579,12 @@ struct BlockBasedTableBuilder::Rep {
     for (auto& factory : *tbo.int_tbl_prop_collector_factories) {
       assert(factory);
 
-      table_properties_collectors.emplace_back(
+      std::unique_ptr<IntTblPropCollector> collector{
           factory->CreateIntTblPropCollector(tbo.column_family_id,
-                                             tbo.level_at_creation));
+                                             tbo.level_at_creation)};
+      if (collector) {
+        table_properties_collectors.emplace_back(std::move(collector));
+      }
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
@@ -985,7 +988,9 @@ BlockBasedTableBuilder::~BlockBasedTableBuilder() {
 void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(rep_->state != Rep::State::kClosed);
-  if (!ok()) return;
+  if (!ok()) {
+    return;
+  }
   ValueType value_type = ExtractValueType(key);
   if (IsValueType(value_type)) {
 #ifndef NDEBUG
@@ -1097,8 +1102,12 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 void BlockBasedTableBuilder::Flush() {
   Rep* r = rep_;
   assert(rep_->state != Rep::State::kClosed);
-  if (!ok()) return;
-  if (r->data_block.empty()) return;
+  if (!ok()) {
+    return;
+  }
+  if (r->data_block.empty()) {
+    return;
+  }
   if (r->IsParallelCompressionEnabled() &&
       r->state == Rep::State::kUnbuffered) {
     r->data_block.Finish();
@@ -1310,6 +1319,13 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   //    checksum: uint32
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
+  IOOptions io_options;
+  IOStatus io_s =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!io_s.ok()) {
+    r->SetIOStatus(io_s);
+    return;
+  }
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
   const uint64_t offset = r->get_offset();
@@ -1323,7 +1339,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   }
 
   {
-    IOStatus io_s = r->file->Append(block_contents);
+    io_s = r->file->Append(io_options, block_contents);
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
       return;
@@ -1350,7 +1366,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
       "BlockBasedTableBuilder::WriteMaybeCompressedBlock:TamperWithChecksum",
       trailer.data());
   {
-    IOStatus io_s = r->file->Append(Slice(trailer.data(), trailer.size()));
+    io_s = r->file->Append(io_options, Slice(trailer.data(), trailer.size()));
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
       return;
@@ -1387,7 +1403,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         (r->alignment -
          ((block_contents.size() + kBlockTrailerSize) & (r->alignment - 1))) &
         (r->alignment - 1);
-    IOStatus io_s = r->file->Pad(pad_bytes);
+
+    io_s = r->file->Pad(io_options, pad_bytes);
     if (io_s.ok()) {
       r->set_offset(r->get_offset() + pad_bytes);
     } else {
@@ -1710,9 +1727,10 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     property_block_builder.AddTableProperty(rep_->props);
 
     // Add use collected properties
-    NotifyCollectTableCollectorsOnFinish(rep_->table_properties_collectors,
-                                         rep_->ioptions.logger,
-                                         &property_block_builder);
+    NotifyCollectTableCollectorsOnFinish(
+        rep_->table_properties_collectors, rep_->ioptions.logger,
+        &property_block_builder, rep_->props.user_collected_properties,
+        rep_->props.readable_properties);
 
     Slice block_data = property_block_builder.Finish();
     TEST_SYNC_POINT_CALLBACK(
@@ -1792,7 +1810,14 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
     r->SetStatus(s);
     return;
   }
-  IOStatus ios = r->file->Append(footer.GetSlice());
+  IOOptions io_options;
+  IOStatus ios =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!ios.ok()) {
+    r->SetIOStatus(ios);
+    return;
+  }
+  ios = r->file->Append(io_options, footer.GetSlice());
   if (ios.ok()) {
     r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {
@@ -2061,14 +2086,7 @@ bool BlockBasedTableBuilder::NeedCompact() const {
 }
 
 TableProperties BlockBasedTableBuilder::GetTableProperties() const {
-  TableProperties ret = rep_->props;
-  for (const auto& collector : rep_->table_properties_collectors) {
-    for (const auto& prop : collector->GetReadableProperties()) {
-      ret.readable_properties.insert(prop);
-    }
-    collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
-  }
-  return ret;
+  return rep_->props;
 }
 
 std::string BlockBasedTableBuilder::GetFileChecksum() const {

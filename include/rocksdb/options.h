@@ -814,18 +814,23 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // The following two fields affect how archived logs will be deleted.
-  // 1. If both set to 0, logs will be deleted asap and will not get into
-  //    the archive.
-  // 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
-  //    WAL files will be checked every 10 min and if total size is greater
-  //    then WAL_size_limit_MB, they will be deleted starting with the
-  //    earliest until size_limit is met. All empty files will be deleted.
-  // 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-  //    WAL files will be checked every WAL_ttl_seconds / 2 and those that
-  //    are older than WAL_ttl_seconds will be deleted.
-  // 4. If both are not 0, WAL files will be checked every 10 min and both
-  //    checks will be performed with ttl being first.
+  // The following two fields affect when WALs will be archived and deleted.
+  //
+  // When both are zero, obsolete WALs will not be archived and will be deleted
+  // immediately. Otherwise, obsolete WALs will be archived prior to deletion.
+  //
+  // When `WAL_size_limit_MB` is nonzero, archived WALs starting with the
+  // earliest will be deleted until the total size of the archive falls below
+  // this limit. All empty WALs will be deleted.
+  //
+  // When `WAL_ttl_seconds` is nonzero, archived WALs older than
+  // `WAL_ttl_seconds` will be deleted.
+  //
+  // When only `WAL_ttl_seconds` is nonzero, the frequency at which archived
+  // WALs are deleted is every `WAL_ttl_seconds / 2` seconds. When only
+  // `WAL_size_limit_MB` is nonzero, the deletion frequency is every ten
+  // minutes. When both are nonzero, the deletion frequency is the minimum of
+  // those two values.
   uint64_t WAL_ttl_seconds = 0;
   uint64_t WAL_size_limit_MB = 0;
 
@@ -1732,23 +1737,17 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
-  // Experimental
-  //
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
   // during scans internally.
   // For this feature to enabled, iterate_upper_bound must also be specified.
   //
   // NOTE: - Recommended for forward Scans only.
-  //       - In case of backward scans like Prev or SeekForPrev, the
-  //          cost of these backward operations might increase and affect the
-  //          performace. So this option should not be enabled if workload
-  //          contains backward scans.
   //       - If there is a backward scans, this option will be
-  //          disabled internally and won't be reset if forward scan is done
-  //          again.
+  //          disabled internally and won't be enabled again if the forward scan
+  //          is issued again.
   //
-  // Default: false
-  bool auto_readahead_size = false;
+  // Default: true
+  bool auto_readahead_size = true;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -1782,7 +1781,7 @@ struct WriteOptions {
   // system call followed by "fdatasync()".
   //
   // Default: false
-  bool sync;
+  bool sync = false;
 
   // If true, writes will not first go to the write ahead log,
   // and the write may get lost after a crash. The backup engine
@@ -1790,18 +1789,18 @@ struct WriteOptions {
   // you disable write-ahead logs, you must create backups with
   // flush_before_backup=true to avoid losing unflushed memtable data.
   // Default: false
-  bool disableWAL;
+  bool disableWAL = false;
 
   // If true and if user is trying to write to column families that don't exist
   // (they were dropped),  ignore the write (don't return an error). If there
   // are multiple writes in a WriteBatch, other writes will succeed.
   // Default: false
-  bool ignore_missing_column_families;
+  bool ignore_missing_column_families = false;
 
   // If true and we need to wait or sleep for the write request, fails
   // immediately with Status::Incomplete().
   // Default: false
-  bool no_slowdown;
+  bool no_slowdown = false;
 
   // If true, this write request is of lower priority if compaction is
   // behind. In this case, no_slowdown = true, the request will be canceled
@@ -1810,7 +1809,7 @@ struct WriteOptions {
   // it introduces minimum impacts to high priority writes.
   //
   // Default: false
-  bool low_pri;
+  bool low_pri = false;
 
   // If true, this writebatch will maintain the last insert positions of each
   // memtable as hints in concurrent write. It can improve write performance
@@ -1819,7 +1818,7 @@ struct WriteOptions {
   // option will be ignored.
   //
   // Default: false
-  bool memtable_insert_hint_per_batch;
+  bool memtable_insert_hint_per_batch = false;
 
   // For writes associated with this option, charge the internal rate
   // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
@@ -1834,24 +1833,25 @@ struct WriteOptions {
   // due to implementation constraints.
   //
   // Default: `Env::IO_TOTAL`
-  Env::IOPriority rate_limiter_priority;
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
   //
   // Default: zero (disabled).
-  size_t protection_bytes_per_key;
+  size_t protection_bytes_per_key = 0;
 
-  WriteOptions()
-      : sync(false),
-        disableWAL(false),
-        ignore_missing_column_families(false),
-        no_slowdown(false),
-        low_pri(false),
-        memtable_insert_hint_per_batch(false),
-        rate_limiter_priority(Env::IO_TOTAL),
-        protection_bytes_per_key(0) {}
+  // For RocksDB internal use only
+  //
+  // Default: Env::IOActivity::kUnknown.
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  WriteOptions() {}
+  explicit WriteOptions(Env::IOActivity _io_activity);
+  explicit WriteOptions(
+      Env::IOPriority _rate_limiter_priority,
+      Env::IOActivity _io_activity = Env::IOActivity::kUnknown);
 };
 
 // Options that control flush operations

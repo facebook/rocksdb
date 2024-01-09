@@ -435,6 +435,10 @@ class DB {
   virtual Status PutEntity(const WriteOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns);
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  virtual Status PutEntity(const WriteOptions& options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
@@ -505,6 +509,15 @@ class DB {
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key,
                              const Slice& ts);
+  virtual Status DeleteRange(const WriteOptions& options,
+                             const Slice& begin_key, const Slice& end_key) {
+    return DeleteRange(options, DefaultColumnFamily(), begin_key, end_key);
+  }
+  virtual Status DeleteRange(const WriteOptions& options,
+                             const Slice& begin_key, const Slice& end_key,
+                             const Slice& ts) {
+    return DeleteRange(options, DefaultColumnFamily(), begin_key, end_key, ts);
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
@@ -599,6 +612,16 @@ class DB {
                            ColumnFamilyHandle* /* column_family */,
                            const Slice& /* key */,
                            PinnableWideColumns* /* columns */) {
+    return Status::NotSupported("GetEntity not supported");
+  }
+
+  // Returns logically grouped wide-column entities per column family (a.k.a.
+  // attribute groups) for a single key. PinnableAttributeGroups is a vector of
+  // PinnableAttributeGroup. Each PinnableAttributeGroup will have
+  // ColumnFamilyHandle* as input, and Status and PinnableWideColumns as output.
+  virtual Status GetEntity(const ReadOptions& /* options */,
+                           const Slice& /* key */,
+                           PinnableAttributeGroups* /* result */) {
     return Status::NotSupported("GetEntity not supported");
   }
 
@@ -1636,7 +1659,17 @@ class DB {
   virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                      std::string* ts_low) = 0;
 
-  // Allow compactions to delete obsolete files.
+  // Enable deleting obsolete files.
+  // Usually users should only need to call this if they have previously called
+  // `DisableFileDeletions`.
+  // File deletions disabling and enabling is not controlled by a binary flag,
+  // instead it's represented as a counter to allow different callers to
+  // independently disable file deletion. Disabling file deletion can be
+  // critical for operations like making a backup. So the counter implementation
+  // makes the file deletion disabled as long as there is one caller requesting
+  // so, and only when every caller agrees to re-enable file deletion, it will
+  // be enabled. So be careful when calling this function with force = true as
+  // explained below.
   // If force == true, the call to EnableFileDeletions() will guarantee that
   // file deletions are enabled after the call, even if DisableFileDeletions()
   // was called multiple times before.
@@ -1645,7 +1678,7 @@ class DB {
   // enabling the two methods to be called by two threads concurrently without
   // synchronization -- i.e., file deletions will be enabled only after both
   // threads call EnableFileDeletions()
-  virtual Status EnableFileDeletions(bool force = true) = 0;
+  virtual Status EnableFileDeletions(bool force) = 0;
 
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then

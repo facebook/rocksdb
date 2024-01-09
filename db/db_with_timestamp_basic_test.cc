@@ -375,7 +375,7 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLowWithPublicAPI) {
                                     ts_low_str_long);
   ASSERT_EQ(s, Status::InvalidArgument());
   // test IncreaseFullHistoryTsLow with a timestamp which is null
-  std::string ts_low_str_null = "";
+  std::string ts_low_str_null;
   s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
                                     ts_low_str_null);
   ASSERT_EQ(s, Status::InvalidArgument());
@@ -430,8 +430,8 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   std::vector<Range> ranges;
   std::string start_tmp = Key(10);
   std::string end_tmp = Key(20);
-  ranges.emplace_back(Range(start_tmp, end_tmp));
-  ranges.emplace_back(Range(start, end));
+  ranges.emplace_back(start_tmp, end_tmp);
+  ranges.emplace_back(start, end);
   uint64_t range_sizes[2];
   ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf,
                                      ranges.data(), 2, range_sizes));
@@ -598,8 +598,7 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   DBOptions db_options(options);
 
   // Trim data whose version > Timestamp(5, 0), read(k1, ts(7)) <- NOT_FOUND.
@@ -642,8 +641,7 @@ TEST_F(DBBasicTestWithTimestamp, OpenAndTrimHistoryInvalidOptionTest) {
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   DBOptions db_options(options);
 
   // OpenAndTrimHistory should not work with avoid_flush_during_recovery
@@ -1646,35 +1644,88 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
 
   const Snapshot* snap_with_nothing = db_->GetSnapshot();
   ASSERT_OK(db_->Put(write_opts, "foo", ts_early, "bar"));
-  const Snapshot* snap_with_foo = db_->GetSnapshot();
+  ASSERT_OK(db_->Put(write_opts, "foo2", ts_early, "bar2"));
+  ASSERT_OK(db_->Put(write_opts, "foo3", ts_early, "bar3"));
 
-  // Ensure file has sequence number greater than snapshot_with_foo
-  for (int i = 0; i < 10; i++) {
-    std::string numStr = std::to_string(i);
-    ASSERT_OK(db_->Put(write_opts, numStr, ts_later, numStr));
-  }
+  const Snapshot* snap_with_foo = db_->GetSnapshot();
   ASSERT_OK(Flush());
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
 
   ReadOptions read_opts;
   read_opts.timestamp = &ts_later_slice;
 
   std::string read_value;
   std::string read_ts;
-  Status s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-  ASSERT_OK(s);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
-  ASSERT_EQ(read_ts, ts_early);
+  Status s;
 
-  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-  ASSERT_OK(s);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
-  // Row cache is not storing the ts when record is inserted/updated.
-  // To be fixed after enabling ROW_CACHE with timestamp.
-  // ASSERT_EQ(read_ts, ts_early);
+  int expected_hit_count = 0;
+  int expected_miss_count = 0;
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+
+  {
+    read_opts.timestamp = nullptr;
+    s = db_->Get(read_opts, "foo", &read_value);
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsInvalidArgument());
+  }
+
+  // Mix use of Get
+  {
+    read_opts.timestamp = &ts_later_slice;
+
+    // Use Get without ts first, expect cache entry to store the correct ts
+    s = db_->Get(read_opts, "foo2", &read_value);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_value, "bar2");
+
+    s = db_->Get(read_opts, "foo2", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar2");
+
+    // Use Get with ts first, expect the Get without ts can get correct record
+    s = db_->Get(read_opts, "foo3", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar3");
+
+    s = db_->Get(read_opts, "foo3", &read_value);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+    ASSERT_EQ(read_value, "bar3");
+  }
+
+  {
+    // Test with consecutive calls of Get with ts.
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar");
+
+    // Test repeated get on cache entry
+    for (int i = 0; i < 3; i++) {
+      s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+      ASSERT_OK(s);
+      ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT),
+                ++expected_hit_count);
+      ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+                expected_miss_count);
+      ASSERT_EQ(read_ts, ts_early);
+      ASSERT_EQ(read_value, "bar");
+    }
+  }
 
   {
     std::string ts_nothing = Timestamp(0, 0);
@@ -1682,46 +1733,107 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
     read_opts.timestamp = &ts_nothing_slice;
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_TRUE(s.IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
-
-    read_opts.timestamp = &ts_later_slice;
-    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-    ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
   }
 
   {
     read_opts.snapshot = snap_with_foo;
+    read_opts.timestamp = &ts_later_slice;
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar");
 
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
-
-    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-    ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
+    ASSERT_EQ(read_ts, ts_early);
+    ASSERT_EQ(read_value, "bar");
   }
 
   {
     read_opts.snapshot = snap_with_nothing;
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_TRUE(s.IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 4);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
 
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_TRUE(s.IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 5);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              ++expected_miss_count);
   }
 
   db_->ReleaseSnapshot(snap_with_nothing);
   db_->ReleaseSnapshot(snap_with_foo);
   Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, GetWithRowCacheMultiSST) {
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  std::string ts_early = Timestamp(1, 0);
+  std::string ts_later = Timestamp(10, 0);
+  Slice ts_later_slice = ts_later;
+
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", ts_early, "v1"));
+  ASSERT_OK(Flush());
+
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), default_cf, "foo", Timestamp(2, 0), "v2"));
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), default_cf, "foo", Timestamp(3, 0), "v3"));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts_later_slice;
+
+  std::string read_value;
+  std::string read_ts;
+  Status s;
+
+  {
+    // Since there are two SST files, will trigger the table lookup twice.
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+    ASSERT_EQ(read_ts, Timestamp(3, 0));
+    ASSERT_EQ(read_value, "v1,v2,v3");
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+    ASSERT_EQ(read_ts, Timestamp(3, 0));
+    ASSERT_EQ(read_value, "v1,v2,v3");
+  }
 }
 
 TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
@@ -2520,7 +2632,7 @@ TEST_F(DataVisibilityTest, MultiGetWithoutSnapshot) {
   auto ss = db_->MultiGet(read_opts, keys, &values);
 
   writer_thread.join();
-  for (auto s : ss) {
+  for (const auto& s : ss) {
     ASSERT_TRUE(s.IsNotFound());
   }
   VerifyDefaultCF();
@@ -2790,8 +2902,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
+  FlushedFileCollector() = default;
+  ~FlushedFileCollector() override = default;
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     InstrumentedMutexLock lock(&mutex_);
@@ -2973,7 +3085,7 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
       key_vals.push_back(Key1(j));
     }
     for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-      keys.push_back(key_vals[j]);
+      keys.emplace_back(key_vals[j]);
     }
 
     ReadOptions ropts;
@@ -3679,12 +3791,12 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     std::vector<Slice> keys;
     std::vector<std::string> values;
     for (size_t j = 0; j < 2; ++j) {
-      keys.push_back(key_vals[j]);
+      keys.emplace_back(key_vals[j]);
     }
 
     std::vector<Status> statuses =
         db_->MultiGet(read_opts, cfhs, keys, &values);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -3696,12 +3808,12 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     std::vector<Slice> keys;
     std::vector<std::string> values;
     for (size_t j = 0; j < 1; ++j) {
-      keys.push_back(key_vals[j]);
+      keys.emplace_back(key_vals[j]);
     }
 
     std::vector<Status> statuses =
         db_->MultiGet(read_opts, one_cfh, keys, &values);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -3714,7 +3826,7 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     Status statuses[] = {Status::OK(), Status::OK()};
     db_->MultiGet(read_opts, /*num_keys=*/2, &column_families[0], &keys[0],
                   &values[0], &statuses[0], /*sorted_input=*/false);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -3727,7 +3839,7 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     Status statuses[] = {Status::OK()};
     db_->MultiGet(read_opts, /*num_keys=*/1, &one_column_family[0], &keys[0],
                   &values[0], &statuses[0], /*sorted_input=*/false);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -4442,8 +4554,8 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
     Slice read_ts_slice = Slice(read_ts_str);
     ReadOptions read_opts;
     read_opts.timestamp = &read_ts_slice;
-    std::string value_from_get = "";
-    std::string timestamp_from_get = "";
+    std::string value_from_get;
+    std::string timestamp_from_get;
     auto status =
         db_->Get(read_opts, Key1(3), &value_from_get, &timestamp_from_get);
     ASSERT_TRUE(status.IsNotFound());

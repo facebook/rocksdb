@@ -39,6 +39,7 @@
 #include "rocksdb/write_batch.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <stack>
@@ -232,9 +233,9 @@ WriteBatch& WriteBatch::operator=(WriteBatch&& src) {
   return *this;
 }
 
-WriteBatch::~WriteBatch() {}
+WriteBatch::~WriteBatch() = default;
 
-WriteBatch::Handler::~Handler() {}
+WriteBatch::Handler::~Handler() = default;
 
 void WriteBatch::Handler::LogData(const Slice& /*blob*/) {
   // If the user has not specified something to do with blobs, then we ignore
@@ -740,7 +741,7 @@ SequenceNumber WriteBatchInternal::Sequence(const WriteBatch* b) {
 }
 
 void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
-  EncodeFixed64(&b->rep_[0], seq);
+  EncodeFixed64(b->rep_.data(), seq);
 }
 
 size_t WriteBatchInternal::GetFirstOffset(WriteBatch* /*b*/) {
@@ -1014,6 +1015,22 @@ Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
   }
 
   return WriteBatchInternal::PutEntity(this, cf_id, key, columns);
+}
+
+Status WriteBatch::PutEntity(const Slice& key,
+                             const AttributeGroups& attribute_groups) {
+  if (attribute_groups.empty()) {
+    return Status::InvalidArgument(
+        "Cannot call this method with empty attribute groups");
+  }
+  Status s;
+  for (const AttributeGroup& ag : attribute_groups) {
+    s = PutEntity(ag.column_family(), key, ag.columns());
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return s;
 }
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
@@ -1839,7 +1856,9 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   void DecrementProtectionInfoIdxForTryAgain() {
-    if (prot_info_ != nullptr) --prot_info_idx_;
+    if (prot_info_ != nullptr) {
+      --prot_info_idx_;
+    }
   }
 
   void ResetProtectionInfo() {
@@ -2045,7 +2064,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
         read_from_snapshot.number_ = sequence_;
-        // TODO: plumb Env::IOActivity
+        // TODO: plumb Env::IOActivity, Env::IOPriority
         ReadOptions ropts;
         // it's going to be overwritten for sure, so no point caching data block
         // containing the old version
@@ -2492,7 +2511,7 @@ class MemTableInserter : public WriteBatch::Handler {
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;
 
-      // TODO: plumb Env::IOActivity
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       ReadOptions read_options;
       read_options.snapshot = &read_from_snapshot;
 
@@ -2526,9 +2545,8 @@ class MemTableInserter : public WriteBatch::Handler {
               WideColumnsHelper::GetDefaultColumn(columns), {value},
               moptions->info_log, moptions->statistics,
               SystemClock::Default().get(),
-              /* update_num_ops_stats */ false, &new_value,
-              /* result_operand */ nullptr, &new_value_type,
-              /* op_failure_scope */ nullptr);
+              /* update_num_ops_stats */ false, /* op_failure_scope */ nullptr,
+              &new_value, /* result_operand */ nullptr, &new_value_type);
         } else {
           // `op_failure_scope` (an output parameter) is not provided (set to
           // nullptr) since a failure must be propagated regardless of its
@@ -2537,9 +2555,8 @@ class MemTableInserter : public WriteBatch::Handler {
               merge_operator, key, MergeHelper::kWideBaseValue, columns,
               {value}, moptions->info_log, moptions->statistics,
               SystemClock::Default().get(),
-              /* update_num_ops_stats */ false, &new_value,
-              /* result_operand */ nullptr, &new_value_type,
-              /* op_failure_scope */ nullptr);
+              /* update_num_ops_stats */ false, /* op_failure_scope */ nullptr,
+              &new_value, /* result_operand */ nullptr, &new_value_type);
         }
 
         if (!merge_status.ok()) {
@@ -3001,7 +3018,7 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   explicit ProtectionInfoUpdater(WriteBatch::ProtectionInfo* prot_info)
       : prot_info_(prot_info) {}
 
-  ~ProtectionInfoUpdater() override {}
+  ~ProtectionInfoUpdater() override = default;
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
     return UpdateProtInfo(cf, key, val, kTypeValue);

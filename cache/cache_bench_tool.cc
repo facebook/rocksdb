@@ -48,6 +48,10 @@ DEFINE_uint64(cache_size, 1 * GiB,
               "Number of bytes to use as a cache of uncompressed data.");
 DEFINE_int32(num_shard_bits, -1,
              "ShardedCacheOptions::shard_bits. Default = auto");
+DEFINE_int32(
+    eviction_effort_cap,
+    ROCKSDB_NAMESPACE::HyperClockCacheOptions(1, 1).eviction_effort_cap,
+    "HyperClockCacheOptions::eviction_effort_cap");
 
 DEFINE_double(resident_ratio, 0.25,
               "Ratio of keys fitting in cache to keyspace.");
@@ -71,11 +75,14 @@ DEFINE_double(
     "ratio less than full size and full size. If vary_capacity_ratio + "
     "pinned_ratio is close to or exceeds 1.0, the cache might thrash.");
 
-DEFINE_uint32(lookup_insert_percent, 87,
+DEFINE_uint32(lookup_insert_percent, 82,
               "Ratio of lookup (+ insert on not found) to total workload "
               "(expressed as a percentage)");
 DEFINE_uint32(insert_percent, 2,
               "Ratio of insert to total workload (expressed as a percentage)");
+DEFINE_uint32(blind_insert_percent, 5,
+              "Ratio of insert without keeping handle to total workload "
+              "(expressed as a percentage)");
 DEFINE_uint32(lookup_percent, 10,
               "Ratio of lookup to total workload (expressed as a percentage)");
 DEFINE_uint32(erase_percent, 1,
@@ -360,7 +367,9 @@ class CacheBench {
                                  FLAGS_lookup_insert_percent),
         insert_threshold_(lookup_insert_threshold_ +
                           kHundredthUint64 * FLAGS_insert_percent),
-        lookup_threshold_(insert_threshold_ +
+        blind_insert_threshold_(insert_threshold_ +
+                                kHundredthUint64 * FLAGS_blind_insert_percent),
+        lookup_threshold_(blind_insert_threshold_ +
                           kHundredthUint64 * FLAGS_lookup_percent),
         erase_threshold_(lookup_threshold_ +
                          kHundredthUint64 * FLAGS_erase_percent) {
@@ -386,6 +395,7 @@ class CacheBench {
           FLAGS_cache_size, /*estimated_entry_charge=*/0, FLAGS_num_shard_bits);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
       opts.memory_allocator = allocator;
+      opts.eviction_effort_cap = FLAGS_eviction_effort_cap;
       if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
           FLAGS_cache_type == "hyper_clock_cache") {
         opts.estimated_entry_charge = FLAGS_value_bytes_estimate > 0
@@ -560,6 +570,7 @@ class CacheBench {
   // Cumulative thresholds in the space of a random uint64_t
   const uint64_t lookup_insert_threshold_;
   const uint64_t insert_threshold_;
+  const uint64_t blind_insert_threshold_;
   const uint64_t lookup_threshold_;
   const uint64_t erase_threshold_;
 
@@ -734,6 +745,12 @@ class CacheBench {
         Status s = cache_->Insert(
             key, createValue(thread->rnd, cache_->memory_allocator()), &helper3,
             FLAGS_value_bytes, &pinned.emplace_back());
+        assert(s.ok());
+      } else if (random_op < blind_insert_threshold_) {
+        // insert without keeping a handle
+        Status s = cache_->Insert(
+            key, createValue(thread->rnd, cache_->memory_allocator()), &helper3,
+            FLAGS_value_bytes);
         assert(s.ok());
       } else if (random_op < lookup_threshold_) {
         // do lookup

@@ -122,12 +122,15 @@ class TablePropertiesCollector {
 
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
+  // It will be called only once by RocksDB internal.
+  //
   // @params properties  User will add their collected statistics to
   // `properties`.
   virtual Status Finish(UserCollectedProperties* properties) = 0;
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
+  // It will only be called after Finish() has been called by RocksDB internal.
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
   // The name of the properties collector can be used for debugging purpose.
@@ -137,8 +140,7 @@ class TablePropertiesCollector {
   virtual bool NeedCompact() const { return false; }
 };
 
-// Constructs TablePropertiesCollector. Internals create a new
-// TablePropertiesCollector for each new table
+// Constructs TablePropertiesCollector instances for each table file creation.
 //
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
@@ -160,7 +162,12 @@ class TablePropertiesCollectorFactory : public Customizable {
       const ConfigOptions& options, const std::string& value,
       std::shared_ptr<TablePropertiesCollectorFactory>* result);
 
-  // has to be thread-safe
+  // To collect properties of a table with the given context, returns
+  // a new object inheriting from TablePropertiesCollector. The caller
+  // is responsible for deleting the object returned. Alternatively,
+  // nullptr may be returned to decline collecting properties for the
+  // file (and reduce callback overheads).
+  // MUST be thread-safe.
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) = 0;
 

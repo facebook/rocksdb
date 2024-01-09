@@ -87,6 +87,14 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
   return IOStatus::OK();
 }
 
+inline IOStatus PrepareIOFromWriteOptions(const WriteOptions& wo,
+                                          IOOptions& opts) {
+  opts.rate_limiter_priority = wo.rate_limiter_priority;
+  opts.io_activity = wo.io_activity;
+
+  return IOStatus::OK();
+}
+
 // Test method to delete the input directory and all of its contents.
 // This method is destructive and is meant for use only in tests!!!
 Status DestroyDir(Env* env, const std::string& dir);

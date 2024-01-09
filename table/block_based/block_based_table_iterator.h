@@ -199,6 +199,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
+  FilePrefetchBuffer* prefetch_buffer() {
+    return block_prefetcher_.prefetch_buffer();
+  }
+
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
 
  private:
@@ -325,6 +329,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // is used to disable the lookup.
   IterDirection direction_ = IterDirection::kForward;
 
+  void SeekSecondPass(const Slice* target);
+
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target, bool async_prefetch);
 
@@ -365,12 +371,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   // *** BEGIN APIs relevant to auto tuning of readahead_size ***
-  void FindReadAheadSizeUpperBound();
 
-  // This API is called to lookup the data blocks ahead in the cache to estimate
-  // the current readahead_size.
-  void BlockCacheLookupForReadAheadSize(uint64_t offset, size_t readahead_size,
-                                        size_t& updated_readahead_size);
+  // This API is called to lookup the data blocks ahead in the cache to tune
+  // the start and end offsets passed.
+  void BlockCacheLookupForReadAheadSize(bool read_curr_block,
+                                        uint64_t& start_offset,
+                                        uint64_t& end_offset);
 
   void ResetBlockCacheLookupVar() {
     is_index_out_of_bound_ = false;
@@ -399,6 +405,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   bool DoesContainBlockHandles() { return !block_handles_.empty(); }
 
+  void InitializeStartAndEndOffsets(bool read_curr_block,
+                                    bool& found_first_miss_block,
+                                    uint64_t& start_updated_offset,
+                                    uint64_t& end_updated_offset,
+                                    size_t& prev_handles_size);
   // *** END APIs relevant to auto tuning of readahead_size ***
 };
 }  // namespace ROCKSDB_NAMESPACE

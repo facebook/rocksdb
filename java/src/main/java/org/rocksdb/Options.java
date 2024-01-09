@@ -7,6 +7,7 @@ package org.rocksdb;
 
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Options to control the behavior of a database.  It will be used
@@ -2123,6 +2124,35 @@ public class Options extends RocksObject
   // END options for blobs (integrated BlobDB)
   //
 
+  /**
+   * Return copy of TablePropertiesCollectorFactory list. Modifying this list will not change
+   * underlying options C++ object. {@link #setTablePropertiesCollectorFactory(List)
+   * setTablePropertiesCollectorFactory} must be called to propagate changes. All instance must be
+   * properly closed to prevent memory leaks.
+   * @return copy of TablePropertiesCollectorFactory list.
+   */
+  public List<TablePropertiesCollectorFactory> tablePropertiesCollectorFactory() {
+    long[] factoryHandlers = tablePropertiesCollectorFactory(nativeHandle_);
+
+    return Arrays.stream(factoryHandlers)
+        .mapToObj(factoryHandle -> TablePropertiesCollectorFactory.newWrapper(factoryHandle))
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Set TablePropertiesCollectorFactory in underlying C++ object.
+   * This method create its own copy of the list. Caller is responsible for
+   * closing all the instances in the list.
+   * @param factories
+   */
+  public void setTablePropertiesCollectorFactory(List<TablePropertiesCollectorFactory> factories) {
+    long[] factoryHandlers = new long[factories.size()];
+    for (int i = 0; i < factoryHandlers.length; i++) {
+      factoryHandlers[i] = factories.get(i).getNativeHandle();
+    }
+    setTablePropertiesCollectorFactory(nativeHandle_, factoryHandlers);
+  }
+
   private static long newOptionsInstance() {
     RocksDB.loadLibrary();
     return newOptions();
@@ -2563,6 +2593,9 @@ public class Options extends RocksObject
   private native void setPrepopulateBlobCache(
       final long nativeHandle_, final byte prepopulateBlobCache);
   private native byte prepopulateBlobCache(final long nativeHandle_);
+  private static native long[] tablePropertiesCollectorFactory(long nativeHandle);
+  private static native void setTablePropertiesCollectorFactory(
+      long nativeHandle, long[] factoryHandlers);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

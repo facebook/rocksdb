@@ -188,6 +188,9 @@ class BlockBasedTable : public TableReader {
   // REQUIRES: key is in this table && block cache enabled
   bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
+  void TEST_GetDataBlockHandle(const ReadOptions& options, const Slice& key,
+                               BlockHandle& handle);
+
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   void SetupForCompaction() override;
@@ -693,33 +696,23 @@ struct BlockBasedTable::Rep {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
   void CreateFilePrefetchBuffer(
-      size_t readahead_size, size_t max_readahead_size,
-      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      uint64_t num_file_reads, uint64_t num_file_reads_for_auto_readahead,
-      uint64_t upper_bound_offset,
-      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb,
+      const ReadaheadParams& readahead_params,
+      std::unique_ptr<FilePrefetchBuffer>* fpb,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
       FilePrefetchBufferUsage usage) const {
     fpb->reset(new FilePrefetchBuffer(
-        readahead_size, max_readahead_size,
-        !ioptions.allow_mmap_reads /* enable */, false /* track_min_offset */,
-        implicit_auto_readahead, num_file_reads,
-        num_file_reads_for_auto_readahead, upper_bound_offset,
-        ioptions.fs.get(), ioptions.clock, ioptions.stats, readaheadsize_cb,
-        usage));
+        readahead_params, !ioptions.allow_mmap_reads /* enable */,
+        false /* track_min_offset */, ioptions.fs.get(), ioptions.clock,
+        ioptions.stats, readaheadsize_cb, usage));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
-      size_t readahead_size, size_t max_readahead_size,
-      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      uint64_t num_file_reads, uint64_t num_file_reads_for_auto_readahead,
-      uint64_t upper_bound_offset,
-      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb,
+      const ReadaheadParams& readahead_params,
+      std::unique_ptr<FilePrefetchBuffer>* fpb,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown) const {
     if (!(*fpb)) {
-      CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
-                               implicit_auto_readahead, num_file_reads,
-                               num_file_reads_for_auto_readahead,
-                               upper_bound_offset, readaheadsize_cb, usage);
+      CreateFilePrefetchBuffer(readahead_params, fpb, readaheadsize_cb, usage);
     }
   }
 

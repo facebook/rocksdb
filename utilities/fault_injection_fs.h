@@ -452,8 +452,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void SetRandomReadError(int one_in) { read_error_one_in_ = one_in; }
 
   bool ShouldInjectRandomReadError() {
-    return read_error_one_in() &&
-           Random::GetTLSInstance()->OneIn(read_error_one_in());
+    auto one_in = read_error_one_in();
+    return one_in > 0 && Random::GetTLSInstance()->OneIn(one_in);
   }
 
   // Inject an write error with randomlized parameter and the predefined

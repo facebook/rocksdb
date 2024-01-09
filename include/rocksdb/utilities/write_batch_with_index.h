@@ -10,7 +10,6 @@
 // inserted.
 #pragma once
 
-
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,6 +29,7 @@ class DB;
 class ReadCallback;
 struct ReadOptions;
 struct DBOptions;
+class MergeContext;
 
 enum WriteType {
   kPutRecord,
@@ -39,11 +39,12 @@ enum WriteType {
   kDeleteRangeRecord,
   kLogDataRecord,
   kXIDRecord,
+  kPutEntityRecord,
   kUnknownRecord,
 };
 
-// an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
-// Used in WBWIIterator.
+// An entry for Put, PutEntity, Merge, Delete, or SingleDelete for write
+// batches. Used in WBWIIterator.
 struct WriteEntry {
   WriteType type = kUnknownRecord;
   Slice key;
@@ -77,12 +78,11 @@ class WBWIIterator {
 };
 
 // A WriteBatchWithIndex with a binary searchable index built for all the keys
-// inserted.
-// In Put(), Merge() Delete(), or SingleDelete(), the same function of the
-// wrapped will be called. At the same time, indexes will be built.
-// By calling GetWriteBatch(), a user will get the WriteBatch for the data
-// they inserted, which can be used for DB::Write().
-// A user can call NewIterator() to create an iterator.
+// inserted. In Put(), PutEntity(), Merge(), Delete(), or SingleDelete(), the
+// corresponding function of the wrapped WriteBatch will be called. At the same
+// time, indexes will be built. By calling GetWriteBatch(), a user will get the
+// WriteBatch for the data they inserted, which can be used for DB::Write(). A
+// user can call NewIterator() to create an iterator.
 class WriteBatchWithIndex : public WriteBatchBase {
  public:
   // backup_index_comparator: the backup comparator used to compare keys
@@ -112,13 +112,23 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& ts, const Slice& value) override;
 
-  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& /* key */,
-                   const WideColumns& /* columns */) override {
-    if (!column_family) {
-      return Status::InvalidArgument(
-          "Cannot call this method without a column family handle");
-    }
+  using WriteBatchBase::TimedPut;
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    return Status::NotSupported(
+        "TimedPut not supported by WriteBatchWithIndex");
+  }
 
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& /* key */,
+                   const WideColumns& /* columns */) override;
+
+  Status PutEntity(const Slice& /* key */,
+                   const AttributeGroups& attribute_groups) override {
+    if (attribute_groups.empty()) {
+      return Status::InvalidArgument(
+          "Cannot call this method without attribute groups");
+    }
     return Status::NotSupported(
         "PutEntity not supported by WriteBatchWithIndex");
   }
@@ -219,6 +229,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
     return GetFromBatch(nullptr, options, key, value);
   }
 
+  // TODO: implement GetEntityFromBatch
+
   // Similar to DB::Get() but will also read writes from this batch.
   //
   // This function will query both this batch and the DB and then merge
@@ -245,21 +257,24 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value);
 
+  // TODO: implement GetEntityFromBatchAndDB
+
   void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family,
                               const size_t num_keys, const Slice* keys,
                               PinnableSlice* values, Status* statuses,
                               bool sorted_input);
 
+  // TODO: implement MultiGetEntityFromBatchAndDB
+
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
   void SetSavePoint() override;
 
-  // Remove all entries in this batch (Put, Merge, Delete, SingleDelete,
-  // PutLogData) since the most recent call to SetSavePoint() and removes the
-  // most recent save point.
-  // If there is no previous call to SetSavePoint(), behaves the same as
-  // Clear().
+  // Remove all entries in this batch (Put, PutEntity, Merge, Delete,
+  // SingleDelete, PutLogData) since the most recent call to SetSavePoint() and
+  // removes the most recent save point. If there is no previous call to
+  // SetSavePoint(), behaves the same as Clear().
   //
   // Calling RollbackToSavePoint invalidates any open iterators on this batch.
   //
@@ -288,6 +303,11 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // last sub-batch.
   size_t SubBatchCnt();
 
+  void MergeAcrossBatchAndDB(ColumnFamilyHandle* column_family,
+                             const Slice& key,
+                             const PinnableWideColumns& existing,
+                             const MergeContext& merge_context,
+                             PinnableSlice* value, Status* status);
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value, ReadCallback* callback);
@@ -301,4 +321,3 @@ class WriteBatchWithIndex : public WriteBatchBase {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

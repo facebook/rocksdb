@@ -25,11 +25,13 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 
 #include <cxxabi.h>
 #include <execinfo.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <pthread.h>
 #include <unistd.h>
+
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #ifdef OS_OPENBSD
 #include <sys/wait.h>
@@ -47,6 +49,9 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #define gettid() syscall(SYS_gettid)
 #endif  // GLIBC version
 #endif  // OS_LINUX
+
+#include <algorithm>
+#include <atomic>
 
 #include "port/lang.h"
 
@@ -252,9 +257,9 @@ void PrintStack(int first_frames_to_skip) {
         if (lldb_stack_trace) {
           fprintf(stderr, "Invoking LLDB for stack trace...\n");
 
-          // Skip top ~8 frames here in PrintStack
+          // Skip top ~4 frames here in PrintStack
           auto bt_in_lldb =
-              "script -l python -- for f in lldb.thread.frames[8:]: print(f)";
+              "script -l python -- for f in lldb.thread.frames[4:]: print(f)";
           execlp(/*cmd in PATH*/ "lldb", /*arg0*/ "lldb", "-p", attach_pid_str,
                  "-b", "-Q", "-o", GetLldbScriptSelectThread(attach_tid), "-o",
                  bt_in_lldb, (char*)nullptr);
@@ -311,28 +316,85 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
   return callstack;
 }
 
+static std::atomic<uint64_t> g_thread_handling_stack_trace{0};
+static int g_recursion_count = 0;
+static std::atomic<bool> g_at_exit_called{false};
+
 static void StackTraceHandler(int sig) {
+  fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
+  // Crude recursive mutex with no signal-unsafe system calls, to avoid
+  // re-entrance from multiple threads and avoid core dumping while trying
+  // to print the stack trace.
+  uint64_t tid = 0;
+  {
+    const auto ptid = pthread_self();
+    // pthread_t is an opaque type
+    memcpy(&tid, &ptid, std::min(sizeof(tid), sizeof(ptid)));
+    // Essentially ensure non-zero
+    ++tid;
+  }
+  for (;;) {
+    uint64_t expected = 0;
+    if (g_thread_handling_stack_trace.compare_exchange_strong(expected, tid)) {
+      // Acquired mutex
+      g_recursion_count = 0;
+      break;
+    }
+    if (expected == tid) {
+      ++g_recursion_count;
+      fprintf(stderr, "Recursive call to stack trace handler (%d)\n",
+              g_recursion_count);
+      break;
+    }
+    // Sleep before trying again
+    usleep(1000);
+  }
+
+  if (g_recursion_count > 2) {
+    // Give up after too many recursions
+    fprintf(stderr, "Too many recursive calls to stack trace handler (%d)\n",
+            g_recursion_count);
+  } else {
+    if (g_at_exit_called.load(std::memory_order_acquire)) {
+      fprintf(stderr, "In a race with process already exiting...\n");
+    }
+
+    // skip the top three signal handler related frames
+    PrintStack(3);
+
+    // Efforts to fix or suppress TSAN warnings "signal-unsafe call inside of
+    // a signal" have failed, so just warn the user about them.
+#ifdef __SANITIZE_THREAD__
+    fprintf(stderr,
+            "==> NOTE: any above warnings about \"signal-unsafe call\" are\n"
+            "==> ignorable, as they are expected when generating a stack\n"
+            "==> trace because of a signal under TSAN. Consider why the\n"
+            "==> signal was generated to begin with, and the stack trace\n"
+            "==> in the TSAN warning can be useful for that. (The stack\n"
+            "==> trace printed by the signal handler is likely obscured\n"
+            "==> by TSAN output.)\n");
+#endif
+  }
+
   // reset to default handler
   signal(sig, SIG_DFL);
-  fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
-  // skip the top three signal handler related frames
-  PrintStack(3);
-
-  // Efforts to fix or suppress TSAN warnings "signal-unsafe call inside of
-  // a signal" have failed, so just warn the user about them.
-#ifdef __SANITIZE_THREAD__
-  fprintf(stderr,
-          "==> NOTE: any above warnings about \"signal-unsafe call\" are\n"
-          "==> ignorable, as they are expected when generating a stack\n"
-          "==> trace because of a signal under TSAN. Consider why the\n"
-          "==> signal was generated to begin with, and the stack trace\n"
-          "==> in the TSAN warning can be useful for that. (The stack\n"
-          "==> trace printed by the signal handler is likely obscured\n"
-          "==> by TSAN output.)\n");
-#endif
-
   // re-signal to default handler (so we still get core dump if needed...)
   raise(sig);
+
+  // release the mutex, in case this is somehow recoverable
+  if (g_recursion_count > 0) {
+    --g_recursion_count;
+  } else {
+    g_thread_handling_stack_trace.store(0, std::memory_order_release);
+  }
+}
+
+static void AtExit() {
+  // wait for stack trace handler to finish, if needed
+  while (g_thread_handling_stack_trace.load(std::memory_order_acquire)) {
+    usleep(1000);
+  }
+  g_at_exit_called.store(true, std::memory_order_release);
 }
 
 void InstallStackTraceHandler() {
@@ -342,6 +404,7 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
+  atexit(AtExit);
   // Allow ouside debugger to attach, even with Yama security restrictions.
   // This is needed even outside of PrintStack() so that external mechanisms
   // can dump stacks if they suspect that a test has hung.

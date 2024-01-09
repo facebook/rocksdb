@@ -26,13 +26,14 @@
 #ifdef OS_LINUX
 #include <fcntl.h>
 #include <linux/fs.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <cstdlib>
 #endif
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-#include <errno.h>
+#include <cerrno>
 #endif
 
 #include "db/db_impl/db_impl.h"
@@ -2609,7 +2610,7 @@ TEST_F(EnvTest, IsDirectory) {
                                          FileOptions(),
                                          SystemClock::Default().get()));
     constexpr char buf[] = "test";
-    s = fwriter->Append(buf);
+    s = fwriter->Append(IOOptions(), buf);
     ASSERT_OK(s);
   }
   ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));
@@ -2906,6 +2907,13 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
 
   std::string base_opts =
       std::string("provider=1://test; id=") + EncryptedFileSystem::kClassName();
+  // Rewrite the default FileSystem URI if the "TEST_FS_URI" environment
+  // variable is set. This is useful to test customer encryption plugins.
+  const char* uri = getenv("TEST_FS_URI");
+  if (uri != nullptr) {
+    base_opts = uri;
+  }
+
   // The EncryptedFileSystem requires a "provider" option.
   ASSERT_NOK(FileSystem::CreateFromString(
       config_options_, EncryptedFileSystem::kClassName(), &fs));
@@ -2948,7 +2956,7 @@ struct NoDuplicateMiniStressTest {
 
   NoDuplicateMiniStressTest() { env = Env::Default(); }
 
-  virtual ~NoDuplicateMiniStressTest() {}
+  virtual ~NoDuplicateMiniStressTest() = default;
 
   void Run() {
     std::array<std::thread, kThreads> threads;

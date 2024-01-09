@@ -97,7 +97,7 @@ IteratorQueryTraceRecord::IteratorQueryTraceRecord(
   upper_.PinSelf(upper_bound);
 }
 
-IteratorQueryTraceRecord::~IteratorQueryTraceRecord() {}
+IteratorQueryTraceRecord::~IteratorQueryTraceRecord() = default;
 
 Slice IteratorQueryTraceRecord::GetLowerBound() const { return Slice(lower_); }
 

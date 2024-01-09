@@ -197,6 +197,8 @@ class DBImpl : public DB {
   Status PutEntity(const WriteOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;
+  Status PutEntity(const WriteOptions& options, const Slice& key,
+                   const AttributeGroups& attribute_groups) override;
 
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
@@ -242,6 +244,8 @@ class DBImpl : public DB {
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableWideColumns* columns) override;
+  Status GetEntity(const ReadOptions& options, const Slice& key,
+                   PinnableAttributeGroups* result) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
@@ -317,14 +321,41 @@ class DBImpl : public DB {
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
-                                    ColumnFamilyHandle** handle) override;
+                                    ColumnFamilyHandle** handle) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return CreateColumnFamily(ReadOptions(), WriteOptions(), cf_options,
+                              column_family, handle);
+  }
+  virtual Status CreateColumnFamily(const ReadOptions& read_options,
+                                    const WriteOptions& write_options,
+                                    const ColumnFamilyOptions& cf_options,
+                                    const std::string& column_family,
+                                    ColumnFamilyHandle** handle);
   virtual Status CreateColumnFamilies(
       const ColumnFamilyOptions& cf_options,
       const std::vector<std::string>& column_family_names,
-      std::vector<ColumnFamilyHandle*>* handles) override;
+      std::vector<ColumnFamilyHandle*>* handles) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return CreateColumnFamilies(ReadOptions(), WriteOptions(), cf_options,
+                                column_family_names, handles);
+  }
+  virtual Status CreateColumnFamilies(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const ColumnFamilyOptions& cf_options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles);
+
   virtual Status CreateColumnFamilies(
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles) override;
+      std::vector<ColumnFamilyHandle*>* handles) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return CreateColumnFamilies(ReadOptions(), WriteOptions(), column_families,
+                                handles);
+  }
+  virtual Status CreateColumnFamilies(
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles);
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
   virtual Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families) override;
@@ -436,7 +467,12 @@ class DBImpl : public DB {
   virtual Status Flush(
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
-  virtual Status FlushWAL(bool sync) override;
+  virtual Status FlushWAL(bool sync) override {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    return FlushWAL(WriteOptions(), sync);
+  }
+
+  virtual Status FlushWAL(const WriteOptions& write_options, bool sync);
   bool WALBufferIsEmpty();
   virtual Status SyncWAL() override;
   virtual Status LockWAL() override;
@@ -1186,6 +1222,7 @@ class DBImpl : public DB {
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
+  const autovector<uint64_t>& TEST_GetFilesToQuarantine() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   uint64_t TEST_GetCurrentLogNumber() const {
@@ -1401,7 +1438,8 @@ class DBImpl : public DB {
 
   // Persist options to options file. Must be holding options_mutex_.
   // Will lock DB mutex if !db_mutex_already_held.
-  Status WriteOptionsFile(bool db_mutex_already_held);
+  Status WriteOptionsFile(const WriteOptions& write_options,
+                          bool db_mutex_already_held);
 
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
@@ -1527,7 +1565,8 @@ class DBImpl : public DB {
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Setup DB identity file, and write DB ID to manifest if necessary.
-  Status SetupDBId(bool read_only, RecoveryContext* recovery_ctx);
+  Status SetupDBId(const WriteOptions& write_options, bool read_only,
+                   RecoveryContext* recovery_ctx);
   // Assign db_id_ and write DB ID to manifest if necessary.
   void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
 
@@ -1654,7 +1693,8 @@ class DBImpl : public DB {
       return w;
     }
     Status ClearWriter() {
-      Status s = writer->WriteBuffer();
+      // TODO: plumb Env::IOActivity, Env::IOPriority
+      Status s = writer->WriteBuffer(WriteOptions());
       delete writer;
       writer = nullptr;
       return s;
@@ -1830,12 +1870,15 @@ class DBImpl : public DB {
   const Status CreateArchivalDirectory();
 
   // Create a column family, without some of the follow-up work yet
-  Status CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
+  Status CreateColumnFamilyImpl(const ReadOptions& read_options,
+                                const WriteOptions& write_options,
+                                const ColumnFamilyOptions& cf_options,
                                 const std::string& cf_name,
                                 ColumnFamilyHandle** handle);
 
   // Follow-up work to user creating a column family or (families)
   Status WrapUpCreateColumnFamilies(
+      const ReadOptions& read_options, const WriteOptions& write_options,
       const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
@@ -1867,7 +1910,8 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals,
+  IOStatus SyncClosedLogs(const WriteOptions& write_options,
+                          JobContext* job_context, VersionEdit* synced_wals,
                           bool error_recovery_in_prog);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
@@ -2053,12 +2097,10 @@ class DBImpl : public DB {
                     WriteBatch* tmp_batch, WriteBatch** merged_batch,
                     size_t* write_with_wal, WriteBatch** to_be_cached_state);
 
-  // rate_limiter_priority is used to charge `DBOptions::rate_limiter`
-  // for automatic WAL flush (`Options::manual_wal_flush` == false)
-  // associated with this WriteToWAL
-  IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
-                      uint64_t* log_used, uint64_t* log_size,
-                      Env::IOPriority rate_limiter_priority,
+  IOStatus WriteToWAL(const WriteBatch& merged_batch,
+                      const WriteOptions& write_options,
+                      log::Writer* log_writer, uint64_t* log_used,
+                      uint64_t* log_size,
                       LogFileNumberSize& log_file_number_size);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
@@ -2170,7 +2212,9 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker(bool is_new_db);
+  Status RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
+                                       const WriteOptions& write_options,
+                                       bool is_new_db);
 
   void PrintStatistics();
 
@@ -2198,7 +2242,9 @@ class DBImpl : public DB {
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
-  Status ApplyWALToManifest(const ReadOptions& read_options, VersionEdit* edit);
+  Status ApplyWALToManifest(const ReadOptions& read_options,
+                            const WriteOptions& write_options,
+                            VersionEdit* edit);
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
@@ -2270,8 +2316,9 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
-  IOStatus CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                     size_t preallocate_block_size, log::Writer** new_log);
+  IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
+                     uint64_t recycle_log_number, size_t preallocate_block_size,
+                     log::Writer** new_log);
 
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);
@@ -2375,10 +2422,6 @@ class DBImpl : public DB {
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
 
   Status DisableFileDeletionsWithLock();
-
-  // Safely decrease `disable_delete_obsolete_files_` by one while holding lock
-  // and return its remaning value.
-  int EnableFileDeletionsWithLock();
 
   Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                       std::string ts_low);
@@ -2869,7 +2912,9 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
 
 inline Status DBImpl::FailIfCfHasTs(
     const ColumnFamilyHandle* column_family) const {
-  column_family = column_family ? column_family : DefaultColumnFamily();
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
   assert(column_family);
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);

@@ -65,8 +65,7 @@ class TestIterator : public InternalIterator {
            size_t seq_num, bool update_iter = false) {
     valid_ = true;
     ParsedInternalKey internal_key(argkey, seq_num, type);
-    data_.push_back(
-        std::pair<std::string, std::string>(std::string(), argvalue));
+    data_.emplace_back(std::string(), argvalue);
     AppendInternalKey(&data_.back().first, internal_key);
     if (update_iter && valid_ && cmp.Compare(data_.back().first, key()) < 0) {
       // insert a key smaller than current key
@@ -2617,7 +2616,7 @@ class DBIterWithMergeIterTest : public testing::Test {
     child_iters.push_back(internal_iter2_);
     InternalKeyComparator icomp(BytewiseComparator());
     InternalIterator* merge_iter =
-        NewMergingIterator(&icomp_, &child_iters[0], 2u);
+        NewMergingIterator(&icomp_, child_iters.data(), 2u);
 
     db_iter_.reset(NewDBIterator(
         env_, ro_, ImmutableOptions(options_), MutableCFOptions(options_),

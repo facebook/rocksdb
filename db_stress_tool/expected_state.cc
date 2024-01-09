@@ -185,7 +185,7 @@ ExpectedStateManager::ExpectedStateManager(size_t max_key,
       num_column_families_(num_column_families),
       latest_(nullptr) {}
 
-ExpectedStateManager::~ExpectedStateManager() {}
+ExpectedStateManager::~ExpectedStateManager() = default;
 
 const std::string FileExpectedStateManager::kLatestBasename = "LATEST";
 const std::string FileExpectedStateManager::kStateFilenameSuffix = ".state";

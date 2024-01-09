@@ -1050,7 +1050,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         std::vector<Status> statuses(num_keys);
 
         db->MultiGet(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                     &key_slices[0], &results[0], &statuses[0]);
+                     key_slices.data(), results.data(), statuses.data());
 
         for (size_t i = 0; i < num_keys; ++i) {
           ASSERT_OK(statuses[i]);
@@ -1068,7 +1068,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         std::vector<Status> statuses(num_keys);
 
         db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                           &key_slices[0], &results[0], &statuses[0]);
+                           key_slices.data(), results.data(), statuses.data());
 
         for (size_t i = 0; i < num_keys; ++i) {
           ASSERT_OK(statuses[i]);

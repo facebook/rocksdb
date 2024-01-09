@@ -215,8 +215,9 @@ class CompactionJobTestBase : public testing::Test {
             dbname_, &db_options_, env_options_, table_cache_.get(),
             &write_buffer_manager_, &write_controller_,
             /*block_cache_tracer=*/nullptr,
-            /*io_tracer=*/nullptr, /*db_id*/ "", /*db_session_id*/ "",
-            /*daily_offpeak_time_utc*/ "")),
+            /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
+            /*daily_offpeak_time_utc=*/"",
+            /*error_handler=*/nullptr, /*read_only=*/false)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
@@ -294,9 +295,12 @@ class CompactionJobTestBase : public testing::Test {
     Status s = WritableFileWriter::Create(fs_, table_name, FileOptions(),
                                           &file_writer, nullptr);
     ASSERT_OK(s);
+    const ReadOptions read_options;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
             TableBuilderOptions(*cfd_->ioptions(), mutable_cf_options_,
+                                read_options, write_options,
                                 cfd_->internal_comparator(),
                                 cfd_->int_tbl_prop_collector_factories(),
                                 CompressionType::kNoCompression,
@@ -393,7 +397,7 @@ class CompactionJobTestBase : public testing::Test {
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, &edit, &mutex_, nullptr));
+        read_options_, write_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 
@@ -545,9 +549,10 @@ class CompactionJobTestBase : public testing::Test {
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-        /*db_id*/ "", /*db_session_id*/ "", /*daily_offpeak_time_utc*/ ""));
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr, /*read_only=*/false));
     compaction_job_stats_.Reset();
-    ASSERT_OK(SetIdentityFile(env_, dbname_));
+    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);
@@ -566,11 +571,11 @@ class CompactionJobTestBase : public testing::Test {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
       new_db.EncodeTo(&record);
-      s = log.AddRecord(record);
+      s = log.AddRecord(WriteOptions(), record);
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
 
     ASSERT_OK(s);
 
@@ -734,6 +739,7 @@ class CompactionJobTestBase : public testing::Test {
   MutableCFOptions mutable_cf_options_;
   MutableDBOptions mutable_db_options_;
   const ReadOptions read_options_;
+  const WriteOptions write_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -1525,13 +1531,15 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
       {files0, files1, files2, files3}, input_levels,
       /*verify_func=*/[&](Compaction& comp) {
         for (char c = 'a'; c <= 'z'; c++) {
-          std::string c_str;
-          c_str = c;
-          const Slice key(c_str);
           if (c == 'a') {
-            ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(key));
+            ParsedInternalKey pik("a", 0U, kTypeValue);
+            ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(pik));
           } else {
-            ASSERT_TRUE(comp.WithinPenultimateLevelOutputRange(key));
+            std::string c_str{c};
+            // WithinPenultimateLevelOutputRange checks internal key range.
+            // 'z' is the last key, so set seqno properly.
+            ParsedInternalKey pik(c_str, c == 'z' ? 12U : 0U, kTypeValue);
+            ASSERT_TRUE(comp.WithinPenultimateLevelOutputRange(pik));
           }
         }
       });

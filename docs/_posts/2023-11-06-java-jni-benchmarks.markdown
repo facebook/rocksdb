@@ -106,7 +106,7 @@ Benchmarks ran for a duration of order 6 hours on an otherwise unloaded VM,
   the error bars are small and we can have strong confidence in the values
   derived and plotted.
 
-![Raw JNI Get](./jni-get-benchmarks/fig_1024_1_none_nopoolbig.png).
+![Raw JNI Get small](/static/images/jni-get-benchmarks/fig_1024_1_none_nopoolbig.png)
 
 Comparing all the benchmarks as the data size tends large, the conclusions we
 can draw are:
@@ -130,7 +130,7 @@ can draw are:
 
 At small(er) data sizes, we can see whether other factors are important.
 
-![Raw JNI Get](./jni-get-benchmarks/fig_1024_1_none_nopoolsmall.png)
+![Raw JNI Get large](/static/images/jni-get-benchmarks/fig_1024_1_none_nopoolsmall.png)
 
 - Indirect byte buffers are the most significant overhead here. Again, we can
   conclude that this is due to pure overhead compared to `byte[]` operations.
@@ -156,7 +156,7 @@ of result.
   the access is presumably word by word, using normal
   Java mechanisms.
 
-![Copy out JNI Get](./jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png).
+![Copy out JNI Get](/static/images/jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png)
 
 ### PutJNIBenchmark
 
@@ -191,7 +191,7 @@ Of course there is some noise within the results. but we can agree:
 
  * Don't make copies you don't need to make
  * Don't allocate/deallocate when you can avoid it
- 
+
 Translating this into designing an efficient API, we want to:
 
  * Support API methods that return results in buffers supplied by the client.
@@ -202,7 +202,7 @@ Translating this into designing an efficient API, we want to:
    * Simplicity of implementation, as we can wrap `byte[]`-oriented methods
  * Continue to support methods which allocate return buffers per-call, as these are the easiest to use on initial encounter with the RocksDB API.
 
-High performance Java interaction with RocksDB ultimately requires architectural decisions by the client 
+High performance Java interaction with RocksDB ultimately requires architectural decisions by the client
  * Use more complex (client supplied buffer) API methods where performance matters
  * Don't allocate/deallocate where you don't need to
    * recycle your own buffers where this makes sense
@@ -227,7 +227,7 @@ java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,500
 ```
 The y-axis shows `ops/sec` in throughput, so higher is better.
 
-![image](./jni-get-benchmarks/optimization-graph.png)
+![](/static/images/jni-get-benchmarks/optimization-graph.png)
 
 ### Analysis
 
@@ -238,9 +238,9 @@ Status Get(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value)
 ```
- 
+
 After PinnableSlice the correct way for new code to implement a `get()` is like this
- 
+
 ```cpp
 Status Get(const ReadOptions& options,
                     ColumnFamilyHandle* column_family, const Slice& key,
@@ -262,7 +262,7 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
  1. Create an empty `std::string value`
  2. Call `DB::Get()` using the `std::string` variant
  3. Copy the resultant `std::string` into Java, using the JNI `SetByteArrayRegion()` method
- 
+
 So stage (3) costs us a copy into Java. It's mostly unavoidable that there will be at least the one copy from a C++ buffer into a Java buffer.
 
 But what does stage 2 do ?
@@ -285,7 +285,3 @@ Luckily this is easy to fix. In the Java API (JNI) implementation:
 In the case where the `PinnableSlice` has succesfully pinned the data, this saves us the intermediate copy to the `std::string`. In the case where it hasn't, we still have the extra copy so the observed performance improvement depends on when the data can be pinned. Luckily, our benchmarking suggests that the pin is happening in a significant number of cases.
 
 On discussion with the RocksDB core team we understand that the core `PinnableSlice` optimization is most likely to succeed when pages are loaded from the block cache, rather than when they are in `memtable`. And it might be possible to successfully pin in the `memtable` as well, with some extra coding effort. This would likely improve the results for these benchmarks.
-
-
-
-

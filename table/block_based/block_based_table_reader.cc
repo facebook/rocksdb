@@ -601,7 +601,7 @@ Status BlockBasedTable::Open(
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
-  if (!ioptions.allow_mmap_reads) {
+  if (!ioptions.allow_mmap_reads && !env_options.use_mmap_reads) {
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
                      &prefetch_buffer, ioptions.stats, tail_size,
@@ -613,8 +613,7 @@ Status BlockBasedTable::Open(
   } else {
     // Should not prefetch for mmap mode.
     prefetch_buffer.reset(new FilePrefetchBuffer(
-        0 /* readahead_size */, 0 /* max_readahead_size */, false /* enable */,
-        true /* track_min_offset */));
+        ReadaheadParams(), false /* enable */, true /* track_min_offset */));
   }
 
   // Read in the following order:
@@ -876,18 +875,15 @@ Status BlockBasedTable::PrefetchTail(
   if (s.ok() && !file->use_direct_io() && !force_direct_prefetch) {
     if (!file->Prefetch(opts, prefetch_off, prefetch_len).IsNotSupported()) {
       prefetch_buffer->reset(new FilePrefetchBuffer(
-          0 /* readahead_size */, 0 /* max_readahead_size */,
-          false /* enable */, true /* track_min_offset */));
+          ReadaheadParams(), false /* enable */, true /* track_min_offset */));
       return Status::OK();
     }
   }
 
   // Use `FilePrefetchBuffer`
   prefetch_buffer->reset(new FilePrefetchBuffer(
-      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
-      true /* track_min_offset */, false /* implicit_auto_readahead */,
-      0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
-      0 /* upper_bound_offset */, nullptr /* fs */, nullptr /* clock */, stats,
+      ReadaheadParams(), true /* enable */, true /* track_min_offset */,
+      nullptr /* fs */, nullptr /* clock */, stats,
       /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
@@ -1895,7 +1891,8 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
       rep->internal_comparator.user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
       rep->index_has_first_key, rep->index_key_includes_seq,
-      rep->index_value_is_full);
+      rep->index_value_is_full, /*block_contents_pinned=*/false,
+      rep->user_defined_timestamps_persisted);
 }
 
 // This will be broken if the user specifies an unusual implementation
@@ -2498,10 +2495,11 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
                               : rep_->table_options.max_auto_readahead_size;
   // FilePrefetchBuffer doesn't work in mmap mode and readahead is not
   // needed there.
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = readahead_size;
+  readahead_params.max_readahead_size = readahead_size;
   FilePrefetchBuffer prefetch_buffer(
-      readahead_size /* readahead_size */,
-      readahead_size /* max_readahead_size */,
-      !rep_->ioptions.allow_mmap_reads /* enable */);
+      readahead_params, !rep_->ioptions.allow_mmap_reads /* enable */);
 
   for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
     s = index_iter->status();
@@ -2644,9 +2642,21 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
       options, /*need_upper_bound_check=*/false, /*input_iter=*/nullptr,
       /*get_context=*/nullptr, /*lookup_context=*/nullptr));
   iiter->Seek(key);
+  assert(iiter->status().ok());
   assert(iiter->Valid());
 
   return TEST_BlockInCache(iiter->value().handle);
+}
+
+void BlockBasedTable::TEST_GetDataBlockHandle(const ReadOptions& options,
+                                              const Slice& key,
+                                              BlockHandle& handle) {
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter(NewIndexIterator(
+      options, /*disable_prefix_seek=*/false, /*input_iter=*/nullptr,
+      /*get_context=*/nullptr, /*lookup_context=*/nullptr));
+  iiter->Seek(key);
+  assert(iiter->Valid());
+  handle = iiter->value().handle;
 }
 
 // REQUIRES: The following fields of rep_ should have already been populated:
@@ -2909,7 +2919,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
                 "--------------------------------------\n";
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions ro;
   Status s = ReadMetaIndexBlock(ro, nullptr /* prefetch_buffer */, &metaindex,
                                 &metaindex_iter);
@@ -3014,7 +3024,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
   out_stream << "Index Details:\n"
                 "--------------------------------------\n";
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(read_options, /*need_upper_bound_check=*/false,
@@ -3051,7 +3061,7 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
                << " size " << blockhandles_iter->value().handle.size() << "\n";
 
     std::string str_key = user_key.ToString();
-    std::string res_key("");
+    std::string res_key;
     char cspace = ' ';
     for (size_t i = 0; i < str_key.size(); i++) {
       res_key.append(&str_key[i], 1);
@@ -3065,7 +3075,7 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
 }
 
 Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(read_options, /*need_upper_bound_check=*/false,
@@ -3152,7 +3162,7 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
 
   std::string str_key = ikey.user_key().ToString();
   std::string str_value = value.ToString();
-  std::string res_key(""), res_value("");
+  std::string res_key, res_value;
   char cspace = ' ';
   for (size_t i = 0; i < str_key.size(); i++) {
     if (str_key[i] == '\0') {

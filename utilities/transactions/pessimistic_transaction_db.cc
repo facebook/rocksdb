@@ -134,6 +134,7 @@ Status PessimisticTransactionDB::Initialize(
     assert(batch_info.log_number_);
     assert(recovered_trx->name_.length());
 
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     WriteOptions w_options;
     w_options.sync = true;
     TransactionOptions t_options;

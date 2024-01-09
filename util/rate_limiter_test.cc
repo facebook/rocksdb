@@ -347,8 +347,10 @@ TEST_F(RateLimiterTest, Rate) {
   // This can fail due to slow execution speed, like when using valgrind or in
   // heavily loaded CI environments
   bool skip_minimum_rate_check =
-#if (defined(CIRCLECI) && defined(OS_MACOSX)) || defined(ROCKSDB_VALGRIND_RUN)
+#if defined(ROCKSDB_VALGRIND_RUN)
       true;
+#elif defined(OS_MACOSX)
+      getenv("CIRCLECI") || getenv("GITHUB_ACTIONS");
 #else
       getenv("SANDCASTLE");
 #endif

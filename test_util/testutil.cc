@@ -94,7 +94,9 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
-  if (raw < 1) raw = 1;
+  if (raw < 1) {
+    raw = 1;
+  }
   std::string raw_data = rnd->RandomBinaryString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
@@ -109,7 +111,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
 namespace {
 class Uint64ComparatorImpl : public Comparator {
  public:
-  Uint64ComparatorImpl() {}
+  Uint64ComparatorImpl() = default;
 
   const char* Name() const override { return "rocksdb.Uint64Comparator"; }
 
@@ -131,11 +133,9 @@ class Uint64ComparatorImpl : public Comparator {
   }
 
   void FindShortestSeparator(std::string* /*start*/,
-                             const Slice& /*limit*/) const override {
-    return;
-  }
+                             const Slice& /*limit*/) const override {}
 
-  void FindShortSuccessor(std::string* /*key*/) const override { return; }
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 }  // namespace
 
@@ -463,15 +463,16 @@ bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
   Random rnd(301);
   std::string test_string = rnd.RandomString(4096);
   Slice data(test_string);
-  Status s = WriteStringToFile(fs.get(), data, tmp, true);
+  IOOptions opts;
+  Status s = WriteStringToFile(fs.get(), data, tmp, true, opts);
   if (s.ok()) {
     std::unique_ptr<FSRandomAccessFile> file;
     auto io_s = fs->NewRandomAccessFile(tmp, FileOptions(), &file, nullptr);
     if (io_s.ok()) {
-      supported = !(file->Prefetch(0, data.size(), IOOptions(), nullptr)
-                        .IsNotSupported());
+      supported =
+          !(file->Prefetch(0, data.size(), opts, nullptr).IsNotSupported());
     }
-    s = fs->DeleteFile(tmp, IOOptions(), nullptr);
+    s = fs->DeleteFile(tmp, opts, nullptr);
   }
   return s.ok() && supported;
 }
@@ -521,7 +522,7 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
     for (int i = 0; i < bytes_to_corrupt; i++) {
       contents[i + offset] ^= 0x80;
     }
-    s = WriteStringToFile(env, contents, fname);
+    s = WriteStringToFile(env, contents, fname, false /* should_sync */);
   }
   if (s.ok() && verify_checksum) {
     Options options;
@@ -544,7 +545,7 @@ Status TruncateFile(Env* env, const std::string& fname, uint64_t new_length) {
   s = ReadFileToString(env, fname, &contents);
   if (s.ok()) {
     contents.resize(static_cast<size_t>(new_length), 'b');
-    s = WriteStringToFile(env, contents, fname);
+    s = WriteStringToFile(env, contents, fname, false /* should_sync */);
   }
   return s;
 }
@@ -632,7 +633,7 @@ class SpecialMemTableRep : public MemTableRep {
     return memtable_->GetIterator(arena);
   }
 
-  virtual ~SpecialMemTableRep() override {}
+  virtual ~SpecialMemTableRep() override = default;
 
  private:
   std::unique_ptr<MemTableRep> memtable_;
@@ -647,7 +648,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
             .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
            std::string* /* errmsg */) {
-          auto colon = uri.find(":");
+          auto colon = uri.find(':');
           if (colon != std::string::npos) {
             auto count = ParseInt(uri.substr(colon + 1));
             guard->reset(new SpecialSkipListFactory(count));

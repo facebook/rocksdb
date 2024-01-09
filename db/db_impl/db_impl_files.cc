@@ -18,6 +18,7 @@
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
 #include "port/port.h"
+#include "rocksdb/options.h"
 #include "util/autovector.h"
 #include "util/defer.h"
 
@@ -100,14 +101,6 @@ Status DBImpl::EnableFileDeletions(bool force) {
   return Status::OK();
 }
 
-int DBImpl::EnableFileDeletionsWithLock() {
-  mutex_.AssertHeld();
-  // In case others have called EnableFileDeletions(true /* force */) in between
-  disable_delete_obsolete_files_ =
-      std::max(0, disable_delete_obsolete_files_ - 1);
-  return disable_delete_obsolete_files_;
-}
-
 bool DBImpl::IsFileDeletionsEnabled() const {
   return 0 == disable_delete_obsolete_files_;
 }
@@ -154,6 +147,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // mutex_ cannot be released. Otherwise, we might see no min_pending_output
   // here but later find newer generated unfinalized files while scanning.
   job_context->min_pending_output = MinObsoleteSstNumberToKeep();
+  job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
 
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
@@ -427,6 +421,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                              state.blob_live.end());
   std::unordered_set<uint64_t> log_recycle_files_set(
       state.log_recycle_files.begin(), state.log_recycle_files.end());
+  std::unordered_set<uint64_t> quarantine_files_set(
+      state.files_to_quarantine.begin(), state.files_to_quarantine.end());
 
   auto candidate_files = state.full_scan_candidate_files;
   candidate_files.reserve(
@@ -515,7 +511,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   // Close WALs before trying to delete them.
   for (const auto w : state.logs_to_free) {
     // TODO: maybe check the return value of Close.
-    auto s = w->Close();
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    auto s = w->Close(WriteOptions());
     s.PermitUncheckedError();
   }
 
@@ -527,6 +524,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     FileType type;
     // Ignore file if we cannot recognize it.
     if (!ParseFileName(to_delete, &number, info_log_prefix.prefix, &type)) {
+      continue;
+    }
+
+    if (quarantine_files_set.find(number) != quarantine_files_set.end()) {
       continue;
     }
 
@@ -926,7 +927,8 @@ void DBImpl::SetDBId(std::string&& id, bool read_only,
   }
 }
 
-Status DBImpl::SetupDBId(bool read_only, RecoveryContext* recovery_ctx) {
+Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
+                         RecoveryContext* recovery_ctx) {
   Status s;
   // Check for the IDENTITY file and create it if not there or
   // broken or not matching manifest
@@ -959,7 +961,7 @@ Status DBImpl::SetupDBId(bool read_only, RecoveryContext* recovery_ctx) {
   }
   // Persist it to IDENTITY file if allowed
   if (!read_only) {
-    s = SetIdentityFile(env_, dbname_, db_id_);
+    s = SetIdentityFile(write_options, env_, dbname_, db_id_);
   }
   return s;
 }

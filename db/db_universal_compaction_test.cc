@@ -558,7 +558,7 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   ColumnFamilyMetaData cf_meta;
   dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   std::vector<std::string> compaction_input_file_names;
-  for (auto file : cf_meta.levels[0].files) {
+  for (const auto& file : cf_meta.levels[0].files) {
     if (rnd.OneIn(2)) {
       compaction_input_file_names.push_back(file.name);
     }

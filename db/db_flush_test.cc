@@ -3035,6 +3035,39 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBAtomicFlushTest, FailureInMultiCfAutomaticFlush) {
+  bool atomic_flush = GetParam();
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  const int kNumKeysTriggerFlush = 4;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysTriggerFlush));
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    ASSERT_OK(Put(static_cast<int>(cf), "a", "value"));
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ScheduleFlushes:PreSwitchMemtable",
+      [&](void* /*arg*/) { fault_injection_env->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 1; i < kNumKeysTriggerFlush; ++i) {
+    ASSERT_OK(Put(0, "key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  // Next write after failed flush should fail.
+  ASSERT_NOK(Put(0, "x", "y"));
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // In atomic flush, concurrent bg flush threads commit to the MANIFEST in
 // serial, in the order of their picked memtables for each column family.
 // Only when a bg flush thread finds out that its memtables are the earliest

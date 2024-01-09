@@ -130,7 +130,7 @@ namespace {}  // namespace
 TEST_F(DBBenchTest, OptionsFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
   Options opt = GetDefaultOptions();
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
@@ -149,7 +149,7 @@ TEST_F(DBBenchTest, OptionsFileUniversal) {
 
   Options opt = GetDefaultOptions(kCompactionStyleUniversal, 1);
 
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
@@ -166,7 +166,7 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
 
   Options opt = GetDefaultOptions(kCompactionStyleUniversal, 12);
 
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 

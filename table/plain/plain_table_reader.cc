@@ -126,7 +126,7 @@ Status PlainTableReader::Open(
   }
 
   std::unique_ptr<TableProperties> props;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                ioptions, read_options, &props);
@@ -300,7 +300,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   BlockContents index_block_contents;
 
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   Status s =
       ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
@@ -454,7 +454,9 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   ParsedInternalKey parsed_target;
   Status s = ParseInternalKey(target, &parsed_target,
                               false /* log_err_key */);  // TODO
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   // The key is between [low, high). Do a binary search between it.
   while (high - low > 1) {
@@ -591,7 +593,9 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   ParsedInternalKey parsed_target;
   s = ParseInternalKey(target, &parsed_target,
                        false /* log_err_key */);  // TODO
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   Slice found_value;
   while (offset < file_info_.data_end_offset) {
@@ -642,7 +646,7 @@ PlainTableIterator::PlainTableIterator(PlainTableReader* table,
   next_offset_ = offset_ = table_->file_info_.data_end_offset;
 }
 
-PlainTableIterator::~PlainTableIterator() {}
+PlainTableIterator::~PlainTableIterator() = default;
 
 bool PlainTableIterator::Valid() const {
   return offset_ < table_->file_info_.data_end_offset &&

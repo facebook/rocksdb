@@ -403,8 +403,10 @@ class TtlTest : public testing::Test {
   DBWithTTL* db_ttl_;
   std::unique_ptr<SpecialTimeEnv> env_;
 
- private:
+ protected:
   Options options_;
+
+ private:
   KVMap kvmap_;
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
@@ -608,6 +610,17 @@ TEST_F(TtlTest, CompactionFilter) {
   SleepCompactCheck(1, 0, partition, false);                   // Part dropped
   SleepCompactCheck(0, partition, partition);                  // Part kept
   SleepCompactCheck(0, 2 * partition, partition, true, true);  // Part changed
+  CloseTtl();
+}
+
+TEST_F(TtlTest, UnregisteredMergeOperator) {
+  class UnregisteredMergeOperator : public MergeOperator {
+   public:
+    const char* Name() const override { return "UnregisteredMergeOperator"; }
+  };
+  options_.fail_if_options_file_error = true;
+  options_.merge_operator = std::make_shared<UnregisteredMergeOperator>();
+  OpenTtl();
   CloseTtl();
 }
 
@@ -901,6 +914,14 @@ TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
   std::shared_ptr<MergeOperator> copy;
   ASSERT_OK(MergeOperator::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(mo->AreEquivalent(config_options_, copy.get(), &mismatch));
+
+  // An unregistered user_operator will be null, which is not supported by the
+  // `TtlMergeOperator` implementation.
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, "id=TtlMergeOperator; user_operator=unknown", &mo));
+  ASSERT_NE(mo.get(), nullptr);
+  ASSERT_STREQ(mo->Name(), TtlMergeOperator::kClassName());
+  ASSERT_NOK(mo->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
 }
 }  // namespace ROCKSDB_NAMESPACE
 
