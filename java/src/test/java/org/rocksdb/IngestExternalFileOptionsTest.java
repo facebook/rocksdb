@@ -104,4 +104,13 @@ public class IngestExternalFileOptionsTest {
       assertThat(options.writeGlobalSeqno()).isTrue();
     }
   }
+
+  @Test
+  public void verifyFileChecksum() {
+    try (final IngestExternalFileOptions options = new IngestExternalFileOptions()) {
+      final boolean verifyFileChecksum = rand.nextBoolean();
+      options.setVerifyFileChecksum(verifyFileChecksum);
+      assertThat(options.verifyFileChecksum()).isEqualTo(verifyFileChecksum);
+    }
+  }
 }
