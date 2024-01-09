@@ -119,7 +119,8 @@ std::string NumberToHumanString(int64_t num) {
   int64_t absnum;
 
   if (num < 0) {
-    // INT64_MIN is -INT64_MIN, so we need to handle it specially here.
+    // abs(INT64_MIN) is INT64_MAX+1 which overflows int64_t and become itself.
+    // So we convert it to INT64_MAX to avoid fall into <10000 slot.
     absnum = num == INT64_MIN ? INT64_MAX : -num;
   } else {
     absnum = num;
