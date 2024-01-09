@@ -1211,8 +1211,8 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jobject /*jdb*/,
 
     ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.Fetch();
-  } catch (ROCKSDB_NAMESPACE::KVException&) {
-    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
   }
 }
 
