@@ -220,15 +220,20 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
     jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
     jint jval_off, jint jval_part_len, jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::GetJNIKey key;
-  if (!key.fromByteArray(env, jkey, 0, jkey_part_len)) {
-    return nullptr;
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+      auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off, jval_part_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Get(*read_options, column_family_handle, key.slice(), &value.pinnable_slice()));
+    return value.Fetch();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
   }
-  ROCKSDB_NAMESPACE::PinnableSlice value;
-  auto s = txn->Get(
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
-      key.slice(), &value);
-  return ROCKSDB_NAMESPACE::GetJNIValue::byteArray(env, s, value);
 }
 
 typedef std::function<std::vector<ROCKSDB_NAMESPACE::Status>(
@@ -342,17 +347,23 @@ jint Java_org_rocksdb_Transaction_getForUpdate__JJ_3BII_3BIIJZZ(
     jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
     jint jval_off, jint jval_len, jlong jcolumn_family_handle,
     jboolean jexclusive, jboolean jdo_validate) {
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-
-  ROCKSDB_NAMESPACE::GetJNIKey key;
-  if (!key.fromByteArray(env, jkey, 0, jkey_part_len)) {
-    return nullptr;
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
+                          &value.pinnable_slice(), jexclusive, jdo_validate));
+    return value.Fetch();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
   }
-  ROCKSDB_NAMESPACE::PinnableSlice value;
-  auto s = txn->GetForUpdate(
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
-      key.slice(), &value, jexclusive, jdo_validate);
-  return ROCKSDB_NAMESPACE::GetJNIValue::byteArray(env, s, value);
 }
 
 /*
