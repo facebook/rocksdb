@@ -431,8 +431,9 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
 
   if (result.intra_l0_compaction_size == kDefaultIntraL0CompactionSize) {
     if (db_options.atomic_flush) {
-      result.intra_l0_compaction_size = result.max_bytes_for_level_base /
-                                        result.max_bytes_for_level_multiplier;
+      result.intra_l0_compaction_size =
+          static_cast<uint64_t>(result.max_bytes_for_level_base /
+                                result.max_bytes_for_level_multiplier);
     } else {
       result.intra_l0_compaction_size = 0;
     }
