@@ -15,6 +15,7 @@
 #include "db/column_family.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -35,15 +36,18 @@ struct SuperVersionContext {
       new_superversion;  // if nullptr no new superversion
 
   explicit SuperVersionContext(bool create_superversion = false)
-    : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
+      : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
 
-  explicit SuperVersionContext(SuperVersionContext&& other)
+  explicit SuperVersionContext(SuperVersionContext&& other) noexcept
       : superversions_to_free(std::move(other.superversions_to_free)),
 #ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
         write_stall_notifications(std::move(other.write_stall_notifications)),
 #endif
         new_superversion(std::move(other.new_superversion)) {
   }
+  // No copies
+  SuperVersionContext(const SuperVersionContext& other) = delete;
+  void operator=(const SuperVersionContext& other) = delete;
 
   void NewSuperVersion() {
     new_superversion = std::unique_ptr<SuperVersion>(new SuperVersion());
@@ -51,8 +55,7 @@ struct SuperVersionContext {
 
   inline bool HaveSomethingToDelete() const {
 #ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
-    return !superversions_to_free.empty() ||
-           !write_stall_notifications.empty();
+    return !superversions_to_free.empty() || !write_stall_notifications.empty();
 #else
     return !superversions_to_free.empty();
 #endif
@@ -62,7 +65,7 @@ struct SuperVersionContext {
                                   WriteStallCondition new_cond,
                                   const std::string& name,
                                   const ImmutableOptions* ioptions) {
-#if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+#if !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
     WriteStallNotification notif;
     notif.write_stall_info.cf_name = name;
     notif.write_stall_info.condition.prev = old_cond;
@@ -74,11 +77,11 @@ struct SuperVersionContext {
     (void)new_cond;
     (void)name;
     (void)ioptions;
-#endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+#endif  // !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
   }
 
   void Clean() {
-#if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+#if !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
     // notify listeners on changed write stall conditions
     for (auto& notif : write_stall_notifications) {
       for (auto& listener : notif.immutable_options->listeners) {
@@ -86,7 +89,7 @@ struct SuperVersionContext {
       }
     }
     write_stall_notifications.clear();
-#endif  // !ROCKSDB_LITE
+#endif
     // free superversions
     for (auto s : superversions_to_free) {
       delete s;
@@ -121,6 +124,14 @@ struct JobContext {
            job_snapshot != nullptr || sv_have_sth;
   }
 
+  SequenceNumber GetJobSnapshotSequence() const {
+    if (job_snapshot) {
+      assert(job_snapshot->snapshot());
+      return job_snapshot->snapshot()->GetSequenceNumber();
+    }
+    return kMaxSequenceNumber;
+  }
+
   // Structure to store information for candidate files to delete.
   struct CandidateFileInfo {
     std::string file_name;
@@ -128,8 +139,7 @@ struct JobContext {
     CandidateFileInfo(std::string name, std::string path)
         : file_name(std::move(name)), file_path(std::move(path)) {}
     bool operator==(const CandidateFileInfo& other) const {
-      return file_name == other.file_name &&
-             file_path == other.file_path;
+      return file_name == other.file_name && file_path == other.file_path;
     }
   };
 
@@ -160,6 +170,16 @@ struct JobContext {
   // a list of log files that we need to preserve during full purge since they
   // will be reused later
   std::vector<uint64_t> log_recycle_files;
+
+  // Files quarantined from deletion. This list contains file numbers for files
+  // that are in an ambiguous states. This includes newly generated SST files
+  // and blob files from flush and compaction job whose VersionEdits' persist
+  // state in Manifest are unclear. An old manifest file whose immediately
+  // following new manifest file's CURRENT file creation is in an unclear state.
+  // WAL logs don't have this premature deletion risk since
+  // min_log_number_to_keep is only updated after successful manifest commits.
+  // So this data structure doesn't track log files.
+  autovector<uint64_t> files_to_quarantine;
 
   // a list of manifest files that we need to delete
   std::vector<std::string> manifest_delete_files;

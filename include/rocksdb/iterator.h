@@ -19,9 +19,11 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -73,30 +75,51 @@ class Iterator : public Cleanable {
   virtual void Prev() = 0;
 
   // Return the key for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
-  // the iterator.
+  // the returned slice is valid only until the next modification of the
+  // iterator (i.e. the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev
+  // operation).
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
 
-  // Return the value for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
-  // the iterator.
+  // Return the value for the current entry.  If the entry is a plain key-value,
+  // return the value as-is; if it is a wide-column entity, return the value of
+  // the default anonymous column (see kDefaultWideColumnName) if any, or an
+  // empty value otherwise.  The underlying storage for the returned slice is
+  // valid only until the next modification of the iterator (i.e. the next
+  // SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
   // REQUIRES: Valid()
   virtual Slice value() const = 0;
+
+  // Return the wide columns for the current entry.  If the entry is a
+  // wide-column entity, return it as-is; if it is a plain key-value, return it
+  // as an entity with a single anonymous column (see kDefaultWideColumnName)
+  // which contains the value.  The underlying storage for the returned
+  // structure is valid only until the next modification of the iterator (i.e.
+  // the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
+  // REQUIRES: Valid()
+  virtual const WideColumns& columns() const {
+    assert(false);
+    return kNoWideColumns;
+  }
 
   // If an error has occurred, return it.  Else return an ok status.
   // If non-blocking IO is requested and this operation cannot be
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // If supported, renew the iterator to represent the latest state. The
-  // iterator will be invalidated after the call. Not supported if
-  // ReadOptions.snapshot is given when creating the iterator.
-  //
-  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
-  // has been used or will be used. This feature combination is neither
-  // supported nor programmatically prevented.
-  virtual Status Refresh() {
+  // If supported, the DB state that the iterator reads from is updated to
+  // the latest state. The iterator will be invalidated after the call.
+  // Regardless of whether the iterator was created/refreshed previously
+  // with or without a snapshot, the iterator will be reading the
+  // latest DB state after this call.
+  // Note that you will need to call a Seek*() function to get the iterator
+  // back into a valid state before calling a function that assumes the
+  // state is already valid, like Next().
+  virtual Status Refresh() { return Refresh(nullptr); }
+
+  // Similar to Refresh() but the iterator will be reading the latest DB state
+  // under the given snapshot.
+  virtual Status Refresh(const class Snapshot*) {
     return Status::NotSupported("Refresh() is not supported");
   }
 
@@ -113,6 +136,16 @@ class Iterator : public Cleanable {
   // Property "rocksdb.iterator.internal-key":
   //   Get the user-key portion of the internal key at which the iteration
   //   stopped.
+  // Property "rocksdb.iterator.write-time":
+  //   DO NOT USE, UNDER CONSTRUCTION
+  //   Get the unix time of the best estimate of the write time of the entry.
+  //   Returned as 64-bit raw value (8 bytes). It can be converted to uint64_t
+  //   with util method `DecodeU64Ts`. The accuracy of the write time depends on
+  //   settings like preserve_internal_time_seconds. If this feature is
+  //   disabled, this property will always be empty. The actual write time of
+  //   the entry should be the same or newer than the returned write time. So
+  //   this property can be interpreted as the possible oldest write time for
+  //   the entry.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
   virtual Slice timestamp() const {

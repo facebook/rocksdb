@@ -8,9 +8,12 @@ import sys
 from block_cache_pysim import (
     ARCCache,
     CacheEntry,
+    create_cache,
     GDSizeCache,
     HashTable,
     HyperbolicPolicy,
+    kMicrosInSecond,
+    kSampleSize,
     LFUPolicy,
     LinUCBCache,
     LRUCache,
@@ -18,13 +21,10 @@ from block_cache_pysim import (
     MRUPolicy,
     OPTCache,
     OPTCacheEntry,
+    run,
     ThompsonSamplingCache,
     TraceCache,
     TraceRecord,
-    create_cache,
-    kMicrosInSecond,
-    kSampleSize,
-    run,
 )
 
 

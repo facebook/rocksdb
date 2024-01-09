@@ -4,15 +4,13 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "util/stop_watch.h"
-#ifndef ROCKSDB_LITE
-
-#include "tools/simulated_hybrid_file_system.h"
 
 #include <algorithm>
 #include <sstream>
 #include <string>
 
 #include "rocksdb/rate_limiter.h"
+#include "tools/simulated_hybrid_file_system.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -88,7 +86,9 @@ SimulatedHybridFileSystem::~SimulatedHybridFileSystem() {
     metadata += f;
     metadata += "\n";
   }
-  IOStatus s = WriteStringToFile(target(), metadata, metadata_file_name_, true);
+  IOOptions opts;
+  IOStatus s =
+      WriteStringToFile(target(), metadata, metadata_file_name_, true, opts);
   if (!s.ok()) {
     fprintf(stderr, "Error writing to file %s: %s", metadata_file_name_.c_str(),
             s.ToString().c_str());
@@ -242,5 +242,3 @@ IOStatus SimulatedWritableFile::Sync(const IOOptions& options,
   return target()->Sync(options, dbg);
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

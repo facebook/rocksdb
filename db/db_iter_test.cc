@@ -3,12 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <utility>
-
 #include "db/db_iter.h"
+
+#include <algorithm>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
@@ -64,8 +65,7 @@ class TestIterator : public InternalIterator {
            size_t seq_num, bool update_iter = false) {
     valid_ = true;
     ParsedInternalKey internal_key(argkey, seq_num, type);
-    data_.push_back(
-        std::pair<std::string, std::string>(std::string(), argvalue));
+    data_.emplace_back(std::string(), argvalue);
     AppendInternalKey(&data_.back().first, internal_key);
     if (update_iter && valid_ && cmp.Compare(data_.back().first, key()) < 0) {
       // insert a key smaller than current key
@@ -82,8 +82,8 @@ class TestIterator : public InternalIterator {
     std::sort(data_.begin(), data_.end(),
               [this](std::pair<std::string, std::string> a,
                      std::pair<std::string, std::string> b) {
-      return (cmp.Compare(a.first, b.first) < 0);
-    });
+                return (cmp.Compare(a.first, b.first) < 0);
+              });
   }
 
   // Removes the key from the set of keys over which this iterator iterates.
@@ -274,6 +274,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
     db_iter->Next();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
   // Test to check the SeekToLast() with iterate_upper_bound not set
   {
@@ -429,7 +430,8 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count), 1);
+    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count),
+              1);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -557,7 +559,8 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
+    ASSERT_EQ(
+        static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -766,7 +769,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddPut("c", ToString(k));
+        internal_iter->AddPut("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -780,7 +783,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_TRUE(db_iter->Valid());
 
       ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), ToString(i));
+      ASSERT_EQ(db_iter->value().ToString(), std::to_string(i));
       db_iter->Prev();
       ASSERT_TRUE(db_iter->Valid());
 
@@ -925,11 +928,11 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddPut("d", ToString(k));
+        internal_iter->AddPut("d", std::to_string(k));
       }
 
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddPut("c", ToString(k));
+        internal_iter->AddPut("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -942,7 +945,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_TRUE(db_iter->Valid());
 
       ASSERT_EQ(db_iter->key().ToString(), "d");
-      ASSERT_EQ(db_iter->value().ToString(), ToString(i));
+      ASSERT_EQ(db_iter->value().ToString(), std::to_string(i));
       db_iter->Prev();
       ASSERT_TRUE(db_iter->Valid());
 
@@ -966,7 +969,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       internal_iter->AddMerge("b", "b");
       internal_iter->AddMerge("a", "a");
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddMerge("c", ToString(k));
+        internal_iter->AddMerge("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -981,7 +984,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_EQ(db_iter->key().ToString(), "c");
       std::string merge_result = "0";
       for (size_t j = 1; j <= i; ++j) {
-        merge_result += "," + ToString(j);
+        merge_result += "," + std::to_string(j);
       }
       ASSERT_EQ(db_iter->value().ToString(), merge_result);
 
@@ -1412,6 +1415,7 @@ TEST_F(DBIteratorTest, DBIterator1) {
   ASSERT_EQ(db_iter->key().ToString(), "b");
   db_iter->Next();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator2) {
@@ -1525,6 +1529,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1549,6 +1554,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1573,6 +1579,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1597,6 +1604,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1621,6 +1629,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1645,6 +1654,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1669,6 +1679,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5,merge_6");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1723,6 +1734,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1747,6 +1759,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1771,6 +1784,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1791,6 +1805,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
         nullptr /* read_callback */));
     db_iter->SeekToLast();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1815,6 +1830,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_4");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1839,6 +1855,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1863,6 +1880,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5,merge_6");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 }
 
@@ -1907,6 +1925,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1949,6 +1968,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1991,6 +2011,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2038,6 +2059,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2086,6 +2108,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2128,6 +2151,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2176,6 +2200,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2225,6 +2250,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2268,6 +2294,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 }
 
@@ -2437,6 +2464,7 @@ TEST_F(DBIteratorTest, SeekToLastOccurrenceSeq0) {
   ASSERT_EQ(db_iter->value().ToString(), "2");
   db_iter->Next();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator11) {
@@ -2466,6 +2494,7 @@ TEST_F(DBIteratorTest, DBIterator11) {
   ASSERT_EQ(db_iter->key().ToString(), "b");
   db_iter->Next();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator12) {
@@ -2494,6 +2523,7 @@ TEST_F(DBIteratorTest, DBIterator12) {
   ASSERT_EQ(db_iter->value().ToString(), "1");
   db_iter->Prev();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator13) {
@@ -2586,7 +2616,7 @@ class DBIterWithMergeIterTest : public testing::Test {
     child_iters.push_back(internal_iter2_);
     InternalKeyComparator icomp(BytewiseComparator());
     InternalIterator* merge_iter =
-        NewMergingIterator(&icomp_, &child_iters[0], 2u);
+        NewMergingIterator(&icomp_, child_iters.data(), 2u);
 
     db_iter_.reset(NewDBIterator(
         env_, ro_, ImmutableOptions(options_), MutableCFOptions(options_),
@@ -2632,6 +2662,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIterator1) {
   ASSERT_EQ(db_iter_->value().ToString(), "3");
   db_iter_->Next();
   ASSERT_FALSE(db_iter_->Valid());
+  ASSERT_OK(db_iter_->status());
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIterator2) {
@@ -3013,7 +3044,6 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-
 TEST_F(DBIteratorTest, SeekPrefixTombstones) {
   ReadOptions ro;
   Options options;
@@ -3156,7 +3186,7 @@ TEST_F(DBIteratorTest, ReverseToForwardWithDisappearingKeys) {
   internal_iter->AddPut("a", "A");
   internal_iter->AddPut("b", "B");
   for (int i = 0; i < 100; ++i) {
-    internal_iter->AddPut("c" + ToString(i), "");
+    internal_iter->AddPut("c" + std::to_string(i), "");
   }
   internal_iter->Finish();
 
@@ -3187,6 +3217,7 @@ TEST_F(DBIteratorTest, ReverseToForwardWithDisappearingKeys) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

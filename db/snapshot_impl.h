@@ -12,6 +12,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,7 +28,11 @@ class SnapshotImpl : public Snapshot {
   // scope of queries to IsInSnapshot.
   SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
-  virtual SequenceNumber GetSequenceNumber() const override { return number_; }
+  SequenceNumber GetSequenceNumber() const override { return number_; }
+
+  int64_t GetUnixTime() const override { return unix_time_; }
+
+  uint64_t GetTimestamp() const override { return timestamp_; }
 
  private:
   friend class SnapshotList;
@@ -36,9 +41,11 @@ class SnapshotImpl : public Snapshot {
   SnapshotImpl* prev_;
   SnapshotImpl* next_;
 
-  SnapshotList* list_;                 // just for sanity checks
+  SnapshotList* list_;  // just for sanity checks
 
   int64_t unix_time_;
+
+  uint64_t timestamp_;
 
   // Will this snapshot be used by a Transaction to do write-conflict checking?
   bool is_write_conflict_boundary_;
@@ -49,10 +56,11 @@ class SnapshotList {
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
-    list_.number_ = 0xFFFFFFFFL;      // placeholder marker, for debugging
+    list_.number_ = 0xFFFFFFFFL;  // placeholder marker, for debugging
     // Set all the variables to make UBSAN happy.
     list_.list_ = nullptr;
     list_.unix_time_ = 0;
+    list_.timestamp_ = 0;
     list_.is_write_conflict_boundary_ = false;
     count_ = 0;
   }
@@ -60,14 +68,25 @@ class SnapshotList {
   // No copy-construct.
   SnapshotList(const SnapshotList&) = delete;
 
-  bool empty() const { return list_.next_ == &list_; }
-  SnapshotImpl* oldest() const { assert(!empty()); return list_.next_; }
-  SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }
+  bool empty() const {
+    assert(list_.next_ != &list_ || 0 == count_);
+    return list_.next_ == &list_;
+  }
+  SnapshotImpl* oldest() const {
+    assert(!empty());
+    return list_.next_;
+  }
+  SnapshotImpl* newest() const {
+    assert(!empty());
+    return list_.prev_;
+  }
 
   SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
-                    bool is_write_conflict_boundary) {
+                    bool is_write_conflict_boundary,
+                    uint64_t ts = std::numeric_limits<uint64_t>::max()) {
     s->number_ = seq;
     s->unix_time_ = unix_time;
+    s->timestamp_ = ts;
     s->is_write_conflict_boundary_ = is_write_conflict_boundary;
     s->list_ = this;
     s->next_ = &list_;
@@ -163,6 +182,58 @@ class SnapshotList {
   // Dummy head of doubly-linked list of snapshots
   SnapshotImpl list_;
   uint64_t count_;
+};
+
+// All operations on TimestampedSnapshotList must be protected by db mutex.
+class TimestampedSnapshotList {
+ public:
+  explicit TimestampedSnapshotList() = default;
+
+  std::shared_ptr<const SnapshotImpl> GetSnapshot(uint64_t ts) const {
+    if (ts == std::numeric_limits<uint64_t>::max() && !snapshots_.empty()) {
+      auto it = snapshots_.rbegin();
+      assert(it != snapshots_.rend());
+      return it->second;
+    }
+    auto it = snapshots_.find(ts);
+    if (it == snapshots_.end()) {
+      return std::shared_ptr<const SnapshotImpl>();
+    }
+    return it->second;
+  }
+
+  void GetSnapshots(
+      uint64_t ts_lb, uint64_t ts_ub,
+      std::vector<std::shared_ptr<const Snapshot>>& snapshots) const {
+    assert(ts_lb < ts_ub);
+    auto it_low = snapshots_.lower_bound(ts_lb);
+    auto it_high = snapshots_.lower_bound(ts_ub);
+    for (auto it = it_low; it != it_high; ++it) {
+      snapshots.emplace_back(it->second);
+    }
+  }
+
+  void AddSnapshot(const std::shared_ptr<const SnapshotImpl>& snapshot) {
+    assert(snapshot);
+    snapshots_.try_emplace(snapshot->GetTimestamp(), snapshot);
+  }
+
+  // snapshots_to_release: the container to where the timestamped snapshots will
+  // be moved so that it retains the last reference to the snapshots and the
+  // snapshots won't be actually released which requires db mutex. The
+  // snapshots will be released by caller of ReleaseSnapshotsOlderThan().
+  void ReleaseSnapshotsOlderThan(
+      uint64_t ts,
+      autovector<std::shared_ptr<const SnapshotImpl>>& snapshots_to_release) {
+    auto ub = snapshots_.lower_bound(ts);
+    for (auto it = snapshots_.begin(); it != ub; ++it) {
+      snapshots_to_release.emplace_back(it->second);
+    }
+    snapshots_.erase(snapshots_.begin(), ub);
+  }
+
+ private:
+  std::map<uint64_t, std::shared_ptr<const SnapshotImpl>> snapshots_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

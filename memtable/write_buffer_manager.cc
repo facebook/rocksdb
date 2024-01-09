@@ -9,6 +9,8 @@
 
 #include "rocksdb/write_buffer_manager.h"
 
+#include <memory>
+
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/db_impl/db_impl.h"
@@ -26,17 +28,14 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
       cache_res_mgr_(nullptr),
       allow_stall_(allow_stall),
       stall_active_(false) {
-#ifndef ROCKSDB_LITE
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
     // insertion on memory increase right after memory decrease
-    cache_res_mgr_.reset(
-        new CacheReservationManager(cache, true /* delayed_decrease */));
+    cache_res_mgr_ = std::make_shared<
+        CacheReservationManagerImpl<CacheEntryRole::kWriteBuffer>>(
+        cache, true /* delayed_decrease */);
   }
-#else
-  (void)cache;
-#endif  // ROCKSDB_LITE
 }
 
 WriteBufferManager::~WriteBufferManager() {
@@ -67,7 +66,6 @@ void WriteBufferManager::ReserveMem(size_t mem) {
 
 // Should only be called from write thread
 void WriteBufferManager::ReserveMemWithCache(size_t mem) {
-#ifndef ROCKSDB_LITE
   assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
@@ -75,19 +73,14 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) + mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
-  Status s =
-      cache_res_mgr_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
-          new_mem_used);
+  Status s = cache_res_mgr_->UpdateCacheReservation(new_mem_used);
 
   // We absorb the error since WriteBufferManager is not able to handle
   // this failure properly. Ideallly we should prevent this allocation
-  // from happening if this cache reservation fails.
+  // from happening if this cache charging fails.
   // [TODO] We'll need to improve it in the future and figure out what to do on
   // error
   s.PermitUncheckedError();
-#else
-  (void)mem;
-#endif  // ROCKSDB_LITE
 }
 
 void WriteBufferManager::ScheduleFreeMem(size_t mem) {
@@ -107,30 +100,23 @@ void WriteBufferManager::FreeMem(size_t mem) {
 }
 
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
-#ifndef ROCKSDB_LITE
   assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
   std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) - mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
-  Status s =
-      cache_res_mgr_->UpdateCacheReservation<CacheEntryRole::kWriteBuffer>(
-          new_mem_used);
+  Status s = cache_res_mgr_->UpdateCacheReservation(new_mem_used);
 
   // We absorb the error since WriteBufferManager is not able to handle
   // this failure properly.
   // [TODO] We'll need to improve it in the future and figure out what to do on
   // error
   s.PermitUncheckedError();
-#else
-  (void)mem;
-#endif  // ROCKSDB_LITE
 }
 
 void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
   assert(wbm_stall != nullptr);
-  assert(allow_stall_);
 
   // Allocate outside of the lock.
   std::list<StallInterface*> new_node = {wbm_stall};
@@ -153,14 +139,10 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
 
 // Called when memory is freed in FreeMem or the buffer size has changed.
 void WriteBufferManager::MaybeEndWriteStall() {
-  // Cannot early-exit on !enabled() because SetBufferSize(0) needs to unblock
-  // the writers.
-  if (!allow_stall_) {
+  // Stall conditions have not been resolved.
+  if (allow_stall_.load(std::memory_order_relaxed) &&
+      IsStallThresholdExceeded()) {
     return;
-  }
-
-  if (IsStallThresholdExceeded()) {
-    return;  // Stall conditions have not resolved.
   }
 
   // Perform all deallocations outside of the lock.
@@ -187,7 +169,7 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
   // Deallocate the removed nodes outside of the lock.
   std::list<StallInterface*> cleanup;
 
-  if (enabled() && allow_stall_) {
+  if (enabled() && allow_stall_.load(std::memory_order_relaxed)) {
     std::unique_lock<std::mutex> lock(mu_);
     for (auto it = queue_.begin(); it != queue_.end();) {
       auto next = std::next(it);

@@ -16,7 +16,8 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 
-__thread ThreadStatusData* ThreadStatusUpdater::thread_status_data_ = nullptr;
+thread_local ThreadStatusData* ThreadStatusUpdater::thread_status_data_ =
+    nullptr;
 
 void ThreadStatusUpdater::RegisterThread(ThreadStatus::ThreadType ttype,
                                          uint64_t thread_id) {
@@ -46,15 +47,19 @@ void ThreadStatusUpdater::ResetThreadStatus() {
   SetColumnFamilyInfoKey(nullptr);
 }
 
+void ThreadStatusUpdater::SetEnableTracking(bool enable_tracking) {
+  auto* data = Get();
+  if (data == nullptr) {
+    return;
+  }
+  data->enable_tracking.store(enable_tracking, std::memory_order_relaxed);
+}
+
 void ThreadStatusUpdater::SetColumnFamilyInfoKey(const void* cf_key) {
   auto* data = Get();
   if (data == nullptr) {
     return;
   }
-  // set the tracking flag based on whether cf_key is non-null or not.
-  // If enable_thread_tracking is set to false, the input cf_key
-  // would be nullptr.
-  data->enable_tracking = (cf_key != nullptr);
   data->cf_key.store(const_cast<void*>(cf_key), std::memory_order_relaxed);
 }
 
@@ -83,6 +88,14 @@ void ThreadStatusUpdater::SetThreadOperation(
                                 std::memory_order_relaxed);
     ClearThreadOperationProperties();
   }
+}
+
+ThreadStatus::OperationType ThreadStatusUpdater::GetThreadOperation() {
+  ThreadStatusData* data = GetLocalThreadStatus();
+  if (data == nullptr) {
+    return ThreadStatus::OperationType::OP_UNKNOWN;
+  }
+  return data->operation_type.load(std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::SetThreadOperationProperty(int i, uint64_t value) {
@@ -210,9 +223,7 @@ ThreadStatusData* ThreadStatusUpdater::GetLocalThreadStatus() {
   if (thread_status_data_ == nullptr) {
     return nullptr;
   }
-  if (!thread_status_data_->enable_tracking) {
-    assert(thread_status_data_->cf_key.load(std::memory_order_relaxed) ==
-           nullptr);
+  if (!thread_status_data_->enable_tracking.load(std::memory_order_relaxed)) {
     return nullptr;
   }
   return thread_status_data_;

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_file_reader.h"
 
@@ -37,7 +36,7 @@ struct SstFileReader::Rep {
 
 SstFileReader::SstFileReader(const Options& options) : rep_(new Rep(options)) {}
 
-SstFileReader::~SstFileReader() {}
+SstFileReader::~SstFileReader() = default;
 
 Status SstFileReader::Open(const std::string& file_path) {
   auto r = rep_.get();
@@ -57,7 +56,8 @@ Status SstFileReader::Open(const std::string& file_path) {
   }
   if (s.ok()) {
     TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor,
-                             r->soptions, r->ioptions.internal_comparator);
+                             r->soptions, r->ioptions.internal_comparator,
+                             r->moptions.block_protection_bytes_per_key);
     // Allow open file with global sequence number for backward compatibility.
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),
@@ -67,6 +67,7 @@ Status SstFileReader::Open(const std::string& file_path) {
 }
 
 Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
+  assert(roptions.io_activity == Env::IOActivity::kUnknown);
   auto r = rep_.get();
   auto sequence = roptions.snapshot != nullptr
                       ? roptions.snapshot->GetSequenceNumber()
@@ -92,10 +93,9 @@ std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
 }
 
 Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
+  assert(read_options.io_activity == Env::IOActivity::kUnknown);
   return rep_->table_reader->VerifyChecksum(read_options,
                                             TableReaderCaller::kSSTFileReader);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE

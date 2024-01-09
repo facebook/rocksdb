@@ -17,6 +17,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/wide_columns.h"
 #include "table/iterator_wrapper.h"
 #include "util/autovector.h"
 
@@ -125,6 +126,10 @@ class DBIter final : public Iterator {
   void operator=(const DBIter&) = delete;
 
   ~DBIter() override {
+    ThreadStatus::OperationType cur_op_type =
+        ThreadStatusUtil::GetThreadOperation();
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
@@ -133,13 +138,13 @@ class DBIter final : public Iterator {
     ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     iter_.DeleteIter(arena_mode_);
+    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
   void SetIter(InternalIterator* iter) {
     assert(iter_.iter() == nullptr);
     iter_.Set(iter);
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
   bool Valid() const override {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
@@ -151,7 +156,7 @@ class DBIter final : public Iterator {
   }
   Slice key() const override {
     assert(valid_);
-    if (start_seqnum_ > 0 || timestamp_lb_) {
+    if (timestamp_lb_) {
       return saved_key_.GetInternalKey();
     } else {
       const Slice ukey_and_ts = saved_key_.GetUserKey();
@@ -161,18 +166,15 @@ class DBIter final : public Iterator {
   Slice value() const override {
     assert(valid_);
 
-    if (!expose_blob_index_ && is_blob_) {
-      return blob_value_;
-    } else if (current_entry_is_merged_) {
-      // If pinned_value_ is set then the result of merge operator is one of
-      // the merge operands and we should return it.
-      return pinned_value_.data() ? pinned_value_ : saved_value_;
-    } else if (direction_ == kReverse) {
-      return pinned_value_;
-    } else {
-      return iter_.value();
-    }
+    return value_;
   }
+
+  const WideColumns& columns() const override {
+    assert(valid_);
+
+    return wide_columns_;
+  }
+
   Status status() const override {
     if (status_.ok()) {
       return iter_.status();
@@ -212,6 +214,7 @@ class DBIter final : public Iterator {
     if (read_callback_) {
       read_callback_->Refresh(s);
     }
+    iter_.SetRangeDelReadSeqno(s);
   }
   void set_valid(bool v) { valid_ = v; }
 
@@ -224,9 +227,11 @@ class DBIter final : public Iterator {
   bool ReverseToBackward();
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is smaller than iterator lower bound.
+  // target does not have timestamp.
   void SetSavedKeyToSeekTarget(const Slice& target);
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is larger than iterator upper bound.
+  // target does not have timestamp.
   void SetSavedKeyToSeekForPrevTarget(const Slice& target);
   bool FindValueForCurrentKey();
   bool FindValueForCurrentKeyUsingSeek();
@@ -298,7 +303,35 @@ class DBIter final : public Iterator {
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
 
-  Status Merge(const Slice* val, const Slice& user_key);
+  void ResetBlobValue() {
+    is_blob_ = false;
+    blob_value_.Reset();
+  }
+
+  void SetValueAndColumnsFromPlain(const Slice& slice) {
+    assert(value_.empty());
+    assert(wide_columns_.empty());
+
+    value_ = slice;
+    wide_columns_.emplace_back(kDefaultWideColumnName, slice);
+  }
+
+  bool SetValueAndColumnsFromEntity(Slice slice);
+
+  bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
+                                         ValueType result_type);
+
+  void ResetValueAndColumns() {
+    value_.clear();
+    wide_columns_.clear();
+  }
+
+  // The following methods perform the actual merge operation for the
+  // no base value/plain base value/wide-column base value cases.
+  // If user-defined timestamp is enabled, `user_key` includes timestamp.
+  bool MergeWithNoBaseValue(const Slice& user_key);
+  bool MergeWithPlainBaseValue(const Slice& value, const Slice& user_key);
+  bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;
@@ -322,6 +355,10 @@ class DBIter final : public Iterator {
   Slice pinned_value_;
   // for prefix seek mode to support prev()
   PinnableSlice blob_value_;
+  // Value of the default column
+  Slice value_;
+  // All columns (i.e. name-value pairs)
+  WideColumns wide_columns_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
@@ -352,28 +389,20 @@ class DBIter final : public Iterator {
   // prefix_extractor_ must be non-NULL if the value is false.
   const bool expect_total_order_inner_iter_;
   ReadTier read_tier_;
+  bool fill_cache_;
   bool verify_checksums_;
   // Whether the iterator is allowed to expose blob references. Set to true when
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool is_blob_;
   bool arena_mode_;
+  const Env::IOActivity io_activity_;
   // List of operands for merge operator.
   MergeContext merge_context_;
-  ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
   DBImpl* db_impl_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
   ColumnFamilyData* cfd_;
-  // for diff snapshots we want the lower bound on the seqnum;
-  // if this value > 0 iterator will return internal keys
-  SequenceNumber start_seqnum_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;

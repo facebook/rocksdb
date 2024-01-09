@@ -9,6 +9,7 @@
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
+#include "table/unique_id_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,10 +34,10 @@ class CacheKey {
  public:
   // For convenience, constructs an "empty" cache key that is never returned
   // by other means.
-  inline CacheKey() : session_etc64_(), offset_etc64_() {}
+  inline CacheKey() : file_num_etc64_(), offset_etc64_() {}
 
   inline bool IsEmpty() const {
-    return (session_etc64_ == 0) & (offset_etc64_ == 0);
+    return (file_num_etc64_ == 0) & (offset_etc64_ == 0);
   }
 
   // Use this cache key as a Slice (byte order is endianness-dependent)
@@ -59,11 +60,13 @@ class CacheKey {
 
  protected:
   friend class OffsetableCacheKey;
-  CacheKey(uint64_t session_etc64, uint64_t offset_etc64)
-      : session_etc64_(session_etc64), offset_etc64_(offset_etc64) {}
-  uint64_t session_etc64_;
+  CacheKey(uint64_t file_num_etc64, uint64_t offset_etc64)
+      : file_num_etc64_(file_num_etc64), offset_etc64_(offset_etc64) {}
+  uint64_t file_num_etc64_;
   uint64_t offset_etc64_;
 };
+
+constexpr uint8_t kCacheKeySize = static_cast<uint8_t>(sizeof(CacheKey));
 
 // A file-specific generator of cache keys, sometimes referred to as the
 // "base" cache key for a file because all the cache keys for various offsets
@@ -83,50 +86,58 @@ class OffsetableCacheKey : private CacheKey {
   inline OffsetableCacheKey() : CacheKey() {}
 
   // Constructs an OffsetableCacheKey with the given information about a file.
-  // max_offset is based on file size (see WithOffset) and is required here to
-  // choose an appropriate (sub-)encoding. This constructor never generates an
-  // "empty" base key.
+  // This constructor never generates an "empty" base key.
   OffsetableCacheKey(const std::string &db_id, const std::string &db_session_id,
-                     uint64_t file_number, uint64_t max_offset);
+                     uint64_t file_number);
+
+  // Creates an OffsetableCacheKey from an SST unique ID, so that cache keys
+  // can be derived from DB manifest data before reading the file from
+  // storage--so that every part of the file can potentially go in a persistent
+  // cache.
+  //
+  // Calling GetSstInternalUniqueId() on a db_id, db_session_id, and
+  // file_number and passing the result to this function produces the same
+  // base cache key as feeding those inputs directly to the constructor.
+  //
+  // This is a bijective transformation assuming either id is empty or
+  // lower 64 bits is non-zero:
+  // * Empty (all zeros) input -> empty (all zeros) output
+  // * Lower 64 input is non-zero -> lower 64 output (file_num_etc64_) is
+  //   non-zero
+  static OffsetableCacheKey FromInternalUniqueId(UniqueIdPtr id);
+
+  // This is the inverse transformation to the above, assuming either empty
+  // or lower 64 bits (file_num_etc64_) is non-zero. Perhaps only useful for
+  // testing.
+  UniqueId64x2 ToInternalUniqueId();
 
   inline bool IsEmpty() const {
-    bool result = session_etc64_ == 0;
+    bool result = file_num_etc64_ == 0;
     assert(!(offset_etc64_ > 0 && result));
     return result;
   }
 
-  // Construct a CacheKey for an offset within a file, which must be
-  // <= max_offset provided in constructor. An offset is not necessarily a
-  // byte offset if a smaller unique identifier of keyable offsets is used.
+  // Construct a CacheKey for an offset within a file. An offset is not
+  // necessarily a byte offset if a smaller unique identifier of keyable
+  // offsets is used.
   //
   // This class was designed to make this hot code extremely fast.
   inline CacheKey WithOffset(uint64_t offset) const {
     assert(!IsEmpty());
-    assert(offset <= max_offset_);
-    return CacheKey(session_etc64_, offset_etc64_ ^ offset);
+    return CacheKey(file_num_etc64_, offset_etc64_ ^ offset);
   }
 
-  // The "common prefix" is a shared prefix for all the returned CacheKeys,
-  // that also happens to usually be the same among many files in the same DB,
-  // so is efficient and highly accurate (not perfectly) for DB-specific cache
-  // dump selection (but not file-specific).
+  // The "common prefix" is a shared prefix for all the returned CacheKeys.
+  // It is specific to the file but the same for all offsets within the file.
   static constexpr size_t kCommonPrefixSize = 8;
   inline Slice CommonPrefixSlice() const {
-    static_assert(sizeof(session_etc64_) == kCommonPrefixSize,
+    static_assert(sizeof(file_num_etc64_) == kCommonPrefixSize,
                   "8 byte common prefix expected");
     assert(!IsEmpty());
-    assert(&this->session_etc64_ == static_cast<const void *>(this));
+    assert(&this->file_num_etc64_ == static_cast<const void *>(this));
 
     return Slice(reinterpret_cast<const char *>(this), kCommonPrefixSize);
   }
-
-  // For any max_offset <= this value, the same encoding scheme is guaranteed.
-  static constexpr uint64_t kMaxOffsetStandardEncoding = 0xffffffffffU;
-
- private:
-#ifndef NDEBUG
-  uint64_t max_offset_ = 0;
-#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE

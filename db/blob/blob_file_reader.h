@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <memory>
 
+#include "db/blob/blob_read_request.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -22,12 +23,13 @@ class HistogramImpl;
 struct ReadOptions;
 class Slice;
 class FilePrefetchBuffer;
-class PinnableSlice;
+class BlobContents;
 class Statistics;
 
 class BlobFileReader {
  public:
   static Status Create(const ImmutableOptions& immutable_options,
+                       const ReadOptions& read_options,
                        const FileOptions& file_options,
                        uint32_t column_family_id,
                        HistogramImpl* blob_file_read_hist,
@@ -43,16 +45,17 @@ class BlobFileReader {
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t offset, uint64_t value_size,
                  CompressionType compression_type,
-                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
+                 FilePrefetchBuffer* prefetch_buffer,
+                 MemoryAllocator* allocator,
+                 std::unique_ptr<BlobContents>* result,
                  uint64_t* bytes_read) const;
 
   // offsets must be sorted in ascending order by caller.
   void MultiGetBlob(
-      const ReadOptions& read_options,
-      const autovector<std::reference_wrapper<const Slice>>& user_keys,
-      const autovector<uint64_t>& offsets,
-      const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
-      autovector<PinnableSlice*>& values, uint64_t* bytes_read) const;
+      const ReadOptions& read_options, MemoryAllocator* allocator,
+      autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>&
+          blob_reqs,
+      uint64_t* bytes_read) const;
 
   CompressionType GetCompressionType() const { return compression_type_; }
 
@@ -72,30 +75,31 @@ class BlobFileReader {
                          std::unique_ptr<RandomAccessFileReader>* file_reader);
 
   static Status ReadHeader(const RandomAccessFileReader* file_reader,
+                           const ReadOptions& read_options,
                            uint32_t column_family_id, Statistics* statistics,
                            CompressionType* compression_type);
 
   static Status ReadFooter(const RandomAccessFileReader* file_reader,
-                           uint64_t file_size, Statistics* statistics);
+                           const ReadOptions& read_options, uint64_t file_size,
+                           Statistics* statistics);
 
   using Buffer = std::unique_ptr<char[]>;
 
   static Status ReadFromFile(const RandomAccessFileReader* file_reader,
+                             const ReadOptions& read_options,
                              uint64_t read_offset, size_t read_size,
                              Statistics* statistics, Slice* slice, Buffer* buf,
-                             AlignedBuf* aligned_buf,
-                             Env::IOPriority rate_limiter_priority);
+                             AlignedBuf* aligned_buf);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
                            uint64_t value_size);
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
+                                       MemoryAllocator* allocator,
                                        SystemClock* clock,
                                        Statistics* statistics,
-                                       PinnableSlice* value);
-
-  static void SaveValue(const Slice& src, PinnableSlice* dst);
+                                       std::unique_ptr<BlobContents>* result);
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;

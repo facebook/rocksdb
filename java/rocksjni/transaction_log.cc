@@ -6,12 +6,13 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::Iterator methods from Java side.
 
+#include "rocksdb/transaction_log.h"
+
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "include/org_rocksdb_TransactionLogIterator.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksjni/portal.h"
 
 /*

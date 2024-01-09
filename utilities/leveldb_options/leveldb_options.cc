@@ -8,7 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/utilities/leveldb_options.h"
-#include "rocksdb/cache.h"
+
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"

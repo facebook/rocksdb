@@ -57,6 +57,10 @@ class WinEnvThreads {
 
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const;
 
+  int ReserveThreads(int threads_to_be_reserved, Env::Priority pri);
+
+  int ReleaseThreads(int threads_to_be_released, Env::Priority pri);
+
   static uint64_t gettid();
 
   uint64_t GetThreadID() const;
@@ -80,8 +84,8 @@ class WinClock : public SystemClock {
   virtual ~WinClock() {}
 
   static const char* kClassName() { return "WindowsClock"; }
-  const char* Name() const override { return kClassName(); }
-  const char* NickName() const override { return kDefaultName(); }
+  const char* Name() const override { return kDefaultName(); }
+  const char* NickName() const override { return kClassName(); }
 
   uint64_t NowMicros() override;
 
@@ -93,7 +97,7 @@ class WinClock : public SystemClock {
 
   Status GetCurrentTime(int64_t* unix_time) override;
   // Converts seconds-since-Jan-01-1970 to a printable string
-  virtual std::string TimeToString(uint64_t time);
+  std::string TimeToString(uint64_t time) override;
 
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
 
@@ -112,7 +116,7 @@ class WinFileSystem : public FileSystem {
   ~WinFileSystem() {}
   static const char* kClassName() { return "WinFS"; }
   const char* Name() const override { return kClassName(); }
-  const char* NickName() const { return kDefaultName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   static size_t GetSectorSize(const std::string& fname);
   size_t GetPageSize() const { return page_size_; }
@@ -223,6 +227,7 @@ class WinFileSystem : public FileSystem {
       const FileOptions& file_options) const override;
   FileOptions OptimizeForManifestWrite(
       const FileOptions& file_options) const override;
+  void SupportedOps(int64_t& supported_ops) override { supported_ops = 0; }
 
  protected:
   static uint64_t FileTimeToUnixTime(const FILETIME& ftTime);
@@ -278,6 +283,10 @@ class WinEnv : public CompositeEnv {
   void WaitForJoin() override;
 
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
+
+  int ReserveThreads(int threads_to_be_reserved, Env::Priority pri) override;
+
+  int ReleaseThreads(int threads_to_be_released, Env::Priority pri) override;
 
   uint64_t GetThreadID() const override;
 

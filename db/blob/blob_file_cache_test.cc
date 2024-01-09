@@ -57,7 +57,7 @@ void WriteBlobFile(uint32_t column_family_id,
   BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
                        expiration_range);
 
-  ASSERT_OK(blob_log_writer.WriteHeader(header));
+  ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
 
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
@@ -67,7 +67,8 @@ void WriteBlobFile(uint32_t column_family_id,
   uint64_t key_offset = 0;
   uint64_t blob_offset = 0;
 
-  ASSERT_OK(blob_log_writer.AddRecord(key, blob, &key_offset, &blob_offset));
+  ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), key, blob, &key_offset,
+                                      &blob_offset));
 
   BlobLogFooter footer;
   footer.blob_count = 1;
@@ -76,8 +77,8 @@ void WriteBlobFile(uint32_t column_family_id,
   std::string checksum_method;
   std::string checksum_value;
 
-  ASSERT_OK(
-      blob_log_writer.AppendFooter(footer, &checksum_method, &checksum_value));
+  ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
+                                         &checksum_method, &checksum_value));
 }
 
 }  // anonymous namespace
@@ -118,7 +119,9 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   // First try: reader should be opened and put in cache
   CacheHandleGuard<BlobFileReader> first;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  const ReadOptions read_options;
+  ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -126,7 +129,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   // Second try: reader should be served from cache
   CacheHandleGuard<BlobFileReader> second;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+  ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              &second));
   ASSERT_NE(second.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -163,19 +167,21 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   CacheHandleGuard<BlobFileReader> first;
   CacheHandleGuard<BlobFileReader> second;
 
+  const ReadOptions read_options;
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileCache::GetBlobFileReader:DoubleCheck", [&](void* /* arg */) {
         // Disabling sync points to prevent infinite recursion
         SyncPoint::GetInstance()->DisableProcessing();
-
-        ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+        ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options,
+                                                    blob_file_number, &second));
         ASSERT_NE(second.GetValue(), nullptr);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -213,8 +219,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
 
   CacheHandleGuard<BlobFileReader> reader;
 
+  const ReadOptions read_options;
   ASSERT_TRUE(
-      blob_file_cache.GetBlobFileReader(blob_file_number, &reader).IsIOError());
+      blob_file_cache.GetBlobFileReader(read_options, blob_file_number, &reader)
+          .IsIOError());
   ASSERT_EQ(reader.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
@@ -253,8 +261,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   // strict_capacity_limit is set
   CacheHandleGuard<BlobFileReader> reader;
 
-  ASSERT_TRUE(blob_file_cache.GetBlobFileReader(blob_file_number, &reader)
-                  .IsIncomplete());
+  const ReadOptions read_options;
+  ASSERT_TRUE(
+      blob_file_cache.GetBlobFileReader(read_options, blob_file_number, &reader)
+          .IsMemoryLimit());
   ASSERT_EQ(reader.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
@@ -263,6 +273,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

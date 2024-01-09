@@ -53,7 +53,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   ~BlockBasedTableBuilder();
 
   // Add key,value to the table being constructed.
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: Unless key has type kTypeRangeDeletion, key is after any
+  //           previously added non-kTypeRangeDeletion key according to
+  //           comparator.
   // REQUIRES: Finish(), Abandon() have not been called
   void Add(const Slice& key, const Slice& value) override;
 
@@ -89,6 +91,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // is enabled.
   uint64_t EstimatedFileSize() const override;
 
+  // Get the size of the "tail" part of a SST file. "Tail" refers to
+  // all blocks after data blocks till the end of the SST file.
+  uint64_t GetTailSize() const override;
+
   bool NeedCompact() const override;
 
   // Get table properties
@@ -99,6 +105,10 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
+
+  void SetSeqnoTimeTableProperties(
+      const std::string& encoded_seqno_to_time_mapping,
+      uint64_t oldest_ancestor_time) override;
 
  private:
   bool ok() const { return status().ok(); }
@@ -118,9 +128,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type);
   // Directly write data to the file.
-  void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-                     BlockType block_type, const Slice* raw_data = nullptr,
-                     bool is_top_level_filter_block = false);
+  void WriteMaybeCompressedBlock(
+      const Slice& block_contents, CompressionType, BlockHandle* handle,
+      BlockType block_type, const Slice* uncompressed_block_data = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
@@ -130,8 +140,7 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   Status InsertBlockInCacheHelper(const Slice& block_contents,
                                   const BlockHandle* handle,
-                                  BlockType block_type,
-                                  bool is_top_level_filter_block);
+                                  BlockType block_type);
 
   Status InsertBlockInCompressedCache(const Slice& block_contents,
                                       const CompressionType type,
@@ -159,8 +168,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: Finish(), Abandon() have not been called
   void Flush();
 
-  // Some compression libraries fail when the raw size is bigger than int. If
-  // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
+  // Some compression libraries fail when the uncompressed size is bigger than
+  // int. If uncompressed size is bigger than kCompressionSizeLimit, don't
+  // compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
 
   // Get blocks from mem-table walking thread, compress them and
@@ -168,9 +178,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   void BGWorkCompression(const CompressionContext& compression_ctx,
                          UncompressionContext* verify_ctx);
 
-  // Given raw block content, try to compress it and return result and
+  // Given uncompressed block content, try to compress it and return result and
   // compression type
-  void CompressAndVerifyBlock(const Slice& raw_block_contents,
+  void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
                               bool is_data_block,
                               const CompressionContext& compression_ctx,
                               UncompressionContext* verify_ctx,
@@ -180,17 +190,17 @@ class BlockBasedTableBuilder : public TableBuilder {
                               Status* out_status);
 
   // Get compressed blocks from BGWorkCompression and write them into SST
-  void BGWorkWriteRawBlock();
+  void BGWorkWriteMaybeCompressedBlock();
 
   // Initialize parallel compression context and
-  // start BGWorkCompression and BGWorkWriteRawBlock threads
+  // start BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
   void StartParallelCompression();
 
-  // Stop BGWorkCompression and BGWorkWriteRawBlock threads
+  // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
   void StopParallelCompression();
 };
 
-Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
+Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
                     bool do_sample, std::string* compressed_output,
                     std::string* sampled_output_fast,

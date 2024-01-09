@@ -12,6 +12,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -25,7 +26,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, WALRecoveryMode>
     wal_recovery_mode_string_map = {
         {"kTolerateCorruptedTailRecords",
@@ -129,6 +129,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, max_background_flushes),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"daily_offpeak_time_utc",
+         {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
+          OptionType::kString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -208,8 +212,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kString, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"experimental_mempurge_threshold",
-         {offsetof(struct ImmutableDBOptions, experimental_mempurge_threshold),
-          OptionType::kDouble, OptionVerificationType::kNormal,
+         {0, OptionType::kDouble, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"is_fd_close_on_exec",
          {offsetof(struct ImmutableDBOptions, is_fd_close_on_exec),
@@ -223,9 +226,17 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, flush_verify_memtable_count),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"compaction_verify_record_count",
+         {offsetof(struct ImmutableDBOptions, compaction_verify_record_count),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"track_and_verify_wals_in_manifest",
          {offsetof(struct ImmutableDBOptions,
                    track_and_verify_wals_in_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"verify_sst_unique_id_in_manifest",
+         {offsetof(struct ImmutableDBOptions, verify_sst_unique_id_in_manifest),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"skip_log_error_on_recovery",
@@ -418,12 +429,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"db_host_id",
          {offsetof(struct ImmutableDBOptions, db_host_id), OptionType::kString,
           OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
+        // Temporarily deprecated due to race conditions (examples in PR 10375).
         {"rate_limiter",
-         OptionTypeInfo::AsCustomSharedPtr<RateLimiter>(
-             offsetof(struct ImmutableDBOptions, rate_limiter),
-             OptionVerificationType::kNormal,
-             OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
-
+         {offsetof(struct ImmutableDBOptions, rate_limiter),
+          OptionType::kUnknown, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -439,22 +449,36 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<int64_t>(ParseUint64(value))));
             return Status::OK();
           }}},
-        {"env",
-         {offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
-          OptionVerificationType::kNormal,
-          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
-          // Parse the input value as an Env
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto old_env = static_cast<Env**>(addr);       // Get the old value
-            Env* new_env = *old_env;                       // Set new to old
-            Status s = Env::CreateFromString(opts, value,
-                                             &new_env);    // Update new value
-            if (s.ok()) {                                  // It worked
-              *old_env = new_env;                          // Update the old one
-            }
-            return s;
-          }}},
+        {"env",  //**TODO: Should this be kCustomizable?
+         OptionTypeInfo(
+             offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever))
+             .SetParseFunc([](const ConfigOptions& opts,
+                              const std::string& /*name*/,
+                              const std::string& value, void* addr) {
+               // Parse the input value as an Env
+               auto old_env = static_cast<Env**>(addr);  // Get the old value
+               Env* new_env = *old_env;                  // Set new to old
+               Status s = Env::CreateFromString(opts, value,
+                                                &new_env);  // Update new value
+               if (s.ok()) {                                // It worked
+                 *old_env = new_env;  // Update the old one
+               }
+               return s;
+             })
+             .SetPrepareFunc([](const ConfigOptions& opts,
+                                const std::string& /*name*/, void* addr) {
+               auto env = static_cast<Env**>(addr);
+               return (*env)->PrepareOptions(opts);
+             })
+             .SetValidateFunc([](const DBOptions& db_opts,
+                                 const ColumnFamilyOptions& cf_opts,
+                                 const std::string& /*name*/,
+                                 const void* addr) {
+               const auto env = static_cast<const Env* const*>(addr);
+               return (*env)->ValidateOptions(db_opts, cf_opts);
+             })},
         {"allow_data_in_errors",
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -538,6 +562,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          OptionTypeInfo::Enum<CacheTier>(
              offsetof(struct ImmutableDBOptions, lowest_used_cache_tier),
              &cache_tier_string_map, OptionTypeFlags::kNone)},
+        {"enforce_single_del_contracts",
+         {offsetof(struct ImmutableDBOptions, enforce_single_del_contracts),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -650,7 +678,6 @@ std::unique_ptr<Configurable> DBOptionsAsConfigurable(
   std::unique_ptr<Configurable> ptr(new DBOptionsConfigurable(opts, opt_map));
   return ptr;
 }
-#endif  // ROCKSDB_LITE
 
 ImmutableDBOptions::ImmutableDBOptions() : ImmutableDBOptions(Options()) {}
 
@@ -660,8 +687,11 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       flush_verify_memtable_count(options.flush_verify_memtable_count),
+      compaction_verify_record_count(options.compaction_verify_record_count),
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
+      verify_sst_unique_id_in_manifest(
+          options.verify_sst_unique_id_in_manifest),
       env(options.env),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
@@ -692,7 +722,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
-      experimental_mempurge_threshold(options.experimental_mempurge_threshold),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
@@ -713,9 +742,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_recovery_mode(options.wal_recovery_mode),
       allow_2pc(options.allow_2pc),
       row_cache(options.row_cache),
-#ifndef ROCKSDB_LITE
       wal_filter(options.wal_filter),
-#endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
@@ -736,13 +763,10 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_host_id(options.db_host_id),
       checksum_handoff_file_types(options.checksum_handoff_file_types),
       lowest_used_cache_tier(options.lowest_used_cache_tier),
-      compaction_service(options.compaction_service) {
+      compaction_service(options.compaction_service),
+      enforce_single_del_contracts(options.enforce_single_del_contracts) {
   fs = env->GetFileSystem();
-  if (env != nullptr) {
-    clock = env->GetSystemClock().get();
-  } else {
-    clock = SystemClock::Default().get();
-  }
+  clock = env->GetSystemClock().get();
   logger = info_log.get();
   stats = statistics.get();
 }
@@ -756,10 +780,14 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    paranoid_checks);
   ROCKS_LOG_HEADER(log, "            Options.flush_verify_memtable_count: %d",
                    flush_verify_memtable_count);
+  ROCKS_LOG_HEADER(log, "         Options.compaction_verify_record_count: %d",
+                   compaction_verify_record_count);
   ROCKS_LOG_HEADER(log,
                    "                              "
                    "Options.track_and_verify_wals_in_manifest: %d",
                    track_and_verify_wals_in_manifest);
+  ROCKS_LOG_HEADER(log, "       Options.verify_sst_unique_id_in_manifest: %d",
+                   verify_sst_unique_id_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
@@ -770,6 +798,11 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    max_file_opening_threads);
   ROCKS_LOG_HEADER(log, "                             Options.statistics: %p",
                    stats);
+  if (stats) {
+    ROCKS_LOG_HEADER(
+        log, "                             Options.statistics stats level: %u",
+        stats->get_stats_level());
+  }
   ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
                    use_fsync);
   ROCKS_LOG_HEADER(
@@ -825,9 +858,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "                  Options.advise_random_on_open: %d",
                    advise_random_on_open);
   ROCKS_LOG_HEADER(
-      log, "                  Options.experimental_mempurge_threshold: %f",
-      experimental_mempurge_threshold);
-  ROCKS_LOG_HEADER(
       log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
       db_write_buffer_size);
   ROCKS_LOG_HEADER(log, "                   Options.write_buffer_manager: %p",
@@ -871,10 +901,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "                              Options.row_cache: None");
   }
-#ifndef ROCKSDB_LITE
   ROCKS_LOG_HEADER(log, "                             Options.wal_filter: %s",
                    wal_filter ? wal_filter->Name() : "None");
-#endif  // ROCKDB_LITE
 
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_recovery: %d",
                    avoid_flush_during_recovery);
@@ -911,6 +939,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    allow_data_in_errors);
   ROCKS_LOG_HEADER(log, "            Options.db_host_id: %s",
                    db_host_id.c_str());
+  ROCKS_LOG_HEADER(log, "            Options.enforce_single_del_contracts: %s",
+                   enforce_single_del_contracts ? "true" : "false");
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {
@@ -985,7 +1015,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
-      max_background_flushes(options.max_background_flushes) {}
+      max_background_flushes(options.max_background_flushes),
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1030,9 +1061,10 @@ void MutableDBOptions::Dump(Logger* log) const {
                    compaction_readahead_size);
   ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
                           max_background_flushes);
+  ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
+                   daily_offpeak_time_utc.c_str());
 }
 
-#ifndef ROCKSDB_LITE
 Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -1063,5 +1095,4 @@ Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
   return OptionTypeInfo::SerializeType(
       config_options, db_mutable_options_type_info, &mutable_opts, opt_string);
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

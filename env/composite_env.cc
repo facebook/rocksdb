@@ -5,6 +5,7 @@
 //
 #include "env/composite_env_wrapper.h"
 #include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -275,6 +276,13 @@ class CompositeDirectoryWrapper : public Directory {
     IODebugContext dbg;
     return target_->FsyncWithDirOptions(io_opts, &dbg, DirFsyncOptions());
   }
+
+  Status Close() override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return target_->Close(io_opts, &dbg);
+  }
+
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }
@@ -382,37 +390,61 @@ Status CompositeEnv::NewDirectory(const std::string& name,
 }
 
 namespace {
-static std::unordered_map<std::string, OptionTypeInfo>
-    composite_env_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
-        {"target",
-         {0, OptionType::kCustomizable, OptionVerificationType::kByName,
-          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kRawPointer,
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto target = static_cast<EnvWrapper::Target*>(addr);
-            return Env::CreateFromString(opts, value, &(target->env),
-                                         &(target->guard));
-          },
-          nullptr, nullptr}},
-#endif  // ROCKSDB_LITE
+static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
+    {"target",
+     OptionTypeInfo(0, OptionType::kUnknown, OptionVerificationType::kByName,
+                    OptionTypeFlags::kDontSerialize)
+         .SetParseFunc([](const ConfigOptions& opts,
+                          const std::string& /*name*/, const std::string& value,
+                          void* addr) {
+           auto target = static_cast<EnvWrapper::Target*>(addr);
+           return Env::CreateFromString(opts, value, &(target->env),
+                                        &(target->guard));
+         })
+         .SetEqualsFunc([](const ConfigOptions& opts,
+                           const std::string& /*name*/, const void* addr1,
+                           const void* addr2, std::string* mismatch) {
+           const auto target1 = static_cast<const EnvWrapper::Target*>(addr1);
+           const auto target2 = static_cast<const EnvWrapper::Target*>(addr2);
+           if (target1->env != nullptr) {
+             return target1->env->AreEquivalent(opts, target2->env, mismatch);
+           } else {
+             return (target2->env == nullptr);
+           }
+         })
+         .SetPrepareFunc([](const ConfigOptions& opts,
+                            const std::string& /*name*/, void* addr) {
+           auto target = static_cast<EnvWrapper::Target*>(addr);
+           if (target->guard.get() != nullptr) {
+             target->env = target->guard.get();
+           } else if (target->env == nullptr) {
+             target->env = Env::Default();
+           }
+           return target->env->PrepareOptions(opts);
+         })
+         .SetValidateFunc([](const DBOptions& db_opts,
+                             const ColumnFamilyOptions& cf_opts,
+                             const std::string& /*name*/, const void* addr) {
+           const auto target = static_cast<const EnvWrapper::Target*>(addr);
+           if (target->env == nullptr) {
+             return Status::InvalidArgument("Target Env not specified");
+           } else {
+             return target->env->ValidateOptions(db_opts, cf_opts);
+           }
+         })},
 };
 static std::unordered_map<std::string, OptionTypeInfo>
     composite_fs_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
         {"file_system",
          OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
              0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
-#endif  // ROCKSDB_LITE
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
     composite_clock_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
         {"clock",
          OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
              0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
-#endif  // ROCKSDB_LITE
 };
 
 }  // namespace
@@ -425,7 +457,7 @@ CompositeEnvWrapper::CompositeEnvWrapper(Env* env,
                                          const std::shared_ptr<FileSystem>& fs,
                                          const std::shared_ptr<SystemClock>& sc)
     : CompositeEnv(fs, sc), target_(env) {
-  RegisterOptions("", &target_, &composite_env_wrapper_type_info);
+  RegisterOptions("", &target_, &env_wrapper_type_info);
   RegisterOptions("", &file_system_, &composite_fs_wrapper_type_info);
   RegisterOptions("", &system_clock_, &composite_clock_wrapper_type_info);
 }
@@ -434,7 +466,7 @@ CompositeEnvWrapper::CompositeEnvWrapper(const std::shared_ptr<Env>& env,
                                          const std::shared_ptr<FileSystem>& fs,
                                          const std::shared_ptr<SystemClock>& sc)
     : CompositeEnv(fs, sc), target_(env) {
-  RegisterOptions("", &target_, &composite_env_wrapper_type_info);
+  RegisterOptions("", &target_, &env_wrapper_type_info);
   RegisterOptions("", &file_system_, &composite_fs_wrapper_type_info);
   RegisterOptions("", &system_clock_, &composite_clock_wrapper_type_info);
 }
@@ -450,7 +482,6 @@ Status CompositeEnvWrapper::PrepareOptions(const ConfigOptions& options) {
   return Env::PrepareOptions(options);
 }
 
-#ifndef ROCKSDB_LITE
 std::string CompositeEnvWrapper::SerializeOptions(
     const ConfigOptions& config_options, const std::string& header) const {
   auto options = CompositeEnv::SerializeOptions(config_options, header);
@@ -460,5 +491,44 @@ std::string CompositeEnvWrapper::SerializeOptions(
   }
   return options;
 }
-#endif  // ROCKSDB_LITE
+
+EnvWrapper::EnvWrapper(Env* t) : target_(t) {
+  RegisterOptions("", &target_, &env_wrapper_type_info);
+}
+
+EnvWrapper::EnvWrapper(std::unique_ptr<Env>&& t) : target_(std::move(t)) {
+  RegisterOptions("", &target_, &env_wrapper_type_info);
+}
+
+EnvWrapper::EnvWrapper(const std::shared_ptr<Env>& t) : target_(t) {
+  RegisterOptions("", &target_, &env_wrapper_type_info);
+}
+
+EnvWrapper::~EnvWrapper() = default;
+
+Status EnvWrapper::PrepareOptions(const ConfigOptions& options) {
+  target_.Prepare();
+  return Env::PrepareOptions(options);
+}
+
+std::string EnvWrapper::SerializeOptions(const ConfigOptions& config_options,
+                                         const std::string& header) const {
+  auto parent = Env::SerializeOptions(config_options, "");
+  if (config_options.IsShallow() || target_.env == nullptr ||
+      target_.env == Env::Default()) {
+    return parent;
+  } else {
+    std::string result = header;
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
+    }
+    result.append(parent);
+    if (!EndsWith(result, config_options.delimiter)) {
+      result.append(config_options.delimiter);
+    }
+    result.append("target=").append(target_.env->ToString(config_options));
+    return result;
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE

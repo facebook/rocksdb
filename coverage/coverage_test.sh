@@ -12,7 +12,7 @@ fi
 ROOT=".."
 # Fetch right version of gcov
 if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
-  source $ROOT/build_tools/fbcode_config_platform007.sh
+  source $ROOT/build_tools/fbcode_config_platform010.sh
   GCOV=$GCC_BASE/bin/gcov
 else
   GCOV=$(which gcov)

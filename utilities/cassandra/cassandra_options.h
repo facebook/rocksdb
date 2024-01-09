@@ -34,10 +34,8 @@ struct CassandraOptions {
   // data back.
   bool purge_ttl_on_expiration;
 };
-#ifndef ROCKSDB_LITE
 extern "C" {
 int RegisterCassandraObjects(ObjectLibrary& library, const std::string& arg);
 }  // extern "C"
-#endif  // ROCKSDB_LITE
 }  // namespace cassandra
 }  // namespace ROCKSDB_NAMESPACE

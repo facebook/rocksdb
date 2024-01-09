@@ -1,0 +1,18 @@
+name: pre-steps
+runs:
+  using: composite
+  steps:
+  - name: Setup Environment Variables
+    run: |-
+      echo "GTEST_THROW_ON_FAILURE=0" >> "$GITHUB_ENV"
+      echo "GTEST_OUTPUT=\"xml:${{ runner.temp }}/test-results/\"" >> "$GITHUB_ENV"
+      echo "SKIP_FORMAT_BUCK_CHECKS=1" >> "$GITHUB_ENV"
+      echo "GTEST_COLOR=1" >> "$GITHUB_ENV"
+      echo "CTEST_OUTPUT_ON_FAILURE=1" >> "$GITHUB_ENV"
+      echo "CTEST_TEST_TIMEOUT=300" >> "$GITHUB_ENV"
+      echo "ZLIB_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zlib" >> "$GITHUB_ENV"
+      echo "BZIP2_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/bzip2" >> "$GITHUB_ENV"
+      echo "SNAPPY_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/snappy" >> "$GITHUB_ENV"
+      echo "LZ4_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/lz4" >> "$GITHUB_ENV"
+      echo "ZSTD_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zstd" >> "$GITHUB_ENV"
+    shell: bash

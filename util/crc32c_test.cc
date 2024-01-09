@@ -15,8 +15,7 @@
 namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
 
-class CRC { };
-
+class CRC {};
 
 // Tests for 3-way crc32c algorithm. We need these tests because it uses
 // different lookup tables than the original Fast_CRC32
@@ -31,42 +30,41 @@ struct ExpectedResult {
 
 ExpectedResult expectedResults[] = {
     // Zero-byte input
-    { 0, 0, ~0U },
+    {0, 0, ~0U},
     // Small aligned inputs to test special cases in SIMD implementations
-    { 8, 1, 1543413366 },
-    { 8, 2, 523493126 },
-    { 8, 3, 1560427360 },
-    { 8, 4, 3422504776 },
-    { 8, 5, 447841138 },
-    { 8, 6, 3910050499 },
-    { 8, 7, 3346241981 },
+    {8, 1, 1543413366},
+    {8, 2, 523493126},
+    {8, 3, 1560427360},
+    {8, 4, 3422504776},
+    {8, 5, 447841138},
+    {8, 6, 3910050499},
+    {8, 7, 3346241981},
     // Small unaligned inputs
-    { 9, 1, 3855826643 },
-    { 10, 2, 560880875 },
-    { 11, 3, 1479707779 },
-    { 12, 4, 2237687071 },
-    { 13, 5, 4063855784 },
-    { 14, 6, 2553454047 },
-    { 15, 7, 1349220140 },
+    {9, 1, 3855826643},
+    {10, 2, 560880875},
+    {11, 3, 1479707779},
+    {12, 4, 2237687071},
+    {13, 5, 4063855784},
+    {14, 6, 2553454047},
+    {15, 7, 1349220140},
     // Larger inputs to test leftover chunks at the end of aligned blocks
-    { 8, 8, 627613930 },
-    { 8, 9, 2105929409 },
-    { 8, 10, 2447068514 },
-    { 8, 11, 863807079 },
-    { 8, 12, 292050879 },
-    { 8, 13, 1411837737 },
-    { 8, 14, 2614515001 },
-    { 8, 15, 3579076296 },
-    { 8, 16, 2897079161 },
-    { 8, 17, 675168386 },
+    {8, 8, 627613930},
+    {8, 9, 2105929409},
+    {8, 10, 2447068514},
+    {8, 11, 863807079},
+    {8, 12, 292050879},
+    {8, 13, 1411837737},
+    {8, 14, 2614515001},
+    {8, 15, 3579076296},
+    {8, 16, 2897079161},
+    {8, 17, 675168386},
     // // Much larger inputs
-    { 0, BUFFER_SIZE, 2096790750 },
-    { 1, BUFFER_SIZE / 2, 3854797577 },
+    {0, BUFFER_SIZE, 2096790750},
+    {1, BUFFER_SIZE / 2, 3854797577},
 
 };
 
 TEST(CRC, StandardResults) {
-
   // Original Fast_CRC32 tests.
   // From rfc3720 section B.4.
   char buf[32];
@@ -88,18 +86,10 @@ TEST(CRC, StandardResults) {
   ASSERT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
 
   unsigned char data[48] = {
-    0x01, 0xc0, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x14, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x04, 0x00,
-    0x00, 0x00, 0x00, 0x14,
-    0x00, 0x00, 0x00, 0x18,
-    0x28, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x02, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
+      0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00,
+      0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x18, 0x28, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   };
   ASSERT_EQ(0xd9963a56, Value(reinterpret_cast<char*>(data), sizeof(data)));
 
@@ -114,21 +104,17 @@ TEST(CRC, StandardResults) {
   for (auto expected : expectedResults) {
     size_t partialLength = expected.length / 2;
     uint32_t partialChecksum = Value(buffer + expected.offset, partialLength);
-    uint32_t result = Extend(partialChecksum,
-        buffer + expected.offset + partialLength,
-        expected.length - partialLength);
+    uint32_t result =
+        Extend(partialChecksum, buffer + expected.offset + partialLength,
+               expected.length - partialLength);
     EXPECT_EQ(~expected.crc32c, result);
   }
-
 }
 
-TEST(CRC, Values) {
-  ASSERT_NE(Value("a", 1), Value("foo", 3));
-}
+TEST(CRC, Values) { ASSERT_NE(Value("a", 1), Value("foo", 3)); }
 
 TEST(CRC, Extend) {
-  ASSERT_EQ(Value("hello world", 11),
-            Extend(Value("hello ", 6), "world", 5));
+  ASSERT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5));
 }
 
 TEST(CRC, Mask) {
@@ -189,21 +175,21 @@ TEST(CRC, Crc32cCombineBigSizeTest) {
 
 // copied from folly
 const uint64_t FNV_64_HASH_START = 14695981039346656037ULL;
-inline uint64_t fnv64_buf(const void* buf,
-                          size_t n,
+inline uint64_t fnv64_buf(const void* buf, size_t n,
                           uint64_t hash = FNV_64_HASH_START) {
   // forcing signed char, since other platforms can use unsigned
   const signed char* char_buf = reinterpret_cast<const signed char*>(buf);
 
   for (size_t i = 0; i < n; ++i) {
     hash += (hash << 1) + (hash << 4) + (hash << 5) + (hash << 7) +
-      (hash << 8) + (hash << 40);
+            (hash << 8) + (hash << 40);
     hash ^= char_buf[i];
   }
   return hash;
 }
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 
   // Populate a buffer with a deterministic pattern

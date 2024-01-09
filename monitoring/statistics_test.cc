@@ -42,12 +42,10 @@ TEST_F(StatisticsTest, SanityHistograms) {
 
 TEST_F(StatisticsTest, NoNameStats) {
   static std::unordered_map<std::string, OptionTypeInfo> no_name_opt_info = {
-#ifndef ROCKSDB_LITE
       {"inner",
        OptionTypeInfo::AsCustomSharedPtr<Statistics>(
            0, OptionVerificationType::kByName,
            OptionTypeFlags::kAllowNull | OptionTypeFlags::kCompareNever)},
-#endif  // ROCKSDB_LITE
   };
 
   class DefaultNameStatistics : public Statistics {
@@ -73,7 +71,6 @@ TEST_F(StatisticsTest, NoNameStats) {
   options.ignore_unsupported_options = false;
   auto stats = std::make_shared<DefaultNameStatistics>();
   ASSERT_STREQ(stats->Name(), "");
-#ifndef ROCKSDB_LITE
   ASSERT_EQ("", stats->ToString(
                     options));  // A stats with no name with have no options...
   ASSERT_OK(stats->ConfigureFromString(options, "inner="));
@@ -81,7 +78,6 @@ TEST_F(StatisticsTest, NoNameStats) {
                     options));  // A stats with no name with have no options...
   ASSERT_NE(stats->inner, nullptr);
   ASSERT_NE("", stats->inner->ToString(options));  // ... even if it does...
-#endif                                             // ROCKSDB_LITE
 }
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -17,27 +17,27 @@
 #endif
 
 #include <windows.h>
+//^^ <windows.h> should be included first before other system lib
+#include <intrin.h>
+#include <malloc.h>
+#include <process.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <cassert>
+#include <condition_variable>
+#include <limits>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <string.h>
-#include <mutex>
-#include <limits>
-#include <condition_variable>
-#include <malloc.h>
-#include <intrin.h>
-#include <process.h>
-
-#include <stdint.h>
 
 #include "port/win/win_thread.h"
-
-#include "rocksdb/options.h"
+#include "rocksdb/port_defs.h"
 
 #undef min
 #undef max
 #undef DeleteFile
 #undef GetCurrentTime
-
 
 #ifndef strcasecmp
 #define strcasecmp _stricmp
@@ -60,11 +60,6 @@ using ssize_t = SSIZE_T;
 #ifdef _MSC_VER
 #define __attribute__(A)
 
-// thread_local is part of C++11 and later (TODO: clean up this define)
-#ifndef __thread
-#define __thread thread_local
-#endif
-
 #endif
 
 namespace ROCKSDB_NAMESPACE {
@@ -75,46 +70,6 @@ extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
 
-// VS < 2015
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-
-// VS 15 has snprintf
-#define snprintf _snprintf
-
-#define ROCKSDB_NOEXCEPT
-// std::numeric_limits<size_t>::max() is not constexpr just yet
-// therefore, use the same limits
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const uint32_t kMaxUint32 = UINT32_MAX;
-const int kMaxInt32 = INT32_MAX;
-const int kMinInt32 = INT32_MIN;
-const int64_t kMaxInt64 = INT64_MAX;
-const int64_t kMinInt64 = INT64_MIN;
-const uint64_t kMaxUint64 = UINT64_MAX;
-
-#ifdef _WIN64
-const size_t kMaxSizet = UINT64_MAX;
-#else
-const size_t kMaxSizet = UINT_MAX;
-#endif
-
-#else // VS >= 2015 or MinGW
-
-#define ROCKSDB_NOEXCEPT noexcept
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
-const int kMaxInt32 = std::numeric_limits<int>::max();
-const int kMinInt32 = std::numeric_limits<int>::min();
-const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
-const int64_t kMinInt64 = std::numeric_limits<int64_t>::min();
-
-const size_t kMaxSizet = std::numeric_limits<size_t>::max();
-
-#endif //_MSC_VER
-
 // "Windows is designed to run on little-endian computer architectures."
 // https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
 constexpr bool kLittleEndian = true;
@@ -124,12 +79,15 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "std::mutex"; }
 
-   /* implicit */ Mutex(bool adaptive = kDefaultToAdaptiveMutex)
+  explicit Mutex(bool IGNORED_adaptive = kDefaultToAdaptiveMutex)
 #ifndef NDEBUG
-     : locked_(false)
+      : locked_(false)
 #endif
-   { }
+  {
+    (void)IGNORED_adaptive;
+  }
 
   ~Mutex();
 
@@ -159,23 +117,25 @@ class Mutex {
 
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld() {
+  void AssertHeld() const {
 #ifndef NDEBUG
     assert(locked_);
 #endif
   }
+
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
 
   // Mutex is move only with lock ownership transfer
   Mutex(const Mutex&) = delete;
   void operator=(const Mutex&) = delete;
 
  private:
-
   friend class CondVar;
 
-  std::mutex& getLock() {
-    return mutex_;
-  }
+  std::mutex& getLock() { return mutex_; }
 
   std::mutex mutex_;
 #ifndef NDEBUG
@@ -199,7 +159,7 @@ class RWMutex {
   void WriteUnlock() { ReleaseSRWLockExclusive(&srwLock_); }
 
   // Empty as in POSIX
-  void AssertHeld() {}
+  void AssertHeld() const {}
 
  private:
   SRWLOCK srwLock_;
@@ -207,10 +167,12 @@ class RWMutex {
 
 class CondVar {
  public:
-  explicit CondVar(Mutex* mu) : mu_(mu) {
-  }
+  explicit CondVar(Mutex* mu) : mu_(mu) {}
 
   ~CondVar();
+
+  Mutex* GetMutex() const { return mu_; }
+
   void Wait();
   bool TimedWait(uint64_t expiration_time);
   void Signal();
@@ -228,7 +190,6 @@ class CondVar {
   Mutex* mu_;
 };
 
-
 #ifdef _POSIX_THREADS
 using Thread = std::thread;
 #else
@@ -241,15 +202,14 @@ using Thread = WindowsThread;
 // Posix semantics with initialization
 // adopted in the project
 struct OnceType {
+  struct Init {};
 
-    struct Init {};
+  OnceType() {}
+  OnceType(const Init&) {}
+  OnceType(const OnceType&) = delete;
+  OnceType& operator=(const OnceType&) = delete;
 
-    OnceType() {}
-    OnceType(const Init&) {}
-    OnceType(const OnceType&) = delete;
-    OnceType& operator=(const OnceType&) = delete;
-
-    std::once_flag flag_;
+  std::once_flag flag_;
 };
 
 #define LEVELDB_ONCE_INIT port::OnceType::Init()
@@ -261,11 +221,11 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifdef ROCKSDB_JEMALLOC
 // Separate inlines so they can be replaced if needed
-void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT;
-void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT;
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) noexcept;
+void jemalloc_aligned_free(void* p) noexcept;
 #endif
 
-inline void *cacheline_aligned_alloc(size_t size) {
+inline void* cacheline_aligned_alloc(size_t size) {
 #ifdef ROCKSDB_JEMALLOC
   return jemalloc_aligned_alloc(size, CACHE_LINE_SIZE);
 #else
@@ -273,7 +233,7 @@ inline void *cacheline_aligned_alloc(size_t size) {
 #endif
 }
 
-inline void cacheline_aligned_free(void *memblock) {
+inline void cacheline_aligned_free(void* memblock) {
 #ifdef ROCKSDB_JEMALLOC
   jemalloc_aligned_free(memblock);
 #else
@@ -283,13 +243,8 @@ inline void cacheline_aligned_free(void *memblock) {
 
 extern const size_t kPageSize;
 
-// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
-// could not be worked around with by -mno-ms-bitfields
-#ifndef __MINGW32__
-#define ALIGN_AS(n) __declspec(align(n))
-#else
-#define ALIGN_AS(n)
-#endif
+// Part of C++11
+#define ALIGN_AS(n) alignas(n)
 
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64) || defined(_M_ARM)
@@ -364,7 +319,6 @@ bool GenerateRfcUuid(std::string* output);
 
 }  // namespace port
 
-
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 
 #define RX_FILESTRING std::wstring
@@ -418,11 +372,11 @@ bool GenerateRfcUuid(std::string* output);
 
 #endif
 
-using port::pthread_key_t;
+using port::pthread_getspecific;
 using port::pthread_key_create;
 using port::pthread_key_delete;
+using port::pthread_key_t;
 using port::pthread_setspecific;
-using port::pthread_getspecific;
 using port::truncate;
 
 }  // namespace ROCKSDB_NAMESPACE

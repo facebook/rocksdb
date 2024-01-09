@@ -7,7 +7,7 @@
 #include <string>
 
 #include "cache/cache_key.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/persistent_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,9 +24,6 @@ struct PersistentCacheOptions {
       : persistent_cache(_persistent_cache),
         base_cache_key(_base_cache_key),
         statistics(_statistics) {}
-
-  virtual ~PersistentCacheOptions() {}
-
   std::shared_ptr<PersistentCache> persistent_cache;
   OffsetableCacheKey base_cache_key;
   Statistics* statistics = nullptr;

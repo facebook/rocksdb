@@ -15,6 +15,7 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
+#include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -31,12 +32,14 @@
 #include "options/options_helper.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
@@ -62,15 +65,16 @@ Status BuildTable(
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
-    InternalStats* internal_stats, IOStatus* io_status,
-    const std::shared_ptr<IOTracer>& io_tracer,
-    BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
-    int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
-    const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
-    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes) {
+    SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
+    bool paranoid_file_checks, InternalStats* internal_stats,
+    IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
+    BlobFileCreationReason blob_creation_reason,
+    const SeqnoToTimeMapping& seqno_to_time_mapping, EventLogger* event_logger,
+    int job_id, TableProperties* table_properties,
+    Env::WriteLifeTimeHint write_hint, const std::string* full_history_ts_low,
+    BlobFileCompletionCallback* blob_callback, Version* version,
+    uint64_t* num_input_entries, uint64_t* memtable_payload_bytes,
+    uint64_t* memtable_garbage_bytes) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -88,7 +92,7 @@ Status BuildTable(
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
-                                       snapshots));
+                                       snapshots, full_history_ts_low));
   uint64_t num_unfragmented_tombstones = 0;
   uint64_t total_tombstone_payload_bytes = 0;
   for (auto& range_del_iter : range_del_iters) {
@@ -104,17 +108,16 @@ Status BuildTable(
   std::vector<std::string> blob_file_paths;
   std::string file_checksum = kUnknownFileChecksum;
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
-#ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(ioptions.listeners, dbname,
                                                tboptions.column_family_name,
                                                fname, job_id, tboptions.reason);
-#endif  // !ROCKSDB_LITE
   Env* env = db_options.env;
   assert(env);
   FileSystem* fs = db_options.fs.get();
   assert(fs);
 
   TableProperties tp;
+  bool table_file_created = false;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions.compaction_filter_factory != nullptr &&
@@ -158,63 +161,95 @@ Status BuildTable(
             file_checksum_func_name);
         return s;
       }
+
+      table_file_created = true;
       FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
-      file->SetIOPriority(io_priority);
+      file->SetIOPriority(tboptions.write_options.rate_limiter_priority);
       file->SetWriteLifeTimeHint(write_hint);
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
-          ioptions.stats, ioptions.listeners,
+          ioptions.stats, Histograms::SST_WRITE_MICROS, ioptions.listeners,
           ioptions.file_checksum_gen_factory.get(),
           tmp_set.Contains(FileType::kTableFile), false));
 
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
 
+    auto ucmp = tboptions.internal_comparator.user_comparator();
     MergeHelper merge(
-        env, tboptions.internal_comparator.user_comparator(),
-        ioptions.merge_operator.get(), compaction_filter.get(), ioptions.logger,
-        true /* internal key corruption is not ok */,
+        env, ucmp, ioptions.merge_operator.get(), compaction_filter.get(),
+        ioptions.logger, true /* internal key corruption is not ok */,
         snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
-        (mutable_cf_options.enable_blob_files && blob_file_additions)
+        (mutable_cf_options.enable_blob_files &&
+         tboptions.level_at_creation >=
+             mutable_cf_options.blob_file_starting_level &&
+         blob_file_additions)
             ? new BlobFileBuilder(
                   versions, fs, &ioptions, &mutable_cf_options, &file_options,
-                  job_id, tboptions.column_family_id,
-                  tboptions.column_family_name, io_priority, write_hint,
-                  io_tracer, blob_callback, blob_creation_reason,
-                  &blob_file_paths, blob_file_additions)
+                  &(tboptions.write_options), tboptions.db_id,
+                  tboptions.db_session_id, job_id, tboptions.column_family_id,
+                  tboptions.column_family_name, write_hint, io_tracer,
+                  blob_callback, blob_creation_reason, &blob_file_paths,
+                  blob_file_additions)
             : nullptr);
 
+    const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
-        iter, tboptions.internal_comparator.user_comparator(), &merge,
-        kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
-        snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
+        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots,
+        earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
+        ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
+        ioptions.enforce_single_del_contracts,
+        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
+        true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr,
-        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, db_options.info_log,
-        full_history_ts_low);
+        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
+    const size_t ts_sz = ucmp->timestamp_size();
+    const bool strip_timestamp =
+        ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
+
+    std::string key_after_flush_buf;
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
-      // Generate a rolling 64-bit hash of the key and values
-      // Note :
-      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
-      s = output_validator.Add(key, value);
+      Slice key_after_flush = key;
+      // If user defined timestamps will be stripped from user key after flush,
+      // the in memory version of the key act logically the same as one with a
+      // minimum timestamp. We update the timestamp here so file boundary and
+      // output validator, block builder all see the effect of the stripping.
+      if (strip_timestamp) {
+        key_after_flush_buf.clear();
+        ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
+        key_after_flush = key_after_flush_buf;
+      }
+
+      //  Generate a rolling 64-bit hash of the key and values
+      //  Note :
+      //  Here "key" integrates 'sequence_number'+'kType'+'user key'.
+      s = output_validator.Add(key_after_flush, value);
       if (!s.ok()) {
         break;
       }
-      builder->Add(key, value);
-      meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+      builder->Add(key_after_flush, value);
+
+      s = meta->UpdateBoundaries(key_after_flush, value, ikey.sequence,
+                                 ikey.type);
+      if (!s.ok()) {
+        break;
+      }
 
       // TODO(noetzli): Update stats after flush, too.
-      if (io_priority == Env::IO_HIGH &&
+      // TODO(hx235): Replace `rate_limiter_priority` with `io_activity` for
+      // flush IO in repair when we have an `Env::IOActivity` enum for it
+      if ((tboptions.write_options.io_activity == Env::IOActivity::kFlush ||
+           tboptions.write_options.io_activity == Env::IOActivity::kDBOpen ||
+           tboptions.write_options.rate_limiter_priority == Env::IO_HIGH) &&
           IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
         ThreadStatusUtil::SetThreadOperationProperty(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
@@ -228,26 +263,51 @@ Status BuildTable(
 
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
+      Slice last_tombstone_start_user_key{};
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
            range_del_it->Next()) {
         auto tombstone = range_del_it->Tombstone();
         auto kv = tombstone.Serialize();
+        // TODO(yuzhangyu): handle range deletion for UDT in memtables only.
         builder->Add(kv.first.Encode(), kv.second);
-        meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
-                                       tombstone.seq_,
+        InternalKey tombstone_end = tombstone.SerializeEndKey();
+        meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
                                        tboptions.internal_comparator);
+        if (version) {
+          if (last_tombstone_start_user_key.empty() ||
+              ucmp->CompareWithoutTimestamp(last_tombstone_start_user_key,
+                                            range_del_it->start_key()) < 0) {
+            SizeApproximationOptions approx_opts;
+            approx_opts.files_size_error_margin = 0.1;
+            meta->compensated_range_deletion_size += versions->ApproximateSize(
+                approx_opts, tboptions.read_options, version, kv.first.Encode(),
+                tombstone_end.Encode(), 0 /* start_level */, -1 /* end_level */,
+                TableReaderCaller::kFlush);
+          }
+          last_tombstone_start_user_key = range_del_it->start_key();
+        }
       }
     }
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
     if (num_input_entries != nullptr) {
+      assert(c_iter.HasNumInputEntryScanned());
       *num_input_entries =
-          c_iter.num_input_entry_scanned() + num_unfragmented_tombstones;
+          c_iter.NumInputEntryScanned() + num_unfragmented_tombstones;
     }
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
+      std::string seqno_to_time_mapping_str;
+      seqno_to_time_mapping.Encode(
+          seqno_to_time_mapping_str, meta->fd.smallest_seqno,
+          meta->fd.largest_seqno, meta->file_creation_time);
+      builder->SetSeqnoTimeTableProperties(
+          seqno_to_time_mapping_str,
+          ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
+              ? meta->file_creation_time
+              : meta->oldest_ancester_time);
       s = builder->Finish();
     }
     if (io_status->ok()) {
@@ -257,9 +317,13 @@ Status BuildTable(
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
       meta->fd.file_size = file_size;
+      meta->tail_size = builder->GetTailSize();
       meta->marked_for_compaction = builder->NeedCompact();
+      meta->user_defined_timestamps_persisted =
+          ioptions.persist_user_defined_timestamps;
       assert(meta->fd.GetFileSize() > 0);
-      tp = builder->GetTableProperties(); // refresh now that builder is finished
+      tp = builder
+               ->GetTableProperties();  // refresh now that builder is finished
       if (memtable_payload_bytes != nullptr &&
           memtable_garbage_bytes != nullptr) {
         const CompactionIterationStats& ci_stats = c_iter.iter_stats();
@@ -287,13 +351,16 @@ Status BuildTable(
 
     // Finish and check for file errors
     TEST_SYNC_POINT("BuildTable:BeforeSyncTable");
-    if (s.ok() && !empty) {
+    IOOptions opts;
+    *io_status =
+        WritableFileWriter::PrepareIOOptions(tboptions.write_options, opts);
+    if (s.ok() && io_status->ok() && !empty) {
       StopWatch sw(ioptions.clock, ioptions.stats, TABLE_SYNC_MICROS);
-      *io_status = file_writer->Sync(ioptions.use_fsync);
+      *io_status = file_writer->Sync(opts, ioptions.use_fsync);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");
     if (s.ok() && io_status->ok() && !empty) {
-      *io_status = file_writer->Close();
+      *io_status = file_writer->Close(opts);
     }
     if (s.ok() && io_status->ok() && !empty) {
       // Add the checksum information to file metadata.
@@ -301,12 +368,23 @@ Status BuildTable(
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
       file_checksum = meta->file_checksum;
       file_checksum_func_name = meta->file_checksum_func_name;
+      // Set unique_id only if db_id and db_session_id exist
+      if (!tboptions.db_id.empty() && !tboptions.db_session_id.empty()) {
+        if (!GetSstInternalUniqueId(tboptions.db_id, tboptions.db_session_id,
+                                    meta->fd.GetNumber(), &(meta->unique_id))
+                 .ok()) {
+          // if failed to get unique id, just set it Null
+          meta->unique_id = kNullUniqueId64x2;
+        }
+      }
     }
 
     if (s.ok()) {
       s = *io_status;
     }
 
+    // TODO(yuzhangyu): handle the key copy in the blob when ts should be
+    // stripped.
     if (blob_file_builder) {
       if (s.ok()) {
         s = blob_file_builder->Finish();
@@ -318,18 +396,17 @@ Status BuildTable(
 
     // TODO Also check the IO status when create the Iterator.
 
+    TEST_SYNC_POINT("BuildTable:BeforeOutputValidation");
     if (s.ok() && !empty) {
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
-      // here because this is a special case after we finish the table building
+      // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
-      // we will regrad this verification as user reads since the goal is
-      // to cache it here for further user reads
-      ReadOptions read_options;
+      // the goal is to cache it here for further user reads.
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          read_options, file_options, tboptions.internal_comparator, *meta,
-          nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,
-          nullptr,
+          tboptions.read_options, file_options, tboptions.internal_comparator,
+          *meta, nullptr /* range_del_agg */,
+          mutable_cf_options.prefix_extractor, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
@@ -337,7 +414,8 @@ Status BuildTable(
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false));
+          /*allow_unprepared_value*/ false,
+          mutable_cf_options.block_protection_bytes_per_key));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         OutputValidator file_validator(tboptions.internal_comparator,
@@ -365,15 +443,22 @@ Status BuildTable(
 
     constexpr IODebugContext* dbg = nullptr;
 
-    Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
-    ignored.PermitUncheckedError();
+    if (table_file_created) {
+      IOOptions opts;
+      Status prepare =
+          WritableFileWriter::PrepareIOOptions(tboptions.write_options, opts);
+      if (prepare.ok()) {
+        Status ignored = fs->DeleteFile(fname, opts, dbg);
+        ignored.PermitUncheckedError();
+      }
+    }
 
     assert(blob_file_additions || blob_file_paths.empty());
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
-        ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
-                               /*force_bg=*/false, /*force_fg=*/false);
+        Status ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
+                                      /*force_bg=*/false, /*force_fg=*/false);
         ignored.PermitUncheckedError();
         TEST_SYNC_POINT("BuildTable::AfterDeleteFile");
       }

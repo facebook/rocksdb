@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_type.h"
 #include "table/format.h"
@@ -19,8 +19,8 @@ namespace ROCKSDB_NAMESPACE {
 // Retrieves a single block of a given file. Utilizes the prefetch buffer and/or
 // persistent cache provided (if any) to try to avoid reading from the file
 // directly. Note that both the prefetch buffer and the persistent cache are
-// optional; also, note that the persistent cache may be configured to store either
-// compressed or uncompressed blocks.
+// optional; also, note that the persistent cache may be configured to store
+// either compressed or uncompressed blocks.
 //
 // If the retrieved block is compressed and the do_uncompress flag is set,
 // BlockFetcher uncompresses the block (using the uncompression dictionary,
@@ -71,11 +71,17 @@ class BlockFetcher {
   }
 
   IOStatus ReadBlockContents();
+  IOStatus ReadAsyncBlockContents();
+
   inline CompressionType get_compression_type() const {
     return compression_type_;
   }
   inline size_t GetBlockSizeWithTrailer() const {
     return block_size_with_trailer_;
+  }
+  inline Slice& GetCompressedBlock() {
+    assert(compression_type_ != kNoCompression);
+    return slice_;
   }
 
 #ifndef NDEBUG
@@ -126,7 +132,7 @@ class BlockFetcher {
   bool TryGetUncompressBlockFromPersistentCache();
   // return true if found
   bool TryGetFromPrefetchBuffer();
-  bool TryGetCompressedBlockFromPersistentCache();
+  bool TryGetSerializedBlockFromPersistentCache();
   void PrepareBufferForBlockFromFile();
   // Copy content from used_buf_ to new heap_buf_.
   void CopyBufferToHeapBuf();

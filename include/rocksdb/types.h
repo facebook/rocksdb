@@ -6,6 +6,10 @@
 #pragma once
 
 #include <stdint.h>
+
+#include <memory>
+#include <unordered_map>
+
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -16,6 +20,10 @@ using ColumnFamilyId = uint32_t;
 
 // Represents a sequence number in a WAL file.
 using SequenceNumber = uint64_t;
+
+struct TableProperties;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 
@@ -58,7 +66,36 @@ enum EntryType {
   kEntryRangeDeletion,
   kEntryBlobIndex,
   kEntryDeleteWithTimestamp,
+  kEntryWideColumnEntity,
   kEntryOther,
+};
+
+enum class WriteStallCause {
+  // Beginning of CF-scope write stall causes
+  //
+  // Always keep `kMemtableLimit` as the first stat in this section
+  kMemtableLimit,
+  kL0FileCountLimit,
+  kPendingCompactionBytes,
+  kCFScopeWriteStallCauseEnumMax,
+  // End of CF-scope write stall causes
+
+  // Beginning of DB-scope write stall causes
+  //
+  // Always keep `kWriteBufferManagerLimit` as the first stat in this section
+  kWriteBufferManagerLimit,
+  kDBScopeWriteStallCauseEnumMax,
+  // End of DB-scope write stall causes
+
+  // Always add new WriteStallCause before `kNone`
+  kNone,
+};
+
+enum class WriteStallCondition {
+  kDelayed,
+  kStopped,
+  // Always add new WriteStallCondition before `kNormal`
+  kNormal,
 };
 
 }  // namespace ROCKSDB_NAMESPACE

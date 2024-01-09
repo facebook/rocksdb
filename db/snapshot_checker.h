@@ -33,10 +33,9 @@ class DisableGCSnapshotChecker : public SnapshotChecker {
     // By returning kNotInSnapshot, we prevent all the values from being GCed
     return SnapshotCheckerResult::kNotInSnapshot;
   }
-  static DisableGCSnapshotChecker* Instance() { return &instance_; }
+  static DisableGCSnapshotChecker* Instance();
 
  protected:
-  static DisableGCSnapshotChecker instance_;
   explicit DisableGCSnapshotChecker() {}
 };
 
@@ -53,9 +52,7 @@ class WritePreparedSnapshotChecker : public SnapshotChecker {
       SequenceNumber sequence, SequenceNumber snapshot_sequence) const override;
 
  private:
-#ifndef ROCKSDB_LITE
   const WritePreparedTxnDB* const txn_db_;
-#endif  // !ROCKSDB_LITE
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -60,9 +60,10 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
 
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->compression_dict_handle,
-      UncompressionDict::GetEmptyDict(), uncompression_dict,
-      BlockType::kCompressionDictionary, get_context, lookup_context,
-      /* for_compaction */ false, use_cache, /* wait_for_cache */ true);
+      UncompressionDict::GetEmptyDict(), uncompression_dict, get_context,
+      lookup_context,
+      /* for_compaction */ false, use_cache,
+      /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(
@@ -76,7 +77,8 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
 }
 
 Status UncompressionDictReader::GetOrReadUncompressionDictionary(
-    FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
+    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro, bool no_io,
+    bool verify_checksums, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<UncompressionDict>* uncompression_dict) const {
   assert(uncompression_dict);
@@ -90,6 +92,8 @@ Status UncompressionDictReader::GetOrReadUncompressionDictionary(
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
+  read_options.verify_checksums = verify_checksums;
+  read_options.io_activity = ro.io_activity;
 
   return ReadUncompressionDictionary(table_, prefetch_buffer, read_options,
                                      cache_dictionary_blocks(), get_context,

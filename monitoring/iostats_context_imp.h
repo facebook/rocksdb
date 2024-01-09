@@ -7,13 +7,16 @@
 #include "monitoring/perf_step_timer.h"
 #include "rocksdb/iostats_context.h"
 
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && !defined(NIOSTATS_CONTEXT)
+#if !defined(NIOSTATS_CONTEXT)
 namespace ROCKSDB_NAMESPACE {
-extern __thread IOStatsContext iostats_context;
+extern thread_local IOStatsContext iostats_context;
 }  // namespace ROCKSDB_NAMESPACE
 
 // increment a specific counter by the specified value
-#define IOSTATS_ADD(metric, value) (iostats_context.metric += value)
+#define IOSTATS_ADD(metric, value)        \
+  if (!iostats_context.disable_iostats) { \
+    iostats_context.metric += value;      \
+  }
 
 // reset a specific counter to zero
 #define IOSTATS_RESET(metric) (iostats_context.metric = 0)
@@ -40,7 +43,9 @@ extern __thread IOStatsContext iostats_context;
       PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
   iostats_step_timer_##metric.Start();
 
-#else  // ROCKSDB_SUPPORT_THREAD_LOCAL && !NIOSTATS_CONTEXT
+#define IOSTATS_SET_DISABLE(disable) (iostats_context.disable_iostats = disable)
+
+#else  // !NIOSTATS_CONTEXT
 
 #define IOSTATS_ADD(metric, value)
 #define IOSTATS_ADD_IF_POSITIVE(metric, value)
@@ -49,8 +54,9 @@ extern __thread IOStatsContext iostats_context;
 #define IOSTATS_SET_THREAD_POOL_ID(value)
 #define IOSTATS_THREAD_POOL_ID()
 #define IOSTATS(metric) 0
+#define IOSTATS_SET_DISABLE(disable)
 
 #define IOSTATS_TIMER_GUARD(metric)
 #define IOSTATS_CPU_TIMER_GUARD(metric, clock) static_cast<void>(clock)
 
-#endif  // ROCKSDB_SUPPORT_THREAD_LOCAL && !NIOSTATS_CONTEXT
+#endif  // !NIOSTATS_CONTEXT

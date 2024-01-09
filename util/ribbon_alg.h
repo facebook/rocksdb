@@ -142,7 +142,7 @@ namespace ribbon {
 // only some small fixed number of columns (typically k=3) to 1 for each
 // row of C, with remaining entries implicitly 0. This is implemented as
 // three hash functions over [0,m), and S can be implemented as a vector
-// vector of b-bit values. Now, a query only involves looking up k rows
+// of b-bit values. Now, a query only involves looking up k rows
 // (values) in S and computing their bitwise XOR. Additionally, this
 // construction can use a linear time algorithm called "peeling" for
 // finding a solution in many cases of one existing, but peeling
@@ -150,7 +150,7 @@ namespace ribbon {
 // (m/n) than is required with Gaussian elimination.
 //
 // Recommended reading:
-// "Peeling Close to the Orientability Threshold – Spatial Coupling in
+// "Peeling Close to the Orientability Threshold - Spatial Coupling in
 // Hashing-Based Data Structures" by Stefan Walzer
 //
 // ######################################################################

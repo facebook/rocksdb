@@ -107,6 +107,13 @@ Status TestDirectory::Fsync() {
   return dir_->Fsync();
 }
 
+Status TestDirectory::Close() {
+  if (!env_->IsFilesystemActive()) {
+    return env_->GetError();
+  }
+  return dir_->Close();
+}
+
 TestRandomAccessFile::TestRandomAccessFile(
     std::unique_ptr<RandomAccessFile>&& target, FaultInjectionTestEnv* env)
     : target_(std::move(target)), env_(env) {

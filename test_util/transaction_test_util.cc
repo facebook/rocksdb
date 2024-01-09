@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "test_util/transaction_test_util.h"
 
@@ -13,14 +12,13 @@
 #include <string>
 #include <thread>
 
+#include "db/dbformat.h"
+#include "db/snapshot_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
-
-#include "db/dbformat.h"
-#include "db/snapshot_impl.h"
-#include "logging/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -91,12 +89,12 @@ Status RandomTransactionInserter::DBGet(
   Status s;
   // Five digits (since the largest uint16_t is 65535) plus the NUL
   // end char.
-  char prefix_buf[6];
+  char prefix_buf[6] = {0};
   // Pad prefix appropriately so we can iterate over each set
   assert(set_i + 1 <= 9999);
   snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
   // key format:  [SET#][random#]
-  std::string skey = ToString(ikey);
+  std::string skey = std::to_string(ikey);
   Slice base_key(skey);
   *full_key = std::string(prefix_buf) + base_key.ToString();
   Slice key(*full_key);
@@ -163,9 +161,13 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 
     if (s.ok()) {
       // Increment key
-      std::string sum = ToString(int_value + incr);
+      std::string sum = std::to_string(int_value + incr);
       if (txn != nullptr) {
-        s = txn->SingleDelete(key);
+        if ((set_i % 4) != 0) {
+          s = txn->SingleDelete(key);
+        } else {
+          s = txn->Delete(key);
+        }
         if (!get_for_update && (s.IsBusy() || s.IsTimedOut())) {
           // If the initial get was not for update, then the key is not locked
           // before put and put could fail due to concurrent writes.
@@ -396,4 +398,3 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

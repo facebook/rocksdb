@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -18,11 +19,12 @@
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
+#include "table/table_properties_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/atomic.h"
 #include "util/random.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,7 +52,7 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   VerifySstUniqueIds(props);
 }
-}  // namespace
+}  // anonymous namespace
 
 class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {
@@ -82,7 +84,8 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     }
     // Build file
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), ToString(table * 100 + i), "val"));
+      ASSERT_OK(
+          db_->Put(WriteOptions(), std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
@@ -111,7 +114,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 2; ++i) {
-    Get(ToString(i * 100 + 0));
+    Get(std::to_string(i * 100 + 0));
   }
 
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
@@ -120,7 +123,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   Reopen(options);
   // fetch key from all tables, which will place them in table cache.
   for (int i = 0; i < 4; ++i) {
-    Get(ToString(i * 100 + 0));
+    Get(std::to_string(i * 100 + 0));
   }
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 
@@ -154,7 +157,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     } else {
       bool found_corruption = false;
       for (int i = 0; i < 4; ++i) {
-        std::string result = Get(ToString(i * 100 + 0));
+        std::string result = Get(std::to_string(i * 100 + 0));
         if (result.find_first_of("Corruption: block checksum mismatch") !=
             std::string::npos) {
           found_corruption = true;
@@ -183,9 +186,15 @@ TEST_F(DBTablePropertiesTest, InvalidIgnored) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
+  // Corrupting the table properties corrupts the unique id.
+  // Ignore the unique id recorded in the manifest.
+  auto options = CurrentOptions();
+  options.verify_sst_unique_id_in_manifest = false;
+  Reopen(options);
+
   // Build file
   for (int i = 0; i < 10; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i), "val"));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i), "val"));
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
 
@@ -231,14 +240,13 @@ TablePropertiesCollection
 DBTablePropertiesTest::TestGetPropertiesOfTablesInRange(
     std::vector<Range> ranges, std::size_t* num_properties,
     std::size_t* num_files) {
-
   // Since we deref zero element in the vector it can not be empty
   // otherwise we pass an address to some random memory
   EXPECT_GT(ranges.size(), 0U);
   // run the query
   TablePropertiesCollection props;
   EXPECT_OK(db_->GetPropertiesOfTablesInRange(
-      db_->DefaultColumnFamily(), &ranges[0], ranges.size(), &props));
+      db_->DefaultColumnFamily(), ranges.data(), ranges.size(), &props));
 
   // Make sure that we've received properties for those and for those files
   // only which fall within requested ranges
@@ -275,6 +283,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   Random rnd(301);
 
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.write_buffer_size = 4096;
   options.max_write_buffer_number = 2;
@@ -354,7 +363,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
     std::vector<Range> ranges;
     auto it = random_keys.begin();
     while (it != random_keys.end()) {
-      ranges.push_back(Range(*it, *(it + 1)));
+      ranges.emplace_back(*it, *(it + 1));
       it += 2;
     }
 
@@ -409,6 +418,71 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
   }
 }
 
+TEST_F(DBTablePropertiesTest, FactoryReturnsNull) {
+  struct JunkTablePropertiesCollector : public TablePropertiesCollector {
+    const char* Name() const override { return "JunkTablePropertiesCollector"; }
+    Status Finish(UserCollectedProperties* properties) override {
+      properties->insert({"Junk", "Junk"});
+      return Status::OK();
+    }
+    UserCollectedProperties GetReadableProperties() const override {
+      return {};
+    }
+  };
+
+  // Alternates between putting a "Junk" property and using `nullptr` to
+  // opt out.
+  static RelaxedAtomic<int> count{0};
+  struct SometimesTablePropertiesCollectorFactory
+      : public TablePropertiesCollectorFactory {
+    const char* Name() const override {
+      return "SometimesTablePropertiesCollectorFactory";
+    }
+    TablePropertiesCollector* CreateTablePropertiesCollector(
+        TablePropertiesCollectorFactory::Context /*context*/) override {
+      if (count.FetchAddRelaxed(1) & 1) {
+        return nullptr;
+      } else {
+        return new JunkTablePropertiesCollector();
+      }
+    }
+  };
+
+  Options options = CurrentOptions();
+  options.table_properties_collector_factories.emplace_back(
+      std::make_shared<SometimesTablePropertiesCollectorFactory>());
+  // For plain table
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  for (const std::shared_ptr<TableFactory>& tf :
+       {options.table_factory,
+        std::shared_ptr<TableFactory>(NewPlainTableFactory({}))}) {
+    SCOPED_TRACE("Table factory = " + std::string(tf->Name()));
+    options.table_factory = tf;
+
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("key0", "value1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("key0", "value2"));
+    ASSERT_OK(Flush());
+
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    int no_junk_count = 0;
+    int junk_count = 0;
+    for (const auto& item : props) {
+      if (item.second->user_collected_properties.find("Junk") !=
+          item.second->user_collected_properties.end()) {
+        junk_count++;
+      } else {
+        no_junk_count++;
+      }
+    }
+    EXPECT_EQ(1, no_junk_count);
+    EXPECT_EQ(1, junk_count);
+  }
+}
+
 class DBTableHostnamePropertyTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<int, std::string>> {
@@ -460,12 +534,12 @@ INSTANTIATE_TEST_CASE_P(
 
 class DeletionTriggeredCompactionTestListener : public EventListener {
  public:
-  void OnCompactionBegin(DB* , const CompactionJobInfo& ci) override {
+  void OnCompactionBegin(DB*, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.compaction_reason,
               CompactionReason::kFilesMarkedForCompaction);
   }
 
-  void OnCompactionCompleted(DB* , const CompactionJobInfo& ci) override {
+  void OnCompactionCompleted(DB*, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.compaction_reason,
               CompactionReason::kFilesMarkedForCompaction);
   }
@@ -476,13 +550,13 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   int kWindowSize = 100;
   int kNumDelsTrigger = 90;
   std::shared_ptr<TablePropertiesCollectorFactory> compact_on_del =
-    NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
 
   Options opts = CurrentOptions();
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.table_properties_collector_factories.emplace_back(compact_on_del);
 
-  if(GetParam() == "kCompactionStyleUniversal") {
+  if (GetParam() == "kCompactionStyleUniversal") {
     opts.compaction_style = kCompactionStyleUniversal;
   }
   Reopen(opts);
@@ -493,8 +567,8 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
 
-  DeletionTriggeredCompactionTestListener *listener =
-    new DeletionTriggeredCompactionTestListener();
+  DeletionTriggeredCompactionTestListener* listener =
+      new DeletionTriggeredCompactionTestListener();
   opts.listeners.emplace_back(listener);
   Reopen(opts);
 
@@ -515,10 +589,10 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   // effect
   kWindowSize = 50;
   kNumDelsTrigger = 40;
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetWindowSize(kWindowSize);
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetDeletionTrigger(kNumDelsTrigger);
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
@@ -534,10 +608,10 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
 
   // Change the window size to disable delete triggered compaction
   kWindowSize = 0;
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetWindowSize(kWindowSize);
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetDeletionTrigger(kNumDelsTrigger);
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
@@ -602,17 +676,12 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
-    DBTablePropertiesTest,
-    DBTablePropertiesTest,
-    ::testing::Values(
-      "kCompactionStyleLevel",
-      "kCompactionStyleUniversal"
-      ));
+INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,
+                        ::testing::Values("kCompactionStyleLevel",
+                                          "kCompactionStyleUniversal"));
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

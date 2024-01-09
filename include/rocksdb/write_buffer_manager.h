@@ -81,10 +81,17 @@ class WriteBufferManager final {
     return buffer_size_.load(std::memory_order_relaxed);
   }
 
+  // REQUIRED: `new_size` > 0
   void SetBufferSize(size_t new_size) {
+    assert(new_size > 0);
     buffer_size_.store(new_size, std::memory_order_relaxed);
     mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
     // Check if stall is active and can be ended.
+    MaybeEndWriteStall();
+  }
+
+  void SetAllowStall(bool new_allow_stall) {
+    allow_stall_.store(new_allow_stall, std::memory_order_relaxed);
     MaybeEndWriteStall();
   }
 
@@ -117,7 +124,7 @@ class WriteBufferManager final {
   //
   // Should only be called by RocksDB internally .
   bool ShouldStall() const {
-    if (!allow_stall_ || !enabled()) {
+    if (!allow_stall_.load(std::memory_order_relaxed) || !enabled()) {
       return false;
     }
 
@@ -158,14 +165,14 @@ class WriteBufferManager final {
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
-  std::unique_ptr<CacheReservationManager> cache_res_mgr_;
+  std::shared_ptr<CacheReservationManager> cache_res_mgr_;
   // Protects cache_res_mgr_
   std::mutex cache_res_mgr_mu_;
 
   std::list<StallInterface*> queue_;
   // Protects the queue_ and stall_active_.
   std::mutex mu_;
-  bool allow_stall_;
+  std::atomic<bool> allow_stall_;
   // Value should only be changed by BeginWriteStall() and MaybeEndWriteStall()
   // while holding mu_, but it can be read without a lock.
   std::atomic<bool> stall_active_;

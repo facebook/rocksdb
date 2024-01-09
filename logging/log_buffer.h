@@ -6,6 +6,7 @@
 #pragma once
 
 #include <ctime>
+
 #include "memory/arena.h"
 #include "port/sys_time.h"
 #include "rocksdb/env.h"
@@ -35,8 +36,8 @@ class LogBuffer {
  private:
   // One log entry with its timestamp
   struct BufferedLog {
-    struct timeval now_tv;  // Timestamp of the log
-    char message[1];        // Beginning of log message
+    port::TimeVal now_tv;  // Timestamp of the log
+    char message[1];       // Beginning of log message
   };
 
   const InfoLogLevel log_level_;

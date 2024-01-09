@@ -9,7 +9,6 @@
 
 #include <stdio.h>
 
-#ifndef ROCKSDB_LITE
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -80,10 +79,10 @@ TEST(CompactOnDeletionCollector, DeletionRatio) {
 }
 
 TEST(CompactOnDeletionCollector, SlidingWindow) {
-  const int kWindowSizes[] =
-      {1000, 10000, 10000, 127, 128, 129, 255, 256, 257, 2, 10000};
-  const int kDeletionTriggers[] =
-      {500, 9500, 4323, 47, 61, 128, 250, 250, 250, 2, 2};
+  const int kWindowSizes[] = {1000, 10000, 10000, 127, 128,  129,
+                              255,  256,   257,   2,   10000};
+  const int kDeletionTriggers[] = {500, 9500, 4323, 47, 61, 128,
+                                   250, 250,  250,  2,  2};
   TablePropertiesCollectorFactory::Context context;
   context.column_family_id =
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
@@ -134,13 +133,13 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
                 collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
           }
         }
-        if (collector->NeedCompact() !=
-            (deletions >= kNumDeletionTrigger) &&
+        if (collector->NeedCompact() != (deletions >= kNumDeletionTrigger) &&
             std::abs(deletions - kNumDeletionTrigger) > kBias) {
-          fprintf(stderr, "[Error] collector->NeedCompact() != (%d >= %d)"
+          fprintf(stderr,
+                  "[Error] collector->NeedCompact() != (%d >= %d)"
                   " with kWindowSize = %d and kNumDeletionTrigger = %d\n",
-                  deletions, kNumDeletionTrigger,
-                  kWindowSize, kNumDeletionTrigger);
+                  deletions, kNumDeletionTrigger, kWindowSize,
+                  kNumDeletionTrigger);
           ASSERT_TRUE(false);
         }
         ASSERT_OK(collector->Finish(nullptr));
@@ -182,11 +181,11 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
         }
         if (collector->NeedCompact() != (deletions >= kNumDeletionTrigger) &&
             std::abs(deletions - kNumDeletionTrigger) > kBias) {
-          fprintf(stderr, "[Error] collector->NeedCompact() %d != (%d >= %d)"
+          fprintf(stderr,
+                  "[Error] collector->NeedCompact() %d != (%d >= %d)"
                   " with kWindowSize = %d, kNumDeletionTrigger = %d\n",
-                  collector->NeedCompact(),
-                  deletions, kNumDeletionTrigger, kWindowSize,
-                  kNumDeletionTrigger);
+                  collector->NeedCompact(), deletions, kNumDeletionTrigger,
+                  kWindowSize, kNumDeletionTrigger);
           ASSERT_TRUE(false);
         }
         ASSERT_OK(collector->Finish(nullptr));
@@ -218,7 +217,8 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
         }
         if (collector->NeedCompact() &&
             std::abs(kDeletionsPerSection - kNumDeletionTrigger) > kBias) {
-          fprintf(stderr, "[Error] collector->NeedCompact() != false"
+          fprintf(stderr,
+                  "[Error] collector->NeedCompact() != false"
                   " with kWindowSize = %d and kNumDeletionTrigger = %d\n",
                   kWindowSize, kNumDeletionTrigger);
           ASSERT_TRUE(false);
@@ -236,9 +236,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#else
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as RocksDBLite does not include utilities.\n");
-  return 0;
-}
-#endif  // !ROCKSDB_LITE

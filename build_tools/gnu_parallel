@@ -1170,7 +1170,7 @@ sub parse_env_var {
     # Check if any variables contain \n
     if(my @v = map { s/BASH_FUNC_(.*)\(\)/$1/; $_ } grep { $ENV{$_}=~/\n/ } @vars) {
 	# \n is bad for csh and will cause it to fail.
-	$Global::envwarn = ::shell_quote_scalar(q{echo $SHELL | egrep "/t?csh" > /dev/null && echo CSH/TCSH DO NOT SUPPORT newlines IN VARIABLES/FUNCTIONS. Unset }."@v".q{ && exec false;}."\n\n") . $Global::envwarn;
+	$Global::envwarn = ::shell_quote_scalar(q{echo $SHELL | grep -E "/t?csh" > /dev/null && echo CSH/TCSH DO NOT SUPPORT newlines IN VARIABLES/FUNCTIONS. Unset }."@v".q{ && exec false;}."\n\n") . $Global::envwarn;
     }
 
     if(not @qcsh) { push @qcsh, "true"; }
@@ -1561,7 +1561,7 @@ sub save_stdin_stdout_stderr {
 	::die_bug("Can't dup STDERR: $!");
     open $Global::original_stdin, "<&", "STDIN" or
 	::die_bug("Can't dup STDIN: $!");
-    $Global::is_terminal = (-t $Global::original_stderr) && !$ENV{'CIRCLECI'} && !$ENV{'TRAVIS'};
+    $Global::is_terminal = (-t $Global::original_stderr) && !$ENV{'CIRCLECI'}&& !$ENV{'GITHUB_ACTIONS'}  && !$ENV{'TRAVIS'};
 }
 
 sub enough_file_handles {
@@ -1916,7 +1916,8 @@ sub drain_job_queue {
                 } elsif (not $ps_reported and (time() - $last_progress_time) >= 60) {
                     # No progress in at least 60 seconds: run ps
                     print $Global::original_stderr "\n";
-                    system("ps", "-wf");
+                    my $script_dir = ::dirname($0);
+                    system("$script_dir/ps_with_stack || ps -wwf");
                     $ps_reported = 1;
                 }
                 $last_left = $Global::left;

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -35,6 +34,7 @@ class SstFileReader {
   // Verifies whether there is corruption in this table.
   Status VerifyChecksum(const ReadOptions& /*read_options*/);
 
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
  private:
@@ -43,5 +43,3 @@ class SstFileReader {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE

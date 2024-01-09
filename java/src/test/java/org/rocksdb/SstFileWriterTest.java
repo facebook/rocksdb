@@ -12,7 +12,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -33,7 +33,7 @@ public class SstFileWriterTest {
   enum OpType { PUT, PUT_BYTES, PUT_DIRECT, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES }
 
   static class KeyValueWithOp {
-    KeyValueWithOp(String key, String value, OpType opType) {
+    KeyValueWithOp(final String key, final String value, final OpType opType) {
       this.key = key;
       this.value = value;
       this.opType = opType;
@@ -54,14 +54,14 @@ public class SstFileWriterTest {
     private final String key;
     private final String value;
     private final OpType opType;
-  };
+  }
 
   private File newSstFile(final List<KeyValueWithOp> keyValues,
-      boolean useJavaBytewiseComparator) throws IOException, RocksDBException {
+      final boolean useJavaBytewiseComparator) throws IOException, RocksDBException {
     final EnvOptions envOptions = new EnvOptions();
     final StringAppendOperator stringAppendOperator = new StringAppendOperator();
     final Options options = new Options().setMergeOperator(stringAppendOperator);
-    SstFileWriter sstFileWriter = null;
+    final SstFileWriter sstFileWriter;
     ComparatorOptions comparatorOptions = null;
     BytewiseComparator comparator = null;
     if (useJavaBytewiseComparator) {
@@ -77,15 +77,15 @@ public class SstFileWriterTest {
     try {
       sstFileWriter.open(sstFile.getAbsolutePath());
       assertThat(sstFileWriter.fileSize()).isEqualTo(0);
-      for (KeyValueWithOp keyValue : keyValues) {
-        Slice keySlice = new Slice(keyValue.getKey());
-        Slice valueSlice = new Slice(keyValue.getValue());
-        byte[] keyBytes = keyValue.getKey().getBytes();
-        byte[] valueBytes = keyValue.getValue().getBytes();
-        ByteBuffer keyDirect = ByteBuffer.allocateDirect(keyBytes.length);
+      for (final KeyValueWithOp keyValue : keyValues) {
+        final Slice keySlice = new Slice(keyValue.getKey());
+        final Slice valueSlice = new Slice(keyValue.getValue());
+        final byte[] keyBytes = keyValue.getKey().getBytes();
+        final byte[] valueBytes = keyValue.getValue().getBytes();
+        final ByteBuffer keyDirect = ByteBuffer.allocateDirect(keyBytes.length);
         keyDirect.put(keyBytes);
         keyDirect.flip();
-        ByteBuffer valueDirect = ByteBuffer.allocateDirect(valueBytes.length);
+        final ByteBuffer valueDirect = ByteBuffer.allocateDirect(valueBytes.length);
         valueDirect.put(valueBytes);
         valueDirect.flip();
         switch (keyValue.getOpType()) {
@@ -185,8 +185,8 @@ public class SstFileWriterTest {
         final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
         final IngestExternalFileOptions ingestExternalFileOptions =
             new IngestExternalFileOptions()) {
-      db.ingestExternalFile(Arrays.asList(sstFile.getAbsolutePath()),
-          ingestExternalFileOptions);
+      db.ingestExternalFile(
+          Collections.singletonList(sstFile.getAbsolutePath()), ingestExternalFileOptions);
 
       assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
@@ -222,9 +222,7 @@ public class SstFileWriterTest {
               .setMergeOperator(stringAppendOperator);
           final ColumnFamilyHandle cf_handle = db.createColumnFamily(
               new ColumnFamilyDescriptor("new_cf".getBytes(), cf_opts))) {
-
-        db.ingestExternalFile(cf_handle,
-            Arrays.asList(sstFile.getAbsolutePath()),
+        db.ingestExternalFile(cf_handle, Collections.singletonList(sstFile.getAbsolutePath()),
             ingestExternalFileOptions);
 
         assertThat(db.get(cf_handle,

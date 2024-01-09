@@ -5,11 +5,9 @@
 
 package org.rocksdb;
 
-import java.util.List;
-
 /**
  * Enum CompactionStyle
- *
+ * <p>
  * RocksDB supports different styles of compaction. Available
  * compaction styles can be chosen using this enumeration.
  *
@@ -25,7 +23,8 @@ import java.util.List;
  *   the old data, so it's basically a TTL compaction style.</li>
  *   <li><strong>NONE</strong> - Disable background compaction.
  *   Compaction jobs are submitted
- *   {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int, CompactionJobInfo)} ()}.</li>
+ *   {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, java.util.List, int, int,
+ * CompactionJobInfo)} ()}.</li>
  * </ol>
  *
  * @see <a

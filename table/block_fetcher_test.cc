@@ -77,11 +77,13 @@ class BlockFetcherTest : public testing::Test {
     ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
     IntTblPropCollectorFactories factories;
+    const ReadOptions read_options;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
-        TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, CompressionOptions(),
-                            0 /* column_family_id */, kDefaultColumnFamilyName,
-                            -1 /* level */),
+        TableBuilderOptions(ioptions, moptions, read_options, write_options,
+                            comparator, &factories, compression_type,
+                            CompressionOptions(), 0 /* column_family_id */,
+                            kDefaultColumnFamilyName, -1 /* level */),
         writer.get()));
 
     // Build table.
@@ -107,6 +109,9 @@ class BlockFetcherTest : public testing::Test {
     Footer footer;
     ReadFooter(file.get(), &footer);
     const BlockHandle& index_handle = footer.index_handle();
+    // FIXME: index handle will need to come from metaindex for
+    // format_version >= 6 when that becomes the default
+    ASSERT_FALSE(index_handle.IsNull());
 
     CompressionType compression_type;
     FetchBlock(file.get(), index_handle, BlockType::kIndex,
@@ -131,7 +136,9 @@ class BlockFetcherTest : public testing::Test {
       std::array<TestStats, NumModes> expected_stats_by_mode) {
     for (CompressionType compression_type : GetSupportedCompressions()) {
       bool do_compress = compression_type != kNoCompression;
-      if (compressed != do_compress) continue;
+      if (compressed != do_compress) {
+        continue;
+      }
       std::string compression_type_str =
           CompressionTypeToString(compression_type);
 
@@ -268,7 +275,8 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_NE(table_options, nullptr);
     ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
                                     comparator, std::move(file), file_size,
-                                    &table_reader));
+                                    0 /* block_protection_bytes_per_key */,
+                                    &table_reader, 0 /* tail_size */));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -282,9 +290,9 @@ class BlockFetcherTest : public testing::Test {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
     IOOptions opts;
-    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
-                                 file_size, footer,
-                                 kBlockBasedTableMagicNumber));
+    ASSERT_OK(ReadFooterFromFile(opts, file, *fs_,
+                                 nullptr /* prefetch_buffer */, file_size,
+                                 footer, kBlockBasedTableMagicNumber));
   }
 
   // NOTE: compression_type returns the compression type of the fetched block
@@ -295,7 +303,7 @@ class BlockFetcherTest : public testing::Test {
                   MemoryAllocator* heap_buf_allocator,
                   MemoryAllocator* compressed_buf_allocator,
                   BlockContents* contents, MemcpyStats* stats,
-                  CompressionType* compresstion_type) {
+                  CompressionType* compression_type) {
     ImmutableOptions ioptions(options_);
     ReadOptions roptions;
     PersistentCacheOptions persistent_cache_options;
@@ -314,7 +322,11 @@ class BlockFetcherTest : public testing::Test {
     stats->num_compressed_buf_memcpy =
         fetcher->TEST_GetNumCompressedBufMemcpy();
 
-    *compresstion_type = fetcher->get_compression_type();
+    if (do_uncompress) {
+      *compression_type = kNoCompression;
+    } else {
+      *compression_type = fetcher->get_compression_type();
+    }
   }
 
   // NOTE: expected_compression_type is the expected compression
@@ -363,7 +375,6 @@ class BlockFetcherTest : public testing::Test {
 };
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
-#ifndef ROCKSDB_LITE
 
 // Fetch index block under both direct IO and non-direct IO.
 // Expects:
@@ -509,7 +520,6 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
                      expected_stats_by_mode);
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace
 }  // namespace ROCKSDB_NAMESPACE

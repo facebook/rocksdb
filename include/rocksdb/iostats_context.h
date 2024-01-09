@@ -5,6 +5,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <string>
 
 #include "rocksdb/perf_level.h"
@@ -76,15 +77,20 @@ struct IOStatsContext {
   uint64_t cpu_read_nanos;
 
   FileIOByTemperature file_io_stats_by_temperature;
+
+  // It is not consistent that whether iostats follows PerfLevel.Timer counters
+  // follows it but BackupEngine relies on counter metrics to always be there.
+  // Here we create a backdoor option to disable some counters, so that some
+  // existing stats are not polluted by file operations, such as logging, by
+  // turning this off.
+  bool disable_iostats = false;
 };
 
 // If RocksDB is compiled with -DNIOSTATS_CONTEXT, then a pointer to a global,
 // non-thread-local IOStatsContext object will be returned. Attempts to update
 // this object will be ignored, and reading from it will also be no-op.
-// Otherwise,
-// a) if thread-local is supported on the platform, then a pointer to
-//    a thread-local IOStatsContext object will be returned.
-// b) if thread-local is NOT supported, then compilation will fail.
+// Otherwise, a pointer to a thread-local IOStatsContext object will be
+// returned.
 //
 // This function never returns nullptr.
 IOStatsContext* get_iostats_context();

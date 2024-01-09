@@ -130,7 +130,7 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -167,7 +167,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -208,7 +208,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -553,9 +553,11 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   std::unique_ptr<TableBuilder> builder;
   IntTblPropCollectorFactories int_tbl_prop_collector_factories;
   std::string column_family_name;
+  const ReadOptions read_options;
+  const WriteOptions write_options;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(
-          ioptions, moptions, internal_comparator,
+          ioptions, moptions, read_options, write_options, internal_comparator,
           &int_tbl_prop_collector_factories, options.compression,
           CompressionOptions(),
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
@@ -567,7 +569,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   EXPECT_TRUE(builder->status().ok());
 
   Status s = builder->Finish();
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush(IOOptions()));
   EXPECT_TRUE(s.ok()) << s.ToString();
 
   EXPECT_EQ(sink->contents().size(), builder->FileSize());
@@ -581,8 +583,9 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   const bool kImmortal = true;
   ASSERT_OK(ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
-                         internal_comparator, !kSkipFilters, !kImmortal,
-                         level_),
+                         internal_comparator,
+                         0 /* block_protection_bytes_per_key */, !kSkipFilters,
+                         !kImmortal, level_),
       std::move(file_reader), sink->contents().size(), &table_reader));
   // Search using Get()
   ReadOptions ro;
@@ -625,7 +628,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -650,7 +653,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -675,7 +678,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 120, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -700,7 +703,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 5, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kNotFound);
@@ -711,6 +714,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

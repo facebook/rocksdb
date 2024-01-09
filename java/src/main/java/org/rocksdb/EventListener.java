@@ -5,33 +5,31 @@
 
 package org.rocksdb;
 
-import java.util.List;
-
 /**
  * EventListener class contains a set of callback functions that will
  * be called when specific RocksDB event happens such as flush.  It can
  * be used as a building block for developing custom features such as
  * stats-collector or external compaction algorithm.
- *
+ * <p>
  * Note that callback functions should not run for an extended period of
  * time before the function returns, otherwise RocksDB may be blocked.
  * For example, it is not suggested to do
- * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, java.util.List, int, int,
  * CompactionJobInfo)} (as it may run for a long while) or issue many of
  * {@link RocksDB#put(ColumnFamilyHandle, WriteOptions, byte[], byte[])}
  * (as Put may be blocked in certain cases) in the same thread in the
  * EventListener callback.
- *
+ * <p>
  * However, doing
- * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, java.util.List, int, int,
  * CompactionJobInfo)} and {@link RocksDB#put(ColumnFamilyHandle, WriteOptions, byte[], byte[])} in
  * another thread is considered safe.
- *
+ * <p>
  * [Threading] All EventListener callback will be called using the
  * actual thread that involves in that specific event. For example, it
  * is the RocksDB background flush thread that does the actual flush to
  * call {@link #onFlushCompleted(RocksDB, FlushJobInfo)}.
- *
+ * <p>
  * [Locking] All EventListener callbacks are designed to be called without
  * the current thread holding any DB mutex. This is to prevent potential
  * deadlock and performance issue when using EventListener callback
@@ -41,7 +39,7 @@ public interface EventListener {
   /**
    * A callback function to RocksDB which will be called before a
    * RocksDB starts to flush memtables.
-   *
+   * <p>
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
@@ -55,7 +53,7 @@ public interface EventListener {
   /**
    * callback function to RocksDB which will be called whenever a
    * registered RocksDB flushes a file.
-   *
+   * <p>
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
@@ -77,7 +75,7 @@ public interface EventListener {
    * on file creations and deletions is suggested to implement
    * {@link #onFlushCompleted(RocksDB, FlushJobInfo)} and
    * {@link #onCompactionCompleted(RocksDB, CompactionJobInfo)}.
-   *
+   * <p>
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from the
    * returned value.
@@ -91,7 +89,7 @@ public interface EventListener {
    * A callback function to RocksDB which will be called before a
    * RocksDB starts to compact. The default implementation is
    * no-op.
-   *
+   * <p>
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
@@ -108,7 +106,7 @@ public interface EventListener {
    * A callback function for RocksDB which will be called whenever
    * a registered RocksDB compacts a file. The default implementation
    * is a no-op.
-   *
+   * <p>
    * Note that this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
@@ -129,11 +127,11 @@ public interface EventListener {
    * of a pointer to DB.  Applications that build logic basic based
    * on file creations and deletions is suggested to implement
    * OnFlushCompleted and OnCompactionCompleted.
-   *
+   * <p>
    * Historically it will only be called if the file is successfully created.
    * Now it will also be called on failure case. User can check info.status
    * to see if it succeeded or not.
-   *
+   * <p>
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from these
    * returned value.
@@ -147,7 +145,7 @@ public interface EventListener {
    * A callback function for RocksDB which will be called before
    * a SST file is being created. It will follow by OnTableFileCreated after
    * the creation finishes.
-   *
+   * <p>
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from these
    * returned value.
@@ -160,11 +158,11 @@ public interface EventListener {
   /**
    * A callback function for RocksDB which will be called before
    * a memtable is made immutable.
-   *
+   * <p>
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns.  Otherwise, RocksDB may be blocked.
-   *
+   * <p>
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from these
    * returned value.
@@ -177,7 +175,7 @@ public interface EventListener {
   /**
    * A callback function for RocksDB which will be called before
    * a column family handle is deleted.
-   *
+   * <p>
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns.  Otherwise, RocksDB may be blocked.
@@ -190,7 +188,7 @@ public interface EventListener {
   /**
    * A callback function for RocksDB which will be called after an external
    * file is ingested using IngestExternalFile.
-   *
+   * <p>
    * Note that the this function will run on the same thread as
    * IngestExternalFile(), if this function is blocked, IngestExternalFile()
    * will be blocked from finishing.
@@ -210,7 +208,7 @@ public interface EventListener {
    * preventing the database from entering read-only mode. We do not provide any
    * guarantee when failed flushes/compactions will be rescheduled if the user
    * suppresses an error.
-   *
+   * <p>
    * Note that this function can run on the same threads as flush, compaction,
    * and user writes. So, it is extremely important not to perform heavy
    * computations or blocking calls in this function.
@@ -224,7 +222,7 @@ public interface EventListener {
   /**
    * A callback function for RocksDB which will be called whenever a change
    * of superversion triggers a change of the stall conditions.
-   *
+   * <p>
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
@@ -301,7 +299,7 @@ public interface EventListener {
    * If true, the {@link #onFileReadFinish(FileOperationInfo)}
    * and {@link #onFileWriteFinish(FileOperationInfo)} will be called. If
    * false, then they won't be called.
-   *
+   * <p>
    * Default: false
    *
    * @return whether to callback when file read/write is finished

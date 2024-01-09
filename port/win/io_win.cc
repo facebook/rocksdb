@@ -37,15 +37,18 @@ inline bool IsAligned(size_t alignment, const void* ptr) {
 }  // namespace
 
 std::string GetWindowsErrSz(DWORD err) {
-  LPSTR lpMsgBuf;
+  std::string Err;
+  LPSTR lpMsgBuf = nullptr;
   FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
                      FORMAT_MESSAGE_IGNORE_INSERTS,
                  NULL, err,
                  0,  // Default language
                  reinterpret_cast<LPSTR>(&lpMsgBuf), 0, NULL);
 
-  std::string Err = lpMsgBuf;
-  LocalFree(lpMsgBuf);
+  if (lpMsgBuf) {
+    Err = lpMsgBuf;
+    LocalFree(lpMsgBuf);
+  }
   return Err;
 }
 
@@ -1062,6 +1065,22 @@ WinMemoryMappedBuffer::~WinMemoryMappedBuffer() {
 IOStatus WinDirectory::Fsync(const IOOptions& /*options*/,
                              IODebugContext* /*dbg*/) {
   return IOStatus::OK();
+}
+
+IOStatus WinDirectory::Close(const IOOptions& /*options*/,
+                             IODebugContext* /*dbg*/) {
+  IOStatus s = IOStatus::OK();
+  BOOL ret __attribute__((__unused__));
+  if (handle_ != INVALID_HANDLE_VALUE) {
+    ret = ::CloseHandle(handle_);
+    if (!ret) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError("Directory closes failed for : " + GetName(),
+                                  lastError);
+    }
+    handle_ = NULL;
+  }
+  return s;
 }
 
 size_t WinDirectory::GetUniqueId(char* id, size_t max_size) const {

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <memory>
 #include <string>
@@ -14,6 +13,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wide_columns.h"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
@@ -46,7 +46,7 @@ struct ExternalSstFileInfo {
                       const std::string& _smallest_key,
                       const std::string& _largest_key,
                       SequenceNumber _sequence_number, uint64_t _file_size,
-                      int32_t _num_entries, int32_t _version)
+                      uint64_t _num_entries, int32_t _version)
       : file_path(_file_path),
         smallest_key(_smallest_key),
         largest_key(_largest_key),
@@ -68,9 +68,9 @@ struct ExternalSstFileInfo {
   std::string largest_range_del_key;  // largest range deletion user key in file
   std::string file_checksum;          // sst file checksum;
   std::string file_checksum_func_name;  // The name of file checksum function
-  SequenceNumber sequence_number;     // sequence number of all keys in file
-  uint64_t file_size;                 // file size in bytes
-  uint64_t num_entries;               // number of entries in file
+  SequenceNumber sequence_number;       // sequence number of all keys in file
+  uint64_t file_size;                   // file size in bytes
+  uint64_t num_entries;                 // number of entries in file
   uint64_t num_range_del_entries;  // number of range deletion entries in file
   int32_t version;                 // file version
 };
@@ -111,42 +111,70 @@ class SstFileWriter {
   Status Open(const std::string& file_path);
 
   // Add a Put key with value to currently opened file (deprecated)
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   ROCKSDB_DEPRECATED_FUNC Status Add(const Slice& user_key, const Slice& value);
 
   // Add a Put key with value to currently opened file
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   Status Put(const Slice& user_key, const Slice& value);
 
   // Add a Put (key with timestamp, value) to the currently opened file
-  // REQUIRES: key is after any previously added key according to the
-  // comparator.
-  // REQUIRES: the timestamp's size is equal to what is expected by
-  // the comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
+  // REQUIRES: timestamp's size is equal to what is expected by the comparator.
   Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
 
+  // Add a PutEntity (key with the wide-column entity defined by "columns") to
+  // the currently opened file
+  Status PutEntity(const Slice& user_key, const WideColumns& columns);
+
   // Add a Merge key with value to currently opened file
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   Status Merge(const Slice& user_key, const Slice& value);
 
   // Add a deletion key to currently opened file
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   Status Delete(const Slice& user_key);
 
   // Add a deletion key with timestamp to the currently opened file
-  // REQUIRES: key is after any previously added key according to the
-  // comparator.
-  // REQUIRES: the timestamp's size is equal to what is expected by
-  // the comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
+  // REQUIRES: timestamp's size is equal to what is expected by the comparator.
   Status Delete(const Slice& user_key, const Slice& timestamp);
 
-  // Add a range deletion tombstone to currently opened file
+  // Add a range deletion tombstone to currently opened file. Such a range
+  // deletion tombstone does NOT delete point (Put/Merge/Delete) keys in the
+  // same file.
+  //
+  // Range deletion tombstones may be added in any order, both with respect to
+  // each other and with respect to the point (Put/Merge/Delete) keys in the
+  // same file.
+  //
+  // REQUIRES: The comparator orders `begin_key` at or before `end_key`
   // REQUIRES: comparator is *not* timestamp-aware.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key);
+
+  // Add a range deletion tombstone to currently opened file. Such a range
+  // deletion tombstone does NOT delete point (Put/Merge/Delete) keys in the
+  // same file.
+  //
+  // Range deletion tombstones may be added in any order, both with respect to
+  // each other and with respect to the point (Put/Merge/Delete) keys in the
+  // same file.
+  //
+  // REQUIRES: begin_key and end_key are user keys without timestamp.
+  // REQUIRES: The comparator orders `begin_key` at or before `end_key`
+  // REQUIRES: timestamp's size is equal to what is expected by the comparator.
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key,
+                     const Slice& timestamp);
 
   // Finalize writing to sst file and close file.
   //
@@ -163,5 +191,3 @@ class SstFileWriter {
   std::unique_ptr<Rep> rep_;
 };
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE

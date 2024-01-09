@@ -3,7 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
+
+#include "db/write_callback.h"
 
 #include <atomic>
 #include <functional>
@@ -12,7 +13,6 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "db/write_callback.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
@@ -37,11 +37,11 @@ class WriteCallbackTestWriteCallback1 : public WriteCallback {
  public:
   bool was_called = false;
 
-  Status Callback(DB *db) override {
+  Status Callback(DB* db) override {
     was_called = true;
 
     // Make sure db is a DBImpl
-    DBImpl* db_impl = dynamic_cast<DBImpl*> (db);
+    DBImpl* db_impl = dynamic_cast<DBImpl*>(db);
     if (db_impl == nullptr) {
       return Status::InvalidArgument("");
     }
@@ -64,7 +64,7 @@ class MockWriteCallback : public WriteCallback {
   bool allow_batching_ = false;
   std::atomic<bool> was_called_{false};
 
-  MockWriteCallback() {}
+  MockWriteCallback() = default;
 
   MockWriteCallback(const MockWriteCallback& other) {
     should_fail_ = other.should_fail_;
@@ -111,7 +111,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     WriteOP(bool should_fail = false) { callback_.should_fail_ = should_fail; }
 
     void Put(const string& key, const string& val) {
-      kvs_.push_back(std::make_pair(key, val));
+      kvs_.emplace_back(key, val);
       ASSERT_OK(write_batch_.Put(key, val));
     }
 
@@ -171,13 +171,12 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     DB* db;
     DBImpl* db_impl;
 
-    DestroyDB(dbname, options);
+    ASSERT_OK(DestroyDB(dbname, options));
 
     DBOptions db_options(options);
     ColumnFamilyOptions cf_options(options);
     std::vector<ColumnFamilyDescriptor> column_families;
-    column_families.push_back(
-        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+    column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
     std::vector<ColumnFamilyHandle*> handles;
     auto open_s = DBImpl::Open(db_options, dbname, column_families, &handles,
                                &db, seq_per_batch_, true /* batch_per_txn */);
@@ -307,6 +306,10 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
       WriteOptions woptions;
       woptions.disableWAL = !enable_WAL_;
       woptions.sync = enable_WAL_;
+      if (woptions.protection_bytes_per_key > 0) {
+        ASSERT_OK(WriteBatchInternal::UpdateProtectionInfo(
+            &write_op.write_batch_, woptions.protection_bytes_per_key));
+      }
       Status s;
       if (seq_per_batch_) {
         class PublishSeqCallback : public PreReleaseCallback {
@@ -368,7 +371,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     ASSERT_EQ(seq.load(), db_impl->TEST_GetLastVisibleSequence());
 
     delete db;
-    DestroyDB(dbname, options);
+    ASSERT_OK(DestroyDB(dbname, options));
   }
 }
 
@@ -387,13 +390,13 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   DB* db;
   DBImpl* db_impl;
 
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 
   options.create_if_missing = true;
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
 
-  db_impl = dynamic_cast<DBImpl*> (db);
+  db_impl = dynamic_cast<DBImpl*>(db);
   ASSERT_TRUE(db_impl);
 
   WriteBatch wb;
@@ -437,23 +440,14 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   ASSERT_EQ("value.a2", value);
 
   delete db;
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as WriteWithCallback is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

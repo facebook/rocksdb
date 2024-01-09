@@ -338,6 +338,51 @@ IOStatus FSRandomAccessFileTracingWrapper::InvalidateCache(size_t offset,
   return s;
 }
 
+IOStatus FSRandomAccessFileTracingWrapper::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
+  // Create a callback and populate info.
+  auto read_async_callback =
+      std::bind(&FSRandomAccessFileTracingWrapper::ReadAsyncCallback, this,
+                std::placeholders::_1, std::placeholders::_2);
+  ReadAsyncCallbackInfo* read_async_cb_info = new ReadAsyncCallbackInfo;
+  read_async_cb_info->cb_ = cb;
+  read_async_cb_info->cb_arg_ = cb_arg;
+  read_async_cb_info->start_time_ = clock_->NowNanos();
+  read_async_cb_info->file_op_ = __func__;
+
+  IOStatus s = target()->ReadAsync(req, opts, read_async_callback,
+                                   read_async_cb_info, io_handle, del_fn, dbg);
+
+  if (!s.ok()) {
+    delete read_async_cb_info;
+  }
+  return s;
+}
+
+void FSRandomAccessFileTracingWrapper::ReadAsyncCallback(
+    const FSReadRequest& req, void* cb_arg) {
+  ReadAsyncCallbackInfo* read_async_cb_info =
+      static_cast<ReadAsyncCallbackInfo*>(cb_arg);
+  assert(read_async_cb_info);
+  assert(read_async_cb_info->cb_);
+
+  uint64_t elapsed = clock_->NowNanos() - read_async_cb_info->start_time_;
+  uint64_t io_op_data = 0;
+  io_op_data |= (1 << IOTraceOp::kIOLen);
+  io_op_data |= (1 << IOTraceOp::kIOOffset);
+  IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
+                          read_async_cb_info->file_op_, elapsed,
+                          req.status.ToString(), file_name_, req.result.size(),
+                          req.offset);
+  io_tracer_->WriteIOOp(io_record, nullptr /*dbg*/);
+
+  // call the underlying callback.
+  read_async_cb_info->cb_(req, read_async_cb_info->cb_arg_);
+  delete read_async_cb_info;
+}
+
 IOStatus FSWritableFileTracingWrapper::Append(const Slice& data,
                                               const IOOptions& options,
                                               IODebugContext* dbg) {

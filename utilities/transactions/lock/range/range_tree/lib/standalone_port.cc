@@ -1,4 +1,8 @@
-#ifndef ROCKSDB_LITE
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #ifndef OS_WIN
 /*
   This is a dump ground to make Lock Tree work without the rest of TokuDB.
@@ -129,4 +133,3 @@ int toku_builtin_compare_fun(const DBT *a, const DBT *b) {
   return toku_keycompare(a->data, a->size, b->data, b->size);
 }
 #endif  // OS_WIN
-#endif  // ROCKSDB_LITE

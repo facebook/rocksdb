@@ -38,6 +38,19 @@ jlong Java_org_rocksdb_ConfigOptions_newConfigOptions(JNIEnv *, jclass) {
 
 /*
  * Class:     org_rocksdb_ConfigOptions
+ * Method:    setEnv
+ * Signature: (JJ;)V
+ */
+void Java_org_rocksdb_ConfigOptions_setEnv(JNIEnv *, jclass, jlong handle,
+                                           jlong rocksdb_env_handle) {
+  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  auto *rocksdb_env =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Env *>(rocksdb_env_handle);
+  cfg_opt->env = rocksdb_env;
+}
+
+/*
+ * Class:     org_rocksdb_ConfigOptions
  * Method:    setDelimiter
  * Signature: (JLjava/lang/String;)V
  */
@@ -85,5 +98,6 @@ void Java_org_rocksdb_ConfigOptions_setInputStringsEscaped(JNIEnv *, jclass,
 void Java_org_rocksdb_ConfigOptions_setSanityLevel(JNIEnv *, jclass,
                                                    jlong handle, jbyte level) {
   auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
-  cfg_opt->sanity_level = ROCKSDB_NAMESPACE::SanityLevelJni::toCppSanityLevel(level);
+  cfg_opt->sanity_level =
+      ROCKSDB_NAMESPACE::SanityLevelJni::toCppSanityLevel(level);
 }

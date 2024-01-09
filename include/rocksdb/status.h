@@ -48,7 +48,7 @@ class Status {
     if (!checked_) {
       fprintf(stderr, "Failed to check Status %p\n", this);
       port::PrintStack();
-      abort();
+      std::abort();
     }
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   }
@@ -56,16 +56,8 @@ class Status {
   // Copy the specified status.
   Status(const Status& s);
   Status& operator=(const Status& s);
-  Status(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
-  Status& operator=(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
+  Status(Status&& s) noexcept;
+  Status& operator=(Status&& s) noexcept;
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
@@ -121,6 +113,8 @@ class Status {
     kOverwritten = 12,
     kTxnNotPrepared = 13,
     kIOFenced = 14,
+    kMergeOperatorFailed = 15,
+    kMergeOperandThresholdExceeded = 16,
     kMaxSubCode
   };
 
@@ -143,6 +137,9 @@ class Status {
   Status(Code _code, SubCode _subcode, Severity _sev, const Slice& msg)
       : Status(_code, _subcode, msg, "", _sev) {}
 
+  static Status CopyAppendMessage(const Status& s, const Slice& delim,
+                                  const Slice& msg);
+
   Severity severity() const {
     MarkChecked();
     return sev_;
@@ -154,6 +151,25 @@ class Status {
     return state_.get();
   }
 
+  // Override this status with another, unless this status is already non-ok.
+  // Returns *this. Thus, the result of `a.UpdateIfOk(b).UpdateIfOk(c)` is
+  // non-ok (and `a` modified as such) iff any input was non-ok, with
+  // left-most taking precedence as far as the details.
+  Status& UpdateIfOk(Status&& s) {
+    if (code() == kOk) {
+      *this = std::move(s);
+    } else {
+      // Alright to ignore that status as long as this one is checked
+      s.PermitUncheckedError();
+    }
+    MustCheck();
+    return *this;
+  }
+
+  Status& UpdateIfOk(const Status& s) {
+    return UpdateIfOk(std::forward<Status>(Status(s)));
+  }
+
   // Return a success status.
   static Status OK() { return Status(); }
 
@@ -162,6 +178,14 @@ class Status {
   // but it can be useful for communicating statistical information without
   // changing public APIs.
   static Status OkOverwritten() { return Status(kOk, kOverwritten); }
+
+  // Successful, though the number of operands merged during the query exceeded
+  // the threshold. Note: using variants of OK status for program logic is
+  // discouraged, but it can be useful for communicating statistical information
+  // without changing public APIs.
+  static Status OkMergeOperandThresholdExceeded() {
+    return Status(kOk, kMergeOperandThresholdExceeded);
+  }
 
   // Return error status of an appropriate type.
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -303,6 +327,13 @@ class Status {
   bool IsOkOverwritten() const {
     MarkChecked();
     return code() == kOk && subcode() == kOverwritten;
+  }
+
+  // Returns true iff the status indicates success *with* the number of operands
+  // merged exceeding the threshold
+  bool IsOkMergeOperandThresholdExceeded() const {
+    MarkChecked();
+    return code() == kOk && subcode() == kMergeOperandThresholdExceeded;
   }
 
   // Returns true iff the status indicates a NotFound error.
@@ -537,20 +568,12 @@ inline Status& Status::operator=(const Status& s) {
   return *this;
 }
 
-inline Status::Status(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-    : Status() {
+inline Status::Status(Status&& s) noexcept : Status() {
   s.MarkChecked();
   *this = std::move(s);
 }
 
-inline Status& Status::operator=(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-{
+inline Status& Status::operator=(Status&& s) noexcept {
   if (this != &s) {
     s.MarkChecked();
     MustCheck();

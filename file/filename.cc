@@ -7,13 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "file/filename.h"
-#include <cinttypes>
 
-#include <ctype.h>
-#include <stdio.h>
+#include <cctype>
+#include <cinttypes>
+#include <cstdio>
 #include <vector>
+
+#include "file/file_util.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -42,10 +45,8 @@ static size_t GetInfoLogPrefix(const std::string& path, char* dest, int len) {
   while (i < src_len && write_idx < len - sizeof(suffix)) {
     if ((path[i] >= 'a' && path[i] <= 'z') ||
         (path[i] >= '0' && path[i] <= '9') ||
-        (path[i] >= 'A' && path[i] <= 'Z') ||
-        path[i] == '-' ||
-        path[i] == '.' ||
-        path[i] == '_'){
+        (path[i] >= 'A' && path[i] <= 'Z') || path[i] == '-' ||
+        path[i] == '.' || path[i] == '_') {
       dest[write_idx++] = path[i];
     } else {
       if (i > 0) {
@@ -153,9 +154,10 @@ void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
   if (path_id == 0) {
     snprintf(out_buf, out_buf_size, "%" PRIu64, number);
   } else {
-    snprintf(out_buf, out_buf_size, "%" PRIu64
-                                    "(path "
-                                    "%" PRIu32 ")",
+    snprintf(out_buf, out_buf_size,
+             "%" PRIu64
+             "(path "
+             "%" PRIu32 ")",
              number, path_id);
   }
 }
@@ -176,9 +178,7 @@ std::string CurrentFileName(const std::string& dbname) {
   return dbname + "/" + kCurrentFileName;
 }
 
-std::string LockFileName(const std::string& dbname) {
-  return dbname + "/LOCK";
-}
+std::string LockFileName(const std::string& dbname) { return dbname + "/LOCK"; }
 
 std::string TempFileName(const std::string& dbname, uint64_t number) {
   return MakeFileName(dbname, number, kTempFileNameSuffix.c_str());
@@ -199,7 +199,8 @@ InfoLogPrefix::InfoLogPrefix(bool has_log_dir,
 }
 
 std::string InfoLogFileName(const std::string& dbname,
-    const std::string& db_path, const std::string& log_dir) {
+                            const std::string& db_path,
+                            const std::string& log_dir) {
   if (log_dir.empty()) {
     return dbname + "/LOG";
   }
@@ -210,7 +211,8 @@ std::string InfoLogFileName(const std::string& dbname,
 
 // Return the name of the old info log file for "dbname".
 std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
-    const std::string& db_path, const std::string& log_dir) {
+                               const std::string& db_path,
+                               const std::string& log_dir) {
   char buf[50];
   snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(ts));
 
@@ -263,9 +265,7 @@ std::string IdentityFileName(const std::string& dbname) {
 //    dbname/OPTIONS-[0-9]+
 //    dbname/OPTIONS-[0-9]+.dbtmp
 //    Disregards / at the beginning
-bool ParseFileName(const std::string& fname,
-                   uint64_t* number,
-                   FileType* type,
+bool ParseFileName(const std::string& fname, uint64_t* number, FileType* type,
                    WalFileType* log_type) {
   return ParseFileName(fname, number, "", type, log_type);
 }
@@ -370,7 +370,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
         *log_type = kAliveLogFile;
       }
     } else if (archive_dir_found) {
-      return false; // Archive dir can contain only log files
+      return false;  // Archive dir can contain only log files
     } else if (suffix == Slice(kRocksDbTFileExt) ||
                suffix == Slice(kLevelDbTFileExt)) {
       *type = kTableFile;
@@ -386,30 +386,34 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
   return true;
 }
 
-IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
-                        uint64_t descriptor_number,
-                        FSDirectory* directory_to_fsync) {
+IOStatus SetCurrentFile(const WriteOptions& write_options, FileSystem* fs,
+                        const std::string& dbname, uint64_t descriptor_number,
+                        FSDirectory* dir_contains_current_file) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
   assert(contents.starts_with(dbname + "/"));
   contents.remove_prefix(dbname.size() + 1);
   std::string tmp = TempFileName(dbname, descriptor_number);
-  IOStatus s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true);
+  IOOptions opts;
+  IOStatus s = PrepareIOFromWriteOptions(write_options, opts);
+  if (s.ok()) {
+    s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true, opts);
+  }
   TEST_SYNC_POINT_CALLBACK("SetCurrentFile:BeforeRename", &s);
   if (s.ok()) {
     TEST_KILL_RANDOM_WITH_WEIGHT("SetCurrentFile:0", REDUCE_ODDS2);
-    s = fs->RenameFile(tmp, CurrentFileName(dbname), IOOptions(), nullptr);
+    s = fs->RenameFile(tmp, CurrentFileName(dbname), opts, nullptr);
     TEST_KILL_RANDOM_WITH_WEIGHT("SetCurrentFile:1", REDUCE_ODDS2);
     TEST_SYNC_POINT_CALLBACK("SetCurrentFile:AfterRename", &s);
   }
   if (s.ok()) {
-    if (directory_to_fsync != nullptr) {
-      s = directory_to_fsync->FsyncWithDirOptions(
-          IOOptions(), nullptr, DirFsyncOptions(CurrentFileName(dbname)));
+    if (dir_contains_current_file != nullptr) {
+      s = dir_contains_current_file->FsyncWithDirOptions(
+          opts, nullptr, DirFsyncOptions(CurrentFileName(dbname)));
     }
   } else {
-    fs->DeleteFile(tmp, IOOptions(), nullptr)
+    fs->DeleteFile(tmp, opts, nullptr)
         .PermitUncheckedError();  // NOTE: PermitUncheckedError is acceptable
                                   // here as we are already handling an error
                                   // case, and this is just a best-attempt
@@ -418,8 +422,8 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
   return s;
 }
 
-Status SetIdentityFile(Env* env, const std::string& dbname,
-                       const std::string& db_id) {
+Status SetIdentityFile(const WriteOptions& write_options, Env* env,
+                       const std::string& dbname, const std::string& db_id) {
   std::string id;
   if (db_id.empty()) {
     id = env->GenerateUniqueId();
@@ -430,18 +434,36 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   // Reserve the filename dbname/000000.dbtmp for the temporary identity file
   std::string tmp = TempFileName(dbname, 0);
   std::string identify_file_name = IdentityFileName(dbname);
-  Status s = WriteStringToFile(env, id, tmp, true);
+  Status s;
+  IOOptions opts;
+  s = PrepareIOFromWriteOptions(write_options, opts);
+  if (s.ok()) {
+    s = WriteStringToFile(env, id, tmp, true, &opts);
+  }
   if (s.ok()) {
     s = env->RenameFile(tmp, identify_file_name);
   }
   std::unique_ptr<FSDirectory> dir_obj;
   if (s.ok()) {
-    s = env->GetFileSystem()->NewDirectory(dbname, IOOptions(), &dir_obj,
-                                           nullptr);
+    s = env->GetFileSystem()->NewDirectory(dbname, opts, &dir_obj, nullptr);
   }
   if (s.ok()) {
-    s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
+    s = dir_obj->FsyncWithDirOptions(opts, nullptr,
                                      DirFsyncOptions(identify_file_name));
+  }
+
+  // The default Close() could return "NotSupported" and we bypass it
+  // if it is not impelmented. Detailed explanations can be found in
+  // db/db_impl/db_impl.h
+  if (s.ok()) {
+    Status temp_s = dir_obj->Close(opts, nullptr);
+    if (!temp_s.ok()) {
+      if (temp_s.IsNotSupported()) {
+        temp_s.PermitUncheckedError();
+      } else {
+        s = temp_s;
+      }
+    }
   }
   if (!s.ok()) {
     env->DeleteFile(tmp).PermitUncheckedError();
@@ -450,10 +472,16 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
 }
 
 IOStatus SyncManifest(const ImmutableDBOptions* db_options,
+                      const WriteOptions& write_options,
                       WritableFileWriter* file) {
   TEST_KILL_RANDOM_WITH_WEIGHT("SyncManifest:0", REDUCE_ODDS2);
   StopWatch sw(db_options->clock, db_options->stats, MANIFEST_FILE_SYNC_MICROS);
-  return file->Sync(db_options->use_fsync);
+  IOOptions io_options;
+  IOStatus s = PrepareIOFromWriteOptions(write_options, io_options);
+  if (!s.ok()) {
+    return s;
+  }
+  return file->Sync(io_options, db_options->use_fsync);
 }
 
 Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
@@ -491,6 +519,12 @@ Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
 
 std::string NormalizePath(const std::string& path) {
   std::string dst;
+
+  if (path.length() > 2 && path[0] == kFilePathSeparator &&
+      path[1] == kFilePathSeparator) {  // Handle UNC names
+    dst.append(2, kFilePathSeparator);
+  }
+
   for (auto c : path) {
     if (!dst.empty() && (c == kFilePathSeparator || c == '/') &&
         (dst.back() == kFilePathSeparator || dst.back() == '/')) {

@@ -3,14 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
+
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "tools/ldb_cmd_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-LDBOptions::LDBOptions() {}
+LDBOptions::LDBOptions() = default;
 
 void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
                                  const char* /*exec_name*/, bool to_stderr) {
@@ -50,7 +50,10 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
-             " : Try to load option file from DB.\n");
+             " : Try to load option file from DB. Default to true if " +
+             LDBCommand::ARG_DB +
+             " is specified and not creating a new DB and not open as TTL DB. "
+             "Can be set to false explicitly.\n");
   ret.append("  --" + LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS +
              " : Set options.force_consistency_checks = false.\n");
   ret.append("  --" + LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS +
@@ -90,6 +93,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   BatchPutCommand::Help(ret);
   ScanCommand::Help(ret);
   DeleteCommand::Help(ret);
+  SingleDeleteCommand::Help(ret);
   DeleteRangeCommand::Help(ret);
   DBQuerierCommand::Help(ret);
   ApproxSizeCommand::Help(ret);
@@ -105,6 +109,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBDumperCommand::Help(ret);
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
+  UpdateManifestCommand::Help(ret);
   FileChecksumDumpCommand::Help(ret);
   GetPropertyCommand::Help(ret);
   ListColumnFamiliesCommand::Help(ret);
@@ -175,5 +180,3 @@ void LDBTool::Run(int argc, char** argv, Options options,
   exit(error_code);
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

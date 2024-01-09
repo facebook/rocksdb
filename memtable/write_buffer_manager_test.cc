@@ -8,12 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/write_buffer_manager.h"
+
+#include "rocksdb/advanced_cache.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
 class WriteBufferManagerTest : public testing::Test {};
 
-#ifndef ROCKSDB_LITE
 const size_t kSizeDummyEntry = 256 * 1024;
 
 TEST_F(WriteBufferManagerTest, ShouldFlush) {
@@ -77,7 +78,9 @@ TEST_F(WriteBufferManagerTest, ShouldFlush) {
   ASSERT_FALSE(wbf->ShouldFlush());
 }
 
-TEST_F(WriteBufferManagerTest, CacheCost) {
+class ChargeWriteBufferTest : public testing::Test {};
+
+TEST_F(ChargeWriteBufferTest, Basic) {
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions co;
@@ -192,12 +195,12 @@ TEST_F(WriteBufferManagerTest, CacheCost) {
   ASSERT_GE(cache->GetPinnedUsage(), 44 * 256 * 1024);
   ASSERT_LT(cache->GetPinnedUsage(), 44 * 256 * 1024 + kMetaDataChargeOverhead);
 
-  // Destory write buffer manger should free everything
+  // Destroy write buffer manger should free everything
   wbf.reset();
   ASSERT_EQ(cache->GetPinnedUsage(), 0);
 }
 
-TEST_F(WriteBufferManagerTest, NoCapCacheCost) {
+TEST_F(ChargeWriteBufferTest, BasicWithNoBufferSizeLimit) {
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   // 1GB cache
   std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024 * 1024, 4);
@@ -231,7 +234,7 @@ TEST_F(WriteBufferManagerTest, NoCapCacheCost) {
   ASSERT_LT(cache->GetPinnedUsage(), 4 * 256 * 1024 + kMetaDataChargeOverhead);
 }
 
-TEST_F(WriteBufferManagerTest, CacheFull) {
+TEST_F(ChargeWriteBufferTest, BasicWithCacheFull) {
   constexpr std::size_t kMetaDataChargeOverhead = 20000;
 
   // 12MB cache size with strict capacity
@@ -292,10 +295,10 @@ TEST_F(WriteBufferManagerTest, CacheFull) {
             46 * kSizeDummyEntry + kMetaDataChargeOverhead);
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

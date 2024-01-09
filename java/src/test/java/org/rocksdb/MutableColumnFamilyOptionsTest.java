@@ -96,8 +96,9 @@ public class MutableColumnFamilyOptionsTest {
   public void mutableColumnFamilyOptions_parse_getOptions_output() {
     final String optionsString =
         "bottommost_compression=kDisableCompressionOption;  sample_for_compression=0;  "
-        + "blob_garbage_collection_age_cutoff=0.250000;  blob_garbage_collection_force_threshold=0.800000;  arena_block_size=1048576;  enable_blob_garbage_collection=false;  "
-        + "level0_stop_writes_trigger=36;  min_blob_size=65536;  blob_compaction_readahead_size=262144;  "
+        + "blob_garbage_collection_age_cutoff=0.250000;  blob_garbage_collection_force_threshold=0.800000;"
+        + "arena_block_size=1048576;  enable_blob_garbage_collection=false;  level0_stop_writes_trigger=36;  min_blob_size=65536;"
+        + "blob_compaction_readahead_size=262144;  blob_file_starting_level=5;  prepopulate_blob_cache=kDisable;"
         + "compaction_options_universal={allow_trivial_move=false;stop_style=kCompactionStopStyleTotalSize;min_merge_width=2;"
         + "compression_size_percent=-1;max_size_amplification_percent=200;max_merge_width=4294967295;size_ratio=1;};  "
         + "target_file_size_base=67108864;  max_bytes_for_level_base=268435456;  memtable_whole_key_filtering=false;  "
@@ -119,9 +120,9 @@ public class MutableColumnFamilyOptionsTest {
         + "min_write_buffer_number_to_merge=1;  max_write_buffer_number_to_maintain=0;  compaction_filter=nullptr;  merge_operator=nullptr;  "
         + "num_levels=7;  optimize_filters_for_hits=false;  force_consistency_checks=true;  table_factory=BlockBasedTable;  "
         + "max_write_buffer_size_to_maintain=0;  memtable_insert_with_hint_prefix_extractor=nullptr;  level_compaction_dynamic_level_bytes=false;  "
-        + "inplace_update_support=false;";
+        + "inplace_update_support=false;  experimental_mempurge_threshold=0.003";
 
-    MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder cf =
+    final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder cf =
         MutableColumnFamilyOptions.parse(optionsString, true);
 
     // Check the values from the parsed string which are column family options
@@ -132,6 +133,8 @@ public class MutableColumnFamilyOptionsTest {
     assertThat(cf.level0StopWritesTrigger()).isEqualTo(36);
     assertThat(cf.minBlobSize()).isEqualTo(65536);
     assertThat(cf.blobCompactionReadaheadSize()).isEqualTo(262144);
+    assertThat(cf.blobFileStartingLevel()).isEqualTo(5);
+    assertThat(cf.prepopulateBlobCache()).isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
     assertThat(cf.targetFileSizeBase()).isEqualTo(67108864);
     assertThat(cf.maxBytesForLevelBase()).isEqualTo(268435456);
     assertThat(cf.softPendingCompactionBytesLimit()).isEqualTo(68719476736L);
@@ -157,6 +160,7 @@ public class MutableColumnFamilyOptionsTest {
     assertThat(cf.periodicCompactionSeconds()).isEqualTo(0);
     assertThat(cf.paranoidFileChecks()).isEqualTo(true);
     assertThat(cf.memtablePrefixBloomSizeRatio()).isEqualTo(7.5);
+    assertThat(cf.experimentalMempurgeThreshold()).isEqualTo(0.003);
     assertThat(cf.maxSequentialSkipInIterations()).isEqualTo(8);
     assertThat(cf.reportBgIoStats()).isEqualTo(true);
   }

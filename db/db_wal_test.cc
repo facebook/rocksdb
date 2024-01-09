@@ -8,11 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
+#include "util/udt_util.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -105,9 +107,9 @@ class EnrichedSpecialEnv : public SpecialEnv {
 
   InstrumentedMutex env_mutex_;
   // the wal whose actual delete was skipped by the env
-  std::string skipped_wal = "";
+  std::string skipped_wal;
   // the largest WAL that was requested to be deleted
-  std::string largest_deleted_wal = "";
+  std::string largest_deleted_wal;
   // number of WALs that were successfully deleted
   std::atomic<size_t> deleted_wal_cnt = {0};
   // the WAL whose delete from fs was skipped is reopened during recovery
@@ -145,6 +147,11 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   options.write_buffer_size = 128;
   Reopen(options);
 
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::PurgeObsoleteFiles:End",
+        "DBWALTestWithEnrichedEnv.SkipDeletedWALs:AfterFlush"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
   WriteOptions writeOpt = WriteOptions();
   for (int i = 0; i < 128 * 5; i++) {
     ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
@@ -152,6 +159,8 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   FlushOptions fo;
   fo.wait = true;
   ASSERT_OK(db_->Flush(fo));
+
+  TEST_SYNC_POINT("DBWALTestWithEnrichedEnv.SkipDeletedWALs:AfterFlush");
 
   // some wals are deleted
   ASSERT_NE(0, enriched_env_->deleted_wal_cnt);
@@ -163,6 +172,8 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   Reopen(options);
   ASSERT_FALSE(enriched_env_->deleted_wal_reopened);
   ASSERT_FALSE(enriched_env_->gap_in_wals);
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBWALTest, WAL) {
@@ -287,7 +298,6 @@ TEST_F(DBWALTest, Recover) {
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
-
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("v5", Get(1, "baz"));
     ASSERT_OK(Put(1, "bar", "v2"));
@@ -300,6 +310,239 @@ TEST_F(DBWALTest, Recover) {
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v5", Get(1, "baz"));
   } while (ChangeWalOptions());
+}
+
+class DBWALTestWithTimestamp
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<test::UserDefinedTimestampTestMode> {
+ public:
+  DBWALTestWithTimestamp()
+      : DBBasicTestWithTimestampBase("db_wal_test_with_timestamp") {}
+
+  Status CreateAndReopenWithTs(const std::vector<std::string>& cfs,
+                               const Options& ts_options, bool persist_udt,
+                               bool avoid_flush_during_recovery = false) {
+    Options default_options = CurrentOptions();
+    default_options.allow_concurrent_memtable_write =
+        persist_udt ? true : false;
+    DestroyAndReopen(default_options);
+    CreateColumnFamilies(cfs, ts_options);
+    return ReopenColumnFamiliesWithTs(cfs, ts_options, persist_udt,
+                                      avoid_flush_during_recovery);
+  }
+
+  Status ReopenColumnFamiliesWithTs(const std::vector<std::string>& cfs,
+                                    Options ts_options, bool persist_udt,
+                                    bool avoid_flush_during_recovery = false) {
+    Options default_options = CurrentOptions();
+    default_options.create_if_missing = false;
+    default_options.allow_concurrent_memtable_write =
+        persist_udt ? true : false;
+    default_options.avoid_flush_during_recovery = avoid_flush_during_recovery;
+    ts_options.create_if_missing = false;
+
+    std::vector<Options> cf_options(cfs.size(), ts_options);
+    std::vector<std::string> cfs_plus_default = cfs;
+    cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
+    cf_options.insert(cf_options.begin(), default_options);
+    Close();
+    return TryReopenWithColumnFamilies(cfs_plus_default, cf_options);
+  }
+
+  Status Put(uint32_t cf, const Slice& key, const Slice& ts,
+             const Slice& value) {
+    WriteOptions write_opts;
+    return db_->Put(write_opts, handles_[cf], key, ts, value);
+  }
+
+  void CheckGet(const ReadOptions& read_opts, uint32_t cf, const Slice& key,
+                const std::string& expected_value,
+                const std::string& expected_ts) {
+    std::string actual_value;
+    std::string actual_ts;
+    ASSERT_OK(
+        db_->Get(read_opts, handles_[cf], key, &actual_value, &actual_ts));
+    ASSERT_EQ(expected_value, actual_value);
+    ASSERT_EQ(expected_ts, actual_ts);
+  }
+};
+
+TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
+  // Set up the option that enables user defined timestmp size.
+  std::string ts1;
+  PutFixed64(&ts1, 1);
+  Options ts_options;
+  ts_options.create_if_missing = true;
+  ts_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  // Test that user-defined timestamps are recovered from WAL regardless of
+  // the value of this flag because UDTs are saved in WAL nonetheless.
+  // We however need to explicitly disable flush during recovery by setting
+  // `avoid_flush_during_recovery=true` so that we can avoid timestamps getting
+  // stripped when the `persist_user_defined_timestamps` flag is false, so that
+  // all written timestamps are available for testing user-defined time travel
+  // read.
+  bool persist_udt = test::ShouldPersistUDT(GetParam());
+  ts_options.persist_user_defined_timestamps = persist_udt;
+  bool avoid_flush_during_recovery = true;
+
+  std::string full_history_ts_low;
+  ReadOptions read_opts;
+  do {
+    Slice ts_slice = ts1;
+    read_opts.timestamp = &ts_slice;
+    ASSERT_OK(CreateAndReopenWithTs({"pikachu"}, ts_options, persist_udt,
+                                    avoid_flush_during_recovery));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_OK(Put(1, "foo", ts1, "v1"));
+    ASSERT_OK(Put(1, "baz", ts1, "v5"));
+
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt,
+                                         avoid_flush_during_recovery));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    // Do a timestamped read with ts1 after second reopen.
+    CheckGet(read_opts, 1, "foo", "v1", ts1);
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
+
+    // Write more value versions for key "foo" and "bar" before and after second
+    // reopen.
+    std::string ts2;
+    PutFixed64(&ts2, 2);
+    ASSERT_OK(Put(1, "bar", ts2, "v2"));
+    ASSERT_OK(Put(1, "foo", ts2, "v3"));
+
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt,
+                                         avoid_flush_during_recovery));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    std::string ts3;
+    PutFixed64(&ts3, 3);
+    ASSERT_OK(Put(1, "foo", ts3, "v4"));
+
+    // All the key value pairs available for read:
+    // "foo" -> [(ts1, "v1"), (ts2, "v3"), (ts3, "v4")]
+    // "bar" -> [(ts2, "v2")]
+    // "baz" -> [(ts1, "v5")]
+    // Do a timestamped read with ts1 after third reopen.
+    // read_opts.timestamp is set to ts1 for below reads
+    CheckGet(read_opts, 1, "foo", "v1", ts1);
+    std::string value;
+    ASSERT_TRUE(db_->Get(read_opts, handles_[1], "bar", &value).IsNotFound());
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
+
+    // Do a timestamped read with ts2 after third reopen.
+    ts_slice = ts2;
+    // read_opts.timestamp is set to ts2 for below reads.
+    CheckGet(read_opts, 1, "foo", "v3", ts2);
+    CheckGet(read_opts, 1, "bar", "v2", ts2);
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
+
+    // Do a timestamped read with ts3 after third reopen.
+    ts_slice = ts3;
+    // read_opts.timestamp is set to ts3 for below reads.
+    CheckGet(read_opts, 1, "foo", "v4", ts3);
+    CheckGet(read_opts, 1, "bar", "v2", ts2);
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
+    ASSERT_OK(db_->GetFullHistoryTsLow(handles_[1], &full_history_ts_low));
+    ASSERT_TRUE(full_history_ts_low.empty());
+  } while (ChangeWalOptions());
+}
+
+TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
+  // Set up the option that enables user defined timestamp size.
+  std::string min_ts;
+  std::string write_ts;
+  PutFixed64(&min_ts, 0);
+  PutFixed64(&write_ts, 1);
+  Options ts_options;
+  ts_options.create_if_missing = true;
+  ts_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  bool persist_udt = test::ShouldPersistUDT(GetParam());
+  ts_options.persist_user_defined_timestamps = persist_udt;
+
+  std::string smallest_ukey_without_ts = "baz";
+  std::string largest_ukey_without_ts = "foo";
+
+  ASSERT_OK(CreateAndReopenWithTs({"pikachu"}, ts_options, persist_udt));
+  // No flush, no sst files, because of no data.
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+  ASSERT_OK(Put(1, largest_ukey_without_ts, write_ts, "v1"));
+  ASSERT_OK(Put(1, smallest_ukey_without_ts, write_ts, "v5"));
+
+  ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt));
+  // Memtable recovered from WAL flushed because `avoid_flush_during_recovery`
+  // defaults to false, created one L0 file.
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 1U);
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(handles_[1], &level_to_files);
+  std::string full_history_ts_low;
+  ASSERT_OK(db_->GetFullHistoryTsLow(handles_[1], &full_history_ts_low));
+  ASSERT_GT(level_to_files.size(), 1);
+  // L0 only has one SST file.
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  auto meta = level_to_files[0][0];
+  if (persist_udt) {
+    ASSERT_EQ(smallest_ukey_without_ts + write_ts, meta.smallest.user_key());
+    ASSERT_EQ(largest_ukey_without_ts + write_ts, meta.largest.user_key());
+    ASSERT_TRUE(full_history_ts_low.empty());
+  } else {
+    ASSERT_EQ(smallest_ukey_without_ts + min_ts, meta.smallest.user_key());
+    ASSERT_EQ(largest_ukey_without_ts + min_ts, meta.largest.user_key());
+    std::string effective_cutoff;
+    Slice write_ts_slice = write_ts;
+    GetFullHistoryTsLowFromU64CutoffTs(&write_ts_slice, &effective_cutoff);
+    ASSERT_EQ(effective_cutoff, full_history_ts_low);
+  }
+}
+
+// Param 0: test mode for the user-defined timestamp feature
+INSTANTIATE_TEST_CASE_P(
+    P, DBWALTestWithTimestamp,
+    ::testing::Values(
+        test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+        test::UserDefinedTimestampTestMode::kNormal));
+
+TEST_F(DBWALTestWithTimestamp, EnableDisableUDT) {
+  Options options;
+  options.create_if_missing = true;
+  options.comparator = BytewiseComparator();
+  bool avoid_flush_during_recovery = true;
+  ASSERT_OK(CreateAndReopenWithTs({"pikachu"}, options, true /* persist_udt */,
+                                  avoid_flush_during_recovery));
+
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "foo", "v1"));
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "baz", "v5"));
+
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.persist_user_defined_timestamps = false;
+  // Test handle timestamp size inconsistency in WAL when enabling user-defined
+  // timestamps.
+  ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, options,
+                                       false /* persist_udt */,
+                                       avoid_flush_during_recovery));
+
+  std::string ts;
+  PutFixed64(&ts, 0);
+  Slice ts_slice = ts;
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts_slice;
+  // Pre-existing entries are treated as if they have the min timestamp.
+  CheckGet(read_opts, 1, "foo", "v1", ts);
+  CheckGet(read_opts, 1, "baz", "v5", ts);
+  ts.clear();
+  PutFixed64(&ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "foo", ts, "v2"));
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "baz", ts, "v6"));
+  CheckGet(read_opts, 1, "foo", "v2", ts);
+  CheckGet(read_opts, 1, "baz", "v6", ts);
+
+  options.comparator = BytewiseComparator();
+  // Open the column family again with the UDT feature disabled. Test handle
+  // timestamp size inconsistency in WAL when disabling user-defined timestamps
+  ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, options,
+                                       true /* persist_udt */,
+                                       avoid_flush_during_recovery));
+  ASSERT_EQ("v2", Get(1, "foo"));
+  ASSERT_EQ("v6", Get(1, "baz"));
 }
 
 TEST_F(DBWALTest, RecoverWithTableHandle) {
@@ -445,7 +688,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 
   ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   ASSERT_NE(internal_stats, nullptr);
 
@@ -461,7 +703,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
@@ -609,6 +850,41 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
     Destroy(options);
   } while (ChangeWalOptions());
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+}
+
+TEST_F(DBWALTest, LockWal) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("foo", "v"));
+    ASSERT_OK(Put("bar", "v"));
+
+    ASSERT_OK(db_->LockWAL());
+    // Verify writes are stopped
+    WriteOptions wopts;
+    wopts.no_slowdown = true;
+    Status s = db_->Put(wopts, "foo", "dontcare");
+    ASSERT_TRUE(s.IsIncomplete());
+    {
+      VectorLogPtr wals;
+      ASSERT_OK(db_->GetSortedWalFiles(wals));
+      ASSERT_FALSE(wals.empty());
+    }
+    port::Thread worker([&]() {
+      Status tmp_s = db_->Flush(FlushOptions());
+      ASSERT_OK(tmp_s);
+    });
+    FlushOptions flush_opts;
+    flush_opts.wait = false;
+    s = db_->Flush(flush_opts);
+    ASSERT_TRUE(s.IsTryAgain());
+    ASSERT_OK(db_->UnlockWAL());
+    ASSERT_OK(db_->Put(WriteOptions(), "foo", "dontcare"));
+
+    worker.join();
+  } while (ChangeWalOptions());
 }
 
 class DBRecoveryTestBlobError
@@ -847,7 +1123,6 @@ TEST_F(DBWALTest, PreallocateBlock) {
 }
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
   // TODO(ajkr): Disabled until WAL recycling is fixed for
   // `kPointInTimeRecovery`.
@@ -920,7 +1195,7 @@ TEST_F(DBWALTest, DISABLED_FullPurgePreservesLogPendingReuse) {
     ROCKSDB_NAMESPACE::port::Thread thread([&]() {
       TEST_SYNC_POINT(
           "DBWALTest::FullPurgePreservesLogPendingReuse:PreFullPurge");
-      ASSERT_OK(db_->EnableFileDeletions(true));
+      ASSERT_OK(db_->EnableFileDeletions(/*force=*/true));
       TEST_SYNC_POINT(
           "DBWALTest::FullPurgePreservesLogPendingReuse:PostFullPurge");
     });
@@ -1010,7 +1285,7 @@ TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
       if (log_files.size() > 0) {
         earliest_log_nums[i] = log_files[0]->LogNumber();
       } else {
-        earliest_log_nums[i] = port::kMaxUint64;
+        earliest_log_nums[i] = std::numeric_limits<uint64_t>::max();
       }
     }
     // Check at least the first WAL was cleaned up during the recovery.
@@ -1262,11 +1537,13 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(test->dbname_, &db_options, file_options,
-                                  table_cache.get(), &write_buffer_manager,
-                                  &write_controller,
-                                  /*block_cache_tracer=*/nullptr,
-                                  /*io_tracer=*/nullptr, /*db_session_id*/ ""));
+    versions.reset(new VersionSet(
+        test->dbname_, &db_options, file_options, table_cache.get(),
+        &write_buffer_manager, &write_controller,
+        /*block_cache_tracer=*/nullptr,
+        /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
+        options.daily_offpeak_time_utc,
+        /*error_handler=*/nullptr, /*read_only=*/false));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
@@ -1284,12 +1561,12 @@ class RecoveryTestHelper {
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0, false,
                           db_options.wal_compression);
-      ASSERT_OK(log_writer->AddCompressionTypeRecord());
+      ASSERT_OK(log_writer->AddCompressionTypeRecord(WriteOptions()));
       current_log_writer.reset(log_writer);
 
       WriteBatch batch;
       for (int i = 0; i < kKeysPerWALFile; i++) {
-        std::string key = "key" + ToString((*count)++);
+        std::string key = "key" + std::to_string((*count)++);
         std::string value = test->DummyString(kValueSize);
         ASSERT_NE(current_log_writer.get(), nullptr);
         uint64_t seq = versions->LastSequence() + 1;
@@ -1297,7 +1574,7 @@ class RecoveryTestHelper {
         ASSERT_OK(batch.Put(key, value));
         WriteBatchInternal::SetSequence(&batch, seq);
         ASSERT_OK(current_log_writer->AddRecord(
-            WriteBatchInternal::Contents(&batch)));
+            WriteOptions(), WriteBatchInternal::Contents(&batch)));
         versions->SetLastAllocatedSequence(seq);
         versions->SetLastPublishedSequence(seq);
         versions->SetLastSequence(seq);
@@ -1320,7 +1597,7 @@ class RecoveryTestHelper {
   static size_t GetData(DBWALTestBase* test) {
     size_t count = 0;
     for (size_t i = 0; i < kWALFilesCount * kKeysPerWALFile; i++) {
-      if (test->Get("key" + ToString(i)) != "NOT_FOUND") {
+      if (test->Get("key" + std::to_string(i)) != "NOT_FOUND") {
         ++count;
       }
     }
@@ -1450,7 +1727,7 @@ TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   // fill with new date
   RecoveryTestHelper::FillData(this, &options);
   // corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
   // verify
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
@@ -1491,6 +1768,180 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "one", "two"}, options));
 }
 
+TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.track_and_verify_wals_in_manifest = true;
+  // The following make sure there are two bg flush threads.
+  options.max_background_jobs = 8;
+
+  DestroyAndReopen(options);
+
+  const std::string cf1_name("cf1");
+  CreateAndReopenWithCF({cf1_name}, options);
+  assert(handles_.size() == 2);
+
+  {
+    dbfull()->TEST_LockMutex();
+    ASSERT_LE(2, dbfull()->GetBGJobLimits().max_flushes);
+    dbfull()->TEST_UnlockMutex();
+  }
+
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "foo", "value"));
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
+
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[1]));
+
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
+
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[0]));
+
+  bool called = false;
+  std::atomic<int> bg_flush_threads{0};
+  std::atomic<bool> wal_synced{false};
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void* /*arg*/) {
+        int cur = bg_flush_threads.load();
+        int desired = cur + 1;
+        if (cur > 0 ||
+            !bg_flush_threads.compare_exchange_strong(cur, desired)) {
+          while (!wal_synced.load()) {
+            // Wait until the other bg flush thread finishes committing WAL sync
+            // operation to the MANIFEST.
+          }
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTableToOutputFile:CommitWal:1",
+      [&](void* /*arg*/) { wal_synced.store(true); });
+  // This callback will be called when the first bg flush thread reaches the
+  // point before entering the MANIFEST write queue after flushing the SST
+  // file.
+  // The purpose of the sync points here is to ensure both bg flush threads
+  // finish computing `min_wal_number_to_keep` before any of them updates the
+  // `log_number` for the column family that's being flushed.
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTableList::TryInstallMemtableFlushResults:AfterComputeMinWalToKeep",
+      [&](void* /*arg*/) {
+        dbfull()->mutex()->AssertHeld();
+        if (!called) {
+          // We are the first bg flush thread in the MANIFEST write queue.
+          // We set up the dependency between sync points for two threads that
+          // will be executing the same code.
+          // For the interleaving of events, see
+          // https://github.com/facebook/rocksdb/pull/9715.
+          // bg flush thread1 will release the db mutex while in the MANIFEST
+          // write queue. In the meantime, bg flush thread2 locks db mutex and
+          // computes the min_wal_number_to_keep (before thread1 writes to
+          // MANIFEST thus before cf1->log_number is updated). Bg thread2 joins
+          // the MANIFEST write queue afterwards and bg flush thread1 proceeds
+          // with writing to MANIFEST.
+          called = true;
+          SyncPoint::GetInstance()->LoadDependency({
+              {"VersionSet::LogAndApply:WriteManifestStart",
+               "DBWALTest::RaceInstallFlushResultsWithWalObsoletion:BgFlush2"},
+              {"DBWALTest::RaceInstallFlushResultsWithWalObsoletion:BgFlush2",
+               "VersionSet::LogAndApply:WriteManifest"},
+          });
+        } else {
+          // The other bg flush thread has already been in the MANIFEST write
+          // queue, and we are after.
+          TEST_SYNC_POINT(
+              "DBWALTest::RaceInstallFlushResultsWithWalObsoletion:BgFlush2");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[0]));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
+
+  ASSERT_TRUE(called);
+
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  DB* db1 = nullptr;
+  Status s = DB::OpenForReadOnly(options, dbname_, &db1);
+  ASSERT_OK(s);
+  assert(db1);
+  delete db1;
+}
+
+TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
+  Options options = CurrentOptions();
+  // Small size to force manifest creation
+  options.max_manifest_file_size = 1;
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+
+  // Accumulate memtable m1 and create the 1st wal (i.e, 4.log)
+  ASSERT_OK(Put(Key(1), ""));
+  ASSERT_OK(Put(Key(2), ""));
+  ASSERT_OK(Put(Key(3), ""));
+
+  const std::string wal_file_path = db_->GetName() + "/000004.log";
+
+  // Coerce the following sequence of events:
+  // (1) Flush() marks 4.log to be obsoleted, 8.log to be the latest (i.e,
+  // active) log and release the lock
+  // (2) SyncWAL() proceeds with the lock. It
+  // creates a new manifest and syncs all the inactive wals before the latest
+  // (i.e, active log), which is 4.log. Note that SyncWAL() is not aware of the
+  // fact that 4.log has marked as to be obseleted. Such wal
+  // sync will then add a WAL addition record of 4.log to the new manifest
+  // without any special treatment. Prior to the fix, there is no WAL deletion
+  // record to offset it. (3) BackgroundFlush() will eventually purge 4.log.
+
+  bool wal_synced = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FindObsoleteFiles::PostMutexUnlock", [&](void*) {
+        ASSERT_OK(env_->FileExists(wal_file_path));
+        uint64_t pre_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
+        ASSERT_OK(db_->SyncWAL());
+        uint64_t post_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
+        bool new_manifest_created =
+            post_sync_wal_manifest_no == pre_sync_wal_manifest_no + 1;
+        ASSERT_TRUE(new_manifest_created);
+        wal_synced = true;
+      });
+
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+  ASSERT_TRUE(wal_synced);
+  // BackgroundFlush() purged 4.log
+  // because the memtable associated with the WAL was flushed and new WAL was
+  // created (i.e, 8.log)
+  ASSERT_TRUE(env_->FileExists(wal_file_path).IsNotFound());
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // To verify the corruption of "Missing WAL with log number: 4" under
+  // `options.track_and_verify_wals_in_manifest = true` is fixed.
+  //
+  // Before the fix, `db_->SyncWAL()` will sync and record WAL addtion of the
+  // obseleted WAL 4.log in a new manifest without any special treament.
+  // This will result in missing-wal corruption in DB::Reopen().
+  Status s = TryReopen(options);
+  EXPECT_OK(s);
+}
+
 // Test scope:
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
@@ -1511,7 +1962,10 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
   // Corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  // The offset here was 0.3 which cuts off right at the end of a
+  // valid fragment after wal zstd compression checksum is enabled,
+  // so changed the value to 0.33.
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
 
   // Verify
@@ -1530,7 +1984,7 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   if (!trunc || corrupt_offset != 0) {
     bool expect_data = true;
     for (size_t k = 0; k < maxkeys; ++k) {
-      bool found = Get("key" + ToString(k)) != "NOT_FOUND";
+      bool found = Get("key" + std::to_string(k)) != "NOT_FOUND";
       if (expect_data && !found) {
         expect_data = false;
       }
@@ -1666,7 +2120,7 @@ TEST_F(DBWALTest, RecoverWithoutFlush) {
   size_t count = RecoveryTestHelper::FillData(this, &options);
   auto validateData = [this, count]() {
     for (size_t i = 0; i < count; i++) {
-      ASSERT_NE(Get("key" + ToString(i)), "NOT_FOUND");
+      ASSERT_NE(Get("key" + std::to_string(i)), "NOT_FOUND");
     }
   };
   Reopen(options);
@@ -1773,9 +2227,9 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
     ReadOptions ropt;
     Iterator* iter = dbfull()->NewIterator(ropt);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      data.push_back(
-          std::make_pair(iter->key().ToString(), iter->value().ToString()));
+      data.emplace_back(iter->key().ToString(), iter->value().ToString());
     }
+    EXPECT_OK(iter->status());
     delete iter;
     return data;
   };
@@ -1805,7 +2259,7 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
   ASSERT_OK(TryReopen(options));
   // Append some more data.
   for (int k = 0; k < kAppendKeys; k++) {
-    std::string key = "extra_key" + ToString(k);
+    std::string key = "extra_key" + std::to_string(k);
     std::string value = DummyString(RecoveryTestHelper::kValueSize);
     ASSERT_OK(Put(key, value));
   }
@@ -1839,7 +2293,7 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
   std::string value_300k(300 * kKB, 'v');
   ASSERT_OK(Put(0, "foo", "v1"));
   for (int i = 0; i < 9; i++) {
-    ASSERT_OK(Put(1, "key" + ToString(i), value_100k));
+    ASSERT_OK(Put(1, "key" + std::to_string(i), value_100k));
   }
   // Get log files before reopen.
   VectorLogPtr log_files_before;
@@ -1979,7 +2433,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   std::string last_log;
   uint64_t last_log_num = 0;
   ASSERT_OK(env_->GetChildren(dbname_, &filenames));
-  for (auto fname : filenames) {
+  for (const auto& fname : filenames) {
     uint64_t number;
     FileType type;
     if (ParseFileName(fname, &number, &type, nullptr)) {
@@ -2079,7 +2533,59 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 #endif  // ROCKSDB_PLATFORM_POSIX
 
-#endif  // ROCKSDB_LITE
+TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
+  Options options = CurrentOptions();
+  options.track_and_verify_wals_in_manifest = true;
+  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+
+  // Build a way to make wal files selectively go missing
+  bool wals_go_missing = false;
+  struct MissingWalFs : public FileSystemWrapper {
+    MissingWalFs(const std::shared_ptr<FileSystem>& t,
+                 bool* _wals_go_missing_flag)
+        : FileSystemWrapper(t), wals_go_missing_flag(_wals_go_missing_flag) {}
+    bool* wals_go_missing_flag;
+    IOStatus GetChildren(const std::string& dir, const IOOptions& io_opts,
+                         std::vector<std::string>* r,
+                         IODebugContext* dbg) override {
+      IOStatus s = target_->GetChildren(dir, io_opts, r, dbg);
+      if (s.ok() && *wals_go_missing_flag) {
+        for (size_t i = 0; i < r->size();) {
+          if (EndsWith(r->at(i), ".log")) {
+            r->erase(r->begin() + i);
+          } else {
+            ++i;
+          }
+        }
+      }
+      return s;
+    }
+    const char* Name() const override { return "MissingWalFs"; }
+  };
+  auto my_fs =
+      std::make_shared<MissingWalFs>(env_->GetFileSystem(), &wals_go_missing);
+  std::unique_ptr<Env> my_env(NewCompositeEnv(my_fs));
+  options.env = my_env.get();
+
+  CreateAndReopenWithCF({"blah"}, options);
+
+  // Currently necessary to get a WAL tracked in manifest; see
+  // https://github.com/facebook/rocksdb/issues/10080
+  ASSERT_OK(Put(0, "x", "y"));
+  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(Put(1, "x", "y"));
+  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(Flush(1));
+
+  ASSERT_FALSE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
+  std::vector<std::unique_ptr<LogFile>> wals;
+  ASSERT_OK(db_->GetSortedWalFiles(wals));
+  wals_go_missing = true;
+  ASSERT_NOK(db_->GetSortedWalFiles(wals));
+  wals_go_missing = false;
+  Close();
+}
+
 
 TEST_F(DBWALTest, WalTermTest) {
   Options options = CurrentOptions();
@@ -2104,6 +2610,66 @@ TEST_F(DBWALTest, WalTermTest) {
   ASSERT_EQ("bar", Get(1, "foo"));
   ASSERT_EQ("NOT_FOUND", Get(1, "foo2"));
 }
+
+TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
+  if (db_->GetOptions().wal_compression == kNoCompression) {
+    ROCKSDB_GTEST_BYPASS("stream compression not present");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.avoid_flush_during_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  // Enable WAL compression so that the newly-created WAL will be non-empty
+  // after DB open, even if point-in-time WAL recovery encounters no
+  // corruption.
+  options.wal_compression = kZSTD;
+  DestroyAndReopen(options);
+
+  // Write something to memtable and WAL so that log_empty_ will be false after
+  // next DB::Open().
+  ASSERT_OK(Put("a", "v"));
+
+  Reopen(options);
+
+  // New WAL is created, thanks to !log_empty_.
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+
+  ASSERT_OK(Put("b", "v"));
+
+  ASSERT_OK(db_->SyncWAL());
+
+  VectorLogPtr wals;
+  Status s = dbfull()->GetSortedWalFiles(wals);
+  ASSERT_OK(s);
+}
+
+TEST_F(DBWALTest, EmptyWalReopenTest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // make sure we can re-open it.
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+
+  {
+    std::vector<std::string> files;
+    int num_wal_files = 0;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& file : files) {
+      uint64_t number = 0;
+      FileType type = kWalFile;
+      if (ParseFileName(file, &number, &type) && type == kWalFile) {
+        num_wal_files++;
+      }
+    }
+
+    ASSERT_EQ(num_wal_files, 1);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

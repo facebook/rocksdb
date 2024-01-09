@@ -13,17 +13,21 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.rocksdb.util.BytewiseComparator;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.rocksdb.util.ByteBufferAllocator;
 
+@RunWith(Parameterized.class)
 public class SstFileReaderTest {
   private static final String SST_FILE_NAME = "test.sst";
 
-  class KeyValueWithOp {
-    KeyValueWithOp(String key, String value, OpType opType) {
+  static class KeyValueWithOp {
+    KeyValueWithOp(final String key, final String value, final OpType opType) {
       this.key = key;
       this.value = value;
       this.opType = opType;
@@ -41,12 +45,22 @@ public class SstFileReaderTest {
       return opType;
     }
 
-    private String key;
-    private String value;
-    private OpType opType;
+    private final String key;
+    private final String value;
+    private final OpType opType;
   }
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
+
+  @Parameterized.Parameters(name = "{0}")
+  public static Iterable<Object[]> parameters() {
+    return Arrays.asList(new Object[][] {
+        {"direct", ByteBufferAllocator.DIRECT}, {"indirect", ByteBufferAllocator.HEAP}});
+  }
+
+  @Parameterized.Parameter() public String name;
+
+  @Parameterized.Parameter(1) public ByteBufferAllocator byteBufferAllocator;
 
   enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES }
 
@@ -55,17 +69,17 @@ public class SstFileReaderTest {
     final EnvOptions envOptions = new EnvOptions();
     final StringAppendOperator stringAppendOperator = new StringAppendOperator();
     final Options options = new Options().setMergeOperator(stringAppendOperator);
-    SstFileWriter sstFileWriter;
+    final SstFileWriter sstFileWriter;
     sstFileWriter = new SstFileWriter(envOptions, options);
 
     final File sstFile = parentFolder.newFile(SST_FILE_NAME);
     try {
       sstFileWriter.open(sstFile.getAbsolutePath());
-      for (KeyValueWithOp keyValue : keyValues) {
-        Slice keySlice = new Slice(keyValue.getKey());
-        Slice valueSlice = new Slice(keyValue.getValue());
-        byte[] keyBytes = keyValue.getKey().getBytes();
-        byte[] valueBytes = keyValue.getValue().getBytes();
+      for (final KeyValueWithOp keyValue : keyValues) {
+        final Slice keySlice = new Slice(keyValue.getKey());
+        final Slice valueSlice = new Slice(keyValue.getValue());
+        final byte[] keyBytes = keyValue.getKey().getBytes();
+        final byte[] valueBytes = keyValue.getValue().getBytes();
         switch (keyValue.getOpType()) {
           case PUT:
             sstFileWriter.put(keySlice, valueSlice);
@@ -105,6 +119,8 @@ public class SstFileReaderTest {
   public void readSstFile() throws RocksDBException, IOException {
     final List<KeyValueWithOp> keyValues = new ArrayList<>();
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.PUT));
 
     final File sstFile = newSstFile(keyValues);
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
@@ -123,33 +139,84 @@ public class SstFileReaderTest {
       reader.verifyChecksum();
 
       // Verify Table Properties
-      assertEquals(reader.getTableProperties().getNumEntries(), 1);
+      assertEquals(reader.getTableProperties().getNumEntries(), 3);
 
       // Check key and value
       assertThat(iterator.key()).isEqualTo("key1".getBytes());
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
-      ByteBuffer direct = ByteBuffer.allocateDirect(128);
-      direct.put("key1".getBytes()).flip();
-      iterator.seek(direct);
-      assertThat(direct.position()).isEqualTo(4);
-      assertThat(direct.limit()).isEqualTo(4);
+      final ByteBuffer byteBuffer = byteBufferAllocator.allocate(128);
+      byteBuffer.put("key1".getBytes()).flip();
+      iterator.seek(byteBuffer);
+      assertThat(byteBuffer.position()).isEqualTo(4);
+      assertThat(byteBuffer.limit()).isEqualTo(4);
 
       assertThat(iterator.isValid()).isTrue();
       assertThat(iterator.key()).isEqualTo("key1".getBytes());
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
-      direct.clear();
-      assertThat(iterator.key(direct)).isEqualTo("key1".getBytes().length);
-      byte[] dst = new byte["key1".getBytes().length];
-      direct.get(dst);
-      assertThat(new String(dst)).isEqualTo("key1");
+      {
+        byteBuffer.clear();
+        assertThat(iterator.key(byteBuffer)).isEqualTo("key1".getBytes().length);
+        final byte[] dst = new byte["key1".getBytes().length];
+        byteBuffer.get(dst);
+        assertThat(new String(dst)).isEqualTo("key1");
+      }
 
-      direct.clear();
-      assertThat(iterator.value(direct)).isEqualTo("value1".getBytes().length);
-      dst = new byte["value1".getBytes().length];
-      direct.get(dst);
-      assertThat(new String(dst)).isEqualTo("value1");
+      {
+        byteBuffer.clear();
+        byteBuffer.put("PREFIX".getBytes());
+        final ByteBuffer slice = byteBuffer.slice();
+        assertThat(iterator.key(byteBuffer)).isEqualTo("key1".getBytes().length);
+        final byte[] dst = new byte["key1".getBytes().length];
+        slice.get(dst);
+        assertThat(new String(dst)).isEqualTo("key1");
+      }
+
+      {
+        byteBuffer.clear();
+        assertThat(iterator.value(byteBuffer)).isEqualTo("value1".getBytes().length);
+        final byte[] dst = new byte["value1".getBytes().length];
+        byteBuffer.get(dst);
+        assertThat(new String(dst)).isEqualTo("value1");
+      }
+
+      byteBuffer.clear();
+      byteBuffer.put("key1point5".getBytes()).flip();
+      iterator.seek(byteBuffer);
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key2".getBytes());
+      assertThat(iterator.value()).isEqualTo("value2".getBytes());
+
+      byteBuffer.clear();
+      byteBuffer.put("key1point5".getBytes()).flip();
+      iterator.seekForPrev(byteBuffer);
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key1".getBytes());
+      assertThat(iterator.value()).isEqualTo("value1".getBytes());
+
+      byteBuffer.clear();
+      byteBuffer.put("key2point5".getBytes()).flip();
+      iterator.seek(byteBuffer);
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key3".getBytes());
+      assertThat(iterator.value()).isEqualTo("value3".getBytes());
+
+      byteBuffer.clear();
+      byteBuffer.put("key2point5".getBytes()).flip();
+      iterator.seekForPrev(byteBuffer);
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key2".getBytes());
+      assertThat(iterator.value()).isEqualTo("value2".getBytes());
+
+      byteBuffer.clear();
+      byteBuffer.put("PREFIX".getBytes());
+      final ByteBuffer slice = byteBuffer.slice();
+      slice.put("key1point5".getBytes()).flip();
+      iterator.seekForPrev(slice);
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key1".getBytes());
+      assertThat(iterator.value()).isEqualTo("value1".getBytes());
     }
   }
 }

@@ -11,7 +11,9 @@
 
 #include <memory>
 
+#include "db/version_edit.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/slice_transform.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -25,6 +27,7 @@ class InternalStats;
 class Version;
 class VersionSet;
 class ColumnFamilyData;
+class CacheReservationManager;
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate
@@ -33,7 +36,9 @@ class VersionBuilder {
  public:
   VersionBuilder(const FileOptions& file_options,
                  const ImmutableCFOptions* ioptions, TableCache* table_cache,
-                 VersionStorageInfo* base_vstorage, VersionSet* version_set);
+                 VersionStorageInfo* base_vstorage, VersionSet* version_set,
+                 std::shared_ptr<CacheReservationManager>
+                     file_metadata_cache_res_mgr = nullptr);
   ~VersionBuilder();
 
   bool CheckConsistencyForNumLevels();
@@ -43,7 +48,8 @@ class VersionBuilder {
       InternalStats* internal_stats, int max_threads,
       bool prefetch_index_and_filter_in_cache, bool is_initial_load,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin);
+      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
+      uint8_t block_protection_bytes_per_key);
   uint64_t GetMinOldestBlobFileNumber() const;
 
  private:
@@ -66,4 +72,22 @@ class BaseReferencedVersionBuilder {
   Version* version_;
 };
 
+class NewestFirstBySeqNo {
+ public:
+  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+
+    if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+      return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+    }
+
+    if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+      return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+    }
+
+    // Break ties by file number
+    return lhs->fd.GetNumber() > rhs->fd.GetNumber();
+  }
+};
 }  // namespace ROCKSDB_NAMESPACE

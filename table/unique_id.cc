@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 std::string EncodeSessionId(uint64_t upper, uint64_t lower) {
   std::string db_session_id(20U, '\0');
-  char *buf = &db_session_id[0];
+  char *buf = db_session_id.data();
   // Preserving `lower` is slightly tricky. 36^12 is slightly more than
   // 62 bits, so we use 12 chars plus the bottom two bits of one more.
   // (A tiny fraction of 20 digit strings go unused.)
@@ -58,22 +58,34 @@ Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
 
 Status GetSstInternalUniqueId(const std::string &db_id,
                               const std::string &db_session_id,
-                              uint64_t file_number, UniqueId64x3 *out) {
-  if (db_id.empty()) {
-    return Status::NotSupported("Missing db_id");
-  }
-  if (file_number == 0) {
-    return Status::NotSupported("Missing or bad file number");
-  }
-  if (db_session_id.empty()) {
-    return Status::NotSupported("Missing db_session_id");
+                              uint64_t file_number, UniqueIdPtr out,
+                              bool force) {
+  if (!force) {
+    if (db_id.empty()) {
+      return Status::NotSupported("Missing db_id");
+    }
+    if (file_number == 0) {
+      return Status::NotSupported("Missing or bad file number");
+    }
+    if (db_session_id.empty()) {
+      return Status::NotSupported("Missing db_session_id");
+    }
   }
   uint64_t session_upper = 0;  // Assignment to appease clang-analyze
   uint64_t session_lower = 0;  // Assignment to appease clang-analyze
   {
     Status s = DecodeSessionId(db_session_id, &session_upper, &session_lower);
     if (!s.ok()) {
-      return s;
+      if (!force) {
+        return s;
+      } else {
+        // A reasonable fallback in case malformed
+        Hash2x64(db_session_id.data(), db_session_id.size(), &session_upper,
+                 &session_lower);
+        if (session_lower == 0) {
+          session_lower = session_upper | 1;
+        }
+      }
     }
   }
 
@@ -84,7 +96,7 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   // that here because of testing and old versions.)
   // We put this first in anticipation of matching a small-ish set of cache
   // key prefixes to cover entries relevant to any DB.
-  (*out)[0] = session_lower;
+  out.ptr[0] = session_lower;
 
   // Hash the session upper (~39 bits entropy) and DB id (120+ bits entropy)
   // for very high global uniqueness entropy.
@@ -97,10 +109,12 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   // Xor in file number for guaranteed uniqueness by file number for a given
   // session and DB id. (Xor slightly better than + here. See
   // https://github.com/pdillinger/unique_id )
-  (*out)[1] = db_a ^ file_number;
+  out.ptr[1] = db_a ^ file_number;
 
   // Extra (optional) global uniqueness
-  (*out)[2] = db_b;
+  if (out.extended) {
+    out.ptr[2] = db_b;
+  }
 
   return Status::OK();
 }
@@ -114,44 +128,74 @@ constexpr uint64_t kHiOffsetForZero = 17391078804906429400U;
 constexpr uint64_t kLoOffsetForZero = 6417269962128484497U;
 }  // namespace
 
-void InternalUniqueIdToExternal(UniqueId64x3 *in_out) {
+void InternalUniqueIdToExternal(UniqueIdPtr in_out) {
   uint64_t hi, lo;
-  BijectiveHash2x64((*in_out)[1] + kHiOffsetForZero,
-                    (*in_out)[0] + kLoOffsetForZero, &hi, &lo);
-  (*in_out)[0] = lo;
-  (*in_out)[1] = hi;
-  (*in_out)[2] += lo + hi;
+  BijectiveHash2x64(in_out.ptr[1] + kHiOffsetForZero,
+                    in_out.ptr[0] + kLoOffsetForZero, &hi, &lo);
+  in_out.ptr[0] = lo;
+  in_out.ptr[1] = hi;
+  if (in_out.extended) {
+    in_out.ptr[2] += lo + hi;
+  }
 }
 
-void ExternalUniqueIdToInternal(UniqueId64x3 *in_out) {
-  uint64_t lo = (*in_out)[0];
-  uint64_t hi = (*in_out)[1];
-  (*in_out)[2] -= lo + hi;
+void ExternalUniqueIdToInternal(UniqueIdPtr in_out) {
+  uint64_t lo = in_out.ptr[0];
+  uint64_t hi = in_out.ptr[1];
+  if (in_out.extended) {
+    in_out.ptr[2] -= lo + hi;
+  }
   BijectiveUnhash2x64(hi, lo, &hi, &lo);
-  (*in_out)[0] = lo - kLoOffsetForZero;
-  (*in_out)[1] = hi - kHiOffsetForZero;
+  in_out.ptr[0] = lo - kLoOffsetForZero;
+  in_out.ptr[1] = hi - kHiOffsetForZero;
 }
 
-std::string EncodeUniqueIdBytes(const UniqueId64x3 &in) {
-  std::string ret(24U, '\0');
-  EncodeFixed64(&ret[0], in[0]);
-  EncodeFixed64(&ret[8], in[1]);
-  EncodeFixed64(&ret[16], in[2]);
+std::string EncodeUniqueIdBytes(UniqueIdPtr in) {
+  std::string ret(in.extended ? 24U : 16U, '\0');
+  EncodeFixed64(ret.data(), in.ptr[0]);
+  EncodeFixed64(&ret[8], in.ptr[1]);
+  if (in.extended) {
+    EncodeFixed64(&ret[16], in.ptr[2]);
+  }
   return ret;
 }
 
-Status GetUniqueIdFromTableProperties(const TableProperties &props,
-                                      std::string *out_id) {
-  UniqueId64x3 tmp{};
+Status DecodeUniqueIdBytes(const std::string &unique_id, UniqueIdPtr out) {
+  if (unique_id.size() != (out.extended ? 24 : 16)) {
+    return Status::NotSupported("Not a valid unique_id");
+  }
+  const char *buf = &unique_id.front();
+  out.ptr[0] = DecodeFixed64(&buf[0]);
+  out.ptr[1] = DecodeFixed64(&buf[8]);
+  if (out.extended) {
+    out.ptr[2] = DecodeFixed64(&buf[16]);
+  }
+  return Status::OK();
+}
+
+template <typename ID>
+Status GetUniqueIdFromTablePropertiesHelper(const TableProperties &props,
+                                            std::string *out_id) {
+  ID tmp{};
   Status s = GetSstInternalUniqueId(props.db_id, props.db_session_id,
                                     props.orig_file_number, &tmp);
   if (s.ok()) {
     InternalUniqueIdToExternal(&tmp);
-    *out_id = EncodeUniqueIdBytes(tmp);
+    *out_id = EncodeUniqueIdBytes(&tmp);
   } else {
     out_id->clear();
   }
   return s;
+}
+
+Status GetExtendedUniqueIdFromTableProperties(const TableProperties &props,
+                                              std::string *out_id) {
+  return GetUniqueIdFromTablePropertiesHelper<UniqueId64x3>(props, out_id);
+}
+
+Status GetUniqueIdFromTableProperties(const TableProperties &props,
+                                      std::string *out_id) {
+  return GetUniqueIdFromTablePropertiesHelper<UniqueId64x2>(props, out_id);
 }
 
 std::string UniqueIdToHumanString(const std::string &id) {
@@ -160,6 +204,19 @@ std::string UniqueIdToHumanString(const std::string &id) {
   for (size_t i = 16; i < str.size(); i += 17) {
     str.insert(i, "-");
   }
+  return str;
+}
+
+std::string InternalUniqueIdToHumanString(UniqueIdPtr in) {
+  std::string str = "{";
+  str += std::to_string(in.ptr[0]);
+  str += ",";
+  str += std::to_string(in.ptr[1]);
+  if (in.extended) {
+    str += ",";
+    str += std::to_string(in.ptr[2]);
+  }
+  str += "}";
   return str;
 }
 

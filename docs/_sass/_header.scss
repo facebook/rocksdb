@@ -3,7 +3,8 @@
   color: $primary-overlay;
   height: $header-height;
   padding: $header-ptop 0 $header-pbot;
-  position: fixed;
+  position: sticky;
+  top: 0;
   width: 100%;
   z-index: 9999;
 

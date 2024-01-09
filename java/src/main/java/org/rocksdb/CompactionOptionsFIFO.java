@@ -17,7 +17,7 @@ public class CompactionOptionsFIFO extends RocksObject {
   /**
    * Once the total sum of table files reaches this, we will delete the oldest
    * table file
-   *
+   * <p>
    * Default: 1GB
    *
    * @param maxTableFilesSize The maximum size of the table files
@@ -33,7 +33,7 @@ public class CompactionOptionsFIFO extends RocksObject {
   /**
    * Once the total sum of table files reaches this, we will delete the oldest
    * table file
-   *
+   * <p>
    * Default: 1GB
    *
    * @return max table file size in bytes
@@ -48,7 +48,7 @@ public class CompactionOptionsFIFO extends RocksObject {
    * and compaction won't trigger if average compact bytes per del file is
    * larger than options.write_buffer_size. This is to protect large files
    * from being compacted again.
-   *
+   * <p>
    * Default: false
    *
    * @param allowCompaction true to allow intra-L0 compaction
@@ -61,13 +61,12 @@ public class CompactionOptionsFIFO extends RocksObject {
     return this;
   }
 
-
   /**
    * Check if intra-L0 compaction is enabled.
    * When enabled, we try to compact smaller files into larger ones.
-   *
+   * <p>
    * See {@link #setAllowCompaction(boolean)}.
-   *
+   * <p>
    * Default: false
    *
    * @return true if intra-L0 compaction is enabled, false otherwise.
@@ -76,8 +75,7 @@ public class CompactionOptionsFIFO extends RocksObject {
     return allowCompaction(nativeHandle_);
   }
 
-
-  private native static long newCompactionOptionsFIFO();
+  private static native long newCompactionOptionsFIFO();
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setMaxTableFilesSize(final long handle,

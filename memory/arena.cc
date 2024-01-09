@@ -8,9 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memory/arena.h"
-#ifndef OS_WIN
-#include <sys/mman.h>
-#endif
+
 #include <algorithm>
 
 #include "logging/logging.h"
@@ -22,16 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// MSVC complains that it is already defined since it is static in the header.
-#ifndef _MSC_VER
-const size_t Arena::kInlineSize;
-#endif
-
-const size_t Arena::kMinBlockSize = 4096;
-const size_t Arena::kMaxBlockSize = 2u << 30;
-static const int kAlignUnit = alignof(max_align_t);
-
-size_t OptimizeBlockSize(size_t block_size) {
+size_t Arena::OptimizeBlockSize(size_t block_size) {
   // Make sure block_size is in optimal range
   block_size = std::max(Arena::kMinBlockSize, block_size);
   block_size = std::min(Arena::kMaxBlockSize, block_size);
@@ -53,14 +42,12 @@ Arena::Arena(size_t block_size, AllocTracker* tracker, size_t huge_page_size)
   blocks_memory_ += alloc_bytes_remaining_;
   aligned_alloc_ptr_ = inline_block_;
   unaligned_alloc_ptr_ = inline_block_ + alloc_bytes_remaining_;
-#ifdef MAP_HUGETLB
-  hugetlb_size_ = huge_page_size;
-  if (hugetlb_size_ && kBlockSize > hugetlb_size_) {
-    hugetlb_size_ = ((kBlockSize - 1U) / hugetlb_size_ + 1U) * hugetlb_size_;
+  if (MemMapping::kHugePageSupported) {
+    hugetlb_size_ = huge_page_size;
+    if (hugetlb_size_ && kBlockSize > hugetlb_size_) {
+      hugetlb_size_ = ((kBlockSize - 1U) / hugetlb_size_ + 1U) * hugetlb_size_;
+    }
   }
-#else
-  (void)huge_page_size;
-#endif
   if (tracker_ != nullptr) {
     tracker_->Allocate(kInlineSize);
   }
@@ -71,21 +58,6 @@ Arena::~Arena() {
     assert(tracker_->is_freed());
     tracker_->FreeMem();
   }
-  for (const auto& block : blocks_) {
-    delete[] block;
-  }
-
-#ifdef MAP_HUGETLB
-  for (const auto& mmap_info : huge_blocks_) {
-    if (mmap_info.addr_ == nullptr) {
-      continue;
-    }
-    auto ret = munmap(mmap_info.addr_, mmap_info.length_);
-    if (ret != 0) {
-      // TODO(sdong): Better handling
-    }
-  }
-#endif
 }
 
 char* Arena::AllocateFallback(size_t bytes, bool aligned) {
@@ -99,12 +71,10 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   // We waste the remaining space in the current block.
   size_t size = 0;
   char* block_head = nullptr;
-#ifdef MAP_HUGETLB
-  if (hugetlb_size_) {
+  if (MemMapping::kHugePageSupported && hugetlb_size_ > 0) {
     size = hugetlb_size_;
     block_head = AllocateFromHugePage(size);
   }
-#endif
   if (!block_head) {
     size = kBlockSize;
     block_head = AllocateNewBlock(size);
@@ -123,47 +93,23 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
 }
 
 char* Arena::AllocateFromHugePage(size_t bytes) {
-#ifdef MAP_HUGETLB
-  if (hugetlb_size_ == 0) {
-    return nullptr;
+  MemMapping mm = MemMapping::AllocateHuge(bytes);
+  auto addr = static_cast<char*>(mm.Get());
+  if (addr) {
+    huge_blocks_.push_back(std::move(mm));
+    blocks_memory_ += bytes;
+    if (tracker_ != nullptr) {
+      tracker_->Allocate(bytes);
+    }
   }
-  // Reserve space in `huge_blocks_` before calling `mmap`.
-  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
-  // own memory and do fewer reallocations.
-  //
-  // - If `emplace_back` throws, no memory leaks because we haven't called
-  //   `mmap` yet.
-  // - If `mmap` throws, no memory leaks because the vector will be cleaned up
-  //   via RAII.
-  huge_blocks_.emplace_back(nullptr /* addr */, 0 /* length */);
-
-  void* addr = mmap(nullptr, bytes, (PROT_READ | PROT_WRITE),
-                    (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), -1, 0);
-
-  if (addr == MAP_FAILED) {
-    return nullptr;
-  }
-  huge_blocks_.back() = MmapInfo(addr, bytes);
-  blocks_memory_ += bytes;
-  if (tracker_ != nullptr) {
-    tracker_->Allocate(bytes);
-  }
-  return reinterpret_cast<char*>(addr);
-#else
-  (void)bytes;
-  return nullptr;
-#endif
+  return addr;
 }
 
 char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
                              Logger* logger) {
-  assert((kAlignUnit & (kAlignUnit - 1)) ==
-         0);  // Pointer size should be a power of 2
-
-#ifdef MAP_HUGETLB
-  if (huge_page_size > 0 && bytes > 0) {
+  if (MemMapping::kHugePageSupported && hugetlb_size_ > 0 &&
+      huge_page_size > 0 && bytes > 0) {
     // Allocate from a huge page TLB table.
-    assert(logger != nullptr);  // logger need to be passed in.
     size_t reserved_size =
         ((bytes - 1U) / huge_page_size + 1U) * huge_page_size;
     assert(reserved_size >= bytes);
@@ -178,10 +124,6 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
       return addr;
     }
   }
-#else
-  (void)huge_page_size;
-  (void)logger;
-#endif
 
   size_t current_mod =
       reinterpret_cast<uintptr_t>(aligned_alloc_ptr_) & (kAlignUnit - 1);
@@ -201,17 +143,11 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 }
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
-  // Reserve space in `blocks_` before allocating memory via new.
-  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
-  // own memory and do fewer reallocations.
-  //
-  // - If `emplace_back` throws, no memory leaks because we haven't called `new`
-  //   yet.
-  // - If `new` throws, no memory leaks because the vector will be cleaned up
-  //   via RAII.
-  blocks_.emplace_back(nullptr);
-
+  // NOTE: std::make_unique zero-initializes the block so is not appropriate
+  // here
   char* block = new char[block_bytes];
+  blocks_.push_back(std::unique_ptr<char[]>(block));
+
   size_t allocated_size;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
   allocated_size = malloc_usable_size(block);
@@ -228,7 +164,6 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   if (tracker_ != nullptr) {
     tracker_->Allocate(allocated_size);
   }
-  blocks_.back() = block;
   return block;
 }
 

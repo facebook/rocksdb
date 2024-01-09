@@ -11,7 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
+std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
     "DataBlock",
     "FilterBlock",
     "FilterMetaBlock",
@@ -21,10 +21,14 @@ std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
     "WriteBuffer",
     "CompressionDictionaryBuildingBuffer",
     "FilterConstruction",
+    "BlockBasedTableReader",
+    "FileMetadata",
+    "BlobValue",
+    "BlobCache",
     "Misc",
 }};
 
-std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
+std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "data-block",
     "filter-block",
     "filter-meta-block",
@@ -34,37 +38,67 @@ std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "write-buffer",
     "compression-dictionary-building-buffer",
     "filter-construction",
+    "block-based-table-reader",
+    "file-metadata",
+    "blob-value",
+    "blob-cache",
     "misc",
 }};
 
+const std::string& GetCacheEntryRoleName(CacheEntryRole role) {
+  return kCacheEntryRoleToHyphenString[static_cast<size_t>(role)];
+}
+
+const std::string& BlockCacheEntryStatsMapKeys::CacheId() {
+  static const std::string kCacheId = "id";
+  return kCacheId;
+}
+
+const std::string& BlockCacheEntryStatsMapKeys::CacheCapacityBytes() {
+  static const std::string kCacheCapacityBytes = "capacity";
+  return kCacheCapacityBytes;
+}
+
+const std::string&
+BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds() {
+  static const std::string kLastCollectionDurationSeconds =
+      "secs_for_last_collection";
+  return kLastCollectionDurationSeconds;
+}
+
+const std::string& BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds() {
+  static const std::string kLastCollectionAgeSeconds =
+      "secs_since_last_collection";
+  return kLastCollectionAgeSeconds;
+}
+
 namespace {
 
-struct Registry {
-  std::mutex mutex;
-  std::unordered_map<Cache::DeleterFn, CacheEntryRole> role_map;
-  void Register(Cache::DeleterFn fn, CacheEntryRole role) {
-    std::lock_guard<std::mutex> lock(mutex);
-    role_map[fn] = role;
-  }
-  std::unordered_map<Cache::DeleterFn, CacheEntryRole> Copy() {
-    std::lock_guard<std::mutex> lock(mutex);
-    return role_map;
-  }
-};
-
-Registry& GetRegistry() {
-  STATIC_AVOID_DESTRUCTION(Registry, registry);
-  return registry;
+std::string GetPrefixedCacheEntryRoleName(const std::string& prefix,
+                                          CacheEntryRole role) {
+  const std::string& role_name = GetCacheEntryRoleName(role);
+  std::string prefixed_role_name;
+  prefixed_role_name.reserve(prefix.size() + role_name.size());
+  prefixed_role_name.append(prefix);
+  prefixed_role_name.append(role_name);
+  return prefixed_role_name;
 }
 
 }  // namespace
 
-void RegisterCacheDeleterRole(Cache::DeleterFn fn, CacheEntryRole role) {
-  GetRegistry().Register(fn, role);
+std::string BlockCacheEntryStatsMapKeys::EntryCount(CacheEntryRole role) {
+  const static std::string kPrefix = "count.";
+  return GetPrefixedCacheEntryRoleName(kPrefix, role);
 }
 
-std::unordered_map<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap() {
-  return GetRegistry().Copy();
+std::string BlockCacheEntryStatsMapKeys::UsedBytes(CacheEntryRole role) {
+  const static std::string kPrefix = "bytes.";
+  return GetPrefixedCacheEntryRoleName(kPrefix, role);
+}
+
+std::string BlockCacheEntryStatsMapKeys::UsedPercent(CacheEntryRole role) {
+  const static std::string kPrefix = "percent.";
+  return GetPrefixedCacheEntryRoleName(kPrefix, role);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

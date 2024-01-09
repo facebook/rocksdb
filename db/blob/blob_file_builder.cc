@@ -7,11 +7,13 @@
 
 #include <cassert>
 
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/blob/blob_source.h"
 #include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
@@ -32,9 +34,9 @@ BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    int job_id, uint32_t column_family_id,
-    const std::string& column_family_name, Env::IOPriority io_priority,
-    Env::WriteLifeTimeHint write_hint,
+    const WriteOptions* write_options, std::string db_id,
+    std::string db_session_id, int job_id, uint32_t column_family_id,
+    const std::string& column_family_name, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
@@ -42,17 +44,18 @@ BlobFileBuilder::BlobFileBuilder(
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
-                      job_id, column_family_id, column_family_name, io_priority,
-                      write_hint, io_tracer, blob_callback, creation_reason,
+                      write_options, db_id, db_session_id, job_id,
+                      column_family_id, column_family_name, write_hint,
+                      io_tracer, blob_callback, creation_reason,
                       blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    int job_id, uint32_t column_family_id,
-    const std::string& column_family_name, Env::IOPriority io_priority,
-    Env::WriteLifeTimeHint write_hint,
+    const WriteOptions* write_options, std::string db_id,
+    std::string db_session_id, int job_id, uint32_t column_family_id,
+    const std::string& column_family_name, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
@@ -64,11 +67,14 @@ BlobFileBuilder::BlobFileBuilder(
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
+      prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
+      write_options_(write_options),
+      db_id_(std::move(db_id)),
+      db_session_id_(std::move(db_session_id)),
       job_id_(job_id),
       column_family_id_(column_family_id),
       column_family_name_(column_family_name),
-      io_priority_(io_priority),
       write_hint_(write_hint),
       io_tracer_(io_tracer),
       blob_callback_(blob_callback),
@@ -81,6 +87,7 @@ BlobFileBuilder::BlobFileBuilder(
   assert(fs_);
   assert(immutable_options_);
   assert(file_options_);
+  assert(write_options_);
   assert(blob_file_paths_);
   assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
@@ -130,6 +137,16 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     const Status s = CloseBlobFileIfNeeded();
     if (!s.ok()) {
       return s;
+    }
+  }
+
+  {
+    const Status s =
+        PutBlobIntoCacheIfNeeded(value, blob_file_number, blob_offset);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_options_->info_log,
+                     "Failed to pre-populate the blob into blob cache: %s",
+                     s.ToString().c_str());
     }
   }
 
@@ -191,14 +208,14 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   blob_file_paths_->emplace_back(std::move(blob_file_path));
 
   assert(file);
-  file->SetIOPriority(io_priority_);
+  file->SetIOPriority(write_options_->rate_limiter_priority);
   file->SetWriteLifeTimeHint(write_hint_);
   FileTypeSet tmp_set = immutable_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_options_->stats;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_,
       immutable_options_->clock, io_tracer_, statistics,
-      immutable_options_->listeners,
+      Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, immutable_options_->listeners,
       immutable_options_->file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kBlobFile), false));
 
@@ -215,7 +232,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
                        expiration_range);
 
   {
-    Status s = blob_log_writer->WriteHeader(header);
+    Status s = blob_log_writer->WriteHeader(*write_options_, header);
 
     TEST_SYNC_POINT_CALLBACK(
         "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader", &s);
@@ -243,8 +260,9 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
     return Status::OK();
   }
 
+  // TODO: allow user CompressionOptions, including max_compressed_bytes_per_kb
   CompressionOptions opts;
-  CompressionContext context(blob_compression_type_);
+  CompressionContext context(blob_compression_type_, opts);
   constexpr uint64_t sample_for_compression = 0;
 
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
@@ -279,7 +297,8 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
 
   uint64_t key_offset = 0;
 
-  Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
+  Status s =
+      writer_->AddRecord(*write_options_, key, blob, &key_offset, blob_offset);
 
   TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AddRecord", &s);
 
@@ -304,7 +323,8 @@ Status BlobFileBuilder::CloseBlobFile() {
   std::string checksum_method;
   std::string checksum_value;
 
-  Status s = writer_->AppendFooter(footer, &checksum_method, &checksum_value);
+  Status s = writer_->AppendFooter(*write_options_, footer, &checksum_method,
+                                   &checksum_value);
 
   TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AppendFooter", &s);
 
@@ -372,4 +392,38 @@ void BlobFileBuilder::Abandon(const Status& s) {
   blob_count_ = 0;
   blob_bytes_ = 0;
 }
+
+Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
+                                                 uint64_t blob_file_number,
+                                                 uint64_t blob_offset) const {
+  Status s = Status::OK();
+
+  BlobSource::SharedCacheInterface blob_cache{immutable_options_->blob_cache};
+  auto statistics = immutable_options_->statistics.get();
+  bool warm_cache =
+      prepopulate_blob_cache_ == PrepopulateBlobCache::kFlushOnly &&
+      creation_reason_ == BlobFileCreationReason::kFlush;
+
+  if (blob_cache && warm_cache) {
+    const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
+                                            blob_file_number);
+    const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
+    const Slice key = cache_key.AsSlice();
+
+    const Cache::Priority priority = Cache::Priority::BOTTOM;
+
+    s = blob_cache.InsertSaved(key, blob, nullptr /*context*/, priority,
+                               immutable_options_->lowest_used_cache_tier);
+
+    if (s.ok()) {
+      RecordTick(statistics, BLOB_DB_CACHE_ADD);
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, blob.size());
+    } else {
+      RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
+    }
+  }
+
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

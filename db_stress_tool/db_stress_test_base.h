@@ -9,6 +9,7 @@
 
 #ifdef GFLAGS
 #pragma once
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
@@ -16,6 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+class OptimisticTransactionDB;
+struct TransactionDBOptions;
 
 class StressTest {
  public:
@@ -29,20 +32,14 @@ class StressTest {
 
   bool BuildOptionsTable();
 
-  void InitDb();
+  void InitDb(SharedState*);
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
-
   void TrackExpectedState(SharedState* shared);
-
-  // Return false if verification fails.
-  bool VerifySecondaries();
-
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
-  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const {}
-
+  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
   void PrintStatistics();
 
  protected:
@@ -55,13 +52,26 @@ class StressTest {
 
   Status SetOptions(ThreadState* thread);
 
-#ifndef ROCKSDB_LITE
-  Status NewTxn(WriteOptions& write_opts, Transaction** txn);
+  // For transactionsDB, there can be txns prepared but not yet committeed
+  // right before previous stress run crash.
+  // They will be recovered and processed through
+  // ProcessRecoveredPreparedTxnsHelper on the start of current stress run.
+  void ProcessRecoveredPreparedTxns(SharedState* shared);
 
-  Status CommitTxn(Transaction* txn);
+  // Default implementation will first update ExpectedState to be
+  // `SharedState::UNKNOWN` for each keys in `txn` and then randomly
+  // commit or rollback `txn`.
+  virtual void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
+                                                  SharedState* shared);
 
-  Status RollbackTxn(Transaction* txn);
-#endif
+  // ExecuteTransaction is recommended instead
+  Status NewTxn(WriteOptions& write_opts,
+                std::unique_ptr<Transaction>* out_txn);
+  Status CommitTxn(Transaction& txn, ThreadState* thread = nullptr);
+
+  // Creates a transaction, executes `ops`, and tries to commit
+  Status ExecuteTransaction(WriteOptions& write_opts, ThreadState* thread,
+                            std::function<Status(Transaction&)>&& ops);
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
@@ -88,6 +98,15 @@ class StressTest {
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) = 0;
 
+  virtual void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                             const std::vector<int>& rand_column_families,
+                             const std::vector<int64_t>& rand_keys) = 0;
+
+  virtual void TestMultiGetEntity(ThreadState* thread,
+                                  const ReadOptions& read_opts,
+                                  const std::vector<int>& rand_column_families,
+                                  const std::vector<int64_t>& rand_keys) = 0;
+
   virtual Status TestPrefixScan(ThreadState* thread,
                                 const ReadOptions& read_opts,
                                 const std::vector<int>& rand_column_families,
@@ -96,23 +115,20 @@ class StressTest {
   virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                          const ReadOptions& read_opts,
                          const std::vector<int>& cf_ids,
-                         const std::vector<int64_t>& keys, char (&value)[100],
-                         std::unique_ptr<MutexLock>& lock) = 0;
+                         const std::vector<int64_t>& keys,
+                         char (&value)[100]) = 0;
 
   virtual Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                             const std::vector<int>& rand_column_families,
-                            const std::vector<int64_t>& rand_keys,
-                            std::unique_ptr<MutexLock>& lock) = 0;
+                            const std::vector<int64_t>& rand_keys) = 0;
 
   virtual Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
                                  const std::vector<int>& rand_column_families,
-                                 const std::vector<int64_t>& rand_keys,
-                                 std::unique_ptr<MutexLock>& lock) = 0;
+                                 const std::vector<int64_t>& rand_keys) = 0;
 
   virtual void TestIngestExternalFile(
       ThreadState* thread, const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys,
-      std::unique_ptr<MutexLock>& lock) = 0;
+      const std::vector<int64_t>& rand_keys) = 0;
 
   // Issue compact range, starting with start_key, whose integer value
   // is rand_key.
@@ -134,25 +150,24 @@ class StressTest {
     return column_families_[column_family_id];
   }
 
-#ifndef ROCKSDB_LITE
   // Generated a list of keys that close to boundaries of SST keys.
   // If there isn't any SST file in the DB, return empty list.
   std::vector<std::string> GetWhiteBoxKeys(ThreadState* thread, DB* db,
                                            ColumnFamilyHandle* cfh,
                                            size_t num_keys);
-#else   // !ROCKSDB_LITE
-  std::vector<std::string> GetWhiteBoxKeys(ThreadState*, DB*,
-                                           ColumnFamilyHandle*, size_t) {
-    // Not supported in LITE mode.
-    return {};
-  }
-#endif  // !ROCKSDB_LITE
 
   // Given a key K, this creates an iterator which scans to K and then
   // does a random sequence of Next/Prev operations.
   virtual Status TestIterate(ThreadState* thread, const ReadOptions& read_opts,
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
+
+  virtual Status TestIterateAgainstExpected(
+      ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) {
+    return Status::NotSupported();
+  }
 
   // Enum used by VerifyIterator() to identify the mode to validate.
   enum LastIterateOp {
@@ -179,6 +194,8 @@ class StressTest {
                                    const std::vector<int>& rand_column_families,
                                    const std::vector<int64_t>& rand_keys);
 
+  virtual Status PrepareOptionsForRestoredDB(Options* options);
+
   virtual Status TestCheckpoint(ThreadState* thread,
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys);
@@ -193,7 +210,6 @@ class StressTest {
                            const std::string& keystr, uint64_t i);
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
-#ifndef ROCKSDB_LITE
   Status VerifyGetLiveFiles() const;
   Status VerifyGetSortedWalFiles() const;
   Status VerifyGetCurrentWalFile() const;
@@ -203,7 +219,6 @@ class StressTest {
       ThreadState* thread, uint64_t iteration,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys);
-#endif  // !ROCKSDB_LITE
 
   virtual Status TestCustomOperations(
       ThreadState* /*thread*/,
@@ -211,26 +226,54 @@ class StressTest {
     return Status::NotSupported("TestCustomOperations() must be overridden");
   }
 
-  void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
+  void ProcessStatus(SharedState* shared, std::string msg, Status s) const;
+
+  void VerificationAbort(SharedState* shared, std::string msg) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key) const;
 
+  void VerificationAbort(SharedState* shared, std::string msg, int cf,
+                         int64_t key, Slice value_from_db,
+                         Slice value_from_expected) const;
+
+  void VerificationAbort(SharedState* shared, int cf, int64_t key,
+                         const Slice& value, const WideColumns& columns) const;
+
+  static std::string DebugString(const Slice& value,
+                                 const WideColumns& columns);
+
   void PrintEnv() const;
 
-  void Open();
+  void Open(SharedState* shared, bool reopen = false);
 
   void Reopen(ThreadState* thread);
 
-  void CheckAndSetOptionsForUserTimestamp();
+  virtual void RegisterAdditionalListeners() {}
+
+  virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
+                                   TransactionDBOptions& /*txn_db_opts*/) {}
+
+  // Returns whether the timestamp of read_opts is updated.
+  bool MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                            std::string& ts_str,
+                                            Slice& ts_slice,
+                                            ReadOptions& read_opts);
+
+  void MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                          std::string& ts_str, Slice& ts_slice,
+                                          ReadOptions& read_opts);
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
-#ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
-#endif
+  OptimisticTransactionDB* optimistic_txn_db_;
+
+  // Currently only used in MultiOpsTxnsStressTest
+  std::atomic<DB*> db_aptr_;
+
   Options options_;
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;
@@ -241,15 +284,53 @@ class StressTest {
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
 
-  // Fields used for stress-testing secondary instance in the same process
-  std::vector<DB*> secondaries_;
-  std::vector<std::vector<ColumnFamilyHandle*>> secondary_cfh_lists_;
-
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
   bool is_db_stopped_;
 };
+
+// Load options from OPTIONS file and populate `options`.
+extern bool InitializeOptionsFromFile(Options& options);
+
+// Initialize `options` using command line arguments.
+// When this function is called, `cache`, `block_cache_compressed`,
+// `filter_policy` have all been initialized. Therefore, we just pass them as
+// input arguments.
+extern void InitializeOptionsFromFlags(
+    const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+
+// Initialize `options` on which `InitializeOptionsFromFile()` and
+// `InitializeOptionsFromFlags()` have both been called already.
+// There are two cases.
+// Case 1: OPTIONS file is not specified. Command line arguments have been used
+//         to initialize `options`. InitializeOptionsGeneral() will use
+//         `cache` and `filter_policy` to initialize
+//         corresponding fields of `options`. InitializeOptionsGeneral() will
+//         also set up other fields of `options` so that stress test can run.
+//         Examples include `create_if_missing` and
+//         `create_missing_column_families`, etc.
+// Case 2: OPTIONS file is specified. It is possible that, after loading from
+//         the given OPTIONS files, some shared object fields are still not
+//         initialized because they are not set in the OPTIONS file. In this
+//         case, if command line arguments indicate that the user wants to set
+//         up such shared objects, e.g. block cache, compressed block cache,
+//         row cache, filter policy, then InitializeOptionsGeneral() will honor
+//         the user's choice, thus passing `cache`,
+//         `filter_policy` as input arguments.
+//
+// InitializeOptionsGeneral() must not overwrite fields of `options` loaded
+// from OPTIONS file.
+extern void InitializeOptionsGeneral(
+    const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+
+// If no OPTIONS file is specified, set up `options` so that we can test
+// user-defined timestamp which requires `-user_timestamp_size=8`.
+// This function also checks for known (currently) incompatible features with
+// user-defined timestamp.
+extern void CheckAndSetOptionsForUserTimestamp(Options& options);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

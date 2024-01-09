@@ -12,7 +12,7 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "monitoring/thread_status_updater.h"
 #include "util/cast_util.h"
 
@@ -29,18 +29,6 @@ Status DBImpl::TEST_SwitchWAL() {
   auto s = SwitchWAL(&write_context);
   TEST_EndWrite(writer);
   return s;
-}
-
-bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
-  if (lock) {
-    log_write_mutex_.Lock();
-  }
-  log::Writer* cur_log_writer = logs_.back().writer;
-  auto res = cur_log_writer->TEST_BufferIsEmpty();
-  if (lock) {
-    log_write_mutex_.Unlock();
-  }
-  return res;
 }
 
 uint64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
@@ -118,10 +106,11 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
        cfd->ioptions()->compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
-  return RunManualCompaction(cfd, level, output_level, CompactRangeOptions(),
-                             begin, end, true, disallow_trivial_move,
-                             port::kMaxUint64 /*max_file_num_to_ignore*/,
-                             "" /*trim_ts*/);
+  return RunManualCompaction(
+      cfd, level, output_level, CompactRangeOptions(), begin, end, true,
+      disallow_trivial_move,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/);
 }
 
 Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
@@ -166,8 +155,10 @@ Status DBImpl::TEST_FlushMemTable(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::TEST_AtomicFlushMemTables(
-    const autovector<ColumnFamilyData*>& cfds, const FlushOptions& flush_opts) {
-  return AtomicFlushMemTables(cfds, flush_opts, FlushReason::kTest);
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+    const FlushOptions& flush_opts) {
+  return AtomicFlushMemTables(flush_opts, FlushReason::kTest,
+                              provided_candidate_cfds);
 }
 
 Status DBImpl::TEST_WaitForBackgroundWork() {
@@ -187,9 +178,12 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
-Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
-  // Wait until the compaction completes
-  return WaitForCompact(wait_unscheduled);
+Status DBImpl::TEST_WaitForCompact() {
+  return WaitForCompact(WaitForCompactOptions());
+}
+Status DBImpl::TEST_WaitForCompact(
+    const WaitForCompactOptions& wait_for_compact_options) {
+  return WaitForCompact(wait_for_compact_options);
 }
 
 Status DBImpl::TEST_WaitForPurge() {
@@ -209,6 +203,8 @@ void DBImpl::TEST_LockMutex() { mutex_.Lock(); }
 
 void DBImpl::TEST_UnlockMutex() { mutex_.Unlock(); }
 
+void DBImpl::TEST_SignalAllBgCv() { bg_cv_.SignalAll(); }
+
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer();
   write_thread_.EnterUnbatched(w, &mutex_);
@@ -222,7 +218,7 @@ void DBImpl::TEST_EndWrite(void* w) {
 }
 
 size_t DBImpl::TEST_LogsToFreeSize() {
-  InstrumentedMutexLock l(&mutex_);
+  InstrumentedMutexLock l(&log_write_mutex_);
   return logs_to_free_.size();
 }
 
@@ -300,20 +296,26 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
   return GetWalPreallocateBlockSize(write_buffer_size);
 }
 
-#ifndef ROCKSDB_LITE
-void DBImpl::TEST_WaitForStatsDumpRun(std::function<void()> callback) const {
-  if (periodic_work_scheduler_ != nullptr) {
-    static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_)
-        ->TEST_WaitForRun(callback);
-  }
+void DBImpl::TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const {
+  periodic_task_scheduler_.TEST_WaitForRun(callback);
 }
 
-PeriodicWorkTestScheduler* DBImpl::TEST_GetPeriodicWorkScheduler() const {
-  return static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_);
+const PeriodicTaskScheduler& DBImpl::TEST_GetPeriodicTaskScheduler() const {
+  return periodic_task_scheduler_;
 }
-#endif  // !ROCKSDB_LITE
+
+SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
+  InstrumentedMutexLock l(&mutex_);
+  return seqno_to_time_mapping_;
+}
+
+const autovector<uint64_t>& DBImpl::TEST_GetFilesToQuarantine() const {
+  InstrumentedMutexLock l(&mutex_);
+  return error_handler_.GetFilesToQuarantine();
+}
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
+  InstrumentedMutexLock l(&const_cast<DBImpl*>(this)->stats_history_mutex_);
   return EstimateInMemoryStatsHistorySize();
 }
 }  // namespace ROCKSDB_NAMESPACE

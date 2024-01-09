@@ -35,7 +35,7 @@ DECLARE_int32(open_metadata_write_fault_one_in);
 DECLARE_int32(open_write_fault_one_in);
 DECLARE_int32(open_read_fault_one_in);
 
-DECLARE_int32(injest_error_severity);
+DECLARE_int32(inject_error_severity);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
@@ -43,25 +43,11 @@ class StressTest;
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
-  // indicates a key may have any value (or not be present) as an operation on
-  // it is incomplete.
-  static const uint32_t UNKNOWN_SENTINEL;
-  // indicates a key should definitely be deleted
-  static const uint32_t DELETION_SENTINEL;
-
   // Errors when reading filter blocks are ignored, so we use a thread
   // local variable updated via sync points to keep track of errors injected
   // while reading filter blocks in order to ignore the Get/MultiGet result
   // for those calls
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-#if defined(OS_SOLARIS)
-  static __thread bool ignore_read_error;
-#else
   static thread_local bool ignore_read_error;
-#endif // OS_SOLARIS
-#else
-  static bool ignore_read_error;
-#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
   SharedState(Env* /*env*/, StressTest* stress_test)
       : cv_(&mu_),
@@ -81,36 +67,10 @@ class SharedState {
         stress_test_(stress_test),
         verification_failure_(false),
         should_stop_test_(false),
-        no_overwrite_ids_(FLAGS_column_families),
+        no_overwrite_ids_(GenerateNoOverwriteIds()),
         expected_state_manager_(nullptr),
-        printing_verification_results_(false) {
-    // Pick random keys in each column family that will not experience
-    // overwrite
-
-    fprintf(stdout, "Choosing random keys with no overwrite\n");
-    Random64 rnd(seed_);
-    // Start with the identity permutation. Subsequent iterations of
-    // for loop below will start with perm of previous for loop
-    int64_t* permutation = new int64_t[max_key_];
-    for (int64_t i = 0; i < max_key_; i++) {
-      permutation[i] = i;
-    }
-    // Now do the Knuth shuffle
-    int64_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
-    // Only need to figure out first num_no_overwrite_keys of permutation
-    no_overwrite_ids_.reserve(num_no_overwrite_keys);
-    for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
-      int64_t rand_index = i + rnd.Next() % (max_key_ - i);
-      // Swap i and rand_index;
-      int64_t temp = permutation[i];
-      permutation[i] = permutation[rand_index];
-      permutation[rand_index] = temp;
-      // Fill no_overwrite_ids_ with the first num_no_overwrite_keys of
-      // permutation
-      no_overwrite_ids_.insert(permutation[i]);
-    }
-    delete[] permutation;
-
+        printing_verification_results_(false),
+        start_timestamp_(Env::Default()->NowNanos()) {
     Status status;
     // TODO: We should introduce a way to explicitly disable verification
     // during shutdown. When that is disabled and FLAGS_expected_values_dir
@@ -160,13 +120,21 @@ class SharedState {
     for (int i = 0; i < FLAGS_column_families; ++i) {
       key_locks_[i].reset(new port::Mutex[num_locks]);
     }
-#ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
+#ifdef NDEBUG
+      // Unsupported in release mode because it relies on
+      // `IGNORE_STATUS_IF_ERROR` to distinguish faults not expected to lead to
+      // failure.
+      fprintf(stderr,
+              "Cannot set nonzero value for --read_fault_one_in in "
+              "release mode.");
+      exit(1);
+#else   // NDEBUG
       SyncPoint::GetInstance()->SetCallBack("FaultInjectionIgnoreError",
                                             IgnoreReadErrorCallback);
       SyncPoint::GetInstance()->EnableProcessing();
+#endif  // NDEBUG
     }
-#endif // NDEBUG
   }
 
   ~SharedState() {
@@ -241,6 +209,32 @@ class SharedState {
     }
   }
 
+  // Returns a collection of mutex locks covering the key range [start, end) in
+  // `cf`.
+  std::vector<std::unique_ptr<MutexLock>> GetLocksForKeyRange(int cf,
+                                                              int64_t start,
+                                                              int64_t end) {
+    std::vector<std::unique_ptr<MutexLock>> range_locks;
+
+    if (start >= end) {
+      return range_locks;
+    }
+
+    const int64_t start_idx = start >> log2_keys_per_lock_;
+
+    int64_t end_idx = end >> log2_keys_per_lock_;
+    if ((end & ((1 << log2_keys_per_lock_) - 1)) == 0) {
+      --end_idx;
+    }
+
+    for (int64_t idx = start_idx; idx <= end_idx; ++idx) {
+      range_locks.emplace_back(
+          std::make_unique<MutexLock>(&key_locks_[cf][idx]));
+    }
+
+    return range_locks;
+  }
+
   Status SaveAtAndAfter(DB* db) {
     return expected_state_manager_->SaveAtAndAfter(db);
   }
@@ -254,52 +248,68 @@ class SharedState {
     return expected_state_manager_->ClearColumnFamily(cf);
   }
 
-  // @param pending True if the update may have started but is not yet
-  //    guaranteed finished. This is useful for crash-recovery testing when the
-  //    process may crash before updating the expected values array.
+  // Prepare a Put that will be started but not finish yet
+  // This is useful for crash-recovery testing when the process may crash
+  // before updating the corresponding expected value
   //
-  // Requires external locking covering `key` in `cf`.
-  void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    return expected_state_manager_->Put(cf, key, value_base, pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PreparePut(int cf, int64_t key) {
+    return expected_state_manager_->PreparePut(cf, key);
   }
 
-  // Requires external locking covering `key` in `cf`.
-  uint32_t Get(int cf, int64_t key) const {
+  // Does not requires external locking.
+  ExpectedValue Get(int cf, int64_t key) {
     return expected_state_manager_->Get(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
+  // Prepare a Delete that will be started but not finish yet
+  // This is useful for crash-recovery testing when the process may crash
+  // before updating the corresponding expected value
   //
-  // Requires external locking covering `key` in `cf`.
-  bool Delete(int cf, int64_t key, bool pending) {
-    return expected_state_manager_->Delete(cf, key, pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PrepareDelete(int cf, int64_t key) {
+    return expected_state_manager_->PrepareDelete(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
-  //
-  // Requires external locking covering `key` in `cf`.
-  bool SingleDelete(int cf, int64_t key, bool pending) {
-    return expected_state_manager_->Delete(cf, key, pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key) {
+    return expected_state_manager_->PrepareSingleDelete(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns number of keys deleted by the call.
-  //
-  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
-  int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
-    return expected_state_manager_->DeleteRange(cf, begin_key, end_key,
-                                                pending);
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`
+  // to prevent concurrent write or delete to the same `key`.
+  std::vector<PendingExpectedValue> PrepareDeleteRange(int cf,
+                                                       int64_t begin_key,
+                                                       int64_t end_key) {
+    return expected_state_manager_->PrepareDeleteRange(cf, begin_key, end_key);
   }
 
-  bool AllowsOverwrite(int64_t key) {
+  bool AllowsOverwrite(int64_t key) const {
     return no_overwrite_ids_.find(key) == no_overwrite_ids_.end();
   }
 
-  // Requires external locking covering `key` in `cf`.
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // delete to the same `key`.
   bool Exists(int cf, int64_t key) {
     return expected_state_manager_->Exists(cf, key);
+  }
+
+  // Sync the `value_base` to the corresponding expected value
+  void SyncPut(int cf, int64_t key, uint32_t value_base) {
+    return expected_state_manager_->SyncPut(cf, key, value_base);
+  }
+
+  // Sync the corresponding expected value to be pending Put
+  void SyncPendingPut(int cf, int64_t key) {
+    return expected_state_manager_->SyncPendingPut(cf, key);
+  }
+
+  // Sync the corresponding expected value to be deleted
+  void SyncDelete(int cf, int64_t key) {
+    return expected_state_manager_->SyncDelete(cf, key);
   }
 
   uint32_t GetSeed() const { return seed_; }
@@ -330,9 +340,46 @@ class SharedState {
     printing_verification_results_.store(false, std::memory_order_relaxed);
   }
 
+  uint64_t GetStartTimestamp() const { return start_timestamp_; }
+
+  void SafeTerminate() {
+    // Grab mutex so that we don't call terminate while another thread is
+    // attempting to print a stack trace due to the first one
+    MutexLock l(&mu_);
+    std::terminate();
+  }
+
  private:
-  static void IgnoreReadErrorCallback(void*) {
-    ignore_read_error = true;
+  static void IgnoreReadErrorCallback(void*) { ignore_read_error = true; }
+
+  // Pick random keys in each column family that will not experience overwrite.
+  std::unordered_set<int64_t> GenerateNoOverwriteIds() const {
+    fprintf(stdout, "Choosing random keys with no overwrite\n");
+    // Start with the identity permutation. Subsequent iterations of
+    // for loop below will start with perm of previous for loop
+    std::vector<int64_t> permutation(max_key_);
+    for (int64_t i = 0; i < max_key_; ++i) {
+      permutation[i] = i;
+    }
+    // Now do the Knuth shuffle
+    const int64_t num_no_overwrite_keys =
+        (max_key_ * FLAGS_nooverwritepercent) / 100;
+    // Only need to figure out first num_no_overwrite_keys of permutation
+    std::unordered_set<int64_t> ret;
+    ret.reserve(num_no_overwrite_keys);
+    Random64 rnd(seed_);
+    for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+      assert(i < max_key_);
+      int64_t rand_index = i + rnd.Next() % (max_key_ - i);
+      // Swap i and rand_index;
+      int64_t temp = permutation[i];
+      permutation[i] = permutation[rand_index];
+      permutation[rand_index] = temp;
+      // Fill no_overwrite_ids_ with the first num_no_overwrite_keys of
+      // permutation
+      ret.insert(permutation[i]);
+    }
+    return ret;
   }
 
   port::Mutex mu_;
@@ -355,13 +402,14 @@ class SharedState {
   std::atomic<bool> should_stop_test_;
 
   // Keys that should not be overwritten
-  std::unordered_set<size_t> no_overwrite_ids_;
+  const std::unordered_set<int64_t> no_overwrite_ids_;
 
   std::unique_ptr<ExpectedStateManager> expected_state_manager_;
   // Cannot store `port::Mutex` directly in vector since it is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::unique_ptr<port::Mutex[]>> key_locks_;
   std::atomic<bool> printing_verification_results_;
+  const uint64_t start_timestamp_;
 };
 
 // Per-thread state for concurrent executions of the same benchmark.

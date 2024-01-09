@@ -39,7 +39,10 @@ namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const std::set<uint32_t> kFooterFormatVersionsToTest{
+    // Non-legacy, before big footer changes
     5U,
+    // After big footer changes
+    6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
     kLatestFormatVersion,
@@ -72,11 +75,29 @@ std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   return result;
 }
 
+const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes() {
+  static std::vector<UserDefinedTimestampTestMode> udt_test_modes = {
+      UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+      UserDefinedTimestampTestMode::kNormal,
+      UserDefinedTimestampTestMode::kNone};
+  return udt_test_modes;
+}
+
+bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kNone;
+}
+
+bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
+}
+
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
-  if (raw < 1) raw = 1;
-  std::string raw_data = rnd->RandomString(raw);
+  if (raw < 1) {
+    raw = 1;
+  }
+  std::string raw_data = rnd->RandomBinaryString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
@@ -90,7 +111,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
 namespace {
 class Uint64ComparatorImpl : public Comparator {
  public:
-  Uint64ComparatorImpl() {}
+  Uint64ComparatorImpl() = default;
 
   const char* Name() const override { return "rocksdb.Uint64Comparator"; }
 
@@ -112,11 +133,9 @@ class Uint64ComparatorImpl : public Comparator {
   }
 
   void FindShortestSeparator(std::string* /*start*/,
-                             const Slice& /*limit*/) const override {
-    return;
-  }
+                             const Slice& /*limit*/) const override {}
 
-  void FindShortSuccessor(std::string* /*key*/) const override { return; }
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 }  // namespace
 
@@ -130,6 +149,16 @@ const Comparator* BytewiseComparatorWithU64TsWrapper() {
   const Comparator* user_comparator = nullptr;
   Status s = Comparator::CreateFromString(
       config_options, "leveldb.BytewiseComparator.u64ts", &user_comparator);
+  s.PermitUncheckedError();
+  return user_comparator;
+}
+
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper() {
+  ConfigOptions config_options;
+  const Comparator* user_comparator = nullptr;
+  Status s = Comparator::CreateFromString(
+      config_options, "rocksdb.ReverseBytewiseComparator.u64ts",
+      &user_comparator);
   s.PermitUncheckedError();
   return user_comparator;
 }
@@ -242,7 +271,6 @@ BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
 }
 
 TableFactory* RandomTableFactory(Random* rnd, int pre_defined) {
-#ifndef ROCKSDB_LITE
   int random_num = pre_defined >= 0 ? pre_defined : rnd->Uniform(4);
   switch (random_num) {
     case 0:
@@ -252,11 +280,6 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined) {
     default:
       return NewBlockBasedTableFactory();
   }
-#else
-  (void)rnd;
-  (void)pre_defined;
-  return NewBlockBasedTableFactory();
-#endif  // !ROCKSDB_LITE
 }
 
 MergeOperator* RandomMergeOperator(Random* rnd) {
@@ -285,6 +308,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
   db_opt->paranoid_checks = rnd->Uniform(2);
   db_opt->track_and_verify_wals_in_manifest = rnd->Uniform(2);
+  db_opt->verify_sst_unique_id_in_manifest = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
   db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
@@ -292,6 +316,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->recycle_log_file_num = rnd->Uniform(2);
   db_opt->avoid_flush_during_recovery = rnd->Uniform(2);
   db_opt->avoid_flush_during_shutdown = rnd->Uniform(2);
+  db_opt->enforce_single_del_contracts = rnd->Uniform(2);
 
   // int options
   db_opt->max_background_compactions = rnd->Uniform(100);
@@ -438,15 +463,16 @@ bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
   Random rnd(301);
   std::string test_string = rnd.RandomString(4096);
   Slice data(test_string);
-  Status s = WriteStringToFile(fs.get(), data, tmp, true);
+  IOOptions opts;
+  Status s = WriteStringToFile(fs.get(), data, tmp, true, opts);
   if (s.ok()) {
     std::unique_ptr<FSRandomAccessFile> file;
     auto io_s = fs->NewRandomAccessFile(tmp, FileOptions(), &file, nullptr);
     if (io_s.ok()) {
-      supported = !(file->Prefetch(0, data.size(), IOOptions(), nullptr)
-                        .IsNotSupported());
+      supported =
+          !(file->Prefetch(0, data.size(), opts, nullptr).IsNotSupported());
     }
-    s = fs->DeleteFile(tmp, IOOptions(), nullptr);
+    s = fs->DeleteFile(tmp, opts, nullptr);
   }
   return s.ok() && supported;
 }
@@ -496,16 +522,14 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
     for (int i = 0; i < bytes_to_corrupt; i++) {
       contents[i + offset] ^= 0x80;
     }
-    s = WriteStringToFile(env, contents, fname);
+    s = WriteStringToFile(env, contents, fname, false /* should_sync */);
   }
   if (s.ok() && verify_checksum) {
-#ifndef ROCKSDB_LITE
     Options options;
     options.env = env;
     EnvOptions env_options;
     Status v = VerifySstFileChecksum(options, env_options, fname);
     assert(!v.ok());
-#endif
   }
   return s;
 }
@@ -521,7 +545,7 @@ Status TruncateFile(Env* env, const std::string& fname, uint64_t new_length) {
   s = ReadFileToString(env, fname, &contents);
   if (s.ok()) {
     contents.resize(static_cast<size_t>(new_length), 'b');
-    s = WriteStringToFile(env, contents, fname);
+    s = WriteStringToFile(env, contents, fname, false /* should_sync */);
   }
   return s;
 }
@@ -609,7 +633,7 @@ class SpecialMemTableRep : public MemTableRep {
     return memtable_->GetIterator(arena);
   }
 
-  virtual ~SpecialMemTableRep() override {}
+  virtual ~SpecialMemTableRep() override = default;
 
  private:
   std::unique_ptr<MemTableRep> memtable_;
@@ -618,14 +642,13 @@ class SpecialMemTableRep : public MemTableRep {
 };
 class SpecialSkipListFactory : public MemTableRepFactory {
  public:
-#ifndef ROCKSDB_LITE
   static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
     library.AddFactory<MemTableRepFactory>(
         ObjectLibrary::PatternEntry(SpecialSkipListFactory::kClassName(), true)
             .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
            std::string* /* errmsg */) {
-          auto colon = uri.find(":");
+          auto colon = uri.find(':');
           if (colon != std::string::npos) {
             auto count = ParseInt(uri.substr(colon + 1));
             guard->reset(new SpecialSkipListFactory(count));
@@ -636,8 +659,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
         });
     return true;
   }
-#endif  // ROCKSDB_LITE
-  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // After number of inserts >= `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
       : num_entries_flush_(num_entries_flush) {}
@@ -656,7 +678,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
   std::string GetId() const override {
     std::string id = Name();
     if (num_entries_flush_ > 0) {
-      id.append(":").append(ROCKSDB_NAMESPACE::ToString(num_entries_flush_));
+      id.append(":").append(std::to_string(num_entries_flush_));
     }
     return id;
   }
@@ -676,7 +698,6 @@ MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush) {
   return new SpecialSkipListFactory(num_entries_per_flush);
 }
 
-#ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
 int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   size_t num_types;
@@ -719,17 +740,12 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 
-#endif  // ROCKSDB_LITE
 
 void RegisterTestLibrary(const std::string& arg) {
   static bool registered = false;
   if (!registered) {
     registered = true;
-#ifndef ROCKSDB_LITE
     ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
-#else
-    (void)arg;
-#endif  // ROCKSDB_LITE
   }
 }
 }  // namespace test

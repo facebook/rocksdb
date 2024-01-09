@@ -13,7 +13,7 @@
 
 #include <thread>
 
-#include "rocksdb/options.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 // size_t printf formatting named in the manner of C99 standard formatting
@@ -23,45 +23,38 @@
 
 #define __declspec(S)
 
-#define ROCKSDB_NOEXCEPT noexcept
-
-// thread_local is part of C++11 and later (TODO: clean up this define)
-#ifndef __thread
-#define __thread thread_local
-#endif
-
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
-  #include <machine/endian.h>
-  #if defined(__DARWIN_LITTLE_ENDIAN) && defined(__DARWIN_BYTE_ORDER)
-    #define PLATFORM_IS_LITTLE_ENDIAN \
-        (__DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN)
-  #endif
+#include <machine/endian.h>
+#if defined(__DARWIN_LITTLE_ENDIAN) && defined(__DARWIN_BYTE_ORDER)
+#define PLATFORM_IS_LITTLE_ENDIAN \
+  (__DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN)
+#endif
 #elif defined(OS_SOLARIS)
-  #include <sys/isa_defs.h>
-  #ifdef _LITTLE_ENDIAN
-    #define PLATFORM_IS_LITTLE_ENDIAN true
-  #else
-    #define PLATFORM_IS_LITTLE_ENDIAN false
-  #endif
-  #include <alloca.h>
+#include <sys/isa_defs.h>
+#ifdef _LITTLE_ENDIAN
+#define PLATFORM_IS_LITTLE_ENDIAN true
+#else
+#define PLATFORM_IS_LITTLE_ENDIAN false
+#endif
+#include <alloca.h>
 #elif defined(OS_AIX)
-  #include <sys/types.h>
-  #include <arpa/nameser_compat.h>
-  #define PLATFORM_IS_LITTLE_ENDIAN (BYTE_ORDER == LITTLE_ENDIAN)
-  #include <alloca.h>
+#include <arpa/nameser_compat.h>
+#include <sys/types.h>
+#define PLATFORM_IS_LITTLE_ENDIAN (BYTE_ORDER == LITTLE_ENDIAN)
+#include <alloca.h>
 #elif defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_NETBSD) || \
     defined(OS_DRAGONFLYBSD) || defined(OS_ANDROID)
-  #include <sys/endian.h>
-  #include <sys/types.h>
-  #define PLATFORM_IS_LITTLE_ENDIAN (_BYTE_ORDER == _LITTLE_ENDIAN)
+#include <sys/endian.h>
+#include <sys/types.h>
+#define PLATFORM_IS_LITTLE_ENDIAN (_BYTE_ORDER == _LITTLE_ENDIAN)
 #else
-  #include <endian.h>
+#include <endian.h>
 #endif
 #include <pthread.h>
-
 #include <stdint.h>
 #include <string.h>
+
 #include <limits>
 #include <string>
 
@@ -69,8 +62,8 @@
 #define PLATFORM_IS_LITTLE_ENDIAN (__BYTE_ORDER == __LITTLE_ENDIAN)
 #endif
 
-#if defined(OS_MACOSX) || defined(OS_SOLARIS) || defined(OS_FREEBSD) ||\
-    defined(OS_NETBSD) || defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD) ||\
+#if defined(OS_MACOSX) || defined(OS_SOLARIS) || defined(OS_FREEBSD) ||      \
+    defined(OS_NETBSD) || defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD) || \
     defined(OS_ANDROID) || defined(CYGWIN) || defined(OS_AIX)
 // Use fread/fwrite/fflush on platforms without _unlocked variants
 #define fread_unlocked fread
@@ -78,8 +71,8 @@
 #define fflush_unlocked fflush
 #endif
 
-#if defined(OS_MACOSX) || defined(OS_FREEBSD) ||\
-    defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD)
+#if defined(OS_MACOSX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || \
+    defined(OS_DRAGONFLYBSD)
 // Use fsync() on platforms without fdatasync()
 #define fdatasync fsync
 #endif
@@ -95,16 +88,6 @@ namespace ROCKSDB_NAMESPACE {
 extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
-const int kMaxInt32 = std::numeric_limits<int32_t>::max();
-const int kMinInt32 = std::numeric_limits<int32_t>::min();
-const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
-const int64_t kMinInt64 = std::numeric_limits<int64_t>::min();
-const size_t kMaxSizet = std::numeric_limits<size_t>::max();
-
 constexpr bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 #undef PLATFORM_IS_LITTLE_ENDIAN
 
@@ -112,6 +95,8 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "pthread_mutex_t"; }
+
   explicit Mutex(bool adaptive = kDefaultToAdaptiveMutex);
   // No copying
   Mutex(const Mutex&) = delete;
@@ -124,9 +109,14 @@ class Mutex {
 
   bool TryLock();
 
-  // this will assert if the mutex is not locked
-  // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld();
+  // This will fail assertion if the mutex is not locked.
+  // It does NOT verify that mutex is held by a calling thread.
+  void AssertHeld() const;
+
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
 
  private:
   friend class CondVar;
@@ -149,21 +139,25 @@ class RWMutex {
   void WriteLock();
   void ReadUnlock();
   void WriteUnlock();
-  void AssertHeld() { }
+  void AssertHeld() const {}
 
  private:
-  pthread_rwlock_t mu_; // the underlying platform mutex
+  pthread_rwlock_t mu_;  // the underlying platform mutex
 };
 
 class CondVar {
  public:
   explicit CondVar(Mutex* mu);
   ~CondVar();
+
+  Mutex* GetMutex() const { return mu_; }
+
   void Wait();
   // Timed condition wait.  Returns true if timeout occurred.
   bool TimedWait(uint64_t abs_time_us);
   void Signal();
   void SignalAll();
+
  private:
   pthread_cond_t cv_;
   Mutex* mu_;
@@ -175,9 +169,11 @@ static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)
   asm volatile("pause");
 #elif defined(__aarch64__)
-  asm volatile("yield");
+  asm volatile("isb");
 #elif defined(__powerpc64__)
   asm volatile("or 27,27,27");
+#elif defined(__loongarch64)
+  asm volatile("dbar 0");
 #endif
   // it's okay for other platforms to be no-ops
 }
@@ -215,11 +211,20 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 static_assert((CACHE_LINE_SIZE & (CACHE_LINE_SIZE - 1)) == 0,
               "Cache line size must be a power of 2 number of bytes");
 
-extern void *cacheline_aligned_alloc(size_t size);
+extern void* cacheline_aligned_alloc(size_t size);
 
-extern void cacheline_aligned_free(void *memblock);
+extern void cacheline_aligned_free(void* memblock);
 
+#if defined(__aarch64__)
+//  __builtin_prefetch(..., 1) turns into a prefetch into prfm pldl3keep. On
+// arm64 we want this as close to the core as possible to turn it into a
+// L1 prefetech unless locality == 0 in which case it will be turned into a
+// non-temporal prefetch
+#define PREFETCH(addr, rw, locality) \
+  __builtin_prefetch(addr, rw, locality >= 1 ? 3 : locality)
+#else
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+#endif
 
 extern void Crash(const std::string& srcfile, int srcline);
 
@@ -237,5 +242,5 @@ int64_t GetProcessID();
 // true on success or false on failure.
 bool GenerateRfcUuid(std::string* output);
 
-} // namespace port
+}  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

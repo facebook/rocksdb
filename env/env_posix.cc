@@ -14,19 +14,21 @@
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
 #endif
-#include <errno.h>
 #include <fcntl.h>
+
+#include <cerrno>
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #endif
 #include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #endif
@@ -36,10 +38,10 @@
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <sys/uio.h>
 #endif
-#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <ctime>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
 #elif defined(__MACH__)
@@ -55,10 +57,10 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -130,12 +132,12 @@ class PosixDynamicLibrary : public DynamicLibrary {
 class PosixClock : public SystemClock {
  public:
   static const char* kClassName() { return "PosixClock"; }
-  const char* Name() const override { return kClassName(); }
-  const char* NickName() const override { return kDefaultName(); }
+  const char* Name() const override { return kDefaultName(); }
+  const char* NickName() const override { return kClassName(); }
 
   uint64_t NowMicros() override {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
+    port::TimeVal tv;
+    port::GetTimeOfDay(&tv, nullptr);
     return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
   }
 
@@ -166,7 +168,7 @@ class PosixClock : public SystemClock {
     defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000;
+    return (static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec) / 1000;
 #endif
     return 0;
   }
@@ -199,8 +201,8 @@ class PosixClock : public SystemClock {
     std::string dummy;
     dummy.reserve(maxsize);
     dummy.resize(maxsize);
-    char* p = &dummy[0];
-    localtime_r(&seconds, &t);
+    char* p = dummy.data();
+    port::LocalTimeR(&seconds, &t);
     snprintf(p, maxsize, "%04d/%02d/%02d-%02d:%02d:%02d ", t.tm_year + 1900,
              t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
     return dummy;
@@ -213,13 +215,14 @@ class PosixEnv : public CompositeEnv {
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kDefaultName(); }
 
-  ~PosixEnv() override {
-    if (this == Env::Default()) {
-      for (const auto tid : threads_to_join_) {
+  struct JoinThreadsOnExit {
+    explicit JoinThreadsOnExit(PosixEnv& _deflt) : deflt(_deflt) {}
+    ~JoinThreadsOnExit() {
+      for (const auto tid : deflt.threads_to_join_) {
         pthread_join(tid, nullptr);
       }
       for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
-        thread_pools_[pool_id].JoinAllThreads();
+        deflt.thread_pools_[pool_id].JoinAllThreads();
       }
       // Do not delete the thread_status_updater_ in order to avoid the
       // free after use when Env::Default() is destructed while some other
@@ -227,7 +230,8 @@ class PosixEnv : public CompositeEnv {
       // PosixEnv instances use the same thread_status_updater_, so never
       // explicitly delete it.
     }
-  }
+    PosixEnv& deflt;
+  };
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -302,6 +306,10 @@ class PosixEnv : public CompositeEnv {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override;
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override;
+
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     assert(thread_status_updater_);
     return thread_status_updater_->GetThreadList(thread_list);
@@ -324,12 +332,16 @@ class PosixEnv : public CompositeEnv {
   }
 
   Status GetHostName(char* name, uint64_t len) override {
-    int ret = gethostname(name, static_cast<size_t>(len));
+    const size_t max_len = static_cast<size_t>(len);
+    int ret = gethostname(name, max_len);
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL) {
         return Status::InvalidArgument(errnoStr(errno).c_str());
+      } else if (errno == ENAMETOOLONG) {
+        return IOError("GetHostName", std::string(name, strnlen(name, max_len)),
+                       errno);
       } else {
-        return IOError("GetHostName", name, errno);
+        return IOError("GetHostName", "", errno);
       }
     }
     return Status::OK();
@@ -437,6 +449,16 @@ unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {
   return thread_pools_[pri].GetQueueLen();
 }
 
+int PosixEnv::ReserveThreads(int threads_to_reserved, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReserveThreads(threads_to_reserved);
+}
+
+int PosixEnv::ReleaseThreads(int threads_to_released, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReleaseThreads(threads_to_released);
+}
+
 struct StartThreadState {
   void (*user_function)(void*);
   void* arg;
@@ -487,8 +509,11 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
-  // ~PosixEnv must be called on exit
-  static PosixEnv default_env;
+  // Avoid problems with accessing most members of Env::Default() during
+  // static destruction.
+  STATIC_AVOID_DESTRUCTION(PosixEnv, default_env);
+  // This destructor must be called on exit
+  static PosixEnv::JoinThreadsOnExit thread_joiner(default_env);
   return &default_env;
 }
 
@@ -496,9 +521,9 @@ Env* Env::Default() {
 // Default Posix SystemClock
 //
 const std::shared_ptr<SystemClock>& SystemClock::Default() {
-  static std::shared_ptr<SystemClock> default_clock =
-      std::make_shared<PosixClock>();
-  return default_clock;
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<SystemClock>, instance)
+  (std::make_shared<PosixClock>());
+  return instance;
 }
 }  // namespace ROCKSDB_NAMESPACE
 

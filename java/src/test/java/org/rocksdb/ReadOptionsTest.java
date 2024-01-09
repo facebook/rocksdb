@@ -160,7 +160,7 @@ public class ReadOptionsTest {
   @Test
   public void iterateUpperBound() {
     try (final ReadOptions opt = new ReadOptions()) {
-      Slice upperBound = buildRandomSlice();
+      final Slice upperBound = buildRandomSlice();
       opt.setIterateUpperBound(upperBound);
       assertThat(Arrays.equals(upperBound.data(), opt.iterateUpperBound().data())).isTrue();
       opt.setIterateUpperBound(null);
@@ -178,7 +178,7 @@ public class ReadOptionsTest {
   @Test
   public void iterateLowerBound() {
     try (final ReadOptions opt = new ReadOptions()) {
-      Slice lowerBound = buildRandomSlice();
+      final Slice lowerBound = buildRandomSlice();
       opt.setIterateLowerBound(lowerBound);
       assertThat(Arrays.equals(lowerBound.data(), opt.iterateLowerBound().data())).isTrue();
       opt.setIterateLowerBound(null);
@@ -212,7 +212,7 @@ public class ReadOptionsTest {
   @Test
   public void timestamp() {
     try (final ReadOptions opt = new ReadOptions()) {
-      Slice timestamp = buildRandomSlice();
+      final Slice timestamp = buildRandomSlice();
       opt.setTimestamp(timestamp);
       assertThat(Arrays.equals(timestamp.data(), opt.timestamp().data())).isTrue();
       opt.setTimestamp(null);
@@ -223,7 +223,7 @@ public class ReadOptionsTest {
   @Test
   public void iterStartTs() {
     try (final ReadOptions opt = new ReadOptions()) {
-      Slice itertStartTsSlice = buildRandomSlice();
+      final Slice itertStartTsSlice = buildRandomSlice();
       opt.setIterStartTs(itertStartTsSlice);
       assertThat(Arrays.equals(itertStartTsSlice.data(), opt.iterStartTs().data())).isTrue();
       opt.setIterStartTs(null);
@@ -234,24 +234,32 @@ public class ReadOptionsTest {
   @Test
   public void deadline() {
     try (final ReadOptions opt = new ReadOptions()) {
-      opt.setDeadline(1999l);
-      assertThat(opt.deadline()).isEqualTo(1999l);
+      opt.setDeadline(1999L);
+      assertThat(opt.deadline()).isEqualTo(1999L);
     }
   }
 
   @Test
   public void ioTimeout() {
     try (final ReadOptions opt = new ReadOptions()) {
-      opt.setIoTimeout(34555l);
-      assertThat(opt.ioTimeout()).isEqualTo(34555l);
+      opt.setIoTimeout(34555L);
+      assertThat(opt.ioTimeout()).isEqualTo(34555L);
     }
   }
 
   @Test
   public void valueSizeSoftLimit() {
     try (final ReadOptions opt = new ReadOptions()) {
-      opt.setValueSizeSoftLimit(12134324l);
-      assertThat(opt.valueSizeSoftLimit()).isEqualTo(12134324l);
+      opt.setValueSizeSoftLimit(12134324L);
+      assertThat(opt.valueSizeSoftLimit()).isEqualTo(12134324L);
+    }
+  }
+
+  @Test
+  public void asyncIo() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setAsyncIo(true);
+      assertThat(opt.asyncIo()).isTrue();
     }
   }
 
@@ -351,8 +359,7 @@ public class ReadOptionsTest {
     }
   }
 
-  private ReadOptions setupUninitializedReadOptions(
-      ExpectedException exception) {
+  private ReadOptions setupUninitializedReadOptions(final ExpectedException exception) {
     final ReadOptions readOptions = new ReadOptions();
     readOptions.close();
     exception.expect(AssertionError.class);
@@ -361,7 +368,7 @@ public class ReadOptionsTest {
 
   private Slice buildRandomSlice() {
     final Random rand = new Random();
-    byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
+    final byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
     rand.nextBytes(sliceBytes);
     return new Slice(sliceBytes);
   }

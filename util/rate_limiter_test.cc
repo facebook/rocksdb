@@ -7,22 +7,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/rate_limiter.h"
-
 #include <chrono>
 #include <cinttypes>
 #include <cstdint>
 #include <limits>
 
 #include "db/db_test_util.h"
-#include "options/options_parser.h"
 #include "port/port.h"
-#include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
-#include "rocksdb/utilities/options_type.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,7 +33,7 @@ class RateLimiterTest : public testing::Test {
 };
 
 TEST_F(RateLimiterTest, OverflowRate) {
-  GenericRateLimiter limiter(port::kMaxInt64, 1000, 10,
+  GenericRateLimiter limiter(std::numeric_limits<int64_t>::max(), 1000, 10,
                              RateLimiter::Mode::kWritesOnly,
                              SystemClock::Default(), false /* auto_tuned */);
   ASSERT_GT(limiter.GetSingleBurstBytes(), 1000000000ll);
@@ -205,7 +202,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     bool mid_pri_itereated_after_low_pri_set = false;
     bool pri_iteration_order_verified = false;
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForHighPri",
         [&](void* arg) {
           bool* high_pri_iterated_after_mid_low_pri = (bool*)arg;
@@ -215,7 +212,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
         });
 
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForMidPri",
         [&](void* arg) {
           bool* mid_pri_itereated_after_low_pri = (bool*)arg;
@@ -225,7 +222,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
         });
 
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PreReturnPriIterationOrder",
         [&](void* arg) {
           std::vector<Env::IOPriority>* pri_iteration_order =
@@ -252,13 +249,13 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     ASSERT_EQ(pri_iteration_order_verified, true);
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PreReturnPriIterationOrder");
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForMidPri");
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForHighPri");
   }
 }
@@ -347,10 +344,13 @@ TEST_F(RateLimiterTest, Rate) {
     }
   }
 
-  // This can fail in heavily loaded CI environments
+  // This can fail due to slow execution speed, like when using valgrind or in
+  // heavily loaded CI environments
   bool skip_minimum_rate_check =
-#if (defined(TRAVIS) || defined(CIRCLECI)) && defined(OS_MACOSX)
+#if defined(ROCKSDB_VALGRIND_RUN)
       true;
+#elif defined(OS_MACOSX)
+      getenv("CIRCLECI") || getenv("GITHUB_ACTIONS");
 #else
       getenv("SANDCASTLE");
 #endif
@@ -390,11 +390,14 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
           std::make_shared<GenericRateLimiter>(
               target, refill_period, 10, RateLimiter::Mode::kWritesOnly,
               SystemClock::Default(), false /* auto_tuned */);
+      // After "GenericRateLimiter::Request:1" the mutex is held until the bytes
+      // are refilled. This test could be improved to change the limit when lock
+      // is released in `TimedWait()`.
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
            {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
-            "GenericRateLimiter::RefillBytesAndGrantRequests"}});
+            "GenericRateLimiter::Request:1"}});
       Arg arg(target, Env::IO_HIGH, limiter);
       // The idea behind is to start a request first, then before it refills,
       // update limit to a different value (2X/0.5X). No starvation should
@@ -415,35 +418,70 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  const std::chrono::seconds kTimePerRefill(1);
+
+  // This test makes sure available_bytes_ get exhausted first before queuing
+  // any remaining bytes when requested_bytes > available_bytes
+  const int64_t available_bytes_per_period = 500;
+
+  std::shared_ptr<RateLimiter> limiter = std::make_shared<GenericRateLimiter>(
+      available_bytes_per_period,
+      std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
+      false /* auto_tuned */);
+
+  // Step 1. Request 100 and wait for the refill
+  // so that the remaining available bytes are 400
+  limiter->Request(100, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
+  special_env.SleepForMicroseconds(
+      static_cast<int>(std::chrono::microseconds(kTimePerRefill).count()));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostEnqueueRequest", [&](void* arg) {
+        port::Mutex* request_mutex = (port::Mutex*)arg;
+        request_mutex->Unlock();
+        // Step 3. Check GetTotalBytesThrough = available_bytes_per_period
+        // to make sure that the first request (100) and the part of the second
+        // request (400) made through when the remaining of the second request
+        // got queued
+        ASSERT_EQ(available_bytes_per_period,
+                  limiter->GetTotalBytesThrough(Env::IO_USER));
+        request_mutex->Lock();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Step 2. Request 500, which is greater than the remaining available bytes
+  // (400)
+  limiter->Request(500, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostEnqueueRequest");
+}
+
 TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   const std::chrono::seconds kTimePerRefill(1);
   const int kRefillsPerTune = 100;  // needs to match util/rate_limiter.cc
 
-  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  auto mock_clock =
+      std::make_shared<MockSystemClock>(Env::Default()->GetSystemClock());
 
   auto stats = CreateDBStatistics();
   std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(
       1000 /* rate_bytes_per_sec */,
       std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
-      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
-      true /* auto_tuned */));
-
-  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
-  // `Env` to advance its time according to the fake wait duration. The
-  // workaround is to install a callback that advance the `Env`'s mock time.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
-        int64_t time_waited_us = *static_cast<int64_t*>(arg);
-        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+      RateLimiter::Mode::kWritesOnly, mock_clock, true /* auto_tuned */));
 
   // verify rate limit increases after a sequence of periods where rate limiter
   // is always drained
   int64_t orig_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
                         RateLimiter::OpType::kWrite);
-  while (std::chrono::microseconds(special_env.NowMicros()) <=
+  while (std::chrono::microseconds(mock_clock->NowMicros()) <=
          kRefillsPerTune * kTimePerRefill) {
     rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
                           RateLimiter::OpType::kWrite);
@@ -451,13 +489,9 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   int64_t new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   ASSERT_GT(new_bytes_per_sec, orig_bytes_per_sec);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::Request:PostTimedWait");
-
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
-  special_env.SleepForMicroseconds(static_cast<int>(
+  mock_clock->SleepForMicroseconds(static_cast<int>(
       kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count()));
   // make a request so tuner can be triggered
   rate_limiter->Request(1 /* bytes */, Env::IO_HIGH, stats.get(),
@@ -466,98 +500,94 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   ASSERT_LT(new_bytes_per_sec, orig_bytes_per_sec);
 }
 
-TEST_F(RateLimiterTest, CreateGenericRateLimiterFromString) {
-  std::shared_ptr<RateLimiter> limiter;
-  ConfigOptions config_options;
-  std::string limiter_id = GenericRateLimiter::kClassName();
-  ASSERT_OK(RateLimiter::CreateFromString(config_options, limiter_id + ":1024",
-                                          &limiter));
-  ASSERT_NE(limiter, nullptr);
-  ASSERT_EQ(limiter->GetBytesPerSecond(), 1024U);
-#ifndef ROCKSDB_LITE
-  ASSERT_OK(RateLimiter::CreateFromString(
-      config_options, "rate_bytes_per_sec=2048;id=" + limiter_id, &limiter));
-  ASSERT_NE(limiter, nullptr);
-  ASSERT_EQ(limiter->GetBytesPerSecond(), 2048U);
-  ASSERT_NOK(RateLimiter::CreateFromString(
-      config_options, "rate_bytes_per_sec=0;id=" + limiter_id, &limiter));
-  ASSERT_NOK(RateLimiter::CreateFromString(
-      config_options, "rate_bytes_per_sec=2048;fairness=0;id=" + limiter_id,
-      &limiter));
+TEST_F(RateLimiterTest, WaitHangingBug) {
+  // At t=0: Threads 0 and 1 request `kBytesPerRefill` bytes at low-pri. One
+  // will be granted immediately and the other will enter `TimedWait()`.
+  //
+  // At t=`kMicrosPerRefill`: Thread 2 requests `kBytesPerRefill` bytes at
+  // low-pri. Thread 2's request enters the queue. To expose the bug scenario,
+  // `SyncPoint`s ensure this happens while the lock is temporarily released in
+  // `TimedWait()`. Before the bug fix, Thread 2's request would then hang in
+  // `Wait()` interminably.
+  const int kBytesPerSecond = 100;
+  const int kMicrosPerSecond = 1000 * 1000;
+  const int kMicrosPerRefill = kMicrosPerSecond;
+  const int kBytesPerRefill =
+      kBytesPerSecond * kMicrosPerRefill / kMicrosPerSecond;
 
-  ASSERT_OK(
-      RateLimiter::CreateFromString(config_options,
-                                    "rate_bytes_per_sec=2048;refill_period_us="
-                                    "1024;fairness=42;auto_tuned=true;"
-                                    "mode=kReadsOnly;id=" +
-                                        limiter_id,
-                                    &limiter));
-  ASSERT_NE(limiter, nullptr);
-  auto opts =
-      limiter->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
-  ASSERT_NE(opts, nullptr);
-  ASSERT_EQ(opts->max_bytes_per_sec, 2048);
-  ASSERT_EQ(opts->refill_period_us, 1024);
-  ASSERT_EQ(opts->fairness, 42);
-  ASSERT_EQ(opts->auto_tuned, true);
-  ASSERT_TRUE(limiter->IsRateLimited(RateLimiter::OpType::kRead));
-  ASSERT_FALSE(limiter->IsRateLimited(RateLimiter::OpType::kWrite));
-#endif  // ROCKSDB_LITE
+  auto mock_clock =
+      std::make_shared<MockSystemClock>(Env::Default()->GetSystemClock());
+  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(
+      kBytesPerSecond, kMicrosPerRefill, 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, mock_clock, false /* auto_tuned */));
+  std::array<std::thread, 3> request_threads;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RateLimiterTest::WaitHangingBug:InitialRequestsReady",
+        "MockSystemClock::TimedWait:UnlockedPreSleep"},
+       {"MockSystemClock::TimedWait:UnlockedPostSleep1",
+        "RateLimiterTest::WaitHangingBug:TestThreadRequestBegin"},
+       {"RateLimiterTest::WaitHangingBug:TestThreadRequestEnd",
+        "MockSystemClock::TimedWait:UnlockedPostSleep2"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < 2; i++) {
+    request_threads[i] = std::thread([&]() {
+      limiter->Request(kBytesPerRefill /* bytes */, Env::IOPriority::IO_LOW,
+                       nullptr /* stats */, RateLimiter::OpType::kWrite);
+    });
+  }
+  while (limiter->GetTotalRequests() < 2) {
+  }
+  TEST_SYNC_POINT("RateLimiterTest::WaitHangingBug:InitialRequestsReady");
+
+  TEST_SYNC_POINT("RateLimiterTest::WaitHangingBug:TestThreadRequestBegin");
+  request_threads[2] = std::thread([&]() {
+    limiter->Request(kBytesPerRefill /* bytes */, Env::IOPriority::IO_LOW,
+                     nullptr /* stats */, RateLimiter::OpType::kWrite);
+  });
+  while (limiter->GetTotalRequests() < 3) {
+  }
+  TEST_SYNC_POINT("RateLimiterTest::WaitHangingBug:TestThreadRequestEnd");
+
+  for (int i = 0; i < 3; i++) {
+    request_threads[i].join();
+  }
 }
 
-#ifndef ROCKSDB_LITE
-// This test is for a rate limiter that has no name (Name() returns "").
-// When the default Name() method is deprecated, this test should be removed.
-TEST_F(RateLimiterTest, NoNameRateLimiter) {
-  static std::unordered_map<std::string, OptionTypeInfo> dummy_limiter_options =
-      {
-          {"dummy",
-           {0, OptionType::kInt, OptionVerificationType::kNormal,
-            OptionTypeFlags::kNone}},
-      };
-  class NoNameRateLimiter : public RateLimiter {
-   public:
-    explicit NoNameRateLimiter(bool do_register) {
-      if (do_register) {
-        RegisterOptions("", &dummy, &dummy_limiter_options);
-      }
-    }
-    void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
-    int64_t GetSingleBurstBytes() const override { return 0; }
-    int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
-      return 0;
-    }
-    int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
-      return 0;
-    }
-    int64_t GetBytesPerSecond() const override { return 0; }
+TEST_F(RateLimiterTest, RuntimeSingleBurstBytesChange) {
+  constexpr int kMicrosecondsPerSecond = 1000000;
 
-   private:
-    int dummy;
-  };
+  const int64_t kRateBytesPerSec = 400;
 
-  ConfigOptions config_options;
-  DBOptions db_opts, copy;
-  db_opts.rate_limiter.reset(new NoNameRateLimiter(false));
-  ASSERT_EQ(db_opts.rate_limiter->GetId(), "");
-  ASSERT_EQ(db_opts.rate_limiter->ToString(config_options), "");
-  db_opts.rate_limiter.reset(new NoNameRateLimiter(true));
-  ASSERT_EQ(db_opts.rate_limiter->GetId(), "");
-  ASSERT_EQ(db_opts.rate_limiter->ToString(config_options), "");
-  std::string opt_str;
-  ASSERT_OK(GetStringFromDBOptions(config_options, db_opts, &opt_str));
-  ASSERT_OK(
-      GetDBOptionsFromString(config_options, DBOptions(), opt_str, &copy));
-  ASSERT_OK(
-      RocksDBOptionsParser::VerifyDBOptions(config_options, db_opts, copy));
-  ASSERT_EQ(copy.rate_limiter, nullptr);
-  ASSERT_NE(copy.rate_limiter, db_opts.rate_limiter);
+  const int64_t kOldSingleBurstBytes = 100;
+  const int64_t kOldRefillPeriodUs =
+      kOldSingleBurstBytes * kMicrosecondsPerSecond / kRateBytesPerSec;
+  const int64_t kNewSingleBurstBytes = kOldSingleBurstBytes * 2;
+
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(
+      kRateBytesPerSec, kOldRefillPeriodUs, 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
+      false /* auto_tuned */));
+
+  ASSERT_EQ(kOldSingleBurstBytes, limiter->GetSingleBurstBytes());
+
+  ASSERT_TRUE(limiter->SetSingleBurstBytes(0).IsInvalidArgument());
+  ASSERT_OK(limiter->SetSingleBurstBytes(kNewSingleBurstBytes));
+  ASSERT_EQ(kNewSingleBurstBytes, limiter->GetSingleBurstBytes());
+
+  // If the updated single burst bytes is not reflected in the bytes
+  // granting process, this request will hang forever.
+  limiter->Request(limiter->GetSingleBurstBytes() /* bytes */,
+                   Env::IOPriority::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
 }
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

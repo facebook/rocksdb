@@ -9,12 +9,12 @@ import java.util.List;
 
 /**
  * Advanced Column Family Options which are not
- * mutable (i.e. present in {@link AdvancedMutableColumnFamilyOptionsInterface}
- *
+ * mutable (i.e. present in {@link AdvancedMutableColumnFamilyOptionsInterface})
+ * <p>
  * Taken from include/rocksdb/advanced_options.h
  */
 public interface AdvancedColumnFamilyOptionsInterface<
-    T extends AdvancedColumnFamilyOptionsInterface<T>> {
+    T extends AdvancedColumnFamilyOptionsInterface<T> & ColumnFamilyOptionsInterface<T>> {
   /**
    * The minimum number of write buffers that will be merged together
    * before writing to storage.  If set to 1, then
@@ -51,23 +51,23 @@ public interface AdvancedColumnFamilyOptionsInterface<
    * this parameter does not affect flushing.
    * This controls the minimum amount of write history that will be available
    * in memory for conflict checking when Transactions are used.
-   *
+   * <p>
    * When using an OptimisticTransactionDB:
    * If this value is too low, some transactions may fail at commit time due
    * to not being able to determine whether there were any write conflicts.
-   *
+   * <p>
    * When using a TransactionDB:
    * If Transaction::SetSnapshot is used, TransactionDB will read either
    * in-memory write buffers or SST files to do write-conflict checking.
    * Increasing this value can reduce the number of reads to SST files
    * done for conflict detection.
-   *
+   * <p>
    * Setting this value to 0 will cause write buffers to be freed immediately
    * after they are flushed.
    * If this value is set to -1,
    * {@link AdvancedMutableColumnFamilyOptionsInterface#maxWriteBufferNumber()}
    * will be used.
-   *
+   * <p>
    * Default:
    * If using a TransactionDB/OptimisticTransactionDB, the default value will
    * be set to the value of
@@ -336,14 +336,13 @@ public interface AdvancedColumnFamilyOptionsInterface<
 
   /**
    * Set compaction style for DB.
-   *
+   * <p>
    * Default: LEVEL.
    *
    * @param compactionStyle Compaction style.
    * @return the reference to the current options.
    */
-  ColumnFamilyOptionsInterface setCompactionStyle(
-      CompactionStyle compactionStyle);
+  ColumnFamilyOptionsInterface<T> setCompactionStyle(CompactionStyle compactionStyle);
 
   /**
    * Compaction style for DB.
@@ -355,7 +354,7 @@ public interface AdvancedColumnFamilyOptionsInterface<
   /**
    * If level {@link #compactionStyle()} == {@link CompactionStyle#LEVEL},
    * for each level, which files are prioritized to be picked to compact.
-   *
+   * <p>
    * Default: {@link CompactionPriority#ByCompensatedSize}
    *
    * @param compactionPriority The compaction priority
@@ -441,13 +440,13 @@ public interface AdvancedColumnFamilyOptionsInterface<
   boolean optimizeFiltersForHits();
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-   * change (Flush, Compaction, AddFile). These checks are disabled in release
-   * mode, use this option to enable them in release mode as well.
+   * By default, RocksDB runs consistency checks on the LSM every time the LSM
+   * changes (Flush, Compaction, AddFile). Use this option if you need to
+   * disable them.
+   * <p>
+   * Default: true
    *
-   * Default: false
-   *
-   * @param forceConsistencyChecks true to force consistency checks
+   * @param forceConsistencyChecks false to disable consistency checks
    *
    * @return the reference to the current options.
    */
@@ -455,9 +454,8 @@ public interface AdvancedColumnFamilyOptionsInterface<
       boolean forceConsistencyChecks);
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-   * change (Flush, Compaction, AddFile). These checks are disabled in release
-   * mode.
+   * By default, RocksDB runs consistency checks on the LSM every time the LSM
+   * changes (Flush, Compaction, AddFile).
    *
    * @return true if consistency checks are enforced
    */

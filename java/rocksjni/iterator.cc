@@ -6,13 +6,15 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::Iterator methods from Java side.
 
+#include "rocksdb/iterator.h"
+
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 
 #include "include/org_rocksdb_RocksIterator.h"
-#include "rocksdb/iterator.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -87,9 +89,29 @@ void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
  * Signature: (J)V
  */
 void Java_org_rocksdb_RocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
-                                            jlong handle) {
+                                             jlong handle) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   ROCKSDB_NAMESPACE::Status s = it->Refresh();
+
+  if (s.ok()) {
+    return;
+  }
+
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    refresh1
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_RocksIterator_refresh1(JNIEnv* env, jobject /*jobj*/,
+                                             jlong handle,
+                                             jlong snapshot_handle) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto* snapshot =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Snapshot*>(snapshot_handle);
+  ROCKSDB_NAMESPACE::Status s = it->Refresh(snapshot);
 
   if (s.ok()) {
     return;
@@ -106,19 +128,31 @@ void Java_org_rocksdb_RocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle, jbyteArray jtarget,
                                           jint jtarget_len) {
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
-
-  ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char*>(target),
-                                        jtarget_len);
-
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  it->Seek(target_slice);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->Seek(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
+}
 
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+/*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ * In this case, the buffer offset of the key may be non-zero.
+ *
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    seek0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_RocksIterator_seekByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->Seek(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, jtarget_off,
+                                          jtarget_len);
 }
 
 /*
@@ -163,19 +197,31 @@ void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
                                                  jlong handle,
                                                  jbyteArray jtarget,
                                                  jint jtarget_len) {
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
-
-  ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char*>(target),
-                                        jtarget_len);
-
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  it->SeekForPrev(target_slice);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->SeekForPrev(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
+}
 
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+/*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ * In this case, the buffer offset of the key may be non-zero.
+ *
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    seek0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_RocksIterator_seekForPrevByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->SeekForPrev(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, jtarget_off,
+                                          jtarget_len);
 }
 
 /*
@@ -232,6 +278,29 @@ jint Java_org_rocksdb_RocksIterator_keyDirect0(JNIEnv* env, jobject /*jobj*/,
 }
 
 /*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    keyByteArray0
+ * Signature: (J[BII)I
+ */
+jint Java_org_rocksdb_RocksIterator_keyByteArray0(JNIEnv* env, jobject /*jobj*/,
+                                                  jlong handle, jbyteArray jkey,
+                                                  jint jkey_off,
+                                                  jint jkey_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  ROCKSDB_NAMESPACE::Slice key_slice = it->key();
+  jsize copy_size = std::min(static_cast<uint32_t>(key_slice.size()),
+                             static_cast<uint32_t>(jkey_len));
+  env->SetByteArrayRegion(
+      jkey, jkey_off, copy_size,
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(key_slice.data())));
+
+  return static_cast<jsize>(key_slice.size());
+}
+
+/*
  * Class:     org_rocksdb_RocksIterator
  * Method:    value0
  * Signature: (J)[B
@@ -266,4 +335,26 @@ jint Java_org_rocksdb_RocksIterator_valueDirect0(JNIEnv* env, jobject /*jobj*/,
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
   return ROCKSDB_NAMESPACE::JniUtil::copyToDirect(env, value_slice, jtarget,
                                                   jtarget_off, jtarget_len);
+}
+
+/*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    valueByteArray0
+ * Signature: (J[BII)I
+ */
+jint Java_org_rocksdb_RocksIterator_valueByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jvalue_target,
+    jint jvalue_off, jint jvalue_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  ROCKSDB_NAMESPACE::Slice value_slice = it->value();
+  jsize copy_size = std::min(static_cast<uint32_t>(value_slice.size()),
+                             static_cast<uint32_t>(jvalue_len));
+  env->SetByteArrayRegion(
+      jvalue_target, jvalue_off, copy_size,
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
+
+  return static_cast<jsize>(value_slice.size());
 }

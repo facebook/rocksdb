@@ -7,6 +7,9 @@
 
 #include <cstddef>
 #include <unordered_map>
+#ifdef USE_FOLLY
+#include <folly/container/F14Map.h>
+#endif
 
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -24,5 +27,12 @@ size_t ApproximateMemoryUsage(
          // Size of hash buckets.
          umap.bucket_count() * sizeof(void*);
 }
+
+#ifdef USE_FOLLY
+template <class Key, class Value, class Hash>
+size_t ApproximateMemoryUsage(const folly::F14FastMap<Key, Value, Hash>& umap) {
+  return sizeof(umap) + umap.getAllocatedMemorySize();
+}
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

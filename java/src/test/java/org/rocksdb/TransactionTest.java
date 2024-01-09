@@ -52,6 +52,120 @@ public class TransactionTest extends AbstractTransactionTest {
   }
 
   @Test
+  public void prepare_commit() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions()) {
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.put(k1, v1);
+        txn.commit();
+      }
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.setName("txnPrepare1");
+        txn.put(k1, v12);
+        txn.prepare();
+        txn.commit();
+      }
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        assertThat(txn.get(readOptions, k1)).isEqualTo(v12);
+      }
+    }
+  }
+
+  @Test
+  public void prepare_rollback() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions()) {
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.put(k1, v1);
+        txn.commit();
+      }
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.setName("txnPrepare1");
+        txn.put(k1, v12);
+        txn.prepare();
+        txn.rollback();
+      }
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+      }
+    }
+  }
+
+  @Test
+  public void prepare_read_prepared_commit() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions()) {
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.put(k1, v1);
+        txn.commit();
+      }
+
+      final Transaction txnPrepare;
+      txnPrepare = dbContainer.beginTransaction();
+      txnPrepare.setName("txnPrepare1");
+      txnPrepare.put(k1, v12);
+      txnPrepare.prepare();
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+      }
+
+      txnPrepare.commit();
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        assertThat(txn.get(readOptions, k1)).isEqualTo(v12);
+      }
+    }
+  }
+
+  @Test
+  public void prepare_read_prepared_rollback() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions()) {
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.put(k1, v1);
+        txn.commit();
+      }
+
+      final Transaction txnPrepare;
+      txnPrepare = dbContainer.beginTransaction();
+      txnPrepare.setName("txnPrepare1");
+      txnPrepare.put(k1, v12);
+      txnPrepare.prepare();
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+      }
+
+      txnPrepare.rollback();
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+      }
+    }
+  }
+
+  @Test
   public void getForUpdate_conflict() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
@@ -302,12 +416,13 @@ public class TransactionTest extends AbstractTransactionTest {
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
     final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+    final ColumnFamilyOptions defaultColumnFamilyOptions = new ColumnFamilyOptions();
+    defaultColumnFamilyOptions.setMergeOperator(new StringAppendOperator("++"));
     final ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions();
-    final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-        Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor(TXN_TEST_COLUMN_FAMILY,
-                columnFamilyOptions));
+    columnFamilyOptions.setMergeOperator(new StringAppendOperator("**"));
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(
+        new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, defaultColumnFamilyOptions),
+        new ColumnFamilyDescriptor(TXN_TEST_COLUMN_FAMILY, columnFamilyOptions));
     final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
     final TransactionDB txnDb;
