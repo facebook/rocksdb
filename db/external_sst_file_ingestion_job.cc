@@ -886,18 +886,29 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     SequenceNumber* assigned_seqno) {
   Status status;
   *assigned_seqno = 0;
+  bool pick_l0_without_search = false;
   if (force_global_seqno) {
     *assigned_seqno = last_seqno + 1;
-    if (compaction_style == kCompactionStyleUniversal || files_overlap_) {
-      if (ingestion_options_.fail_if_not_bottommost_level) {
-        status = Status::TryAgain(
-            "Files cannot be ingested to Lmax. Please make sure key range of "
-            "Lmax does not overlap with files to ingest.");
-        return status;
-      }
+    if (compaction_style == kCompactionStyleUniversal) {
       file_to_ingest->picked_level = 0;
-      return status;
+      pick_l0_without_search = true;
     }
+  } else if (files_overlap_) {
+    // If files overlap, we have to ingest them at level 0 and assign the newest
+    // sequence number
+    pick_l0_without_search = true;
+    *assigned_seqno = last_seqno + 1;
+    file_to_ingest->picked_level = 0;
+  }
+
+  // No need to proceed to search through lsm tree for these scenarios.
+  if (pick_l0_without_search) {
+    if (ingestion_options_.fail_if_not_bottommost_level) {
+      status = Status::TryAgain(
+          "Files cannot be ingested to Lmax. Please make sure key range of "
+          "Lmax does not overlap with files to ingest.");
+    }
+    return status;
   }
 
   bool overlap_with_db = false;
@@ -946,12 +957,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
-  }
-  // If files overlap, we have to ingest them at level 0 and assign the newest
-  // sequence number
-  if (files_overlap_) {
-    target_level = 0;
-    *assigned_seqno = last_seqno + 1;
   }
 
   if (ingestion_options_.fail_if_not_bottommost_level &&
