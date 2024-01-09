@@ -59,7 +59,7 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
-      bool& kept_in_sec_cache) override;
+      Statistics* stats, bool& kept_in_sec_cache) override;
 
   virtual void WaitAll(
       std::vector<SecondaryCacheResultHandle*> handles) override;
@@ -72,6 +72,7 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     Cache::CreateContext* inner_ctx;
     std::shared_ptr<SecondaryCacheResultHandle> inner_handle;
     SecondaryCache* comp_sec_cache;
+    Statistics* stats;
   };
 
   class ResultHandle : public SecondaryCacheResultHandle {
@@ -79,7 +80,10 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     ~ResultHandle() override {}
 
     bool IsReady() override {
-      return !inner_handle_ || inner_handle_->IsReady();
+      if (inner_handle_ && inner_handle_->IsReady()) {
+        Complete();
+      }
+      return ready_;
     }
 
     void Wait() override {
@@ -92,10 +96,10 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     Cache::ObjectPtr Value() override { return value_; }
 
     void Complete() {
-      assert(IsReady());
       size_ = inner_handle_->Size();
       value_ = inner_handle_->Value();
       inner_handle_.reset();
+      ready_ = true;
     }
 
     void SetInnerHandle(std::unique_ptr<SecondaryCacheResultHandle>&& handle) {
@@ -115,6 +119,7 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     CreateContext ctx_;
     size_t size_;
     Cache::ObjectPtr value_;
+    bool ready_ = false;
   };
 
   static void NoopDelete(Cache::ObjectPtr /*obj*/,

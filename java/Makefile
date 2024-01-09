@@ -151,7 +151,9 @@ JAVA_TESTS = \
 	org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemoryUtilTest\
 	org.rocksdb.MemTableTest\
+	org.rocksdb.MergeCFVariantsTest\
 	org.rocksdb.MergeTest\
+	org.rocksdb.MergeVariantsTest\
 	org.rocksdb.MultiColumnRegressionTest \
 	org.rocksdb.MultiGetManyKeysTest\
 	org.rocksdb.MultiGetTest\
@@ -169,6 +171,8 @@ JAVA_TESTS = \
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PerfLevelTest \
 	org.rocksdb.PerfContextTest \
+	org.rocksdb.PutCFVariantsTest\
+	org.rocksdb.PutVariantsTest\
 	org.rocksdb.PlainTableConfigTest\
 	org.rocksdb.RateLimiterTest\
 	org.rocksdb.ReadOnlyTest\

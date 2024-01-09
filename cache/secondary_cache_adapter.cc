@@ -294,7 +294,8 @@ Cache::Handle* CacheWithSecondaryAdapter::Lookup(const Slice& key,
     bool kept_in_sec_cache = false;
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
         secondary_cache_->Lookup(key, helper, create_context, /*wait*/ true,
-                                 found_dummy_entry, /*out*/ kept_in_sec_cache);
+                                 found_dummy_entry, stats,
+                                 /*out*/ kept_in_sec_cache);
     if (secondary_handle) {
       result = Promote(std::move(secondary_handle), key, helper, priority,
                        stats, found_dummy_entry, kept_in_sec_cache);
@@ -348,10 +349,10 @@ void CacheWithSecondaryAdapter::StartAsyncLookupOnMySecondary(
   assert(async_handle.result_handle == nullptr);
 
   std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
-      secondary_cache_->Lookup(async_handle.key, async_handle.helper,
-                               async_handle.create_context, /*wait*/ false,
-                               async_handle.found_dummy_entry,
-                               /*out*/ async_handle.kept_in_sec_cache);
+      secondary_cache_->Lookup(
+          async_handle.key, async_handle.helper, async_handle.create_context,
+          /*wait*/ false, async_handle.found_dummy_entry, async_handle.stats,
+          /*out*/ async_handle.kept_in_sec_cache);
   if (secondary_handle) {
     // TODO with stacked secondaries: Check & process if already ready?
     async_handle.pending_handle = secondary_handle.release();
@@ -683,12 +684,14 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
         *(static_cast_with_check<LRUCacheOptions, ShardedCacheOptions>(
             opts.cache_opts));
     cache_opts.capacity = opts.total_capacity;
+    cache_opts.secondary_cache = nullptr;
     cache = cache_opts.MakeSharedCache();
   } else if (opts.cache_type == PrimaryCacheType::kCacheTypeHCC) {
     HyperClockCacheOptions cache_opts =
         *(static_cast_with_check<HyperClockCacheOptions, ShardedCacheOptions>(
             opts.cache_opts));
     cache_opts.capacity = opts.total_capacity;
+    cache_opts.secondary_cache = nullptr;
     cache = cache_opts.MakeSharedCache();
   } else {
     return nullptr;

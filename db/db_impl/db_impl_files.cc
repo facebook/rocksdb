@@ -18,6 +18,7 @@
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
 #include "port/port.h"
+#include "rocksdb/options.h"
 #include "util/autovector.h"
 #include "util/defer.h"
 
@@ -510,7 +511,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   // Close WALs before trying to delete them.
   for (const auto w : state.logs_to_free) {
     // TODO: maybe check the return value of Close.
-    auto s = w->Close();
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    auto s = w->Close(WriteOptions());
     s.PermitUncheckedError();
   }
 
@@ -925,7 +927,8 @@ void DBImpl::SetDBId(std::string&& id, bool read_only,
   }
 }
 
-Status DBImpl::SetupDBId(bool read_only, RecoveryContext* recovery_ctx) {
+Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
+                         RecoveryContext* recovery_ctx) {
   Status s;
   // Check for the IDENTITY file and create it if not there or
   // broken or not matching manifest
@@ -958,7 +961,7 @@ Status DBImpl::SetupDBId(bool read_only, RecoveryContext* recovery_ctx) {
   }
   // Persist it to IDENTITY file if allowed
   if (!read_only) {
-    s = SetIdentityFile(env_, dbname_, db_id_);
+    s = SetIdentityFile(write_options, env_, dbname_, db_id_);
   }
   return s;
 }

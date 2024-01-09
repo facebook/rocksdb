@@ -22,7 +22,7 @@ class DBRangeDelTest : public DBTestBase {
     uint64_t uint64_key = static_cast<uint64_t>(key);
     std::string str;
     str.resize(8);
-    memcpy(&str[0], static_cast<void*>(&uint64_key), 8);
+    memcpy(str.data(), static_cast<void*>(&uint64_key), 8);
     return str;
   }
 };

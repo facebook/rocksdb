@@ -92,7 +92,7 @@ class ExternalSSTFileTest
     : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileTest() {}
+  ExternalSSTFileTest() = default;
 
   Status GenerateOneExternalFile(
       const Options& options, ColumnFamilyHandle* cfh,
@@ -832,7 +832,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     TablePropertiesCollection props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
     ASSERT_EQ(props.size(), 2);
-    for (auto file_props : props) {
+    for (const auto& file_props : props) {
       auto user_props = file_props.second->user_collected_properties;
       ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
       ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
@@ -855,7 +855,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
 
     ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
     ASSERT_EQ(props.size(), 3);
-    for (auto file_props : props) {
+    for (const auto& file_props : props) {
       auto user_props = file_props.second->user_collected_properties;
       ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
       ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
@@ -2878,7 +2878,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
   // currently at the front of the 2nd writer queue. We must make
   // sure that it won't enter the 2nd writer queue for the second time.
   std::vector<std::pair<std::string, std::string>> data;
-  data.push_back(std::make_pair("1001", "v2"));
+  data.emplace_back("1001", "v2");
   ASSERT_OK(GenerateAndAddExternalFile(options, data, -1, true));
 }
 

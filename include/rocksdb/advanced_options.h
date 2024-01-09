@@ -51,6 +51,8 @@ enum CompactionPri : char {
   // First compact files whose ratio between overlapping size in next level
   // and its size is the smallest. It in many cases can optimize write
   // amplification.
+  // Files marked for compaction will be prioritized over files that are not
+  // marked.
   kMinOverlappingRatio = 0x3,
   // Keeps a cursor(s) of the successor of the file (key range) was/were
   // compacted before, and always picks the next files (key range) in that
@@ -912,7 +914,9 @@ struct AdvancedColumnFamilyOptions {
   //
   // Leveled: files older than `periodic_compaction_seconds` will be picked up
   //    for compaction and will be re-written to the same level as they were
-  //    before.
+  //    before if level_compaction_dynamic_level_bytes is disabled. Otherwise,
+  //    it will rewrite files to the next level except for the last level files
+  //    to the same level.
   //
   // FIFO: not supported. Setting this option has no effect for FIFO compaction.
   //

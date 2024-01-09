@@ -76,16 +76,9 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     IOOptions opts;
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
     if (io_s.ok()) {
-      bool read_from_prefetch_buffer = false;
-      if (read_options_.async_io && !for_compaction_) {
-        read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
-            opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s);
-      } else {
-        read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
-            opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, for_compaction_);
-      }
+      bool read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
+          opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
+          &io_s, for_compaction_);
       if (read_from_prefetch_buffer) {
         ProcessTrailerIfPresent();
         if (!io_status_.ok()) {
@@ -258,7 +251,9 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
+        PERF_CPU_TIMER_GUARD(
+            block_read_cpu_time,
+            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
         io_status_ =
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_);
@@ -267,7 +262,9 @@ IOStatus BlockFetcher::ReadBlockContents() {
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
+        PERF_CPU_TIMER_GUARD(
+            block_read_cpu_time,
+            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
         io_status_ =
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, used_buf_, nullptr);

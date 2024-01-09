@@ -813,6 +813,7 @@ void WritePreparedTxnDB::AdvanceSeqByOne() {
   // Inserting an empty value will i) let the max evicted entry to be
   // published, i.e., max == last_published, increase the last published to
   // be one beyond max, i.e., max < last_published.
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   WriteOptions woptions;
   TransactionOptions txn_options;
   Transaction* txn0 = BeginTransaction(woptions, txn_options, nullptr);

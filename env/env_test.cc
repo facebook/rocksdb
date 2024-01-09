@@ -2610,7 +2610,7 @@ TEST_F(EnvTest, IsDirectory) {
                                          FileOptions(),
                                          SystemClock::Default().get()));
     constexpr char buf[] = "test";
-    s = fwriter->Append(buf);
+    s = fwriter->Append(IOOptions(), buf);
     ASSERT_OK(s);
   }
   ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));

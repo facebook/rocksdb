@@ -4149,6 +4149,122 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   }
 }
 
+TEST_F(CompactionPickerTest,
+       LevelCompactionPrioritizeFilesMarkedForCompaction1) {
+  int num_levels = ioptions_.num_levels;
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  ioptions_.compaction_pri = kMinOverlappingRatio;
+  mutable_cf_options_.max_bytes_for_level_base = 200;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+  // L5
+  // F4 [100, 200] size:100, F5 [300, 400] size:100,  F6 [500, 600] size:200
+  // F5 is marked for compaction
+  // L6
+  // F1 [100, 200] size:100, F2 [300, 400] size:1000, F3 [500, 600] size:100
+  //
+  // First compaction should pick F5 since it's marked for compaction.
+  // Second compaction should pick F6 since it has min overlap ratio.
+  Add(/*level=*/num_levels - 1, /*file_number=*/1U, /*smallest=*/"100",
+      /*largest=*/"200",
+      /*file_size=*/100, /*path_id=*/0, /*smallest_seq=*/0,
+      /*largest_seq=*/0, /*compensated_file_size=*/100,
+      /*marked_for_compact=*/false);
+  Add(/*level=*/num_levels - 1, /*file_number=*/2U, /*smallest=*/"300",
+      /*largest=*/"400",
+      /*file_size=*/1000, /*path_id=*/0, /*smallest_seq=*/0,
+      /*largest_seq=*/0, /*compensated_file_size=*/1000,
+      /*marked_for_compact=*/false);
+  Add(/*level=*/num_levels - 1, /*file_number=*/3U, /*smallest=*/"500",
+      /*largest=*/"600",
+      /*file_size=*/100, /*path_id=*/0, /*smallest_seq=*/0,
+      /*largest_seq=*/0, /*compensated_file_size=*/100,
+      /*marked_for_compact=*/false);
+
+  Add(/*level=*/num_levels - 2, /*file_number=*/4U, /*smallest=*/"100",
+      /*largest=*/"200",
+      /*file_size=*/100, /*path_id=*/0, /*smallest_seq=*/100,
+      /*largest_seq=*/200, /*compensated_file_size=*/100,
+      /*marked_for_compact=*/false);
+  // Marked for compaction, but with a larger overlap ratio.
+  Add(/*level=*/num_levels - 2, /*file_number=*/5U, /*smallest=*/"300",
+      /*largest=*/"400",
+      /*file_size=*/100, /*path_id=*/0, /*smallest_seq=*/300,
+      /*largest_seq=*/400, /*compensated_file_size=*/100,
+      /*marked_for_compact=*/true);
+  Add(/*level=*/num_levels - 2, /*file_number=*/6U, /*smallest=*/"500",
+      /*largest=*/"600",
+      /*file_size=*/200, /*path_id=*/0, /*smallest_seq=*/400,
+      /*largest_seq=*/500, /*compensated_file_size=*/200,
+      /*marked_for_compact=*/false);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(num_levels - 2, compaction->start_level());
+  ASSERT_EQ(num_levels - 1, compaction->output_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
+
+  std::unique_ptr<Compaction> second_compaction(
+      level_compaction_picker.PickCompaction(cf_name_, mutable_cf_options_,
+                                             mutable_db_options_,
+                                             vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(second_compaction);
+  ASSERT_EQ(num_levels - 1, compaction->output_level());
+  ASSERT_EQ(num_levels - 2, compaction->start_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(6U, second_compaction->input(0, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest,
+       LevelCompactionPrioritizeFilesMarkedForCompaction2) {
+  int num_levels = ioptions_.num_levels;
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  ioptions_.compaction_pri = kMinOverlappingRatio;
+  mutable_cf_options_.max_bytes_for_level_base = 200;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  // L4
+  // F3 [100, 200] size:2000
+  // L5
+  // F2 [100, 200] size:2000, marked for compaction
+  // L6
+  // F1 [100, 200] size: 20000
+  //
+  // L4 should be prioritized over L5 since L4 has a higher compaction score.
+  // Files marked for compaction do not affect level picking order.
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+  Add(/*level=*/num_levels - 1, /*file_number=*/1U, /*smallest=*/"100",
+      /*largest=*/"200",
+      /*file_size=*/20000, /*path_id=*/0, /*smallest_seq=*/0,
+      /*largest_seq=*/0, /*compensated_file_size=*/100,
+      /*marked_for_compact=*/false);
+  // Level score should be 1.
+  Add(/*level=*/num_levels - 2, /*file_number=*/2U, /*smallest=*/"100",
+      /*largest=*/"200",
+      /*file_size=*/2000, /*path_id=*/0, /*smallest_seq=*/100,
+      /*largest_seq=*/200, /*compensated_file_size=*/2000,
+      /*marked_for_compact=*/true);
+  // Level score should be larger than L5.
+  Add(/*level=*/num_levels - 3, /*file_number=*/3U, /*smallest=*/"100",
+      /*largest=*/"200",
+      /*file_size=*/2000, /*path_id=*/0, /*smallest_seq=*/300,
+      /*largest_seq=*/400, /*compensated_file_size=*/2000,
+      /*marked_for_compact=*/false);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(num_levels - 3, compaction->start_level());
+  ASSERT_EQ(num_levels - 2, compaction->output_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
+}
+
 INSTANTIATE_TEST_CASE_P(PerKeyPlacementCompactionPickerTest,
                         PerKeyPlacementCompactionPickerTest, ::testing::Bool());
 

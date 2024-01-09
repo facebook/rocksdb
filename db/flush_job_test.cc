@@ -55,7 +55,7 @@ class FlushJobTestBase : public testing::Test {
   }
 
   void NewDB() {
-    ASSERT_OK(SetIdentityFile(env_, dbname_));
+    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
     VersionEdit new_db;
 
     new_db.SetLogNumber(0);
@@ -89,19 +89,19 @@ class FlushJobTestBase : public testing::Test {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
       new_db.EncodeTo(&record);
-      s = log.AddRecord(record);
+      s = log.AddRecord(WriteOptions(), record);
       ASSERT_OK(s);
 
       for (const auto& e : new_cfs) {
         record.clear();
         e.EncodeTo(&record);
-        s = log.AddRecord(record);
+        s = log.AddRecord(WriteOptions(), record);
         ASSERT_OK(s);
       }
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
     ASSERT_OK(s);
   }
 
@@ -132,7 +132,7 @@ class FlushJobTestBase : public testing::Test {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 

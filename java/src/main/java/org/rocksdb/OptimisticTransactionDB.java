@@ -86,6 +86,7 @@ public class OptimisticTransactionDB extends RocksDB
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     otdb.storeOptionsInstance(dbOptions);
+    otdb.storeDefaultColumnFamilyHandle(otdb.makeDefaultColumnFamilyHandle());
 
     for (int i = 1; i < handles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(otdb, handles[i]));

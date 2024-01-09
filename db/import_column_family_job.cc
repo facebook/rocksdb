@@ -355,7 +355,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // in file_meta.
   if (file_meta.smallest.empty()) {
     assert(file_meta.largest.empty());
-    // TODO: plumb Env::IOActivity
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     ReadOptions ro;
     std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
         ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,

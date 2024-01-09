@@ -123,7 +123,7 @@ class Repairer {
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
               /*db_id=*/"", db_session_id_, db_options.daily_offpeak_time_utc,
-              /*error_handler=*/nullptr),
+              /*error_handler=*/nullptr, /*read_only=*/false),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -146,8 +146,10 @@ class Repairer {
   // Adds a column family to the VersionSet with cf_options_ and updates
   // manifest.
   Status AddColumnFamily(const std::string& cf_name, uint32_t cf_id) {
-    // TODO: plumb Env::IOActivity;
+    // TODO: plumb Env::IOActivity, Env::IOPriority;
     const ReadOptions read_options;
+    const WriteOptions write_options;
+
     const auto* cf_opts = GetColumnFamilyOptions(cf_name);
     if (cf_opts == nullptr) {
       return Status::Corruption("Encountered unknown column family with name=" +
@@ -170,9 +172,9 @@ class Repairer {
     Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
                                                         &db_dir, nullptr);
     if (status.ok()) {
-      status = vset_.LogAndApply(cfd, mut_cf_opts, read_options, &edit, &mutex_,
-                                 db_dir.get(), false /* new_descriptor_log */,
-                                 cf_opts);
+      status = vset_.LogAndApply(cfd, mut_cf_opts, read_options, write_options,
+                                 &edit, &mutex_, db_dir.get(),
+                                 false /* new_descriptor_log */, cf_opts);
     }
     mutex_.Unlock();
     return status;
@@ -362,9 +364,6 @@ class Repairer {
       }
     };
 
-    // TODO: plumb Env::IOActivity
-    const ReadOptions read_options;
-
     // Open the log file
     std::string logname = LogFileName(wal_dir, log);
     const auto& fs = env_->GetFileSystem();
@@ -440,7 +439,7 @@ class Repairer {
 
       FileMetaData meta;
       meta.fd = FileDescriptor(next_file_number_++, 0, 0);
-      // TODO: plumb Env::IOActivity
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       ReadOptions ro;
       ro.total_order_seek = true;
       Arena arena;
@@ -463,26 +462,29 @@ class Repairer {
 
       IOStatus io_s;
       CompressionOptions default_compression;
+      // TODO: plumb Env::IOActivity, Env::IOPriority
+      const ReadOptions read_options;
+      const WriteOptions write_option(Env::IO_HIGH);
       TableBuilderOptions tboptions(
-          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
-          kNoCompression, default_compression, cfd->GetID(), cfd->GetName(),
-          -1 /* level */, false /* is_bottommost */,
-          TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
-          0 /* file_creation_time */, "DB Repairer" /* db_id */, db_session_id_,
-          0 /*target_file_size*/, meta.fd.GetNumber());
+          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), read_options,
+          write_option, cfd->internal_comparator(),
+          cfd->int_tbl_prop_collector_factories(), kNoCompression,
+          default_compression, cfd->GetID(), cfd->GetName(), -1 /* level */,
+          false /* is_bottommost */, TableFileCreationReason::kRecovery,
+          0 /* oldest_key_time */, 0 /* file_creation_time */,
+          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/,
+          meta.fd.GetNumber());
 
       SeqnoToTimeMapping empty_seqno_to_time_mapping;
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
-          file_options_, read_options, table_cache_.get(), iter.get(),
+          file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
           nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
           empty_seqno_to_time_mapping, nullptr /* event_logger */,
-          0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
-          write_hint);
+          0 /* job_id */, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -529,7 +531,7 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      // TODO: plumb Env::IOActivity
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       const ReadOptions read_options;
       status = table_cache_->GetTableProperties(
           file_options_, read_options, icmp_, t->meta, &props,
@@ -592,7 +594,7 @@ class Repairer {
       }
     }
     if (status.ok()) {
-      // TODO: plumb Env::IOActivity
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       ReadOptions ropts;
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
@@ -641,7 +643,7 @@ class Repairer {
       // an SST file is a full sorted run. This probably needs the extra logic
       // from compaction_job.cc around call to UpdateBoundariesForRange (to
       // handle range tombstones extendingg beyond range of other entries).
-      // TODO: plumb Env::IOActivity
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       ReadOptions ropts;
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
       status = table_cache_->GetRangeTombstoneIterator(
@@ -666,8 +668,10 @@ class Repairer {
   }
 
   Status AddTables() {
-    // TODO: plumb Env::IOActivity;
+    // TODO: plumb Env::IOActivity, Env::IOPriority;
     const ReadOptions read_options;
+    const WriteOptions write_options;
+
     std::unordered_map<uint32_t, std::vector<const TableInfo*>> cf_id_to_tables;
     SequenceNumber max_sequence = 0;
     for (size_t i = 0; i < tables_.size(); i++) {
@@ -755,8 +759,8 @@ class Repairer {
                                                 nullptr);
         if (s.ok()) {
           s = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                read_options, &edit, &mutex_, db_dir.get(),
-                                false /* new_descriptor_log */);
+                                read_options, write_options, &edit, &mutex_,
+                                db_dir.get(), false /* new_descriptor_log */);
         }
         mutex_.Unlock();
       }

@@ -19,6 +19,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/options.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/partitioned_index_iterator.h"
@@ -133,11 +134,13 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
     compression_opts.max_dict_bytes = compression_dict_bytes;
     compression_opts.max_dict_buffer_bytes = compression_dict_bytes;
     IntTblPropCollectorFactories factories;
+    const ReadOptions read_options;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(
         options_.table_factory->NewTableBuilder(
-            TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                                compression_type, compression_opts,
-                                0 /* column_family_id */,
+            TableBuilderOptions(ioptions, moptions, read_options, write_options,
+                                comparator, &factories, compression_type,
+                                compression_opts, 0 /* column_family_id */,
                                 kDefaultColumnFamilyName, -1 /* level */),
             writer.get()));
 
@@ -159,7 +162,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
                                 bool user_defined_timestamps_persisted = true) {
     const MutableCFOptions moptions(options_);
     TableReaderOptions table_reader_options = TableReaderOptions(
-        ioptions, moptions.prefix_extractor, EnvOptions(), comparator,
+        ioptions, moptions.prefix_extractor, foptions, comparator,
         0 /* block_protection_bytes_per_key */, false /* _skip_filters */,
         false /* _immortal */, false /* _force_direct_prefetch */,
         -1 /* _level */, nullptr /* _block_cache_tracer */,

@@ -318,15 +318,16 @@ Status CuckooTableBuilder::Finish() {
   unused_bucket.resize(static_cast<size_t>(bucket_size), 'a');
   // Write the table.
   uint32_t num_added = 0;
+  const IOOptions opts;
   for (auto& bucket : buckets) {
     if (bucket.vector_idx == kMaxVectorIdx) {
-      io_status_ = file_->Append(Slice(unused_bucket));
+      io_status_ = file_->Append(opts, Slice(unused_bucket));
     } else {
       ++num_added;
-      io_status_ = file_->Append(GetKey(bucket.vector_idx));
+      io_status_ = file_->Append(opts, GetKey(bucket.vector_idx));
       if (io_status_.ok()) {
         if (value_size_ > 0) {
-          io_status_ = file_->Append(GetValue(bucket.vector_idx));
+          io_status_ = file_->Append(opts, GetValue(bucket.vector_idx));
         }
       }
     }
@@ -382,7 +383,7 @@ Status CuckooTableBuilder::Finish() {
   BlockHandle property_block_handle;
   property_block_handle.set_offset(offset);
   property_block_handle.set_size(property_block.size());
-  io_status_ = file_->Append(property_block);
+  io_status_ = file_->Append(opts, property_block);
   offset += property_block.size();
   if (!io_status_.ok()) {
     status_ = io_status_;
@@ -395,7 +396,7 @@ Status CuckooTableBuilder::Finish() {
   BlockHandle meta_index_block_handle;
   meta_index_block_handle.set_offset(offset);
   meta_index_block_handle.set_size(meta_index_block.size());
-  io_status_ = file_->Append(meta_index_block);
+  io_status_ = file_->Append(opts, meta_index_block);
   if (!io_status_.ok()) {
     status_ = io_status_;
     return status_;
@@ -408,7 +409,7 @@ Status CuckooTableBuilder::Finish() {
     status_ = s;
     return status_;
   }
-  io_status_ = file_->Append(footer.GetSlice());
+  io_status_ = file_->Append(opts, footer.GetSlice());
   status_ = io_status_;
   return status_;
 }

@@ -114,21 +114,6 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
-  if (autotune_readaheadsize) {
-    FindReadAheadSizeUpperBound();
-    if (target) {
-      index_iter_->Seek(*target);
-    } else {
-      index_iter_->SeekToFirst();
-    }
-
-    // Check for IO error.
-    if (!index_iter_->Valid()) {
-      ResetDataIter();
-      return;
-    }
-  }
-
   // After reseek, index_iter_ point to the right key i.e. target in
   // case of readahead_cache_lookup_. So index_iter_ can be used directly.
   IndexValue v = index_iter_->value();
@@ -303,12 +288,29 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  // Return Error.
-  if (readahead_cache_lookup_) {
-    block_iter_.Invalidate(
-        Status::NotSupported("auto tuning of readahead_size in is not "
-                             "supported with Prev operation."));
-    return;
+  if (readahead_cache_lookup_ && !IsIndexAtCurr()) {
+    // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
+    // need to reseek the index_iter_ to point to current block by using
+    // block_iter_'s key.
+    if (Valid()) {
+      ResetBlockCacheLookupVar();
+      direction_ = IterDirection::kBackward;
+      Slice last_key = key();
+
+      index_iter_->Seek(last_key);
+      is_index_at_curr_block_ = true;
+
+      // Check for IO error.
+      if (!index_iter_->Valid()) {
+        ResetDataIter();
+        return;
+      }
+    }
+
+    if (!Valid()) {
+      ResetDataIter();
+      return;
+    }
   }
 
   ResetBlockCacheLookupVar();
@@ -382,7 +384,8 @@ void BlockBasedTableIterator::InitDataBlock() {
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction,
-          /*no_sequential_checking=*/false, read_options_, readaheadsize_cb);
+          /*no_sequential_checking=*/false, read_options_, readaheadsize_cb,
+          read_options_.async_io);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -442,7 +445,7 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction, /*no_sequential_checking=*/read_options_.async_io,
-          read_options_, readaheadsize_cb);
+          read_options_, readaheadsize_cb, read_options_.async_io);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -674,40 +677,6 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
   }
 }
 
-void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
-  size_t total_bytes_till_upper_bound = 0;
-  size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
-  uint64_t start_offset = index_iter_->value().handle.offset();
-
-  do {
-    BlockHandle block_handle = index_iter_->value().handle;
-    total_bytes_till_upper_bound += block_handle.size();
-    total_bytes_till_upper_bound += footer;
-
-    // Can't figure out for current block if current block
-    // is out of bound. But for next block we can find that.
-    // If curr block's index key >= iterate_upper_bound, it
-    // means all the keys in next block or above are out of
-    // bound.
-    if (IsNextBlockOutOfBound()) {
-      break;
-    }
-
-    // Since next block is not out of bound, iterate to that
-    // index block and add it's Data block size to
-    // readahead_size.
-    index_iter_->Next();
-
-    if (!index_iter_->Valid()) {
-      break;
-    }
-
-  } while (true);
-
-  block_prefetcher_.SetUpperBoundOffset(start_offset +
-                                        total_bytes_till_upper_bound);
-}
-
 void BlockBasedTableIterator::InitializeStartAndEndOffsets(
     bool read_curr_block, bool& found_first_miss_block,
     uint64_t& start_updated_offset, uint64_t& end_updated_offset,
@@ -744,7 +713,6 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
       // It can be due to reading error in second buffer in FilePrefetchBuffer.
       // BlockHandles already added to the queue but there was error in fetching
       // those data blocks. So in this call they need to be read again.
-      assert(block_handles_.front().is_cache_hit_ == false);
       found_first_miss_block = true;
       // Initialize prev_handles_size to 0 as all those handles need to be read
       // again.
@@ -887,7 +855,8 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     auto it_end =
         block_handles_.rbegin() + (block_handles_.size() - prev_handles_size);
 
-    while (it != it_end && (*it).is_cache_hit_) {
+    while (it != it_end && (*it).is_cache_hit_ &&
+           start_updated_offset != (*it).handle_.offset()) {
       it++;
     }
     end_updated_offset = (*it).handle_.offset() + footer + (*it).handle_.size();

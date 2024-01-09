@@ -16,9 +16,11 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/sst_dump_tool.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/sst_file_dumper.h"
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -123,10 +125,12 @@ class SSTDumpToolTest : public testing::Test {
 
     std::string column_family_name;
     int unknown_level = -1;
+    const WriteOptions write_options;
     tb.reset(opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
-            imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, CompressionOptions(),
+            imoptions, moptions, read_options, write_options, ikc,
+            &int_tbl_prop_collector_factories, CompressionType::kNoCompression,
+            CompressionOptions(),
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
             column_family_name, unknown_level),
         file_writer.get()));
@@ -160,7 +164,7 @@ class SSTDumpToolTest : public testing::Test {
       }
     }
     ASSERT_OK(tb->Finish());
-    ASSERT_OK(file_writer->Close());
+    ASSERT_OK(file_writer->Close(IOOptions()));
   }
 
  protected:
@@ -417,9 +421,9 @@ TEST_F(SSTDumpToolTest, ValidSSTPath) {
   std::string sst_file = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, sst_file);
   std::string text_file = MakeFilePath("text_file");
-  ASSERT_OK(WriteStringToFile(opts.env, "Hello World!", text_file));
+  ASSERT_OK(WriteStringToFile(opts.env, "Hello World!", text_file, false));
   std::string fake_sst = MakeFilePath("fake_sst.sst");
-  ASSERT_OK(WriteStringToFile(opts.env, "Not an SST file!", fake_sst));
+  ASSERT_OK(WriteStringToFile(opts.env, "Not an SST file!", fake_sst, false));
 
   for (const auto& command_arg : {"--command=verify", "--command=identify"}) {
     snprintf(usage[1], kOptLength, "%s", command_arg);
@@ -483,6 +487,39 @@ TEST_F(SSTDumpToolTest, RawOutput) {
   }
 }
 
+TEST_F(SSTDumpToolTest, SstFileDumperMmapReads) {
+  Options opts;
+  opts.env = env();
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  EnvOptions env_opts;
+  uint64_t data_size = 0;
+
+  // Test all combinations of mmap read options
+  for (int i = 0; i < 4; ++i) {
+    SaveAndRestore<bool> sar_opts(&opts.allow_mmap_reads, (i & 1) != 0);
+    SaveAndRestore<bool> sar_env_opts(&env_opts.use_mmap_reads, (i & 2) != 0);
+
+    SstFileDumper dumper(opts, file_path, Temperature::kUnknown,
+                         1024 /*readahead_size*/, true /*verify_checksum*/,
+                         false /*output_hex*/, false /*decode_blob_index*/,
+                         env_opts);
+    ASSERT_OK(dumper.getStatus());
+    std::shared_ptr<const TableProperties> tp;
+    ASSERT_OK(dumper.ReadTableProperties(&tp));
+    ASSERT_NE(tp.get(), nullptr);
+    if (i == 0) {
+      // Verify consistency of a populated field with some entropy
+      data_size = tp->data_size;
+      ASSERT_GT(data_size, 0);
+    } else {
+      ASSERT_EQ(data_size, tp->data_size);
+    }
+  }
+
+  cleanup(opts, file_path);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
