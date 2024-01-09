@@ -75,6 +75,9 @@ class CompactionPickerTestBase : public testing::Test {
     // not run to set this option to false. So we do the sanitization
     // here. Tests that test this option set this option to true explicitly.
     ioptions_.level_compaction_dynamic_level_bytes = false;
+    // Would be sanitized to 0 in SanitizeOption(), which is not called for
+    // this test
+    mutable_cf_options_.intra_l0_compaction_size = 0;
   }
 
   ~CompactionPickerTestBase() override {}
@@ -4268,6 +4271,53 @@ TEST_F(CompactionPickerTest,
 INSTANTIATE_TEST_CASE_P(PerKeyPlacementCompactionPickerTest,
                         PerKeyPlacementCompactionPickerTest, ::testing::Bool());
 
+TEST_F(CompactionPickerTest, IntraL0WhenL0IsSmall) {
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
+  for (uint64_t threshold : {0, 1 << 20, 10 << 20}) {
+    SCOPED_TRACE("intra_l0_compaction_size=" + std::to_string(threshold));
+    NewVersionStorage(6, kCompactionStyleLevel);
+    // When L0 size is <= intra_l0_compaction_size, intra-L0 compaction is
+    // picked. Otherwise, L0->L1 compaction is picked.
+    Add(/*level=*/0, /*file_number=*/1U, /*smallest=*/"100",
+        /*largest=*/"200", /*file_size=*/1 << 20, /*path_id=*/0,
+        /*smallest_seq=*/10, /*largest_seq=*/11,
+        /*compensated_file_size=*/1 << 20);
+    Add(/*level=*/0, /*file_number=*/2U, /*smallest=*/"100",
+        /*largest=*/"100", /*file_size=*/1000, /*path_id=*/0,
+        /*smallest_seq=*/20, /*largest_seq=*/21,
+        /*compensated_file_size=*/1000);
+    Add(/*level=*/0, /*file_number=*/3U, /*smallest=*/"100",
+        /*largest=*/"200", /*file_size=*/1000, /*path_id=*/0,
+        /*smallest_seq=*/30, /*largest_seq=*/31,
+        /*compensated_file_size=*/1000);
+    Add(/*level=*/0, /*file_number=*/4U, /*smallest=*/"100",
+        /*largest=*/"200", /*file_size=*/1000, /*path_id=*/0,
+        /*smallest_seq=*/40, /*largest_seq=*/41,
+        /*compensated_file_size=*/1000);
+    Add(/*level=*/1, /*file_number=*/5U, /*smallest=*/"100",
+        /*largest=*/"200", /*file_size=*/1000000, /*path_id=*/0,
+        /*smallest_seq=*/0, /*largest_seq=*/0,
+        /*compensated_file_size=*/1 << 20);
+    UpdateVersionStorageInfo();
+
+    mutable_cf_options_.intra_l0_compaction_size = threshold;
+    LevelCompactionPicker compaction_picker(ioptions_, &icmp_);
+    std::unique_ptr<Compaction> compaction(compaction_picker.PickCompaction(
+        cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+        &log_buffer_));
+    ASSERT_TRUE(compaction.get() != nullptr);
+    ASSERT_EQ(CompactionReason::kLevelL0FilesNum,
+              compaction->compaction_reason());
+    ASSERT_EQ(4U, compaction->num_input_files(0));
+    if (threshold == 10 << 20) {
+      ASSERT_EQ(1U, compaction->num_input_levels());
+      ASSERT_EQ(0, compaction->output_level());
+    } else {  // threshold == 10 << 20 (10 MB)
+      ASSERT_EQ(2U, compaction->num_input_levels());
+      ASSERT_EQ(1, compaction->output_level());
+    }
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

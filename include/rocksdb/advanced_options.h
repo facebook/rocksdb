@@ -1097,6 +1097,24 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t bottommost_file_compaction_delay = 0;
 
+  // For leveled compaction, when total L0 size is no more than this threshold,
+  // RocksDB will attempt intra-L0 compaction first before trying to compact
+  // L0 files down. This is used to reduce write amplification when L0 size
+  // can be very small.
+  //
+  // Note that this option does not affect the intra-L0 compaction that happens
+  // when there are too many L0 files.
+  //
+  // UINT64_MAX - 1 (0xfffffffffffffffe) is a special flag to allow RocksDB
+  // to pick default.
+  // 0 means disabled.
+  //
+  // Default:
+  //  when atomic_flush = 0: 0
+  //  when atomic_flush=1:
+  //    max_bytes_for_level_base / max_bytes_for_level_multiplier
+  uint64_t intra_l0_compaction_size = 0xfffffffffffffffe;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

@@ -113,6 +113,15 @@ class LevelCompactionBuilder {
   // otherwise, returns false.
   bool PickIntraL0Compaction();
 
+  // When total L0 size is no more than
+  // `mutable_cf_options_.intra_l0_compaction_size`, try to pick intra-L0
+  // compaction starting from the newest L0 file.
+  //
+  // Returns true iff an intra-L0 compaction is picked.
+  // `start_level_inputs_` and `output_level_` will be updated accordingly if
+  // a compaction is picked.
+  bool PickIntraL0CompactionWithSizeLimit();
+
   // Return true if TrivialMove is extended. `start_index` is the index of
   // the initial file picked, which should already be in `start_level_inputs_`.
   bool TryExtendNonL0TrivialMove(int start_index,
@@ -776,6 +785,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   // being compacted at level 0.
   if (start_level_ == 0 &&
       !compaction_picker_->level0_compactions_in_progress()->empty()) {
+    if (PickIntraL0CompactionWithSizeLimit()) {
+      return true;
+    }
     TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
     return false;
   }
@@ -786,6 +798,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   assert(start_level_ >= 0);
 
   if (TryPickL0TrivialMove()) {
+    return true;
+  }
+  if (PickIntraL0CompactionWithSizeLimit()) {
     return true;
   }
 
@@ -891,6 +906,43 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
                                std::numeric_limits<uint64_t>::max(),
                                mutable_cf_options_.max_compaction_bytes,
                                &start_level_inputs_);
+}
+
+bool LevelCompactionBuilder::PickIntraL0CompactionWithSizeLimit() {
+  const uint64_t max_l0_size = mutable_cf_options_.intra_l0_compaction_size;
+  if (max_l0_size == 0) {
+    return false;
+  }
+  const std::vector<FileMetaData*>& level_files =
+      vstorage_->LevelFiles(/*level=*/0);
+  size_t min_num_file =
+      std::max(2, mutable_cf_options_.level0_file_num_compaction_trigger);
+  if (level_files.size() < min_num_file) {
+    return false;
+  }
+
+  uint64_t input_size = 0;
+  for (const auto& file : level_files) {
+    input_size += file->fd.GetFileSize();
+    if (input_size > max_l0_size) {
+      return false;
+    }
+  }
+
+  start_level_inputs_.clear();
+  start_level_inputs_.level = 0;
+  for (const auto& file : level_files) {
+    if (file->being_compacted) {
+      break;
+    }
+    start_level_inputs_.files.push_back(file);
+  }
+  if (start_level_inputs_.files.size() < min_num_file) {
+    start_level_inputs_.clear();
+    return false;
+  }
+  output_level_ = 0;
+  return true /* picked an intra-L0 compaction */;
 }
 }  // namespace
 

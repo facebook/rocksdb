@@ -197,6 +197,7 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
 namespace {
 const uint64_t kDefaultTtl = 0xfffffffffffffffe;
 const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
+const uint64_t kDefaultIntraL0CompactionSize = 0xfffffffffffffffe;
 }  // anonymous namespace
 
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
@@ -426,6 +427,15 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
 
   if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
     result.periodic_compaction_seconds = 0;
+  }
+
+  if (result.intra_l0_compaction_size == kDefaultIntraL0CompactionSize) {
+    if (db_options.atomic_flush) {
+      result.intra_l0_compaction_size = result.max_bytes_for_level_base /
+                                        result.max_bytes_for_level_multiplier;
+    } else {
+      result.intra_l0_compaction_size = 0;
+    }
   }
 
   return result;
