@@ -5,6 +5,11 @@
 
 package org.rocksdb;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -26,12 +31,12 @@ public class NativeLoggerTest {
   //
   // Instead, we create both an stderr and devnull logger, but only use the devnull
   // logger in the subsequently created DB.
-  public void nativeDevNullLogger() throws RocksDBException {
+  public void nativeLoggersWithOptions() throws RocksDBException {
     Options options = new Options().setCreateIfMissing(true);
 
     // Just verify that setting stderr logger doesn't throw
     NativeLogger stderrNativeLogger = NativeLogger.newStderrLogger(
-      InfoLogLevel.DEBUG_LEVEL, "foo prefix");
+      InfoLogLevel.DEBUG_LEVEL, "[Options prefix]");
     options.setNativeLogger(stderrNativeLogger);
 
     // But we actually set the native logger to be devnull
@@ -45,6 +50,41 @@ public class NativeLoggerTest {
       dbFolder.getRoot().getAbsolutePath())) {
         db.put("key".getBytes(), "value".getBytes());
         db.flush(new FlushOptions().setWaitForFlush(true));
+    } finally {
+      options.close();
+    }
+  }
+
+  @Test
+  // Similar to nativeLoggersWithOptions, but with DBOptions instead
+  public void nativeLoggersWithDBOptions() throws RocksDBException {
+    DBOptions options = new DBOptions().setCreateIfMissing(true);
+
+    NativeLogger stderrNativeLogger = NativeLogger.newStderrLogger(
+      InfoLogLevel.DEBUG_LEVEL, "[DBOptions prefix]");
+    options.setNativeLogger(stderrNativeLogger);
+
+    NativeLogger devnullNativeLogger = NativeLogger.newDevnullLogger();
+    options.setNativeLogger(devnullNativeLogger);
+
+    stderrNativeLogger.close();
+    devnullNativeLogger.close();
+
+    final List<ColumnFamilyDescriptor> cfDescriptors =
+        Collections.singletonList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+    final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+
+    try (final RocksDB db = RocksDB.open(options,
+        dbFolder.getRoot().getAbsolutePath(),
+        cfDescriptors, cfHandles)) {
+      try {
+        db.put("key".getBytes(), "value".getBytes());
+        db.flush(new FlushOptions().setWaitForFlush(true));
+      } finally {
+        for (final ColumnFamilyHandle columnFamilyHandle : cfHandles) {
+          columnFamilyHandle.close();
+        }
+      }
     } finally {
       options.close();
     }

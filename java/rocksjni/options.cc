@@ -6175,6 +6175,20 @@ void Java_org_rocksdb_DBOptions_setLogger(JNIEnv*, jobject, jlong jhandle,
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setNativeLogger
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_DBOptions_setNativeLogger(JNIEnv*, jobject, jlong jhandle,
+                                                jlong jnative_logger_handle) {
+  auto* native_logger =
+      reinterpret_cast<ROCKSDB_NAMESPACE::NativeLogger*>(jnative_logger_handle);
+  assert(native_logger != nullptr);
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->info_log =
+      native_logger->logger;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setInfoLogLevel
  * Signature: (JB)V
  */
