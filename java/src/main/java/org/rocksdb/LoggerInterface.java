@@ -7,10 +7,9 @@ package org.rocksdb;
 
 /**
  * LoggerInterface is a thin interface that specifies the most basic
- * functionality for a Java implementation of a RocksDB Logger.
- * 
- * It provides a method that returns the handle to the underlying logger,
- * which can in turn be provided to setLogger.
+ * functionality for a Java wrapper around a RocksDB Logger. It provides a
+ * method that returns the handle to the underlying logger, which can in
+ * turn be provided to setLogger.
  */
 public interface LoggerInterface {
     /**
