@@ -1,0 +1,1 @@
+* Add a new option `intra_l0_compaction_size` which allows more intra-l0 compaction when L0 is smaller than a threshold. This applies for leveled compaction. It is enabled by default for users who use leveled compaction and sets atomic_flush=true.
