@@ -18,9 +18,8 @@ class StderrLogger : public Logger {
  public:
   explicit StderrLogger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : Logger(log_level) {}
-  explicit StderrLogger(const InfoLogLevel log_level,
-                        const std::string& log_prefix)
-      : Logger(log_level), log_prefix(std::move(log_prefix)){};
+  explicit StderrLogger(const InfoLogLevel log_level, const std::string& prefix)
+      : Logger(log_level), log_prefix(std::move(prefix)){};
 
   ~StderrLogger() override;
 
