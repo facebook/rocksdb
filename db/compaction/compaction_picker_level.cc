@@ -800,7 +800,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   if (TryPickL0TrivialMove()) {
     return true;
   }
-  if (PickIntraL0CompactionWithSizeLimit()) {
+  if (start_level_ == 0 && PickIntraL0CompactionWithSizeLimit()) {
     return true;
   }
 
@@ -909,6 +909,7 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
 }
 
 bool LevelCompactionBuilder::PickIntraL0CompactionWithSizeLimit() {
+  assert(start_level_ == 0);
   const uint64_t max_l0_size = mutable_cf_options_.intra_l0_compaction_size;
   if (max_l0_size == 0) {
     return false;
