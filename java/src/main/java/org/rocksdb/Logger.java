@@ -35,7 +35,7 @@ package org.rocksdb;
  * {@link org.rocksdb.InfoLogLevel#FATAL_LEVEL}.
  * </p>
  */
-public abstract class Logger extends RocksCallbackObject {
+public abstract class Logger extends RocksCallbackObject implements LoggerInterface {
   private static final long WITH_OPTIONS = 0;
   private static final long WITH_DBOPTIONS = 1;
 
@@ -94,6 +94,11 @@ public abstract class Logger extends RocksCallbackObject {
   public InfoLogLevel infoLogLevel() {
     return InfoLogLevel.getInfoLogLevel(
         infoLogLevel(nativeHandle_));
+  }
+
+  @Override
+  public long getNativeLoggerHandle() {
+    return nativeHandle_;
   }
 
   protected abstract void log(InfoLogLevel infoLogLevel,

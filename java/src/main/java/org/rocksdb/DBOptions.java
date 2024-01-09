@@ -213,16 +213,15 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setLogger(final Logger logger) {
+  public DBOptions setLogger(final LoggerInterface logger) {
     assert(isOwningHandle());
-    setLogger(nativeHandle_, logger.nativeHandle_);
-    return this;
-  }
 
-  @Override
-  public DBOptions setNativeLogger(final NativeLogger nativeLogger) {
-    assert(isOwningHandle());
-    setNativeLogger(nativeHandle_, nativeLogger.nativeHandle_);
+    if (logger instanceof NativeLogger) {
+      setNativeLogger(nativeHandle_, logger.getNativeLoggerHandle());
+    } else {
+      setLogger(nativeHandle_, logger.getNativeLoggerHandle());
+    }
+
     return this;
   }
 

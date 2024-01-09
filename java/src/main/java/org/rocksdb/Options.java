@@ -1246,16 +1246,15 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLogger(final Logger logger) {
+  public Options setLogger(final LoggerInterface logger) {
     assert(isOwningHandle());
-    setLogger(nativeHandle_, logger.nativeHandle_);
-    return this;
-  }
 
-  @Override
-  public Options setNativeLogger(final NativeLogger nativeLogger) {
-    assert(isOwningHandle());
-    setNativeLogger(nativeHandle_, nativeLogger.nativeHandle_);
+    if (logger instanceof NativeLogger) {
+      setNativeLogger(nativeHandle_, logger.getNativeLoggerHandle());
+    } else {
+      setLogger(nativeHandle_, logger.getNativeLoggerHandle());
+    }
+
     return this;
   }
 

@@ -37,11 +37,11 @@ public class NativeLoggerTest {
     // Just verify that setting stderr logger doesn't throw
     NativeLogger stderrNativeLogger = NativeLogger.newStderrLogger(
       InfoLogLevel.DEBUG_LEVEL, "[Options prefix]");
-    options.setNativeLogger(stderrNativeLogger);
+    options.setLogger(stderrNativeLogger);
 
     // But we actually set the native logger to be devnull
     NativeLogger devnullNativeLogger = NativeLogger.newDevnullLogger();
-    options.setNativeLogger(devnullNativeLogger);
+    options.setLogger(devnullNativeLogger);
 
     stderrNativeLogger.close();
     devnullNativeLogger.close();
@@ -62,10 +62,10 @@ public class NativeLoggerTest {
 
     NativeLogger stderrNativeLogger = NativeLogger.newStderrLogger(
       InfoLogLevel.DEBUG_LEVEL, "[DBOptions prefix]");
-    options.setNativeLogger(stderrNativeLogger);
+    options.setLogger(stderrNativeLogger);
 
     NativeLogger devnullNativeLogger = NativeLogger.newDevnullLogger();
-    options.setNativeLogger(devnullNativeLogger);
+    options.setLogger(devnullNativeLogger);
 
     stderrNativeLogger.close();
     devnullNativeLogger.close();

@@ -13,7 +13,7 @@ import org.rocksdb.InfoLogLevel;
  * loggers, which are invoked over the JNI for every log.
  */
 // @ThreadSafe
-public final class NativeLogger extends RocksObject {
+public final class NativeLogger extends RocksObject implements LoggerInterface {
   private enum NativeLoggerType {
     // In the future, we can add support for Auto-roll, Env logger, or
     // Win logger.
@@ -60,6 +60,11 @@ public final class NativeLogger extends RocksObject {
         // Should never happen, since cases are exhaustive
         throw new IllegalArgumentException("Invalid native logger type provided: " + type);
     }
+  }
+
+  @Override
+  public long getNativeLoggerHandle() {
+    return nativeHandle_;
   }
 
   private static native long newNativeDevnullLogger();
