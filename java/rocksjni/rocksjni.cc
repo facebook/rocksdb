@@ -1193,24 +1193,27 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jobject /*jdb*/,
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
 
-  ROCKSDB_NAMESPACE::GetJNIKey key;
-  if (!key.fromByteBuffer(env, jkey, jkey_off, jkey_len)) {
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval, jval_off,
+                                                        jval_len);
+    ROCKSDB_NAMESPACE::Status s;
+    if (cf_handle != nullptr) {
+      s = db->Get(
+          ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt,
+          cf_handle, key.slice(), &value.pinnable_slice());
+    } else {
+      // backwards compatibility
+      s = db->Get(
+          ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt,
+          db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice());
+    }
+
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
+    return value.Fetch();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
     return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
   }
-
-  ROCKSDB_NAMESPACE::PinnableSlice value;
-  ROCKSDB_NAMESPACE::Status s;
-  if (cf_handle != nullptr) {
-    s = db->Get(ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt,
-                cf_handle, key.slice(), &value);
-  } else {
-    // backwards compatibility
-    s = db->Get(ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt,
-                db->DefaultColumnFamily(), key.slice(), &value);
-  }
-
-  return ROCKSDB_NAMESPACE::GetJNIValue::fillByteBuffer(env, s, value, jval,
-                                                        jval_off, jval_len);
 }
 
 //////////////////////////////////////////////////////////////////////////////
