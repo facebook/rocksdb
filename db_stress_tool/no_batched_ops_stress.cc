@@ -2043,6 +2043,10 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       return true;
     }
+    char expected_value_data[kValueMaxLen];
+    size_t expected_value_data_size =
+        GenerateValue(expected_value.GetValueBase(), expected_value_data,
+                      sizeof(expected_value_data));
 
     // compare value_from_db with the value in the shared state
     if (s.ok()) {
@@ -2054,10 +2058,6 @@ class NonBatchedOpsStressTest : public StressTest {
                           key, value_from_db, "");
         return false;
       }
-      char expected_value_data[kValueMaxLen];
-      size_t expected_value_data_size =
-          GenerateValue(expected_value.GetValueBase(), expected_value_data,
-                        sizeof(expected_value_data));
       if (!ExpectedValueHelper::InExpectedValueBaseRange(
               value_base_from_db, expected_value, expected_value)) {
         VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
@@ -2084,17 +2084,16 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       if (ExpectedValueHelper::MustHaveExisted(expected_value,
                                                expected_value)) {
-        char expected_value_data[kValueMaxLen];
-        size_t expected_value_data_size =
-            GenerateValue(expected_value.GetValueBase(), expected_value_data,
-                          sizeof(expected_value_data));
         VerificationAbort(
             shared, msg_prefix + ": Value not found: " + s.ToString(), cf, key,
             "", Slice(expected_value_data, expected_value_data_size));
         return false;
       }
     } else {
-      assert(false);
+      VerificationAbort(shared, msg_prefix + "Non-OK status: " + s.ToString(),
+                        cf, key, "",
+                        Slice(expected_value_data, expected_value_data_size));
+      return false;
     }
     return true;
   }
