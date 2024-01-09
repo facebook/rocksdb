@@ -1577,6 +1577,7 @@ TEST_F(DBOptionsTest, TempOptionsFailTest) {
 
 TEST_F(DBOptionsTest, SanitizeIntraL0CompactionSize) {
   Options options;
+  options.env = env_;
   options.compaction_style = kCompactionStyleLevel;
 
   options.max_bytes_for_level_base = 10 << 20;
