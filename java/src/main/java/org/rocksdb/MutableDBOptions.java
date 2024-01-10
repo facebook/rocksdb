@@ -160,7 +160,8 @@ public class MutableDBOptions extends AbstractMutableOptions {
     compaction_readahead_size(ValueType.LONG),
 
     /**
-     * Signifies periods characterized by significantly less read and write activity compared to other times.
+     * Signifies periods characterized by significantly less read and write activity compared to
+     * other times.
      */
     daily_offpeak_time_utc(ValueType.STRING);
 

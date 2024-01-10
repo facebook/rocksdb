@@ -110,8 +110,7 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
    * @param logLevel the log level.
    * @param logMsg the log message.
    */
-  protected abstract void log(final InfoLogLevel logLevel,
-      final String logMsg);
+  protected abstract void log(final InfoLogLevel logLevel, final String logMsg);
 
   /**
    * Create a new Logger with Options.
@@ -128,8 +127,7 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
    * @param handle the native handle to the underlying C++ native Logger object.
    * @param logLevel the log level.
    */
-  protected native void setInfoLogLevel(final long handle,
-      final byte logLevel);
+  protected native void setInfoLogLevel(final long handle, final byte logLevel);
 
   /**
    * Get the log level.
