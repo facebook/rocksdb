@@ -598,4 +598,11 @@ jobs:
         which javac && javac -version
     - name: PMD RocksDBJava
       run: make V=1 J=8 -j8 jpmd
-    - uses: "./.github/actions/post-pmd-steps"
+    - uses: actions/upload-artifact@v4.0.0
+      with:
+        name: pmd-report
+        path: "${{ github.workspace }}/java/target/pmd.xml"
+    - uses: actions/upload-artifact@v4.0.0
+      with:
+        name: maven-site
+        path: "${{ github.workspace }}/java/target/site"
