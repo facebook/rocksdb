@@ -14,7 +14,7 @@
 
 #include "include/org_rocksdb_Transaction.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/jni_get_helpers.h"
+#include "rocksjni/jni_multiget_helpers.h"
 #include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
 

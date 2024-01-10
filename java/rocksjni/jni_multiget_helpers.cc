@@ -6,9 +6,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksjni/jni_get_helpers.h"
+#include "rocksjni/jni_multiget_helpers.h"
 
-#include "jni_get_helpers.h"
+#include "jni_multiget_helpers.h"
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
