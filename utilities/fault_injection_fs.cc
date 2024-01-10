@@ -457,8 +457,8 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     bool this_injected_error;
     reqs[i].status = fs_->InjectThreadSpecificReadError(
-        FaultInjectionTestFS::ErrorOperation::kMultiReadSingleReq,
-        &(reqs[i].result), use_direct_io(), reqs[i].scratch,
+        FaultInjectionTestFS::ErrorOperation::kRead, &(reqs[i].result),
+        use_direct_io(), reqs[i].scratch,
         /*need_count_increase=*/true,
         /*fault_injected=*/&this_injected_error);
     injected_error |= this_injected_error;
