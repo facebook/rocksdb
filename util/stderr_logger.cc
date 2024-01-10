@@ -20,10 +20,10 @@ void StderrLogger::Logv(const char* format, va_list ap) {
   struct tm t;
   port::LocalTimeR(&seconds, &t);
 
-  fprintf(stderr, "%s%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx ",
-          log_prefix.c_str(), t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
-          t.tm_hour, t.tm_min, t.tm_sec, static_cast<int>(now_tv.tv_usec),
-          static_cast<long long unsigned int>(thread_id));
+  fprintf(stderr, "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s",
+          t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min,
+          t.tm_sec, static_cast<int>(now_tv.tv_usec),
+          static_cast<long long unsigned int>(thread_id), log_prefix.c_str());
 
   vfprintf(stderr, format, ap);
   fprintf(stderr, "\n");
