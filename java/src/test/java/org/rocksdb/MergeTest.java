@@ -8,6 +8,8 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.rocksdb.util.MergeEncodings.*;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -55,7 +57,8 @@ public class MergeTest {
     final ByteBuffer buf =
         ByteBuffer.allocate(Long.SIZE / Byte.SIZE).order(ByteOrder.LITTLE_ENDIAN);
     buf.put(a);
-    buf.position(Math.max(buf.position(), LONG_BYTES)); // guard against BufferOverflowException
+    buf.position(
+        Math.max(buf.position(), Long.SIZE / Byte.SIZE)); // guard against BufferOverflowException
     buf.flip();
     return buf.getLong();
   }
