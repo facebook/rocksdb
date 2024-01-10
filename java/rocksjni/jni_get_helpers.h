@@ -17,20 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class GetJNIKey {
- private:
-  ROCKSDB_NAMESPACE::Slice slice_;
-  std::unique_ptr<jbyte[]> key_buf;
-
- public:
-  bool fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
-                     jint jkey_len);
-
-  bool fromByteBuffer(JNIEnv* env, jobject jkey, jint jkey_off, jint jkey_len);
-
-  inline ROCKSDB_NAMESPACE::Slice slice() { return slice_; }
-};
-
 /**
  * @brief Encapsulate keys and key conversions from Java/JNI objects for
  * MultiGet
@@ -107,65 +93,6 @@ class MultiGetJNIKeys {
    * in this object
    */
   std::vector<ROCKSDB_NAMESPACE::Slice>::size_type size();
-};
-
-/**
- * @brief Class with static helpers for returning java objects from RocksDB data
- *
- */
-class GetJNIValue {
- public:
-  static const int kNotFound = -1;
-  static const int kStatusError = -2;
-  static const int kArgumentError = -3;
-
-  /**
-   * @brief allocate and fill a byte array from the value in a pinnable slice
-   * If the supplied status is faulty, raise an exception instead
-   *
-   * @param env JNI environment in which to raise any exception
-   * @param s status to check before copying the result
-   * @param value pinnable slice containing a value
-   * @return jbyteArray
-   */
-  static jbyteArray byteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
-                              ROCKSDB_NAMESPACE::PinnableSlice& value);
-
-  /**
-   * @brief fill an existing byte array from the value in a pinnable slice
-   *
-   * If the supplied status is faulty, raise an exception instead
-   *
-   * @param env JNI environment in which to raise any exception
-   * @param s status to check before copying the result
-   * @param value pinnable slice containing a value
-   * @param jval byte array target for value
-   * @param jval_off offset in the array at which to place the value
-   * @param jval_len length of byte array into which to copy
-   * @return jint length copied, or a -ve status code
-   */
-  static jint fillByteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
-                            ROCKSDB_NAMESPACE::PinnableSlice& value,
-                            jbyteArray jval, jint jval_off, jint jval_len);
-
-  /**
-   * @brief fill an existing direct ByteBuffer from the value in a pinnable
-   * slice
-   *
-   * If the supplied status is faulty, raise an exception instead
-   *
-   * @param env JNI environment in which to raise any exception
-   * @param s status to check before copying the result
-   * @param value pinnable slice containing a value
-   * @param jval ByteBuffer target for value
-   * @param jval_off offset in the array at which to place the value
-   * @param jval_len length of byte array into which to copy
-   * @return jint length copied, or a -ve status code
-   */
-
-  static jint fillByteBuffer(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
-                             ROCKSDB_NAMESPACE::PinnableSlice& value,
-                             jobject jval, jint jval_off, jint jval_len);
 };
 
 /**
