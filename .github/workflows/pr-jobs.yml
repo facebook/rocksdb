@@ -585,20 +585,10 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: evolvedbinary/rocksjava:centos6_x64-be
+      image: evolvedbinary/rocksjava:rockylinux8_x64-be
       options: --shm-size=16gb
     steps:
-    # The docker image is intentionally based on an OS that has an older GLIBC version.
-    # That GLIBC is incompatibile with GitHub's actions/checkout. Thus we implement a manual checkout step.
-    - name: Checkout
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        chown `whoami` . || true
-        git clone --no-checkout https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
-        git -c protocol.version=2 fetch --update-head-ok --no-tags --prune --no-recurse-submodules --depth=1 origin +${{ github.sha }}:${{ github.ref }}
-        git checkout --progress --force ${{ github.ref }}
-        git log -1 --format='%H'
+    - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/install-maven"
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
@@ -607,5 +597,5 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: PMD RocksDBJava
-      run: scl enable devtoolset-7 'make V=1 J=8 -j8 jpmd'
+      run: make V=1 J=8 -j8 jpmd
     - uses: "./.github/actions/post-pmd-steps"
