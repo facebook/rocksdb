@@ -6280,7 +6280,7 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
     // last level to compact to and that range tombstones are not dropped
     // during non-bottommost compactions, calling CompactRange() on these two
     // ranges may not clear all range tombstones.
-    status = CompactRange(compact_options, nullptr, nullptr);
+    status = CompactRange(compact_options, column_family, nullptr, nullptr);
   }
   return status;
 }
