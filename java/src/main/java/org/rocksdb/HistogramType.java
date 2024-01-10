@@ -9,7 +9,6 @@ package org.rocksdb;
  * The types of histogram.
  */
 public enum HistogramType {
-
   /**
    * DB Get.
    */
@@ -354,7 +353,8 @@ public enum HistogramType {
   ASYNC_PREFETCH_ABORT_MICROS((byte) 0x3C),
 
   /**
-   * Number of bytes read for RocksDB's prefetching contents (as opposed to file system's prefetch) from the end of SST table during block based table open.
+   * Number of bytes read for RocksDB's prefetching contents (as opposed to file system's prefetch)
+   * from the end of SST table during block based table open.
    */
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES((byte) 0x3D),
 

@@ -161,7 +161,8 @@ public class MutableDBOptions extends AbstractMutableOptions {
     max_compaction_trigger_wakeup_seconds(ValueType.LONG),
 
     /**
-     * Signifies periods characterized by significantly less read and write activity compared to other times.
+     * Signifies periods characterized by significantly less read and write activity compared to
+     * other times.
      */
     daily_offpeak_time_utc(ValueType.STRING);
 

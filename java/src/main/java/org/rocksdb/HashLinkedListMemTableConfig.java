@@ -33,8 +33,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
   /**
    * The default of whether to log when a bucket is flushed.
    */
-  public static final boolean
-      DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH = true;
+  public static final boolean DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH = true;
 
   /**
    * The default threshold for determining when to use a Skip List.
