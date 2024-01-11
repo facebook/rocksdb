@@ -4,7 +4,7 @@ inputs:
   artifact-prefix:
     description: Prefix to append to the name of artifacts that are uploaded
     required: true
-    default: "${{ github.jobs[github.job].name }}"
+    default: "${{ github.job }}"
 runs:
   using: composite
   steps:
