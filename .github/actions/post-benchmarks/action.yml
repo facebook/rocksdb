@@ -6,7 +6,8 @@ runs:
     uses: actions/upload-artifact@v4.0.0
     with:
       name: benchmark-results
-      path: "${{ runner.temp }}/benchmark-results"
+      path: "${{ runner.temp }}/benchmark-results/**"
+      if-no-files-found: error
   - name: Send benchmark report to visualisation
     run: |-
       set +e
