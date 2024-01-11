@@ -7,15 +7,35 @@ package org.rocksdb;
 
 /**
  * LoggerInterface is a thin interface that specifies the most basic
- * functionality for a Java wrapper around a RocksDB Logger. It provides a
- * method that returns the handle to the underlying logger, which can in
- * turn be provided to setLogger.
+ * functionality for a Java wrapper around a RocksDB Logger.
  */
 public interface LoggerInterface {
+
     /**
-     * Retrieves a pointer to the native C++ logger object.
-     * 
-     * @return a pointer to the C++ logger object.
+     * Set the log level.
+     *
+     * @param logLevel the level at which to log.
      */
-    long getNativeLoggerHandle();
+    void setInfoLogLevel(final InfoLogLevel logLevel);
+
+    /**
+     * Get the log level
+     *
+     * @return the level at which to log.
+     */
+    InfoLogLevel infoLogLevel();
+
+    /**
+     * Get the underlying Native Handle.
+     *
+     * @return the native handle.
+     */
+    long getNativeHandle();
+
+    /**
+     * Get the type of this logger.
+     *
+     * @return the type of this logger.
+     */
+    LoggerType getLoggerType();
 }

@@ -45,7 +45,6 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.MemoryUsageType\
 	org.rocksdb.MemoryUtil\
 	org.rocksdb.MergeOperator\
-	org.rocksdb.NativeLogger\
 	org.rocksdb.NativeComparatorWrapper\
 	org.rocksdb.OptimisticTransactionDB\
 	org.rocksdb.OptimisticTransactionOptions\
@@ -90,7 +89,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WriteBufferManager\
-	org.rocksdb.WBWIRocksIterator
+	org.rocksdb.WBWIRocksIterator\
+	org.rocksdb.util.StdErrLogger
 
 NATIVE_JAVA_TEST_CLASSES = \
     org.rocksdb.RocksDBExceptionTest\
@@ -163,7 +163,6 @@ JAVA_TESTS = \
 	org.rocksdb.MutableOptionsGetSetTest \
 	org.rocksdb.NativeComparatorWrapperTest\
 	org.rocksdb.NativeLibraryLoaderTest\
-	org.rocksdb.NativeLoggerTest\
 	org.rocksdb.OptimisticTransactionTest\
 	org.rocksdb.OptimisticTransactionDBTest\
 	org.rocksdb.OptimisticTransactionOptionsTest\
@@ -208,7 +207,8 @@ JAVA_TESTS = \
 	org.rocksdb.WriteBatchTest\
 	org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
-	org.rocksdb.WriteBatchWithIndexTest
+	org.rocksdb.WriteBatchWithIndexTest\
+	org.rocksdb.util.StdErrLoggerTest
 
 MAIN_SRC = src/main/java
 TEST_SRC = src/test/java

@@ -77,32 +77,29 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
     }
   }
 
-  /**
-   * Set {@link org.rocksdb.InfoLogLevel} to AbstractLogger.
-   *
-   * @param infoLogLevel {@link org.rocksdb.InfoLogLevel} instance.
-   */
-  public void setInfoLogLevel(final InfoLogLevel infoLogLevel) {
-      setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
+  @Override
+  public void setInfoLogLevel(final InfoLogLevel logLevel) {
+      setInfoLogLevel(nativeHandle_, logLevel.getValue());
   }
 
-  /**
-   * Return the loggers log level.
-   *
-   * @return {@link org.rocksdb.InfoLogLevel} instance.
-   */
+  @Override
   public InfoLogLevel infoLogLevel() {
     return InfoLogLevel.getInfoLogLevel(
         infoLogLevel(nativeHandle_));
   }
 
   @Override
-  public long getNativeLoggerHandle() {
+  public long getNativeHandle() {
     return nativeHandle_;
   }
 
-  protected abstract void log(InfoLogLevel infoLogLevel,
-      String logMsg);
+  @Override
+  public final LoggerType getLoggerType() {
+    return LoggerType.JAVA_IMPLEMENTATION;
+  }
+
+  protected abstract void log(final InfoLogLevel logLevel,
+                              final String logMsg);
 
   protected native long createNewLoggerOptions(
       long options);
