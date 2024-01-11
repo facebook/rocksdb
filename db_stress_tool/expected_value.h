@@ -167,6 +167,17 @@ class PendingExpectedValue {
     value_ptr_->store(final_value_.Read());
   }
 
+  // Rollbacks the key to its original state.
+  // This rollbacks the pending state created in `ExpectedState::Precommit`,
+  // such as pending delete, pending put. If `ExpectedState::Precommit()` is not
+  // called before creating this `PendingExpectedValue`, this is a no-op.
+  void Rollback() {
+    // To prevent low-level instruction reordering that results
+    // in setting expected value happens before db write
+    std::atomic_thread_fence(std::memory_order_release);
+    value_ptr_->store(orig_value_.Read());
+  }
+
   uint32_t GetFinalValueBase() { return final_value_.GetValueBase(); }
 
  private:
