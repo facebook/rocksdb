@@ -36,7 +36,6 @@ package org.rocksdb;
  * </p>
  */
 public abstract class Logger extends RocksCallbackObject implements LoggerInterface {
-
   /**
    * <p>AbstractLogger constructor.</p>
    *
@@ -46,7 +45,8 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
    *
    * @param options {@link org.rocksdb.Options} instance.
    *
-   * @deprecated Use {@link Logger#Logger(InfoLogLevel)} instead, e.g. {@code new Logger(options.infoLogLevel())}.
+   * @deprecated Use {@link Logger#Logger(InfoLogLevel)} instead, e.g. {@code new
+   *     Logger(options.infoLogLevel())}.
    */
   @Deprecated
   public Logger(final Options options) {
@@ -62,7 +62,8 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
    *
    * @param dboptions {@link org.rocksdb.DBOptions} instance.
    *
-   * @deprecated Use {@link Logger#Logger(InfoLogLevel)} instead, e.g. {@code new Logger(dbOptions.infoLogLevel())}.
+   * @deprecated Use {@link Logger#Logger(InfoLogLevel)} instead, e.g. {@code new
+   *     Logger(dbOptions.infoLogLevel())}.
    */
   @Deprecated
   public Logger(final DBOptions dboptions) {
@@ -83,13 +84,13 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
     if (nativeParameterHandles.length == 1) {
       return newLogger(nativeParameterHandles[0]);
     } else {
-        throw new IllegalArgumentException();
+      throw new IllegalArgumentException();
     }
   }
 
   @Override
   public void setInfoLogLevel(final InfoLogLevel logLevel) {
-      setInfoLogLevel(nativeHandle_, logLevel.getValue());
+    setInfoLogLevel(nativeHandle_, logLevel.getValue());
   }
 
   @Override
@@ -108,8 +109,7 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
     return LoggerType.JAVA_IMPLEMENTATION;
   }
 
-  protected abstract void log(final InfoLogLevel logLevel,
-                              final String logMsg);
+  protected abstract void log(final InfoLogLevel logLevel, final String logMsg);
 
   protected native long newLogger(final long logLevel);
   protected native void setInfoLogLevel(final long handle, final byte logLevel);

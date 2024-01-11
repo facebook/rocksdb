@@ -227,7 +227,8 @@ LoggerJniCallback::~LoggerJniCallback() {
  * Method:    newLogger
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_Logger_newLogger(JNIEnv* env, jobject jobj, jlong jlog_level) {
+jlong Java_org_rocksdb_Logger_newLogger(JNIEnv* env, jobject jobj,
+                                        jlong jlog_level) {
   auto* sptr_logger = new std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>(
       new ROCKSDB_NAMESPACE::LoggerJniCallback(env, jobj));
   auto log_level = static_cast<ROCKSDB_NAMESPACE::InfoLogLevel>(jlog_level);

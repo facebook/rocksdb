@@ -24,8 +24,8 @@ public class StdErrLoggerTest {
   @Test
   public void nativeLoggersWithOptions() {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final StdErrLogger stdErrLogger = new StdErrLogger(
-      InfoLogLevel.DEBUG_LEVEL, "[Options prefix]")) {
+         final StdErrLogger stdErrLogger =
+             new StdErrLogger(InfoLogLevel.DEBUG_LEVEL, "[Options prefix]")) {
       options.setLogger(stdErrLogger);
     }
   }
@@ -37,8 +37,8 @@ public class StdErrLoggerTest {
   @Test
   public void nativeLoggersWithDBOptions() {
     try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
-         final StdErrLogger stdErrLogger = new StdErrLogger(
-             InfoLogLevel.DEBUG_LEVEL, "[DBOptions prefix]")) {
+         final StdErrLogger stdErrLogger =
+             new StdErrLogger(InfoLogLevel.DEBUG_LEVEL, "[DBOptions prefix]")) {
       options.setLogger(stdErrLogger);
     }
   }

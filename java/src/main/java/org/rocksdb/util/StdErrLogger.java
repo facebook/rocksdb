@@ -13,7 +13,6 @@ import org.rocksdb.RocksObject;
  * Simply redirects all log messages to StdErr.
  */
 public class StdErrLogger extends RocksObject implements LoggerInterface {
-
   /**
    * Constructs a new StdErrLogger.
    *
@@ -40,8 +39,7 @@ public class StdErrLogger extends RocksObject implements LoggerInterface {
 
   @Override
   public InfoLogLevel infoLogLevel() {
-    return InfoLogLevel.getInfoLogLevel(
-        infoLogLevel(nativeHandle_));
+    return InfoLogLevel.getInfoLogLevel(infoLogLevel(nativeHandle_));
   }
 
   @Override
@@ -49,10 +47,10 @@ public class StdErrLogger extends RocksObject implements LoggerInterface {
     return LoggerType.STDERR_IMPLEMENTATION;
   }
 
-  private static native long newStdErrLogger(final byte logLevel, /* @Nullable */ final String logPrefix);
+  private static native long newStdErrLogger(
+      final byte logLevel, /* @Nullable */ final String logPrefix);
   private static native void setInfoLogLevel(final long handle, final byte logLevel);
   private static native byte infoLogLevel(final long handle);
 
-  @Override
-  protected native void disposeInternal(final long handle);
+  @Override protected native void disposeInternal(final long handle);
 }

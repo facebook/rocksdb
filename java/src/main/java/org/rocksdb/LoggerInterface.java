@@ -10,32 +10,31 @@ package org.rocksdb;
  * functionality for a Java wrapper around a RocksDB Logger.
  */
 public interface LoggerInterface {
+  /**
+   * Set the log level.
+   *
+   * @param logLevel the level at which to log.
+   */
+  void setInfoLogLevel(final InfoLogLevel logLevel);
 
-    /**
-     * Set the log level.
-     *
-     * @param logLevel the level at which to log.
-     */
-    void setInfoLogLevel(final InfoLogLevel logLevel);
+  /**
+   * Get the log level
+   *
+   * @return the level at which to log.
+   */
+  InfoLogLevel infoLogLevel();
 
-    /**
-     * Get the log level
-     *
-     * @return the level at which to log.
-     */
-    InfoLogLevel infoLogLevel();
+  /**
+   * Get the underlying Native Handle.
+   *
+   * @return the native handle.
+   */
+  long getNativeHandle();
 
-    /**
-     * Get the underlying Native Handle.
-     *
-     * @return the native handle.
-     */
-    long getNativeHandle();
-
-    /**
-     * Get the type of this logger.
-     *
-     * @return the type of this logger.
-     */
-    LoggerType getLoggerType();
+  /**
+   * Get the type of this logger.
+   *
+   * @return the type of this logger.
+   */
+  LoggerType getLoggerType();
 }

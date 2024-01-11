@@ -10,8 +10,8 @@ package org.rocksdb;
  * boundary.
  */
 public enum LoggerType {
-  JAVA_IMPLEMENTATION((byte)0x1),
-  STDERR_IMPLEMENTATION((byte)0x2);
+  JAVA_IMPLEMENTATION((byte) 0x1),
+  STDERR_IMPLEMENTATION((byte) 0x2);
 
   private final byte value;
 
@@ -43,7 +43,6 @@ public enum LoggerType {
         return loggerType;
       }
     }
-    throw new IllegalArgumentException(
-        "Illegal value provided for LoggerType.");
+    throw new IllegalArgumentException("Illegal value provided for LoggerType.");
   }
 }

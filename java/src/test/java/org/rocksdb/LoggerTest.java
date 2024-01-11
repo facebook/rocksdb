@@ -245,8 +245,7 @@ public class LoggerTest {
              assertThat(logMsg.length()).isGreaterThan(0);
              logMessageCounter.incrementAndGet();
            }
-         }
-    ) {
+         }) {
       // Set custom logger to options
       options.setLogger(logger);
 
@@ -254,9 +253,8 @@ public class LoggerTest {
           Collections.singletonList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
 
-      try (final RocksDB db = RocksDB.open(options,
-          dbFolder.getRoot().getAbsolutePath(),
-          cfDescriptors, cfHandles)) {
+      try (final RocksDB db = RocksDB.open(
+               options, dbFolder.getRoot().getAbsolutePath(), cfDescriptors, cfHandles)) {
         try {
           // there should be zero messages
           // using fatal level as log level.
