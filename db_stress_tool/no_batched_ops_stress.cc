@@ -910,6 +910,17 @@ class NonBatchedOpsStressTest : public StressTest {
 
     PinnableWideColumns from_db;
 
+    ReadOptions read_opts_copy = read_opts;
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
+
     const Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
 
     int error_count = 0;
@@ -956,7 +967,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
 
-      if (!FLAGS_skip_verifydb) {
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
         if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
