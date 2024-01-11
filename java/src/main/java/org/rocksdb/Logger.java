@@ -36,8 +36,6 @@ package org.rocksdb;
  * </p>
  */
 public abstract class Logger extends RocksCallbackObject implements LoggerInterface {
-  private static final long WITH_OPTIONS = 0;
-  private static final long WITH_DBOPTIONS = 1;
 
   /**
    * <p>AbstractLogger constructor.</p>
@@ -47,10 +45,12 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
    * maximum log level of RocksDB.</p>
    *
    * @param options {@link org.rocksdb.Options} instance.
+   *
+   * @deprecated Use {@link Logger#Logger(InfoLogLevel)} instead, e.g. {@code new Logger(options.infoLogLevel())}.
    */
+  @Deprecated
   public Logger(final Options options) {
-    super(options.nativeHandle_, WITH_OPTIONS);
-
+    this(options.infoLogLevel());
   }
 
   /**
@@ -61,19 +61,29 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
    * as maximum log level of RocksDB.</p>
    *
    * @param dboptions {@link org.rocksdb.DBOptions} instance.
+   *
+   * @deprecated Use {@link Logger#Logger(InfoLogLevel)} instead, e.g. {@code new Logger(dbOptions.infoLogLevel())}.
    */
+  @Deprecated
   public Logger(final DBOptions dboptions) {
-    super(dboptions.nativeHandle_, WITH_DBOPTIONS);
+    this(dboptions.infoLogLevel());
+  }
+
+  /**
+   * <p>AbstractLogger constructor.</p>
+   *
+   * @param logLevel the log level.
+   */
+  public Logger(final InfoLogLevel logLevel) {
+    super(logLevel.getValue());
   }
 
   @Override
   protected long initializeNative(final long... nativeParameterHandles) {
-    if(nativeParameterHandles[1] == WITH_OPTIONS) {
-      return createNewLoggerOptions(nativeParameterHandles[0]);
-    } else if(nativeParameterHandles[1] == WITH_DBOPTIONS) {
-      return createNewLoggerDbOptions(nativeParameterHandles[0]);
+    if (nativeParameterHandles.length == 1) {
+      return newLogger(nativeParameterHandles[0]);
     } else {
-      throw new IllegalArgumentException();
+        throw new IllegalArgumentException();
     }
   }
 
@@ -101,18 +111,14 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
   protected abstract void log(final InfoLogLevel logLevel,
                               final String logMsg);
 
-  protected native long createNewLoggerOptions(
-      long options);
-  protected native long createNewLoggerDbOptions(
-      long dbOptions);
-  protected native void setInfoLogLevel(long handle,
-      byte infoLogLevel);
-  protected native byte infoLogLevel(long handle);
+  protected native long newLogger(final long logLevel);
+  protected native void setInfoLogLevel(final long handle, final byte logLevel);
+  protected native byte infoLogLevel(final long handle);
 
   /**
    * We override {@link RocksCallbackObject#disposeInternal()}
    * as disposing of a rocksdb::LoggerJniCallback requires
-   * a slightly different approach as it is a std::shared_ptr
+   * a slightly different approach as it is a std::shared_ptr.
    */
   @Override
   protected void disposeInternal() {
