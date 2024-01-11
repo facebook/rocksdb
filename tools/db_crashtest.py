@@ -552,6 +552,9 @@ multiops_wp_txn_params = {
     "use_only_the_last_commit_time_batch_for_recovery": 1,
     "clear_wp_commit_cache_one_in": 10,
     "create_timestamped_snapshot_one_in": 0,
+    # sequence number can be advanced in SwitchMemtable::WriteRecoverableState() for WP.
+    # disable it for now until we find another way to test LockWAL().
+    "lock_wal_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
