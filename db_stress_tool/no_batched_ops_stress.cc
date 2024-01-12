@@ -798,7 +798,7 @@ class NonBatchedOpsStressTest : public StressTest {
         } else if (!s.ok() && tmp_s.ok()) {
           fprintf(stderr,
                   "MultiGet(%d) returned different results with key %s. "
-                  "Snapshot Seq No: %lu\n",
+                  "Snapshot Seq No: %" PRIu64 "\n",
                   column_family, key.ToString(true).c_str(),
                   readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
@@ -806,7 +806,7 @@ class NonBatchedOpsStressTest : public StressTest {
         } else if (s.ok() && tmp_s.IsNotFound()) {
           fprintf(stderr,
                   "MultiGet(%d) returned different results with key %s. "
-                  "Snapshot Seq No: %lu\n",
+                  "Snapshot Seq No: %" PRIu64 "\n",
                   column_family, key.ToString(true).c_str(),
                   readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
@@ -814,7 +814,7 @@ class NonBatchedOpsStressTest : public StressTest {
         } else if (s.ok() && value != expected_value.ToString()) {
           fprintf(stderr,
                   "MultiGet(%d) returned different results with key %s. "
-                  "Snapshot Seq No: %lu\n",
+                  "Snapshot Seq No: %" PRIu64 "\n",
                   column_family, key.ToString(true).c_str(),
                   readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned value %s\n",
