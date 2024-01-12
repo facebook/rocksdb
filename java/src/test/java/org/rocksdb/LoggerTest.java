@@ -237,7 +237,7 @@ public class LoggerTest {
   public void logLevelLogger() throws RocksDBException {
     final AtomicInteger logMessageCounter = new AtomicInteger();
     try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
-         final Logger logger = new Logger(InfoLogLevel.INFO_LEVEL) {
+         final Logger logger = new Logger(InfoLogLevel.FATAL_LEVEL) {
            // Create new logger with max log level passed by options
            @Override
            protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
