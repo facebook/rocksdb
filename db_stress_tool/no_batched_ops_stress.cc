@@ -2057,11 +2057,12 @@ class NonBatchedOpsStressTest : public StressTest {
         Slice slice(value_from_db);
         uint32_t value_base = GetValueBase(slice);
         shared->SyncPut(cf, key, value_base);
+        return true;
       } else if (s.IsNotFound()) {
         // Value doesn't exist in db, update state to reflect that
         shared->SyncDelete(cf, key);
+        return true;
       }
-      return true;
     }
     char expected_value_data[kValueMaxLen];
     size_t expected_value_data_size =
