@@ -21,7 +21,7 @@ class StderrLogger : public Logger {
   explicit StderrLogger(const InfoLogLevel log_level, const std::string prefix)
       : Logger(log_level),
         log_prefix(strdup(prefix.c_str())),
-        log_prefix_len(prefix.length()){};
+        log_prefix_len(strlen(log_prefix)){};
 
   ~StderrLogger() override;
 
