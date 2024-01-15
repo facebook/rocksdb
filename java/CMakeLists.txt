@@ -189,6 +189,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java
+  src/main/java/org/rocksdb/LoggerInterface.java
   src/main/java/org/rocksdb/LoggerType.java
   src/main/java/org/rocksdb/LRUCache.java
   src/main/java/org/rocksdb/MemoryUsageType.java
