@@ -30,8 +30,7 @@ void StderrLogger::Logv(const char* format, va_list ap) {
 
   va_list ap_copy;
   va_copy(ap_copy, ap);
-  const size_t log_suffix_len =
-      vsnprintf(nullptr, 0, format, ap_copy);
+  const size_t log_suffix_len = vsnprintf(nullptr, 0, format, ap_copy);
   va_end(ap_copy);
 
   // Allocate space for the context, log_prefix, and log itself
@@ -40,12 +39,13 @@ void StderrLogger::Logv(const char* format, va_list ap) {
   std::unique_ptr<char[]> buf(new char[buf_len]);
 
   // Write out the context and prefix string
-  int written = snprintf(buf.get(), context_len + log_prefix_len,
-          // Keep this string in sync with context_len
-          "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s",
-          t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min,
-          t.tm_sec, static_cast<int>(now_tv.tv_usec),
-          static_cast<long long unsigned int>(thread_id), log_prefix);
+  int written =
+      snprintf(buf.get(), context_len + log_prefix_len,
+               // Keep this string in sync with context_len
+               "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s", t.tm_year + 1900,
+               t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
+               static_cast<int>(now_tv.tv_usec),
+               static_cast<long long unsigned int>(thread_id), log_prefix);
   written += vsnprintf(buf.get() + written, log_suffix_len, format, ap);
   buf[written] = '\0';
 
