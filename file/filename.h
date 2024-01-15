@@ -162,16 +162,19 @@ extern bool ParseFileName(const std::string& filename, uint64_t* number,
 // specified number. On its success and when dir_contains_current_file is not
 // nullptr, the function will fsync the directory containing the CURRENT file
 // when
-extern IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
+extern IOStatus SetCurrentFile(const WriteOptions& write_options,
+                               FileSystem* fs, const std::string& dbname,
                                uint64_t descriptor_number,
                                FSDirectory* dir_contains_current_file);
 
 // Make the IDENTITY file for the db
-extern Status SetIdentityFile(Env* env, const std::string& dbname,
+extern Status SetIdentityFile(const WriteOptions& write_options, Env* env,
+                              const std::string& dbname,
                               const std::string& db_id = {});
 
 // Sync manifest file `file`.
 extern IOStatus SyncManifest(const ImmutableDBOptions* db_options,
+                             const WriteOptions& write_options,
                              WritableFileWriter* file);
 
 // Return list of file names of info logs in `file_names`.

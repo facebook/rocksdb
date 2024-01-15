@@ -201,6 +201,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.fill_cache = fill_cache_;

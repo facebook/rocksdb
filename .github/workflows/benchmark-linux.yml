@@ -6,6 +6,7 @@ jobs:
   # - cron: 0 * * * *
   # workflow_dispatch:
   benchmark-linux:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4.1.0

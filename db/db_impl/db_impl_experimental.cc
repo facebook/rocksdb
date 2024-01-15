@@ -61,8 +61,10 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                    "PromoteL0 FAILED. Invalid target level %d\n", target_level);
     return Status::InvalidArgument("Invalid target level");
   }
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+  const WriteOptions write_options;
+
   Status status;
   VersionEdit edit;
   JobContext job_context(next_job_id_.fetch_add(1), true);
@@ -143,7 +145,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                    read_options, &edit, &mutex_,
+                                    read_options, write_options, &edit, &mutex_,
                                     directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(cfd,

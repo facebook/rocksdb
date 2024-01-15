@@ -375,7 +375,7 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLowWithPublicAPI) {
                                     ts_low_str_long);
   ASSERT_EQ(s, Status::InvalidArgument());
   // test IncreaseFullHistoryTsLow with a timestamp which is null
-  std::string ts_low_str_null = "";
+  std::string ts_low_str_null;
   s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
                                     ts_low_str_null);
   ASSERT_EQ(s, Status::InvalidArgument());
@@ -430,8 +430,8 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   std::vector<Range> ranges;
   std::string start_tmp = Key(10);
   std::string end_tmp = Key(20);
-  ranges.emplace_back(Range(start_tmp, end_tmp));
-  ranges.emplace_back(Range(start, end));
+  ranges.emplace_back(start_tmp, end_tmp);
+  ranges.emplace_back(start, end);
   uint64_t range_sizes[2];
   ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf,
                                      ranges.data(), 2, range_sizes));
@@ -598,8 +598,7 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   DBOptions db_options(options);
 
   // Trim data whose version > Timestamp(5, 0), read(k1, ts(7)) <- NOT_FOUND.
@@ -642,8 +641,7 @@ TEST_F(DBBasicTestWithTimestamp, OpenAndTrimHistoryInvalidOptionTest) {
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   DBOptions db_options(options);
 
   // OpenAndTrimHistory should not work with avoid_flush_during_recovery
@@ -2634,7 +2632,7 @@ TEST_F(DataVisibilityTest, MultiGetWithoutSnapshot) {
   auto ss = db_->MultiGet(read_opts, keys, &values);
 
   writer_thread.join();
-  for (auto s : ss) {
+  for (const auto& s : ss) {
     ASSERT_TRUE(s.IsNotFound());
   }
   VerifyDefaultCF();
@@ -2904,8 +2902,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
+  FlushedFileCollector() = default;
+  ~FlushedFileCollector() override = default;
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     InstrumentedMutexLock lock(&mutex_);
@@ -3087,7 +3085,7 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
       key_vals.push_back(Key1(j));
     }
     for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-      keys.push_back(key_vals[j]);
+      keys.emplace_back(key_vals[j]);
     }
 
     ReadOptions ropts;
@@ -3793,12 +3791,12 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     std::vector<Slice> keys;
     std::vector<std::string> values;
     for (size_t j = 0; j < 2; ++j) {
-      keys.push_back(key_vals[j]);
+      keys.emplace_back(key_vals[j]);
     }
 
     std::vector<Status> statuses =
         db_->MultiGet(read_opts, cfhs, keys, &values);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -3810,12 +3808,12 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     std::vector<Slice> keys;
     std::vector<std::string> values;
     for (size_t j = 0; j < 1; ++j) {
-      keys.push_back(key_vals[j]);
+      keys.emplace_back(key_vals[j]);
     }
 
     std::vector<Status> statuses =
         db_->MultiGet(read_opts, one_cfh, keys, &values);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -3828,7 +3826,7 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     Status statuses[] = {Status::OK(), Status::OK()};
     db_->MultiGet(read_opts, /*num_keys=*/2, &column_families[0], &keys[0],
                   &values[0], &statuses[0], /*sorted_input=*/false);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -3841,7 +3839,7 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
     Status statuses[] = {Status::OK()};
     db_->MultiGet(read_opts, /*num_keys=*/1, &one_column_family[0], &keys[0],
                   &values[0], &statuses[0], /*sorted_input=*/false);
-    for (auto status : statuses) {
+    for (const auto& status : statuses) {
       ASSERT_TRUE(status.IsInvalidArgument());
     }
   }
@@ -4556,8 +4554,8 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
     Slice read_ts_slice = Slice(read_ts_str);
     ReadOptions read_opts;
     read_opts.timestamp = &read_ts_slice;
-    std::string value_from_get = "";
-    std::string timestamp_from_get = "";
+    std::string value_from_get;
+    std::string timestamp_from_get;
     auto status =
         db_->Get(read_opts, Key1(3), &value_from_get, &timestamp_from_get);
     ASSERT_TRUE(status.IsNotFound());

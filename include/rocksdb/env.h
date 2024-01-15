@@ -67,6 +67,7 @@ struct ThreadStatus;
 class FileSystem;
 class SystemClock;
 struct ConfigOptions;
+struct IOOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -1206,7 +1207,7 @@ enum InfoLogLevel : unsigned char {
 // including data loss, unreported corruption, deadlocks, and more.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
+  static constexpr size_t kDoNotSupportGetLogFileSize = SIZE_MAX;
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : closed_(false), log_level_(log_level) {}
@@ -1352,7 +1353,8 @@ extern void Fatal(Logger* info_log, const char* format, ...)
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,
                                 const std::string& fname,
-                                bool should_sync = false);
+                                bool should_sync = false,
+                                const IOOptions* io_options = nullptr);
 
 // A utility routine: read contents of named file into *data
 extern Status ReadFileToString(Env* env, const std::string& fname,

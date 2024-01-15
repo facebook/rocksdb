@@ -34,7 +34,7 @@ Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const std::string& file_path) {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   return VerifySstFileChecksum(options, env_options, read_options, file_path);
 }

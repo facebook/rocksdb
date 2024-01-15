@@ -423,7 +423,7 @@ class InternalKey {
 
   void Set(const Slice& _user_key_with_ts, SequenceNumber s, ValueType t,
            const Slice& ts) {
-    ParsedInternalKey pik = ParsedInternalKey(_user_key_with_ts, s, t);
+    ParsedInternalKey pik(_user_key_with_ts, s, t);
     // Should not call pik.SetTimestamp() directly as it overwrites the buffer
     // containing _user_key.
     SetFrom(pik, ts);

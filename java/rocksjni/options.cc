@@ -8624,20 +8624,20 @@ void Java_org_rocksdb_ReadOptions_setValueSizeSoftLimit(
 
 /*
  * Class:     org_rocksdb_ReadOptions
- * Method:    asyncIO
+ * Method:    asyncIo
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_ReadOptions_asyncIO(JNIEnv*, jobject, jlong jhandle) {
+jboolean Java_org_rocksdb_ReadOptions_asyncIo(JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   return static_cast<jboolean>(opt->async_io);
 }
 
 /*
  * Class:     org_rocksdb_ReadOptions
- * Method:    setAsyncIO
+ * Method:    setAsyncIo
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_ReadOptions_setAsyncIO(JNIEnv*, jobject, jlong jhandle,
+void Java_org_rocksdb_ReadOptions_setAsyncIo(JNIEnv*, jobject, jlong jhandle,
                                              jboolean jasync_io) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   opt->async_io = static_cast<bool>(jasync_io);

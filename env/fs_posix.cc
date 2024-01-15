@@ -998,9 +998,7 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
-  // EXPERIMENTAL
-  //
-  // TODO akankshamahajan:
+  // TODO:
   // 1. Update Poll API to take into account min_completions
   // and returns if number of handles in io_handles (any order) completed is
   // equal to atleast min_completions.

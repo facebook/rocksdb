@@ -256,10 +256,10 @@ public class ReadOptionsTest {
   }
 
   @Test
-  public void asyncIO() {
+  public void asyncIo() {
     try (final ReadOptions opt = new ReadOptions()) {
-      opt.setAsyncIO(true);
-      assertThat(opt.asyncIO()).isTrue();
+      opt.setAsyncIo(true);
+      assertThat(opt.asyncIo()).isTrue();
     }
   }
 

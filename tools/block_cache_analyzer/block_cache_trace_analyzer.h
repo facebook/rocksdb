@@ -387,6 +387,7 @@ class BlockCacheTraceAnalyzer {
   uint64_t trace_start_timestamp_in_seconds_ = 0;
   uint64_t trace_end_timestamp_in_seconds_ = 0;
   MissRatioStats miss_ratio_stats_;
+  std::map<TableReaderCaller, MissRatioStats> caller_miss_ratio_stats_map_;
   uint64_t unique_block_id_ = 1;
   uint64_t unique_get_key_id_ = 1;
   BlockCacheHumanReadableTraceWriter human_readable_trace_writer_;

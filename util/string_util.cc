@@ -115,8 +115,17 @@ void AppendEscapedStringTo(std::string* str, const Slice& value) {
 }
 
 std::string NumberToHumanString(int64_t num) {
-  char buf[19];
-  int64_t absnum = num < 0 ? -num : num;
+  char buf[21];
+  int64_t absnum;
+
+  if (num < 0) {
+    // abs(INT64_MIN) is INT64_MAX+1 which overflows int64_t and become itself.
+    // So we convert it to INT64_MAX to avoid fall into <10000 slot.
+    absnum = num == INT64_MIN ? INT64_MAX : -num;
+  } else {
+    absnum = num;
+  }
+
   if (absnum < 10000) {
     snprintf(buf, sizeof(buf), "%" PRIi64, num);
   } else if (absnum < 10000000) {

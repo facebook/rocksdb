@@ -552,6 +552,9 @@ multiops_wp_txn_params = {
     "use_only_the_last_commit_time_batch_for_recovery": 1,
     "clear_wp_commit_cache_one_in": 10,
     "create_timestamped_snapshot_one_in": 0,
+    # sequence number can be advanced in SwitchMemtable::WriteRecoverableState() for WP.
+    # disable it for now until we find another way to test LockWAL().
+    "lock_wal_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
@@ -568,11 +571,6 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
-        if dest_params["file_checksum_impl"] != "none":
-            # TODO(T109283569): there is a bug in `GenerateOneFileChecksum()`,
-            # used by `IngestExternalFile()`, causing it to fail with mmap
-            # reads. Remove this once it is fixed.
-            dest_params["ingest_external_file_one_in"] = 0
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
@@ -719,6 +717,7 @@ def finalize_and_sanitize(src_params):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
         dest_params["enable_blob_files"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
         dest_params["atomic_flush"] = 0
         dest_params["allow_concurrent_memtable_write"] = 0
         dest_params["block_protection_bytes_per_key"] = 0

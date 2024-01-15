@@ -264,6 +264,7 @@ struct BlockBasedTableBuilder::Rep {
   // BEGIN from MutableCFOptions
   std::shared_ptr<const SliceTransform> prefix_extractor;
   // END from MutableCFOptions
+  const WriteOptions write_options;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   // Size in bytes for the user-defined timestamps.
@@ -439,6 +440,7 @@ struct BlockBasedTableBuilder::Rep {
       WritableFileWriter* f)
       : ioptions(tbo.ioptions),
         prefix_extractor(tbo.moptions.prefix_extractor),
+        write_options(tbo.write_options),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
         ts_sz(tbo.internal_comparator.user_comparator()->timestamp_size()),
@@ -1317,6 +1319,13 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   //    checksum: uint32
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
+  IOOptions io_options;
+  IOStatus io_s =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!io_s.ok()) {
+    r->SetIOStatus(io_s);
+    return;
+  }
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
   const uint64_t offset = r->get_offset();
@@ -1330,7 +1339,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   }
 
   {
-    IOStatus io_s = r->file->Append(block_contents);
+    io_s = r->file->Append(io_options, block_contents);
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
       return;
@@ -1357,7 +1366,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
       "BlockBasedTableBuilder::WriteMaybeCompressedBlock:TamperWithChecksum",
       trailer.data());
   {
-    IOStatus io_s = r->file->Append(Slice(trailer.data(), trailer.size()));
+    io_s = r->file->Append(io_options, Slice(trailer.data(), trailer.size()));
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
       return;
@@ -1394,7 +1403,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         (r->alignment -
          ((block_contents.size() + kBlockTrailerSize) & (r->alignment - 1))) &
         (r->alignment - 1);
-    IOStatus io_s = r->file->Pad(pad_bytes);
+
+    io_s = r->file->Pad(io_options, pad_bytes);
     if (io_s.ok()) {
       r->set_offset(r->get_offset() + pad_bytes);
     } else {
@@ -1800,7 +1810,14 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
     r->SetStatus(s);
     return;
   }
-  IOStatus ios = r->file->Append(footer.GetSlice());
+  IOOptions io_options;
+  IOStatus ios =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!ios.ok()) {
+    r->SetIOStatus(ios);
+    return;
+  }
+  ios = r->file->Append(io_options, footer.GetSlice());
   if (ios.ok()) {
     r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {

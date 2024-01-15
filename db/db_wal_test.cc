@@ -107,9 +107,9 @@ class EnrichedSpecialEnv : public SpecialEnv {
 
   InstrumentedMutex env_mutex_;
   // the wal whose actual delete was skipped by the env
-  std::string skipped_wal = "";
+  std::string skipped_wal;
   // the largest WAL that was requested to be deleted
-  std::string largest_deleted_wal = "";
+  std::string largest_deleted_wal;
   // number of WALs that were successfully deleted
   std::atomic<size_t> deleted_wal_cnt = {0};
   // the WAL whose delete from fs was skipped is reopened during recovery
@@ -1543,7 +1543,7 @@ class RecoveryTestHelper {
         /*block_cache_tracer=*/nullptr,
         /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
         options.daily_offpeak_time_utc,
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
@@ -1561,7 +1561,7 @@ class RecoveryTestHelper {
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0, false,
                           db_options.wal_compression);
-      ASSERT_OK(log_writer->AddCompressionTypeRecord());
+      ASSERT_OK(log_writer->AddCompressionTypeRecord(WriteOptions()));
       current_log_writer.reset(log_writer);
 
       WriteBatch batch;
@@ -1574,7 +1574,7 @@ class RecoveryTestHelper {
         ASSERT_OK(batch.Put(key, value));
         WriteBatchInternal::SetSequence(&batch, seq);
         ASSERT_OK(current_log_writer->AddRecord(
-            WriteBatchInternal::Contents(&batch)));
+            WriteOptions(), WriteBatchInternal::Contents(&batch)));
         versions->SetLastAllocatedSequence(seq);
         versions->SetLastPublishedSequence(seq);
         versions->SetLastSequence(seq);
@@ -2227,8 +2227,7 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
     ReadOptions ropt;
     Iterator* iter = dbfull()->NewIterator(ropt);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      data.push_back(
-          std::make_pair(iter->key().ToString(), iter->value().ToString()));
+      data.emplace_back(iter->key().ToString(), iter->value().ToString());
     }
     EXPECT_OK(iter->status());
     delete iter;
@@ -2434,7 +2433,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   std::string last_log;
   uint64_t last_log_num = 0;
   ASSERT_OK(env_->GetChildren(dbname_, &filenames));
-  for (auto fname : filenames) {
+  for (const auto& fname : filenames) {
     uint64_t number;
     FileType type;
     if (ParseFileName(fname, &number, &type, nullptr)) {

@@ -360,8 +360,9 @@ TEST_P(DBTestTailingIterator, TailingIteratorDeletes) {
 
     // make sure we can read all new records using the existing iterator
     int count = 0;
-    for (; iter->Valid(); iter->Next(), ++count)
+    for (; iter->Valid(); iter->Next(), ++count) {
       ;
+    }
     ASSERT_OK(iter->status());
     ASSERT_EQ(count, num_records);
   }
