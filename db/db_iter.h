@@ -328,6 +328,22 @@ class DBIter final : public Iterator {
   bool MergeWithPlainBaseValue(const Slice& value, const Slice& user_key);
   bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
+  bool PrepareValue() {
+    if (!iter_.PrepareValue()) {
+      assert(!iter_.status().ok());
+      valid_ = false;
+      return false;
+    }
+    // ikey_ could change as BlockBasedTableIterator does Block cache
+    // lookup and index_iter_ could point to different block resulting
+    // in ikey_ pointing to wrong key. So ikey_ needs to be updated in
+    // case of Seek/Next calls to point to right key again.
+    if (!ParseKey(&ikey_)) {
+      return false;
+    }
+    return true;
+  }
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   SystemClock* clock_;
