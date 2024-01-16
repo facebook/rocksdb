@@ -237,11 +237,6 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
   }
 }
 
-typedef std::function<std::vector<ROCKSDB_NAMESPACE::Status>(
-    const ROCKSDB_NAMESPACE::ReadOptions&,
-    const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>
-    FnMultiGet;
-
 void free_parts(
     JNIEnv* env,
     std::vector<std::tuple<jbyteArray, jbyte*, jobject>>& parts_to_free) {
