@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.10.1 (01/16/2024)
+### Bug Fixes
+* Fix bug in auto_readahead_size that combined with IndexType::kBinarySearchWithFirstKey + fails or iterator lands at a wrong key
+
 ## 8.10.0 (12/15/2023)
 ### New Features
 * Provide support for async_io to trim readahead_size by doing block cache lookup
