@@ -141,20 +141,11 @@ jobjectArray MultiGetJNIValues::byteArrays(
        i++) {
     if (s[i].ok()) {
       TValue* value = &values[i];
-      const jsize jvalue_len = static_cast<jsize>(value->size());
-      jbyteArray jentry_value = env->NewByteArray(jvalue_len);
+      jbyteArray jentry_value =
+          ROCKSDB_NAMESPACE::JniUtil::createJavaByteArrayWithSizeCheck(
+              env, value->data(), value->size());
       if (jentry_value == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      env->SetByteArrayRegion(
-          jentry_value, 0, static_cast<jsize>(jvalue_len),
-          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value->data())));
-      if (env->ExceptionCheck()) {
-        // exception thrown:
-        // ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jentry_value);
+        // exception set
         return nullptr;
       }
 
@@ -167,6 +158,13 @@ jobjectArray MultiGetJNIValues::byteArrays(
       }
 
       env->DeleteLocalRef(jentry_value);
+    } else if (s[i].code() != ROCKSDB_NAMESPACE::Status::Code::kNotFound) {
+      // The only way to return an error for a single key is to exception the
+      // entire multiGet() Previous behaviour was to return a nullptr value for
+      // this case and potentially succesfully return values for other keys; we
+      // retain this behaviour. To change it, we need to do the following:
+      // ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s[i]);
+      // return nullptr;
     }
   }
   return jresults;
@@ -220,7 +218,19 @@ void MultiGetJNIValues::fillByteBuffersAndStatusObjects(
 
       // record num returned, push back that number, which may be bigger then
       // the ByteBuffer supplied. then copy as much as fits in the ByteBuffer.
-      value_size.push_back(static_cast<jint>(values[i].size()));
+      static const size_t INTEGER_MAX_VALUE =
+          ((static_cast<size_t>(1)) << 31) - 1;
+      if (values[i].size() > INTEGER_MAX_VALUE) {
+        // Indicate that the result size is bigger than can be represented in a
+        // java integer by setting the status to incomplete and the size to -1
+        env->SetObjectArrayElement(
+            jstatuses, i,
+            ROCKSDB_NAMESPACE::StatusJni::construct(
+                env, Status::Incomplete("result too large to represent")));
+        value_size.push_back(-1);
+      } else {
+        value_size.push_back(static_cast<jint>(values[i].size()));
+      }
       auto copy_bytes =
           std::min(static_cast<jlong>(values[i].size()), jvalue_capacity);
       memcpy(jvalue_address, values[i].data(), copy_bytes);
