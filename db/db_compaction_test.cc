@@ -76,7 +76,7 @@ class CompactionStatsCollector : public EventListener {
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
-      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/false) {}
 
  protected:
   /*
@@ -121,7 +121,7 @@ class DBCompactionTestWithParam
       public testing::WithParamInterface<std::tuple<uint32_t, bool>> {
  public:
   DBCompactionTestWithParam()
-      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/false) {
     max_subcompactions_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
@@ -140,7 +140,7 @@ class DBCompactionTestWithBottommostParam
           std::tuple<BottommostLevelCompaction, bool>> {
  public:
   DBCompactionTestWithBottommostParam()
-      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/false) {
     bottommost_level_compaction_ = std::get<0>(GetParam());
   }
 
@@ -160,7 +160,7 @@ class DBCompactionWaitForCompactTest
           std::tuple<bool, bool, bool, std::chrono::microseconds>> {
  public:
   DBCompactionWaitForCompactTest()
-      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/false) {
     abort_on_pause_ = std::get<0>(GetParam());
     flush_ = std::get<1>(GetParam());
     close_db_ = std::get<2>(GetParam());
@@ -845,6 +845,20 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
   options.memtable_factory.reset(
       test::NewSpecialSkipListFactory(kNumKeysPerFile));
 
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+
+  Random rnd(301);
+  for (int cf = 0; cf < 4; cf++) {
+    // Make a trivial L1 for L0 to compact into. L2 will be large so debt ratio
+    // will not cause compaction pressure.
+    ASSERT_OK(Put(cf, Key(0), rnd.RandomString(102400)));
+    ASSERT_OK(Flush(cf));
+    MoveFilesToLevel(2, cf);
+    ASSERT_OK(Put(cf, Key(0), ""));
+    ASSERT_OK(Flush(cf));
+    MoveFilesToLevel(1, cf);
+  }
+
   // Block all threads in thread pool.
   const size_t kTotalTasks = 4;
   env_->SetBackgroundThreads(4, Env::LOW);
@@ -855,9 +869,6 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
     sleeping_tasks[i].WaitUntilSleeping();
   }
 
-  CreateAndReopenWithCF({"one", "two", "three"}, options);
-
-  Random rnd(301);
   for (int cf = 0; cf < 4; cf++) {
     for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
       for (int i = 0; i < kNumKeysPerFile; i++) {
@@ -6150,7 +6161,7 @@ class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {
  public:
   CompactionPriTest()
-      : DBTestBase("compaction_pri_test", /*env_do_fsync=*/true) {
+      : DBTestBase("compaction_pri_test", /*env_do_fsync=*/false) {
     compaction_pri_ = GetParam();
   }
 
@@ -6270,26 +6281,30 @@ TEST_F(DBCompactionTest, PersistRoundRobinCompactCursor) {
 
 TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   const int kKeysPerBuffer = 100;
+  const int kNumSubcompactions = 2;
+  const int kFilesPerLevel = 50;
   Options options = CurrentOptions();
-  options.num_levels = 4;
+  options.num_levels = 3;
   options.max_bytes_for_level_multiplier = 2;
   options.level0_file_num_compaction_trigger = 4;
   options.target_file_size_base = kKeysPerBuffer * 1024;
   options.compaction_pri = CompactionPri::kRoundRobin;
-  options.max_bytes_for_level_base = 8 * kKeysPerBuffer * 1024;
+  // Target size is chosen so that filling the level with `kFilesPerLevel` files
+  // will make it oversized by `kNumSubcompactions` files.
+  options.max_bytes_for_level_base =
+      (kFilesPerLevel - kNumSubcompactions) * kKeysPerBuffer * 1024;
   options.disable_auto_compactions = true;
-  // Setup 7 threads but limited subcompactions so that
-  // RoundRobin requires extra compactions from reserved threads
+  // Setup `kNumSubcompactions` threads but limited subcompactions so
+  // that RoundRobin requires extra compactions from reserved threads
   options.max_subcompactions = 1;
-  options.max_background_compactions = 7;
+  options.max_background_compactions = kNumSubcompactions;
   options.max_compaction_bytes = 100000000;
   DestroyAndReopen(options);
-  env_->SetBackgroundThreads(7, Env::LOW);
+  env_->SetBackgroundThreads(kNumSubcompactions, Env::LOW);
 
   Random rnd(301);
-  const std::vector<int> files_per_level = {0, 15, 25};
   for (int lvl = 2; lvl > 0; lvl--) {
-    for (int i = 0; i < files_per_level[lvl]; i++) {
+    for (int i = 0; i < kFilesPerLevel; i++) {
       for (int j = 0; j < kKeysPerBuffer; j++) {
         // Add (lvl-1) to ensure nearly equivallent number of files
         // in L2 are overlapped with fils selected to compact from
@@ -6300,9 +6315,8 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
       ASSERT_OK(Flush());
     }
     MoveFilesToLevel(lvl);
-    ASSERT_EQ(files_per_level[lvl], NumTableFilesAtLevel(lvl, 0));
+    ASSERT_EQ(kFilesPerLevel, NumTableFilesAtLevel(lvl, 0));
   }
-  // 15 files in L1; 25 files in L2
 
   // This is a variable for making sure the following callback is called
   // and the assertions in it are indeed excuted.
@@ -6311,10 +6325,10 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
       "CompactionJob::GenSubcompactionBoundaries:0", [&](void* arg) {
         uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
         if (grab_pressure_token_) {
-          // 7 files are selected for round-robin under auto
+          // `kNumSubcompactions` files are selected for round-robin under auto
           // compaction. The number of planned subcompaction is restricted by
           // the limited number of max_background_compactions
-          ASSERT_EQ(num_planned_subcompactions, 7);
+          ASSERT_EQ(num_planned_subcompactions, kNumSubcompactions);
         } else {
           ASSERT_EQ(num_planned_subcompactions, 1);
         }
