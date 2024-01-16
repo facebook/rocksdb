@@ -1768,6 +1768,9 @@ cuckoo_table_db_test: $(OBJ_DIR)/db/cuckoo_table_db_test.o $(TEST_LIBRARY) $(LIB
 listener_test: $(OBJ_DIR)/db/listener_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+string_util_test: $(OBJ_DIR)/util/string_util_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 thread_list_test: $(OBJ_DIR)/util/thread_list_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

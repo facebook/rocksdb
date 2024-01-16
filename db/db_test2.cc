@@ -3860,6 +3860,17 @@ TEST_F(DBTest2, LowPriWrite) {
         int64_t* rate_bytes_per_sec = static_cast<int64_t*>(arg);
         ASSERT_EQ(1024 * 1024, *rate_bytes_per_sec);
       });
+
+  // Make a trivial L5 for L0 to compact into. L6 will be large so debt ratio
+  // will not cause compaction pressure.
+  Random rnd(301);
+  ASSERT_OK(Put("", rnd.RandomString(102400)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  ASSERT_OK(Put("", ""));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
   // Block compaction
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBTest.LowPriWrite:0", "DBImpl::BGWorkCompaction"},

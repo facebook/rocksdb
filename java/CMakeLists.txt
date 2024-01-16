@@ -789,6 +789,23 @@ if(NOT MINGW)
   )
 endif()
 
+set(ROCKSDB_JAVADOC_JAR rocksdb-${CMAKE_PROJECT_VERSION}-javadoc.jar)
+add_custom_target(rocksdbjava_javadocs_jar ALL
+        COMMAND ${Java_JAVADOC_EXECUTABLE} -d ${CMAKE_CURRENT_BINARY_DIR}/javadoc -sourcepath ${PROJECT_SOURCE_DIR}/java/src/main/java/ -subpackages org
+        COMMAND ${Java_JAR_EXECUTABLE} -v -c -f ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR} -C ${CMAKE_CURRENT_BINARY_DIR}/javadoc .
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+set(ROCKSDB_SOURCES_JAR rocksdb-${CMAKE_PROJECT_VERSION}-sources.jar)
+add_custom_target(rocksdbjava_sources_jar
+        ${Java_JAR_EXECUTABLE} -v -c -f ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR} -C ${PROJECT_SOURCE_DIR}/java/src/main/java/ .
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+
+
+
 enable_testing()
 get_target_property(ROCKSDBJNI_CLASSES_TEST_JAR_FILE rocksdbjni_test_classes JAR_FILE)
 foreach (CLAZZ ${JAVA_TEST_RUNNING_CLASSES})

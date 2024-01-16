@@ -796,18 +796,27 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
           is_consistent = false;
         } else if (!s.ok() && tmp_s.ok()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  key.ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
           is_consistent = false;
         } else if (s.ok() && tmp_s.IsNotFound()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  key.ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
           is_consistent = false;
         } else if (s.ok() && value != expected_value.ToString()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  key.ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned value %s\n",
                   expected_value.ToString(true).c_str());
           fprintf(stderr, "Get returned value %s\n",
@@ -910,6 +919,17 @@ class NonBatchedOpsStressTest : public StressTest {
 
     PinnableWideColumns from_db;
 
+    ReadOptions read_opts_copy = read_opts;
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
+
     const Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
 
     int error_count = 0;
@@ -956,7 +976,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
 
-      if (!FLAGS_skip_verifydb) {
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
         if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
@@ -2049,11 +2069,12 @@ class NonBatchedOpsStressTest : public StressTest {
         Slice slice(value_from_db);
         uint32_t value_base = GetValueBase(slice);
         shared->SyncPut(cf, key, value_base);
+        return true;
       } else if (s.IsNotFound()) {
         // Value doesn't exist in db, update state to reflect that
         shared->SyncDelete(cf, key);
+        return true;
       }
-      return true;
     }
     char expected_value_data[kValueMaxLen];
     size_t expected_value_data_size =

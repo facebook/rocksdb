@@ -1423,6 +1423,7 @@ if(WITH_TESTS)
         util/ribbon_test.cc
         util/slice_test.cc
         util/slice_transform_test.cc
+        util/string_util_test.cc
         util/timer_queue_test.cc
         util/timer_test.cc
         util/thread_list_test.cc
