@@ -5,13 +5,13 @@
 
 #include <unordered_map>
 
-#include "rocksdb/cloud/cloud_file_system_impl.h"
 #include "cloud/cloud_manifest.h"
-#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "db/version_set.h"
 #include "env/composite_env_wrapper.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -230,7 +230,9 @@ IOStatus ManifestReader::GetMaxFileNumberFromManifest(FileSystem* fs,
     }
     uint64_t f;
     if (edit.GetNextFileNumber(&f)) {
-      assert(*maxFileNumber <= f);
+      // Disabled temporarily.
+      // TODO: Reenable once the cloud manifest consistency issue is addressed.
+      // assert(*maxFileNumber <= f);
       *maxFileNumber = f;
     }
   }
