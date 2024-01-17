@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 class StderrLogger : public Logger {
  public:
   explicit StderrLogger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
-      : Logger(log_level) {}
+      : Logger(log_level), log_prefix(nullptr) {}
   explicit StderrLogger(const InfoLogLevel log_level, const std::string prefix)
       : Logger(log_level),
         log_prefix(strdup(prefix.c_str())),

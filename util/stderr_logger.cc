@@ -10,7 +10,11 @@
 #include "port/sys_time.h"
 
 namespace ROCKSDB_NAMESPACE {
-StderrLogger::~StderrLogger() { free((void*)log_prefix); }
+StderrLogger::~StderrLogger() {
+  if (log_prefix != nullptr) {
+    free((void*)log_prefix);
+  }
+}
 
 void StderrLogger::Logv(const char* format, va_list ap) {
   const uint64_t thread_id = Env::Default()->GetThreadID();
@@ -22,12 +26,15 @@ void StderrLogger::Logv(const char* format, va_list ap) {
   port::LocalTimeR(&seconds, &t);
 
   // The string we eventually log has three parts: the context (time, thread),
-  // optional user-supplied prefix, and the actual log message.
+  // optional user-supplied prefix, and the actual log message (the "suffix").
   //
   // We compute their lengths so that we can allocate a buffer big enough to
   // print it. The context string (with the date and thread id) is really only
   // 36 bytes, but we allocate 40 to be safe.
-  size_t context_len = 40;
+  //
+  //    ctx_len = 36         = ( 4+ 1+ 2+1+2+ 1+2+ 1+2+ 1+ 2+1+6+ 1+ 8+1)
+  const char* ctx_prefix_fmt = "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s";
+  size_t ctx_len = 40;
 
   va_list ap_copy;
   va_copy(ap_copy, ap);
@@ -36,17 +43,18 @@ void StderrLogger::Logv(const char* format, va_list ap) {
 
   // Allocate space for the context, log_prefix, and log itself
   // Extra byte for null termination
-  size_t buf_len = context_len + log_prefix_len + log_suffix_len + 1;
+  size_t buf_len = ctx_len + log_prefix_len + log_suffix_len + 1;
   std::unique_ptr<char[]> buf(new char[buf_len]);
+
+  // If the logger was created without a prefix, the prefix is a nullptr
+  const char* prefix = log_prefix == nullptr ? "" : log_prefix;
 
   // Write out the context and prefix string
   int written =
-      snprintf(buf.get(), context_len + log_prefix_len,
-               // Keep this string in sync with context_len
-               "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s", t.tm_year + 1900,
-               t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
-               static_cast<int>(now_tv.tv_usec),
-               static_cast<long long unsigned int>(thread_id), log_prefix);
+      snprintf(buf.get(), ctx_len + log_prefix_len, ctx_prefix_fmt,
+               t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min,
+               t.tm_sec, static_cast<int>(now_tv.tv_usec),
+               static_cast<long long unsigned int>(thread_id), prefix);
   written += vsnprintf(buf.get() + written, log_suffix_len, format, ap);
   buf[written] = '\0';
 
