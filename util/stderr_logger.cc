@@ -30,11 +30,11 @@ void StderrLogger::Logv(const char* format, va_list ap) {
   //
   // We compute their lengths so that we can allocate a buffer big enough to
   // print it. The context string (with the date and thread id) is really only
-  // 36 bytes, but we allocate 40 to be safe.
+  // 44 bytes, but we allocate 50 to be safe.
   //
-  //    ctx_len = 36         = ( 4+ 1+ 2+1+2+ 1+2+ 1+2+ 1+ 2+1+6+ 1+ 8+1)
+  //    ctx_len = 44         = ( 4+ 1+ 2+1+2+ 1+2+ 1+2+ 1+ 2+1+6+ 1+16+1)
   const char* ctx_prefix_fmt = "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s";
-  size_t ctx_len = 40;
+  size_t ctx_len = 50;
 
   va_list ap_copy;
   va_copy(ap_copy, ap);
