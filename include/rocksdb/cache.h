@@ -295,6 +295,9 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // The compression method (if any) that is used to compress data.
   CompressionType compression_type = CompressionType::kLZ4Compression;
 
+  // Options specific to the compression algorithm
+  CompressionOptions compression_opts;
+
   // compress_format_version can have two values:
   // compress_format_version == 1 -- decompressed size is not included in the
   // block header.
