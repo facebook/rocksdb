@@ -613,10 +613,11 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         }
       }
 
-      pending_expected_value.Commit();
       if (!s.ok()) {
+        pending_expected_value.Rollback();
         break;
       }
+      pending_expected_value.Commit();
     }
     if (!s.ok()) {
       break;

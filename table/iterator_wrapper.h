@@ -101,6 +101,7 @@ class IteratorWrapperBase {
     }
     if (iter_->PrepareValue()) {
       result_.value_prepared = true;
+      result_.key = iter_->key();
       return true;
     }
 

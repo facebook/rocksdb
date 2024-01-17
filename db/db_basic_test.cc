@@ -1853,6 +1853,56 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevel) {
   }
 }
 
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedEmptyLevel) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+  int key;
+
+  key = 9;
+  ASSERT_OK(Put("key_" + std::to_string(key), "val_l2_" + std::to_string(key)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+
+  key = 5;
+  ASSERT_OK(Put("key_" + std::to_string(key), "val_l2_" + std::to_string(key)));
+  key = 9;
+  ASSERT_OK(
+      Merge("key_" + std::to_string(key), "val_l2_" + std::to_string(key)));
+  ASSERT_OK(Flush());
+  // Leave level 3 empty
+  MoveFilesToLevel(2);
+
+  key = 2;
+  ASSERT_OK(Put("key_" + std::to_string(key), "val_l2_" + std::to_string(key)));
+  key = 6;
+  ASSERT_OK(
+      Merge("key_" + std::to_string(key), "val_l2_" + std::to_string(key)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  keys.push_back("key_" + std::to_string(9));
+  keys.push_back("key_" + std::to_string(9));
+
+  values = MultiGet(keys, nullptr, std::get<1>(GetParam()));
+  ASSERT_EQ(values.size(), 2);
+}
+
 TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevelMerge) {
 #ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {

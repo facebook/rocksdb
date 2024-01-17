@@ -129,6 +129,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
         magic_number == kLegacyPlainTableMagicNumber ||
         magic_number == kCuckooTableMagicNumber) {
       soptions_.use_mmap_reads = true;
+      fopts.use_mmap_reads = soptions_.use_mmap_reads;
 
       if (magic_number == kCuckooTableMagicNumber) {
         fopts = soptions_;
