@@ -1073,6 +1073,12 @@ class VersionBuilder::Rep {
     const uint64_t oldest_blob_file_with_linked_ssts =
         GetMinOldestBlobFileNumber();
 
+    // If there are no blob files with linked SSTs, meaning that there are no
+    // valid blob files
+    if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
+      return;
+    }
+
     auto process_base =
         [vstorage](const std::shared_ptr<BlobFileMetaData>& base_meta) {
           assert(base_meta);

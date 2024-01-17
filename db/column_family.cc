@@ -870,7 +870,7 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
     const VersionStorageInfo* vstorage) {
   // Compaction debt relatively large compared to the stable (bottommost) data
   // size indicates compaction fell behind.
-  const uint64_t kBottommostSizeMultiplier = 8;
+  const uint64_t kBottommostSizeDivisor = 8;
   // Meaningful progress toward the slowdown trigger is another good indication.
   const uint64_t kSlowdownTriggerDivisor = 4;
 
@@ -890,8 +890,7 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
     return slowdown_threshold;
   }
 
-  uint64_t size_threshold =
-      MultiplyCheckOverflow(bottommost_files_size, kBottommostSizeMultiplier);
+  uint64_t size_threshold = bottommost_files_size / kBottommostSizeDivisor;
   return std::min(size_threshold, slowdown_threshold);
 }
 }  // anonymous namespace

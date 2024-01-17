@@ -595,6 +595,12 @@ static enum ROCKSDB_NAMESPACE::CompressionType
     FLAGS_compressed_secondary_cache_compression_type_e =
         ROCKSDB_NAMESPACE::kLZ4Compression;
 
+DEFINE_int32(compressed_secondary_cache_compression_level,
+             ROCKSDB_NAMESPACE::CompressionOptions().level,
+             "Compression level. The meaning of this value is library-"
+             "dependent. If unset, we try to use the default for the library "
+             "specified in `--compressed_secondary_cache_compression_type`");
+
 DEFINE_uint32(
     compressed_secondary_cache_compress_format_version, 2,
     "compress_format_version can have two values: "
@@ -3078,6 +3084,8 @@ class Benchmark {
           FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
       secondary_cache_opts.compression_type =
           FLAGS_compressed_secondary_cache_compression_type_e;
+      secondary_cache_opts.compression_opts.level =
+          FLAGS_compressed_secondary_cache_compression_level;
       secondary_cache_opts.compress_format_version =
           FLAGS_compressed_secondary_cache_compress_format_version;
       if (FLAGS_use_tiered_cache) {
