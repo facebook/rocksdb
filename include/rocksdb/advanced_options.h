@@ -547,6 +547,8 @@ struct AdvancedColumnFamilyOptions {
   // Default: true
   bool level_compaction_dynamic_level_bytes = true;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // Allows RocksDB to generate files that are not exactly the target_file_size
   // only for the non-bottommost files. Which can reduce the write-amplification
   // from compaction. The file size could be from 0 to 2x target_file_size.
@@ -582,6 +584,8 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // When setting up compaction input files, we ignore the
   // `max_compaction_bytes` limit when pulling in input files that are entirely
   // within output key range.
@@ -697,6 +701,8 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool optimize_filters_for_hits = false;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // During flush or compaction, check whether keys inserted to output files
   // are in order.
   //
