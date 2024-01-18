@@ -855,6 +855,15 @@ def exit_if_stderr_has_errors(stderr, print_stderr=True):
         print("TEST FAILED. Output has 'fail'!!!\n")
         sys.exit(2)
 
+def cleanup_and_exit_if_failed(dbname):
+    shutil.rmtree(dbname, True)
+    if cleanup_cmd is not None:
+        print("Running DB cleanup command - %s\n" % cleanup_cmd)
+        ret = os.system(cleanup_cmd)
+        if ret != 0:
+            print("TEST FAILED. DB cleanup returned error %d\n" % ret)
+            sys.exit(1)
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
@@ -910,7 +919,7 @@ def blackbox_crash_main(args, unknown_args):
     exit_if_stderr_has_errors(errs)
 
     # we need to clean up after ourselves -- only do this on test success
-    shutil.rmtree(dbname, True)
+    cleanup_and_exit_if_failed(dbname)
 
 
 # This python script runs db_stress multiple times. Some runs with
@@ -1054,6 +1063,8 @@ def whitebox_crash_main(args, unknown_args):
 
         if hit_timeout:
             print("Killing the run for running too long")
+            # We treat the long running test as passing today. Clean up after ourselves
+            cleanup_and_exit_if_failed(dbname)
             break
 
         expected = False
@@ -1075,15 +1086,7 @@ def whitebox_crash_main(args, unknown_args):
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
         if time.time() > half_time:
-            # we need to clean up after ourselves -- only do this on test
-            # success
-            shutil.rmtree(dbname, True)
-            if cleanup_cmd is not None:
-                print("Running DB cleanup command - %s\n" % cleanup_cmd)
-                ret = os.system(cleanup_cmd)
-                if ret != 0:
-                    print("TEST FAILED. DB cleanup returned error %d\n" % ret)
-                    sys.exit(1)
+            cleanup_and_exit_if_failed(dbname)
             try:
                 os.mkdir(dbname)
             except OSError:
