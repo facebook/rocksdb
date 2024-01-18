@@ -185,10 +185,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * <p>Default: nullptr</p>
    *
-   * @param logger {@link Logger} instance.
+   * @param logger {@link LoggerInterface} instance.
    * @return the instance of the current object.
    */
-  T setLogger(Logger logger);
+  T setLogger(LoggerInterface logger);
 
   /**
    * <p>Sets the RocksDB log level. Default level is INFO</p>

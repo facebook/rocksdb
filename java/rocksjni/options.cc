@@ -38,6 +38,7 @@
 #include "rocksjni/statisticsjni.h"
 #include "rocksjni/table_filter_jnicallback.h"
 #include "rocksjni/table_properties_collector_factory.h"
+#include "util/stderr_logger.h"
 #include "utilities/merge_operators.h"
 
 /*
@@ -1084,14 +1085,31 @@ void Java_org_rocksdb_Options_setSstFileManager(
 /*
  * Class:     org_rocksdb_Options
  * Method:    setLogger
- * Signature: (JJ)V
+ * Signature: (JJB)V
  */
-void Java_org_rocksdb_Options_setLogger(JNIEnv*, jobject, jlong jhandle,
-                                        jlong jlogger_handle) {
-  std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>* pLogger =
-      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>*>(
-          jlogger_handle);
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->info_log = *pLogger;
+void Java_org_rocksdb_Options_setLogger(JNIEnv* env, jobject, jlong jhandle,
+                                        jlong jlogger_handle,
+                                        jbyte jlogger_type) {
+  auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  switch (jlogger_type) {
+    case 0x1:
+      // JAVA_IMPLEMENTATION
+      options->info_log =
+          *(reinterpret_cast<
+              std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>*>(
+              jlogger_handle));
+      break;
+    case 0x2:
+      // STDERR_IMPLEMENTATION
+      options->info_log =
+          *(reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::StderrLogger>*>(
+              jlogger_handle));
+      break;
+    default:
+      ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::ThrowNew(
+          env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                   ROCKSDB_NAMESPACE::Slice("Unknown value for LoggerType")));
+  }
 }
 
 /*
@@ -6148,14 +6166,31 @@ void Java_org_rocksdb_DBOptions_setSstFileManager(
 /*
  * Class:     org_rocksdb_DBOptions
  * Method:    setLogger
- * Signature: (JJ)V
+ * Signature: (JJB)V
  */
-void Java_org_rocksdb_DBOptions_setLogger(JNIEnv*, jobject, jlong jhandle,
-                                          jlong jlogger_handle) {
-  std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>* pLogger =
-      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>*>(
-          jlogger_handle);
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->info_log = *pLogger;
+void Java_org_rocksdb_DBOptions_setLogger(JNIEnv* env, jobject, jlong jhandle,
+                                          jlong jlogger_handle,
+                                          jbyte jlogger_type) {
+  auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  switch (jlogger_type) {
+    case 0x1:
+      // JAVA_IMPLEMENTATION
+      options->info_log =
+          *(reinterpret_cast<
+              std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>*>(
+              jlogger_handle));
+      break;
+    case 0x2:
+      // STDERR_IMPLEMENTATION
+      options->info_log =
+          *(reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::StderrLogger>*>(
+              jlogger_handle));
+      break;
+    default:
+      ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::ThrowNew(
+          env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                   ROCKSDB_NAMESPACE::Slice("Unknown value for LoggerType")));
+  }
 }
 
 /*

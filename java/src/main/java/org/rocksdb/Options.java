@@ -1246,9 +1246,9 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLogger(final Logger logger) {
+  public Options setLogger(final LoggerInterface logger) {
     assert(isOwningHandle());
-    setLogger(nativeHandle_, logger.nativeHandle_);
+    setLogger(nativeHandle_, logger.getNativeHandle(), logger.getLoggerType().getValue());
     return this;
   }
 
@@ -2180,8 +2180,7 @@ public class Options extends RocksObject
       long rateLimiterHandle);
   private native void setSstFileManager(final long handle,
       final long sstFileManagerHandle);
-  private native void setLogger(long handle,
-      long loggerHandle);
+  private native void setLogger(final long handle, final long loggerHandle, final byte loggerType);
   private native void setInfoLogLevel(long handle, byte logLevel);
   private native byte infoLogLevel(long handle);
   private native void setMaxOpenFiles(long handle, int maxOpenFiles);

@@ -74,6 +74,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/sst_partitioner.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
+        rocksjni/stderr_logger.cc
         rocksjni/table.cc
         rocksjni/table_filter.cc
         rocksjni/table_filter_jnicallback.cc
@@ -188,6 +189,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java
+  src/main/java/org/rocksdb/LoggerInterface.java
+  src/main/java/org/rocksdb/LoggerType.java
   src/main/java/org/rocksdb/LRUCache.java
   src/main/java/org/rocksdb/MemoryUsageType.java
   src/main/java/org/rocksdb/MemoryUtil.java
@@ -302,6 +305,7 @@ set(JAVA_MAIN_CLASSES
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/RocksNativeLibraryResource.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/main/java/org/rocksdb/util/StdErrLogger.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
 )
 
@@ -413,6 +417,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/MemoryUtilTest.java
   src/test/java/org/rocksdb/TableFilterTest.java
   src/test/java/org/rocksdb/TtlDBTest.java
+  src/test/java/org/rocksdb/util/StdErrLoggerTest.java
 )
 
 set(JAVA_TEST_RUNNING_CLASSES
@@ -511,6 +516,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.MemoryUtilTest
   org.rocksdb.TableFilterTest
   org.rocksdb.TtlDBTest
+  org.rocksdb.util.StdErrLoggerTest
 )
 
 include(FindJava)
