@@ -100,6 +100,9 @@ set(JNI_NATIVE_SOURCES
         rocksjni/write_buffer_manager.cc
         rocksjni/writebatchhandlerjnicallback.cc
 )
+if(WIN32)
+    list(APPEND JNI_NATIVE_SOURCES rocksjni/rocksjni.def)
+endif (WIN32)
 
 set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
