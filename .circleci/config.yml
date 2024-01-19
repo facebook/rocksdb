@@ -146,9 +146,12 @@ commands:
   install-maven:
     steps:
       - run:
-          name: Install maven
+          name: Install Maven
           command: |
-            sudo apt-get update -y && sudo apt-get install -y maven
+            wget --no-check-certificate https://dlcdn.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
+            tar zxf apache-maven-3.9.6-bin.tar.gz
+            echo "export M2_HOME=$(pwd)/apache-maven-3.9.6" >> $BASH_ENV
+            echo 'export PATH=$M2_HOME/bin:$PATH' >> $BASH_ENV
 
   setup-folly:
     steps:
@@ -231,6 +234,7 @@ executors:
       - image: zjay437/rocksdb:0.6
   linux-java-docker:
     docker:
+      # This is the Docker Image used for building RocksJava releases, see: https://github.com/evolvedbinary/docker-rocksjava
       - image: evolvedbinary/rocksjava:centos6_x64-be
 
 jobs:
@@ -623,7 +627,7 @@ jobs:
       - windows-build-steps
 
   build-linux-java:
-    executor: linux-docker
+    executor: linux-java-docker
     resource_class: large
     steps:
       - pre-steps
@@ -636,17 +640,13 @@ jobs:
             which javac && javac -version
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 jtest'
       - post-steps
 
   build-linux-java-pmd:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-java-docker
     resource_class: large
-    environment:
-      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     steps:
-      - install-maven
       - pre-steps
       - run:
           name: "Set Java Environment"
@@ -655,9 +655,10 @@ jobs:
             echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
+      - install-maven
       - run:
           name: "PMD RocksDBJava"
-          command: make V=1 J=8 -j8 jpmd
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 jpmd'
       - post-pmd-steps
 
   build-linux-java-static:
