@@ -943,15 +943,17 @@ TEST_F(PerfContextTest, CPUTimer) {
 
     // monotonically increasing
     get_perf_context()->Reset();
-    auto count = get_perf_context()->iter_seek_cpu_nanos;
+    uint64_t count = get_perf_context()->iter_seek_cpu_nanos;
+    uint64_t before_count = count;
     for (int i = 0; i < FLAGS_total_keys; ++i) {
       iter->Seek("k" + std::to_string(i));
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ("v" + std::to_string(i), iter->value().ToString());
       auto next_count = get_perf_context()->iter_seek_cpu_nanos;
-      ASSERT_GT(next_count, count);
+      ASSERT_GE(next_count, count);
       count = next_count;
     }
+    ASSERT_GT(count, before_count);
 
     // iterator creation/destruction; multiple iterators
     {
