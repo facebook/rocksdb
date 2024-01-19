@@ -315,8 +315,8 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   DestroyAndReopen(options);
 
   std::set<uint64_t> checked_file_nums;
-  // SequenceNumber start_seq = dbfull()->GetLatestSequenceNumber() + 1;
-  // uint64_t start_time = mock_clock_->NowSeconds();
+  SequenceNumber start_seq = dbfull()->GetLatestSequenceNumber() + 1;
+  uint64_t start_time = mock_clock_->NowSeconds();
 
   // Write a key every 10 seconds
   for (int i = 0; i < 200; i++) {
@@ -340,18 +340,31 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   // might be purged to keep the DB mapping within capacity.
   EXPECT_GE(seqs.size(), 20 / 2);
   EXPECT_LE(seqs.size(), 22);
-  // SequenceNumber seq_end = dbfull()->GetLatestSequenceNumber() + 1;
-  // uint64_t end_time = mock_clock_->NowSeconds();
-  // for (uint64_t i = 0; i / 10 <= seq_end; i += 101) {
-  //   SCOPED_TRACE("i=" + std::to_string(i));
-  //   // Validate the important proximal API (GetProximalSeqnoBeforeTime)
-  //   auto seqno_reported = tp_mapping.GetProximalSeqnoBeforeTime(end_time -
-  //   i); auto seqno_expected = seq_end - i / 10; EXPECT_LE(seqno_reported,
-  //   seqno_expected); EXPECT_LE(seqno_expected, seqno_reported + 151);
-  // }
+
+  auto ValidateProximalSeqnos = [&](const char* name, double fuzz_ratio) {
+    SequenceNumber seq_end = dbfull()->GetLatestSequenceNumber() + 1;
+    uint64_t end_time = mock_clock_->NowSeconds();
+    uint64_t seqno_fuzz =
+        static_cast<uint64_t>((seq_end - start_seq) * fuzz_ratio + 0.999999);
+    for (unsigned time_pct = 0; time_pct <= 100; time_pct++) {
+      SCOPED_TRACE("name=" + std::string(name) +
+                   " time_pct=" + std::to_string(time_pct));
+      // Validate the important proximal API (GetProximalSeqnoBeforeTime)
+      uint64_t t = start_time + time_pct * (end_time - start_time) / 100;
+      auto seqno_reported = tp_mapping.GetProximalSeqnoBeforeTime(t);
+      auto seqno_expected = start_seq + time_pct * (seq_end - start_seq) / 100;
+      EXPECT_LE(seqno_reported, seqno_expected);
+      if (end_time - t < 10000) {
+        EXPECT_LE(seqno_expected, seqno_reported + seqno_fuzz);
+      }
+    }
+    start_seq = seq_end;
+    start_time = end_time;
+  };
+
+  ValidateProximalSeqnos("a", 0.1);
+
   checked_file_nums.insert(it->second->orig_file_number);
-  // start_seq = seq_end;
-  // start_time = mock_clock_->NowSeconds();
 
   // Write a key every 1 seconds
   for (int i = 0; i < 200; i++) {
@@ -359,7 +372,7 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
     dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1)); });
   }
-  // seq_end = dbfull()->GetLatestSequenceNumber() + 1;
+
   ASSERT_OK(Flush());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
@@ -380,15 +393,11 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   // There only a few time sample
   ASSERT_GE(seqs.size(), 1);
   ASSERT_LE(seqs.size(), 3);
-  // for (auto i = start_seq; i < seq_end; i++) {
-  //   ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-  //             start_time + (i - start_seq) - 100);
-  //   ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-  //             start_time + (i - start_seq));
-  // }
+
+  // High fuzz ratio because of low number of samples
+  ValidateProximalSeqnos("b", 0.5);
+
   checked_file_nums.insert(it->second->orig_file_number);
-  // start_seq = seq_end;
-  // start_time = mock_clock_->NowSeconds();
 
   // Write a key every 200 seconds
   for (int i = 0; i < 200; i++) {
@@ -417,18 +426,10 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   // For the preserved time span, only 10000/200=50 (+1) entries were recorded
   ASSERT_GE(seqs.size(), 50);
   ASSERT_LE(seqs.size(), 51);
-  // for (auto i = start_seq; i < seq_end; i++) {
-  //   // aged out entries allowed to report time=0
-  //   if ((seq_end - i) * 200 <= 10000) {
-  //     ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-  //               start_time + (i - start_seq) * 200 - 100);
-  //   }
-  //   ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-  //             start_time + (i - start_seq) * 200);
-  // }
+
+  ValidateProximalSeqnos("c", 0.04);
+
   checked_file_nums.insert(it->second->orig_file_number);
-  // start_seq = seq_end;
-  // start_time = mock_clock_->NowSeconds();
 
   // Write a key every 100 seconds
   for (int i = 0; i < 200; i++) {
@@ -436,7 +437,6 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
     dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
-  // seq_end = dbfull()->GetLatestSequenceNumber() + 1;
   ASSERT_OK(Flush());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
@@ -484,16 +484,9 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   seqs = tp_mapping.TEST_GetInternalMapping();
   ASSERT_GE(seqs.size(), 99);
   ASSERT_LE(seqs.size(), 101);
-  // for (auto i = start_seq; i < seq_end; i++) {
-  //   // aged out entries allowed to report time=0
-  //   // FIXME: should be <=
-  //   if ((seq_end - i) * 100 < 10000) {
-  //     ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-  //               start_time + (i - start_seq) * 100 - 100);
-  //   }
-  //   ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-  //             start_time + (i - start_seq) * 100);
-  // }
+
+  ValidateProximalSeqnos("d", 0.02);
+
   ASSERT_OK(db_->Close());
 }
 

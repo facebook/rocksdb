@@ -400,6 +400,11 @@ void SeqnoToTimeMapping::CopyFromSeqnoRange(const SeqnoToTimeMapping& src,
                                             SequenceNumber to_seqno) {
   bool orig_empty = Empty();
   auto src_it = src.FindGreaterEqSeqno(from_seqno);
+  // To best answer GetProximalTimeBeforeSeqno(from_seqno) we need an entry
+  // with a seqno before that (if available)
+  if (src_it != src.pairs_.begin()) {
+    --src_it;
+  }
   auto src_it_end = src.FindGreaterSeqno(to_seqno);
   std::copy(src_it, src_it_end, std::back_inserter(pairs_));
 

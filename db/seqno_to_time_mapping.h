@@ -174,8 +174,9 @@ class SeqnoToTimeMapping {
   // enters the unenforced state.
   Status DecodeFrom(const std::string& pairs_str);
 
-  // Copies entries from the src mapping object to this one, limited to the
-  // given *inclusive* seqno range. The source structure must be in enforced
+  // Copies entries from the src mapping object to this one, limited to entries
+  // needed to answer GetProximalTimeBeforeSeqno() queries for the given
+  // *inclusive* seqno range. The source structure must be in enforced
   // state as a precondition. Unless starting with this object as empty mapping
   // with no configured enforcement limits, this object enters the unenforced
   // state.
