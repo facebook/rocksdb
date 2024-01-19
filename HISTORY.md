@@ -1,6 +1,30 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.11.0 (01/19/2024)
+### New Features
+* Add new statistics: `rocksdb.sst.write.micros` measures time of each write to SST file; `rocksdb.file.write.{flush|compaction|db.open}.micros` measure time of each write to SST table (currently only block-based table format) and blob file for flush, compaction and db open.
+
+### Public API Changes
+* Add CompressionOptions to the CompressedSecondaryCacheOptions structure to allow users to specify library specific options when creating the compressed secondary cache.
+* Deprecated several options: `level_compaction_dynamic_file_size`, `ignore_max_compaction_bytes_for_input`, `check_flush_compaction_key_order`, `flush_verify_memtable_count`, `compaction_verify_record_count`, `fail_if_options_file_error`, and `enforce_single_del_contracts`
+* Exposed options ttl via c api.
+
+### Behavior Changes
+* `rocksdb.blobdb.blob.file.write.micros` expands to also measure time writing the header and footer. Therefore the COUNT may be higher and values may be smaller than before. For stacked BlobDB, it no longer measures the time of explictly flushing blob file.
+* Files will be compacted to the next level if the data age exceeds periodic_compaction_seconds except for the last level.
+* Reduced the compaction debt ratio trigger for scheduling parallel compactions
+* For leveled compaction with default compaction pri (kMinOverlappingRatio), files marked for compaction will be prioritized over files not marked when picking a file from a level for compaction.
+
+### Bug Fixes
+* Fix bug in auto_readahead_size that combined with IndexType::kBinarySearchWithFirstKey + fails or iterator lands at a wrong key
+* Fixed some cases in which DB file corruption was detected but ignored on creating a backup with BackupEngine.
+* Fix bugs where `rocksdb.blobdb.blob.file.synced` includes blob files failed to get synced and `rocksdb.blobdb.blob.file.bytes.written` includes blob bytes failed to get written.
+* Fixed a possible memory leak or crash on a failure (such as I/O error) in automatic atomic flush of multiple column families.
+* Fixed some cases of in-memory data corruption using mmap reads with `BackupEngine`, `sst_dump`, or `ldb`.
+* Fixed issues with experimental `preclude_last_level_data_seconds` option that could interfere with expected data tiering.
+* Fixed the handling of the edge case when all existing blob files become unreferenced. Such files are now correctly deleted.
+
 ## 8.10.0 (12/15/2023)
 ### New Features
 * Provide support for async_io to trim readahead_size by doing block cache lookup
