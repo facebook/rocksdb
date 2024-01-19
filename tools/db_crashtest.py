@@ -944,6 +944,8 @@ def whitebox_crash_main(args, unknown_args):
     kill_random_test = cmd_params["random_kill_odd"]
     kill_mode = 0
     prev_compaction_style = -1
+    expected = False
+    hit_timeout = False
     while time.time() < exit_time:
         if check_mode == 0:
             additional_opts = {
@@ -1063,8 +1065,6 @@ def whitebox_crash_main(args, unknown_args):
 
         if hit_timeout:
             print("Killing the run for running too long")
-            # We treat the long running test as passing today. Clean up after ourselves
-            cleanup_and_exit_if_failed(dbname)
             break
 
         expected = False
@@ -1098,6 +1098,12 @@ def whitebox_crash_main(args, unknown_args):
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
+
+
+    # If successfully finished or timed out (we currently treat timed out test as passing)
+    # Clean up after ourselves
+    if expected or hit_timeout:
+        cleanup_and_exit_if_failed(dbname)
 
 
 def main():
