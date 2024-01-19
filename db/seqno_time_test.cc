@@ -1334,7 +1334,7 @@ TEST_F(SeqnoTimeTest, EncodeDecodeBasic) {
   test.EncodeTo(output);
   ASSERT_TRUE(output.empty());
 
-  test.DecodeFrom(output);
+  ASSERT_OK(test.DecodeFrom(output));
   ASSERT_EQ(test.Size(), 0U);
 
   Random rnd(123);
