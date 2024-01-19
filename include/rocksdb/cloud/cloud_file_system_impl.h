@@ -4,8 +4,8 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
-#include <thread>
 #include <set>
+#include <thread>
 
 #include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/file_system.h"
@@ -23,9 +23,11 @@ class CloudFileDeletionScheduler;
 // The Cloud file system
 //
 class CloudFileSystemImpl : public CloudFileSystem {
-  friend class CloudFileSystem;
+  friend class CloudFileSystemEnv;
 
  public:
+  mutable std::shared_ptr<Logger> info_log_;  // informational messages
+
   static int RegisterAwsObjects(ObjectLibrary& library, const std::string& arg);
   // Constructor
   CloudFileSystemImpl(const CloudFileSystemOptions& options,
@@ -34,7 +36,12 @@ class CloudFileSystemImpl : public CloudFileSystem {
 
   virtual ~CloudFileSystemImpl();
   static const char* kClassName() { return kCloud(); }
-  virtual const char* Name() const override { return kClassName(); }
+
+  const std::shared_ptr<FileSystem>& GetBaseFileSystem() const override {
+    return base_fs_;
+  }
+
+  const char* Name() const override { return kClassName(); }
 
   IOStatus NewSequentialFile(const std::string& fname,
                              const FileOptions& file_opts,
@@ -285,6 +292,9 @@ class CloudFileSystemImpl : public CloudFileSystem {
 #endif
 
  protected:
+  CloudFileSystemOptions cloud_fs_options;
+  std::shared_ptr<FileSystem> base_fs_;  // The underlying file system
+
   Status CheckValidity() const;
   // Status TEST_Initialize(const std::string& name) override;
   // The pathname that contains a list of all db's inside a bucket.
@@ -367,6 +377,48 @@ class CloudFileSystemImpl : public CloudFileSystem {
   IOStatus DeleteLocalInvisibleFiles(
       const std::string& dbname,
       const std::vector<std::string>& active_cookies) override;
+
+ public:
+  // returns the options used to create this object
+  const CloudFileSystemOptions& GetCloudFileSystemOptions() const override {
+    return cloud_fs_options;
+  }
+
+  const std::string& GetSrcBucketName() const override {
+    return cloud_fs_options.src_bucket.GetBucketName();
+  }
+  const std::string& GetSrcObjectPath() const override {
+    return cloud_fs_options.src_bucket.GetObjectPath();
+  }
+  bool HasSrcBucket() const override {
+    return cloud_fs_options.src_bucket.IsValid();
+  }
+
+  const std::string& GetDestBucketName() const override {
+    return cloud_fs_options.dest_bucket.GetBucketName();
+  }
+  const std::string& GetDestObjectPath() const override {
+    return cloud_fs_options.dest_bucket.GetObjectPath();
+  }
+
+  bool HasDestBucket() const override {
+    return cloud_fs_options.dest_bucket.IsValid();
+  }
+  bool SrcMatchesDest() const override {
+    if (HasSrcBucket() && HasDestBucket()) {
+      return cloud_fs_options.src_bucket == cloud_fs_options.dest_bucket;
+    } else {
+      return false;
+    }
+  }
+
+  const std::shared_ptr<CloudStorageProvider>& GetStorageProvider()
+      const override {
+    return cloud_fs_options.storage_provider;
+  }
+
+  Logger* GetLogger() const override { return info_log_.get(); }
+
  private:
   // Files are invisibile if:
   // - It's CLOUDMANFIEST file and cookie is not active. NOTE: empty cookie is

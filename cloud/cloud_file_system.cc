@@ -2,7 +2,6 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/cloud/cloud_file_system.h"
-
 #ifndef _WIN32_WINNT
 #include <unistd.h>
 #else
@@ -11,16 +10,16 @@
 #include <unordered_map>
 
 #include "cloud/aws/aws_file_system.h"
-#include "rocksdb/cloud/cloud_file_system_impl.h"
 #include "cloud/cloud_log_controller_impl.h"
-#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "env/composite_env_wrapper.h"
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "port/likely.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -291,8 +290,8 @@ int offset_of(T1 CloudFileSystemOptions::*member) {
   return int(size_t(&(dummy_ceo_options.*member)) - size_t(&dummy_ceo_options));
 }
 
-static std::unordered_map<std::string, OptionTypeInfo>
-    cloud_fs_option_type_info = {
+const std::unordered_map<std::string, OptionTypeInfo>
+    CloudFileSystemOptions::cloud_fs_option_type_info = {
         {"keep_local_sst_files",
          {offset_of(&CloudFileSystemOptions::keep_local_sst_files),
           OptionType::kBoolean}},
@@ -417,19 +416,7 @@ Status CloudFileSystemOptions::Serialize(const ConfigOptions& config_options,
       reinterpret_cast<const char*>(this), value);
 }
 
-CloudFileSystem::CloudFileSystem(const CloudFileSystemOptions& options,
-                                 const std::shared_ptr<FileSystem>& base,
-                                 const std::shared_ptr<Logger>& logger)
-    : cloud_fs_options(options), base_fs_(base), info_log_(logger) {
-  RegisterOptions(&cloud_fs_options, &cloud_fs_option_type_info);
-}
-
-CloudFileSystem::~CloudFileSystem() {
-  cloud_fs_options.cloud_log_controller.reset();
-  cloud_fs_options.storage_provider.reset();
-}
-
-Status CloudFileSystem::NewAwsFileSystem(
+Status CloudFileSystemEnv::NewAwsFileSystem(
     const std::shared_ptr<FileSystem>& base_fs,
     const std::string& src_cloud_bucket, const std::string& src_cloud_object,
     const std::string& src_cloud_region, const std::string& dest_cloud_bucket,
@@ -484,7 +471,7 @@ int DoRegisterCloudObjects(ObjectLibrary& library, const std::string& arg) {
   return count;
 }
 
-void CloudFileSystem::RegisterCloudObjects(const std::string& arg) {
+void CloudFileSystemEnv::RegisterCloudObjects(const std::string& arg) {
   static std::once_flag do_once;
   std::call_once(do_once, [&]() {
     auto library = ObjectLibrary::Default();
@@ -492,15 +479,16 @@ void CloudFileSystem::RegisterCloudObjects(const std::string& arg) {
   });
 }
 
-std::unique_ptr<Env> CloudFileSystem::NewCompositeEnvFromThis(Env* env) {
+std::unique_ptr<Env> CloudFileSystemEnv::NewCompositeEnvFromFs(FileSystem* fs,
+                                                               Env* env) {
   // We need a shared_ptr<FileSystem> pointing to "this", to initialize the
   // env wrapper, but we don't want that shared_ptr to own the lifecycle for
   // "this". Creating a shared_ptr with a custom no-op deleter instead.
-  std::shared_ptr<FileSystem> fs(this, [](auto* /*p*/) { /*noop*/ });
-  return std::make_unique<CompositeEnvWrapper>(env, fs);
+  std::shared_ptr<FileSystem> fsPtr(fs, [](auto* /*p*/) { /*noop*/ });
+  return std::make_unique<CompositeEnvWrapper>(env, fsPtr);
 }
 
-Status CloudFileSystem::CreateFromString(
+Status CloudFileSystemEnv::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::unique_ptr<CloudFileSystem>* result) {
   RegisterCloudObjects();
@@ -529,13 +517,13 @@ Status CloudFileSystem::CreateFromString(
   copy.invoke_prepare_options = false;  // Prepare here, not there
   s = ObjectRegistry::NewInstance()->NewUniqueObject<FileSystem>(id, &fs);
   if (s.ok()) {
-    auto* cfs = dynamic_cast<CloudFileSystem*>(fs.get());
+    auto* cfs = dynamic_cast<CloudFileSystemImpl*>(fs.get());
     assert(cfs);
     if (!options.empty()) {
       s = cfs->ConfigureFromMap(copy, options);
     }
     if (s.ok() && config_options.invoke_prepare_options) {
-      auto env = cfs->NewCompositeEnvFromThis(copy.env);
+      auto env = NewCompositeEnvFromFs(cfs, copy.env);
       copy.invoke_prepare_options = config_options.invoke_prepare_options;
       copy.env = env.get();
       s = cfs->PrepareOptions(copy);
@@ -553,7 +541,7 @@ Status CloudFileSystem::CreateFromString(
   return s;
 }
 
-Status CloudFileSystem::CreateFromString(
+Status CloudFileSystemEnv::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     const CloudFileSystemOptions& cloud_options,
     std::unique_ptr<CloudFileSystem>* result) {
@@ -583,7 +571,7 @@ Status CloudFileSystem::CreateFromString(
   copy.invoke_prepare_options = false;  // Prepare here, not there
   s = ObjectRegistry::NewInstance()->NewUniqueObject<FileSystem>(id, &fs);
   if (s.ok()) {
-    auto* cfs = dynamic_cast<CloudFileSystem*>(fs.get());
+    auto* cfs = dynamic_cast<CloudFileSystemImpl*>(fs.get());
     assert(cfs);
     auto copts = cfs->GetOptions<CloudFileSystemOptions>();
     *copts = cloud_options;
@@ -591,7 +579,7 @@ Status CloudFileSystem::CreateFromString(
       s = cfs->ConfigureFromMap(copy, options);
     }
     if (s.ok() && config_options.invoke_prepare_options) {
-      auto env = cfs->NewCompositeEnvFromThis(copy.env);
+      auto env = NewCompositeEnvFromFs(cfs, copy.env);
       copy.invoke_prepare_options = config_options.invoke_prepare_options;
       copy.env = env.get();
       s = cfs->PrepareOptions(copy);
@@ -610,18 +598,18 @@ Status CloudFileSystem::CreateFromString(
 }
 
 #ifndef USE_AWS
-Status CloudFileSystem::NewAwsFileSystem(
+Status CloudFileSystemEnv::NewAwsFileSystem(
     const std::shared_ptr<FileSystem>& /*base_fs*/,
     const CloudFileSystemOptions& /*options*/,
     const std::shared_ptr<Logger>& /*logger*/, CloudFileSystem** /*cfs*/) {
   return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
 }
 #else
-Status CloudFileSystem::NewAwsFileSystem(
+Status CloudFileSystemEnv::NewAwsFileSystem(
     const std::shared_ptr<FileSystem>& base_fs,
     const CloudFileSystemOptions& options,
     const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs) {
-  CloudFileSystem::RegisterCloudObjects();
+  CloudFileSystemEnv::RegisterCloudObjects();
   // Dump out cloud fs options
   options.Dump(logger.get());
 
@@ -640,9 +628,8 @@ Status CloudFileSystem::NewAwsFileSystem(
 }
 #endif
 
-std::unique_ptr<Env> CloudFileSystem::NewCompositeEnv(
-    Env* env,
-    const std::shared_ptr<FileSystem>& fs) {
+std::unique_ptr<Env> CloudFileSystemEnv::NewCompositeEnv(
+    Env* env, const std::shared_ptr<FileSystem>& fs) {
   return std::make_unique<CompositeEnvWrapper>(env, fs);
 }
 

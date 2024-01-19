@@ -3,9 +3,9 @@
 #include "rocksdb/cloud/cloud_file_system.h"
 
 #include "cloud/cloud_log_controller_impl.h"
-#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
@@ -214,8 +214,8 @@ TEST(CloudFileSystemTest, DISABLED_ConfigureKinesisController) {
   ASSERT_OK(CloudFileSystem::CreateFromString(
       config_options, "id=aws; controller=kinesis; TEST=dbcloud:/test", &cfs));
   ASSERT_STREQ(cfs->Name(), "aws");
-  ASSERT_NE(cfs->GetLogController(), nullptr);
-  ASSERT_STREQ(cfs->GetLogController()->Name(),
+  ASSERT_NE(cfs->GetCloudFileSystemOptions().cloud_log_controller, nullptr);
+  ASSERT_STREQ(cfs->GetCloudFileSystemOptions().cloud_log_controller->Name(),
                CloudLogControllerImpl::kKinesis());
 #endif
 }
@@ -229,8 +229,8 @@ TEST(CloudFileSystemTest, ConfigureKafkaController) {
 #ifdef USE_KAFKA
   ASSERT_OK(s);
   ASSERT_NE(cfs, nullptr);
-  ASSERT_NE(cfs->GetLogController(), nullptr);
-  ASSERT_STREQ(cfs->GetLogController()->Name(),
+  ASSERT_NE(cfs->GetCloudFileSystemOptions().cloud_log_controller, nullptr);
+  ASSERT_STREQ(cfs->GetCloudFileSystemOptions().cloud_log_controller->Name(),
                CloudLogControllerImpl::kKafka());
 #else
   ASSERT_NOK(s);
@@ -244,4 +244,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-  

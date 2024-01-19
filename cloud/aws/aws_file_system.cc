@@ -1,22 +1,14 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
+#include "rocksdb/cloud/cloud_file_system.h"
 #ifndef ROCKSDB_LITE
-#include "cloud/aws/aws_file_system.h"
-
-#include <chrono>
-#include <cinttypes>
-#include <fstream>
-#include <iostream>
 #include <memory>
-#include <set>
 
+#include "cloud/aws/aws_file_system.h"
 #include "cloud/cloud_log_controller_impl.h"
-#include "cloud/cloud_scheduler.h"
-#include "rocksdb/cloud/cloud_storage_provider_impl.h"
-#include "cloud/filename.h"
-#include "port/port.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -28,7 +20,6 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #endif
 
-#include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -175,8 +166,7 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
 AwsFileSystem::AwsFileSystem(const std::shared_ptr<FileSystem>& underlying_fs,
                              const CloudFileSystemOptions& _cloud_fs_options,
                              const std::shared_ptr<Logger>& info_log)
-    : CloudFileSystemImpl(_cloud_fs_options, underlying_fs, info_log) {
-}
+    : CloudFileSystemImpl(_cloud_fs_options, underlying_fs, info_log) {}
 
 // If you do not specify a region, then S3 buckets are created in the
 // standard-region which might not satisfy read-your-own-writes. So,
@@ -223,8 +213,8 @@ Status AwsFileSystem::NewAwsFileSystem(
   }
   std::unique_ptr<AwsFileSystem> afs(
       new AwsFileSystem(fs, cloud_options, info_log));
-
-  auto env = afs->NewCompositeEnvFromThis(Env::Default());
+  auto env =
+      CloudFileSystemEnv::NewCompositeEnvFromFs(afs.get(), Env::Default());
   ConfigOptions config_options;
   config_options.env = env.get();
   status = afs->PrepareOptions(config_options);

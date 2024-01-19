@@ -397,6 +397,10 @@ class CloudFileSystemOptions {
   // Default: 1 hour
   std::optional<std::chrono::seconds> cloud_file_deletion_delay;
 
+  // Type info map for this class.
+  static const std::unordered_map<std::string, OptionTypeInfo>
+      cloud_fs_option_type_info;
+
   CloudFileSystemOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -488,45 +492,15 @@ struct CloudManifestDelta {
   std::string epoch;  // epoch for the new manifest file
 };
 
-//
-// The Cloud file system
-//
-// NOTE: The AWS SDK must be initialized before the CloudFileSystem is
-// constructed, and remain active (Aws::ShutdownAPI() not called) as long as any
-// CloudFileSystem objects exist.
+/** Extension of the FileSystem API for "the Cloud" */
 class CloudFileSystem : public FileSystem {
- protected:
-  CloudFileSystemOptions cloud_fs_options;
-  std::shared_ptr<FileSystem> base_fs_;  // The underlying file system
-
-  // Creates a new CompositeEnv from "env" and "this".
-  // The returned Env must not outlive "this"
-  std::unique_ptr<Env> NewCompositeEnvFromThis(Env* env);
-
-  CloudFileSystem(const CloudFileSystemOptions& options,
-                  const std::shared_ptr<FileSystem>& base,
-                  const std::shared_ptr<Logger>& logger);
-
  public:
-  mutable std::shared_ptr<Logger> info_log_;  // informational messages
-
-  virtual ~CloudFileSystem();
-
-  static void RegisterCloudObjects(const std::string& mode = "");
-  static Status CreateFromString(const ConfigOptions& config_options,
-                                 const std::string& id,
-                                 std::unique_ptr<CloudFileSystem>* fs);
-  static Status CreateFromString(const ConfigOptions& config_options,
-                                 const std::string& id,
-                                 const CloudFileSystemOptions& cloud_options,
-                                 std::unique_ptr<CloudFileSystem>* fs);
   static const char* kCloud() { return "cloud"; }
   static const char* kAws() { return "aws"; }
-  virtual const char* Name() const { return "cloud-env"; }
+
   // Returns the underlying file system
-  const std::shared_ptr<FileSystem>& GetBaseFileSystem() const {
-    return base_fs_;
-  }
+  virtual const std::shared_ptr<FileSystem>& GetBaseFileSystem() const = 0;
+
   virtual IOStatus PreloadCloudManifest(const std::string& local_dbname) = 0;
   // This method will migrate the database that is using pure RocksDB into
   // RocksDB-Cloud. Call this before opening the database with RocksDB-Cloud.
@@ -549,52 +523,6 @@ class CloudFileSystem : public FileSystem {
                                DbidList* dblist) = 0;
   virtual IOStatus DeleteDbid(const std::string& bucket_prefix,
                               const std::string& dbid) = 0;
-
-  Logger* GetLogger() const { return info_log_.get(); }
-  const std::shared_ptr<CloudStorageProvider>& GetStorageProvider() const {
-    return cloud_fs_options.storage_provider;
-  }
-
-  const std::shared_ptr<CloudLogController>& GetLogController() const {
-    return cloud_fs_options.cloud_log_controller;
-  }
-
-  // The SrcBucketName identifies the cloud storage bucket and
-  // GetSrcObjectPath specifies the path inside that bucket
-  // where data files reside. The specified bucket is used in
-  // a readonly mode by the associated DBCloud instance.
-  const std::string& GetSrcBucketName() const {
-    return cloud_fs_options.src_bucket.GetBucketName();
-  }
-  const std::string& GetSrcObjectPath() const {
-    return cloud_fs_options.src_bucket.GetObjectPath();
-  }
-  bool HasSrcBucket() const { return cloud_fs_options.src_bucket.IsValid(); }
-
-  // The DestBucketName identifies the cloud storage bucket and
-  // GetDestObjectPath specifies the path inside that bucket
-  // where data files reside. The associated DBCloud instance
-  // writes newly created files to this bucket.
-  const std::string& GetDestBucketName() const {
-    return cloud_fs_options.dest_bucket.GetBucketName();
-  }
-  const std::string& GetDestObjectPath() const {
-    return cloud_fs_options.dest_bucket.GetObjectPath();
-  }
-
-  bool HasDestBucket() const { return cloud_fs_options.dest_bucket.IsValid(); }
-  bool SrcMatchesDest() const {
-    if (HasSrcBucket() && HasDestBucket()) {
-      return cloud_fs_options.src_bucket == cloud_fs_options.dest_bucket;
-    } else {
-      return false;
-    }
-  }
-
-  // returns the options used to create this object
-  const CloudFileSystemOptions& GetCloudFileSystemOptions() const {
-    return cloud_fs_options;
-  }
 
   // Deletes file from a destination bucket.
   virtual IOStatus DeleteCloudFileFromDest(const std::string& fname) = 0;
@@ -662,6 +590,56 @@ class CloudFileSystem : public FileSystem {
   virtual IOStatus DeleteLocalInvisibleFiles(
       const std::string& dbname,
       const std::vector<std::string>& active_cookies) = 0;
+
+  // returns the options used to create this object
+  virtual const CloudFileSystemOptions& GetCloudFileSystemOptions() const = 0;
+
+  // The SrcBucketName identifies the cloud storage bucket and
+  // GetSrcObjectPath specifies the path inside that bucket
+  // where data files reside. The specified bucket is used in
+  // a readonly mode by the associated DBCloud instance.
+  virtual const std::string& GetSrcBucketName() const = 0;
+  virtual const std::string& GetSrcObjectPath() const = 0;
+  virtual bool HasSrcBucket() const = 0;
+
+  // The DestBucketName identifies the cloud storage bucket and
+  // GetDestObjectPath specifies the path inside that bucket
+  // where data files reside. The associated DBCloud instance
+  // writes newly created files to this bucket.
+  virtual const std::string& GetDestBucketName() const = 0;
+  virtual const std::string& GetDestObjectPath() const = 0;
+  virtual bool HasDestBucket() const = 0;
+
+  virtual bool SrcMatchesDest() const = 0;
+
+  // Get the storage provider for the FileSystem.
+  virtual const std::shared_ptr<CloudStorageProvider>& GetStorageProvider()
+      const = 0;
+
+  virtual Logger* GetLogger() const = 0;
+};
+
+//
+// The Cloud File System initialization/construction.
+//
+// NOTE: The AWS SDK must be initialized before the CloudFileSystem is
+// constructed, and remain active (Aws::ShutdownAPI() not called) as long as any
+// CloudFileSystem objects exist.
+class CloudFileSystemEnv {
+ public:
+  // Creates a new CompositeEnv from "env" and "this".
+  // The returned Env must not outlive "this"
+  static std::unique_ptr<Env> NewCompositeEnvFromFs(FileSystem* fs, Env* env);
+
+ public:
+  static void RegisterCloudObjects(const std::string& mode = "");
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::unique_ptr<CloudFileSystem>* fs);
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 const CloudFileSystemOptions& cloud_options,
+                                 std::unique_ptr<CloudFileSystem>* fs);
 
   // Create a new AWS file system.
   // src_bucket_name: bucket name suffix where db data is read from

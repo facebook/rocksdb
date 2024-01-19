@@ -4,20 +4,17 @@
 #include "rocksdb/cloud/cloud_storage_provider.h"
 
 #include <cinttypes>
-#include <mutex>
-#include <set>
 
-#include "rocksdb/cloud/cloud_file_system_impl.h"
-#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "cloud/filename.h"
 #include "file/filename.h"
 #include "rocksdb/cloud/cloud_file_system.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "util/coding.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -251,7 +248,8 @@ Status CloudStorageProvider::CreateFromString(
     provider->reset();
     return Status::OK();
   } else {
-    return ObjectRegistry::NewInstance()->NewSharedObject<CloudStorageProvider>(id, provider);
+    return ObjectRegistry::NewInstance()->NewSharedObject<CloudStorageProvider>(
+        id, provider);
   }
 }
 
@@ -289,7 +287,7 @@ Status CloudStorageProviderImpl::PrepareOptions(const ConfigOptions& options) {
 }
 
 CloudStorageProviderImpl::CloudStorageProviderImpl()
-  : rng_(std::make_unique<Random64>(time(nullptr))) {}
+    : rng_(std::make_unique<Random64>(time(nullptr))) {}
 
 CloudStorageProviderImpl::~CloudStorageProviderImpl() {}
 
@@ -315,8 +313,8 @@ IOStatus CloudStorageProviderImpl::GetCloudObject(
       local_destination + ".tmp-" + std::to_string(rng_->Next());
 
   uint64_t remote_size;
-  auto s = DoGetCloudObject(bucket_name, object_path, tmp_destination,
-                            &remote_size);
+  auto s =
+      DoGetCloudObject(bucket_name, object_path, tmp_destination, &remote_size);
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
   if (!s.ok()) {
