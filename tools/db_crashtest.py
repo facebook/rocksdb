@@ -944,7 +944,7 @@ def whitebox_crash_main(args, unknown_args):
     kill_random_test = cmd_params["random_kill_odd"]
     kill_mode = 0
     prev_compaction_style = -1
-    expected = False
+    succeeded = True
     hit_timeout = False
     while time.time() < exit_time:
         if check_mode == 0:
@@ -1067,16 +1067,16 @@ def whitebox_crash_main(args, unknown_args):
             print("Killing the run for running too long")
             break
 
-        expected = False
+        succeeded = False
         if additional_opts["kill_random_test"] is None and (retncode == 0):
             # we expect zero retncode if no kill option
-            expected = True
+            succeeded = True
         elif additional_opts["kill_random_test"] is not None and retncode <= 0:
             # When kill option is given, the test MIGHT kill itself.
             # If it does, negative retncode is expected. Otherwise 0.
-            expected = True
+            succeeded = True
 
-        if not expected:
+        if not succeeded:
             print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
@@ -1102,7 +1102,7 @@ def whitebox_crash_main(args, unknown_args):
 
     # If successfully finished or timed out (we currently treat timed out test as passing)
     # Clean up after ourselves
-    if expected or hit_timeout:
+    if succeeded or hit_timeout:
         cleanup_after_success(dbname)
 
 
