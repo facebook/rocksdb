@@ -113,14 +113,14 @@ class LevelCompactionBuilder {
   // otherwise, returns false.
   bool PickIntraL0Compaction();
 
-  // When total L0 size is no more than
-  // `mutable_cf_options_.intra_l0_compaction_size`, try to pick intra-L0
-  // compaction starting from the newest L0 file.
+  // When total L0 size is small compared to Lbase, try to pick intra-L0
+  // compaction starting from the newest L0 file. This helps to prevent
+  // L0->Lbase compaction with large write-amp.
   //
   // Returns true iff an intra-L0 compaction is picked.
   // `start_level_inputs_` and `output_level_` will be updated accordingly if
   // a compaction is picked.
-  bool PickIntraL0CompactionWithSizeLimit();
+  bool PickSizeBasedIntraL0Compaction();
 
   // Return true if TrivialMove is extended. `start_index` is the index of
   // the initial file picked, which should already be in `start_level_inputs_`.
@@ -785,7 +785,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   // being compacted at level 0.
   if (start_level_ == 0 &&
       !compaction_picker_->level0_compactions_in_progress()->empty()) {
-    if (PickIntraL0CompactionWithSizeLimit()) {
+    if (PickSizeBasedIntraL0Compaction()) {
       return true;
     }
     TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
@@ -800,7 +800,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   if (TryPickL0TrivialMove()) {
     return true;
   }
-  if (start_level_ == 0 && PickIntraL0CompactionWithSizeLimit()) {
+  if (start_level_ == 0 && PickSizeBasedIntraL0Compaction()) {
     return true;
   }
 
@@ -908,31 +908,43 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
                                &start_level_inputs_);
 }
 
-bool LevelCompactionBuilder::PickIntraL0CompactionWithSizeLimit() {
+bool LevelCompactionBuilder::PickSizeBasedIntraL0Compaction() {
   assert(start_level_ == 0);
-  const uint64_t max_l0_size = mutable_cf_options_.intra_l0_compaction_size;
-  if (max_l0_size == 0) {
+  int base_level = vstorage_->base_level();
+  if (base_level <= 0) {
     return false;
   }
-  const std::vector<FileMetaData*>& level_files =
+  const std::vector<FileMetaData*>& l0_files =
       vstorage_->LevelFiles(/*level=*/0);
   size_t min_num_file =
       std::max(2, mutable_cf_options_.level0_file_num_compaction_trigger);
-  if (level_files.size() < min_num_file) {
+  if (l0_files.size() < min_num_file) {
     return false;
   }
-
-  uint64_t input_size = 0;
-  for (const auto& file : level_files) {
-    input_size += file->fd.GetFileSize();
-    if (input_size > max_l0_size) {
-      return false;
+  uint64_t l0_size = 0;
+  for (const auto& file : l0_files) {
+    l0_size += file->fd.GetFileSize();
+  }
+  const uint64_t min_lbase_size =
+      l0_size * static_cast<uint64_t>(std::max(
+                    10.0, mutable_cf_options_.max_bytes_for_level_multiplier));
+  assert(min_lbase_size >= l0_size);
+  const std::vector<FileMetaData*>& lbase_files =
+      vstorage_->LevelFiles(/*level=*/base_level);
+  uint64_t lbase_size = 0;
+  for (const auto& file : lbase_files) {
+    lbase_size += file->fd.GetFileSize();
+    if (lbase_size > min_lbase_size) {
+      break;
     }
+  }
+  if (lbase_size <= min_lbase_size) {
+    return false;
   }
 
   start_level_inputs_.clear();
   start_level_inputs_.level = 0;
-  for (const auto& file : level_files) {
+  for (const auto& file : l0_files) {
     if (file->being_compacted) {
       break;
     }

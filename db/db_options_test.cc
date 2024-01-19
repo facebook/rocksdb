@@ -1575,22 +1575,6 @@ TEST_F(DBOptionsTest, TempOptionsFailTest) {
   ASSERT_FALSE(found_temp_file);
 }
 
-TEST_F(DBOptionsTest, SanitizeIntraL0CompactionSize) {
-  Options options;
-  options.env = env_;
-  options.compaction_style = kCompactionStyleLevel;
-
-  options.max_bytes_for_level_base = 10 << 20;
-  options.max_bytes_for_level_multiplier = 10;
-  options.atomic_flush = false;
-  Reopen(options);
-  ASSERT_EQ(0, dbfull()->GetOptions().intra_l0_compaction_size);
-
-  options.atomic_flush = true;
-  Reopen(options);
-  ASSERT_EQ((10 << 20) / 10, dbfull()->GetOptions().intra_l0_compaction_size);
-}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
