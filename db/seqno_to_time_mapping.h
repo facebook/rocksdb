@@ -154,8 +154,14 @@ class SeqnoToTimeMapping {
     enforced_ = true;
   }
 
-  // Useful before copying, or purging old entries TODO No-op if already in
-  // the state. Returns *this.
+  // Enters the "enforced" state if not already in that state, which is
+  // useful before copying or querying. This will
+  //  * Sort the entries
+  //  * Discard any obsolete entries, which is aided if the caller specifies
+  // the `now` time so that entries older than now minus the max time span can
+  // be discarded.
+  //  * Compact the entries to the configured capacity.
+  // Returns *this.
   SeqnoToTimeMapping& Enforce(uint64_t now = 0);
 
   // ==== Modifiers, unenforced ==== //
@@ -173,7 +179,6 @@ class SeqnoToTimeMapping {
   // state as a precondition. Unless starting with this object as empty mapping
   // with no configured enforcement limits, this object enters the unenforced
   // state.
-  // FIXME: start <= from_seqno?
   void CopyFromSeqnoRange(const SeqnoToTimeMapping& src,
                           SequenceNumber from_seqno,
                           SequenceNumber to_seqno = kMaxSequenceNumber);
