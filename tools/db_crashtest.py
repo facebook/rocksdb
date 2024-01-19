@@ -855,7 +855,7 @@ def exit_if_stderr_has_errors(stderr, print_stderr=True):
         print("TEST FAILED. Output has 'fail'!!!\n")
         sys.exit(2)
 
-def cleanup_and_exit_if_failed(dbname):
+def cleanup_after_success(dbname):
     shutil.rmtree(dbname, True)
     if cleanup_cmd is not None:
         print("Running DB cleanup command - %s\n" % cleanup_cmd)
@@ -919,7 +919,7 @@ def blackbox_crash_main(args, unknown_args):
     exit_if_stderr_has_errors(errs)
 
     # we need to clean up after ourselves -- only do this on test success
-    cleanup_and_exit_if_failed(dbname)
+    cleanup_after_success(dbname)
 
 
 # This python script runs db_stress multiple times. Some runs with
@@ -1086,7 +1086,7 @@ def whitebox_crash_main(args, unknown_args):
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
         if time.time() > half_time:
-            cleanup_and_exit_if_failed(dbname)
+            cleanup_after_success(dbname)
             try:
                 os.mkdir(dbname)
             except OSError:
@@ -1103,7 +1103,7 @@ def whitebox_crash_main(args, unknown_args):
     # If successfully finished or timed out (we currently treat timed out test as passing)
     # Clean up after ourselves
     if expected or hit_timeout:
-        cleanup_and_exit_if_failed(dbname)
+        cleanup_after_success(dbname)
 
 
 def main():
