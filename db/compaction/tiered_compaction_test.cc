@@ -1575,9 +1575,8 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   ASSERT_EQ(tables_props.size(), 1);
   ASSERT_FALSE(tables_props.begin()->second->seqno_to_time_mapping.empty());
   SeqnoToTimeMapping tp_mapping;
-  ASSERT_OK(
-      tp_mapping.Add(tables_props.begin()->second->seqno_to_time_mapping));
-  ASSERT_OK(tp_mapping.Sort());
+  ASSERT_OK(tp_mapping.DecodeFrom(
+      tables_props.begin()->second->seqno_to_time_mapping));
   ASSERT_FALSE(tp_mapping.Empty());
   auto seqs = tp_mapping.TEST_GetInternalMapping();
   ASSERT_FALSE(seqs.empty());
