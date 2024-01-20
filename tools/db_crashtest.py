@@ -855,6 +855,15 @@ def exit_if_stderr_has_errors(stderr, print_stderr=True):
         print("TEST FAILED. Output has 'fail'!!!\n")
         sys.exit(2)
 
+def cleanup_after_success(dbname):
+    shutil.rmtree(dbname, True)
+    if cleanup_cmd is not None:
+        print("Running DB cleanup command - %s\n" % cleanup_cmd)
+        ret = os.system(cleanup_cmd)
+        if ret != 0:
+            print("TEST FAILED. DB cleanup returned error %d\n" % ret)
+            sys.exit(1)
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
@@ -910,7 +919,7 @@ def blackbox_crash_main(args, unknown_args):
     exit_if_stderr_has_errors(errs)
 
     # we need to clean up after ourselves -- only do this on test success
-    shutil.rmtree(dbname, True)
+    cleanup_after_success(dbname)
 
 
 # This python script runs db_stress multiple times. Some runs with
@@ -935,6 +944,8 @@ def whitebox_crash_main(args, unknown_args):
     kill_random_test = cmd_params["random_kill_odd"]
     kill_mode = 0
     prev_compaction_style = -1
+    succeeded = True
+    hit_timeout = False
     while time.time() < exit_time:
         if check_mode == 0:
             additional_opts = {
@@ -1056,16 +1067,16 @@ def whitebox_crash_main(args, unknown_args):
             print("Killing the run for running too long")
             break
 
-        expected = False
+        succeeded = False
         if additional_opts["kill_random_test"] is None and (retncode == 0):
             # we expect zero retncode if no kill option
-            expected = True
+            succeeded = True
         elif additional_opts["kill_random_test"] is not None and retncode <= 0:
             # When kill option is given, the test MIGHT kill itself.
             # If it does, negative retncode is expected. Otherwise 0.
-            expected = True
+            succeeded = True
 
-        if not expected:
+        if not succeeded:
             print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
@@ -1075,15 +1086,7 @@ def whitebox_crash_main(args, unknown_args):
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
         if time.time() > half_time:
-            # we need to clean up after ourselves -- only do this on test
-            # success
-            shutil.rmtree(dbname, True)
-            if cleanup_cmd is not None:
-                print("Running DB cleanup command - %s\n" % cleanup_cmd)
-                ret = os.system(cleanup_cmd)
-                if ret != 0:
-                    print("TEST FAILED. DB cleanup returned error %d\n" % ret)
-                    sys.exit(1)
+            cleanup_after_success(dbname)
             try:
                 os.mkdir(dbname)
             except OSError:
@@ -1095,6 +1098,12 @@ def whitebox_crash_main(args, unknown_args):
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
+
+
+    # If successfully finished or timed out (we currently treat timed out test as passing)
+    # Clean up after ourselves
+    if succeeded or hit_timeout:
+        cleanup_after_success(dbname)
 
 
 def main():
