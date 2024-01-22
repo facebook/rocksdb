@@ -288,39 +288,37 @@ void CompactionJob::Prepare() {
 
   if (preserve_time_duration > 0) {
     const ReadOptions read_options(Env::IOActivity::kCompaction);
-    // setup seqno_to_time_mapping_
-    seqno_to_time_mapping_.SetMaxTimeDuration(preserve_time_duration);
+    // Setup seqno_to_time_mapping_ with relevant time range.
+    seqno_to_time_mapping_.SetMaxTimeSpan(preserve_time_duration);
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
         Status s =
             cfd->current()->GetTableProperties(read_options, &tp, fmd, nullptr);
         if (s.ok()) {
-          seqno_to_time_mapping_.Add(tp->seqno_to_time_mapping)
-              .PermitUncheckedError();
-          seqno_to_time_mapping_.Add(fmd->fd.smallest_seqno,
-                                     fmd->oldest_ancester_time);
+          s = seqno_to_time_mapping_.DecodeFrom(tp->seqno_to_time_mapping);
+        }
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(
+              db_options_.info_log,
+              "Problem reading or processing seqno-to-time mapping: %s",
+              s.ToString().c_str());
         }
       }
     }
 
-    auto status = seqno_to_time_mapping_.Sort();
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "Invalid sequence number to time mapping: Status: %s",
-                     status.ToString().c_str());
-    }
     int64_t _current_time = 0;
-    status = db_options_.clock->GetCurrentTime(&_current_time);
-    if (!status.ok()) {
+    Status s = db_options_.clock->GetCurrentTime(&_current_time);
+    if (!s.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Failed to get current time in compaction: Status: %s",
-                     status.ToString().c_str());
+                     s.ToString().c_str());
       // preserve all time information
       preserve_time_min_seqno_ = 0;
       preclude_last_level_min_seqno_ = 0;
+      seqno_to_time_mapping_.Enforce();
     } else {
-      seqno_to_time_mapping_.TruncateOldEntries(_current_time);
+      seqno_to_time_mapping_.Enforce(_current_time);
       uint64_t preserve_time =
           static_cast<uint64_t>(_current_time) > preserve_time_duration
               ? _current_time - preserve_time_duration
@@ -344,6 +342,16 @@ void CompactionJob::Prepare() {
             1;
       }
     }
+    // For accuracy of the GetProximalSeqnoBeforeTime queries above, we only
+    // limit the capacity after them.
+    // Here If we set capacity to the per-SST limit, we could be throwing away
+    // fidelity when a compaction output file has a narrower seqno range than
+    // all the inputs. If we only limit capacity for each compaction output, we
+    // could be doing a lot of unnecessary recomputation in a large compaction
+    // (up to quadratic in number of files). Thus, we do soemthing in the
+    // middle: enforce a resonably large constant size limit substantially
+    // larger than kMaxSeqnoTimePairsPerSST.
+    seqno_to_time_mapping_.SetCapacity(kMaxSeqnoToTimeEntries);
   }
 }
 

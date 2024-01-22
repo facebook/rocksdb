@@ -36,6 +36,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "seqno_to_time_mapping.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
@@ -299,12 +300,14 @@ Status BuildTable(
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
-      std::string seqno_to_time_mapping_str;
-      seqno_to_time_mapping.Encode(
-          seqno_to_time_mapping_str, meta->fd.smallest_seqno,
-          meta->fd.largest_seqno, meta->file_creation_time);
+      SeqnoToTimeMapping relevant_mapping;
+      relevant_mapping.CopyFromSeqnoRange(seqno_to_time_mapping,
+                                          meta->fd.smallest_seqno,
+                                          meta->fd.largest_seqno);
+      relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
+      relevant_mapping.Enforce(tboptions.file_creation_time);
       builder->SetSeqnoTimeTableProperties(
-          seqno_to_time_mapping_str,
+          relevant_mapping,
           ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
               ? meta->file_creation_time
               : meta->oldest_ancester_time);

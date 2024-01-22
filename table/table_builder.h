@@ -228,9 +228,10 @@ class TableBuilder {
   // Return file checksum function name
   virtual const char* GetFileChecksumFuncName() const = 0;
 
-  // Set the sequence number to time mapping
+  // Set the sequence number to time mapping. `relevant_mapping` must be in
+  // enforced state (ready to encode to string).
   virtual void SetSeqnoTimeTableProperties(
-      const std::string& /*encoded_seqno_to_time_mapping*/,
+      const SeqnoToTimeMapping& /*relevant_mapping*/,
       uint64_t /*oldest_ancestor_time*/){};
 };
 

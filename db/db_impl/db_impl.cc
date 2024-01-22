@@ -834,9 +834,15 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
       }
     }
     if (min_preserve_seconds == std::numeric_limits<uint64_t>::max()) {
-      seqno_to_time_mapping_.Resize(0, 0);
+      // Don't track
+      seqno_to_time_mapping_.SetCapacity(0);
+      seqno_to_time_mapping_.SetMaxTimeSpan(UINT64_MAX);
     } else {
-      seqno_to_time_mapping_.Resize(min_preserve_seconds, max_preserve_seconds);
+      uint64_t cap = std::min(kMaxSeqnoToTimeEntries,
+                              max_preserve_seconds * kMaxSeqnoTimePairsPerCF /
+                                  min_preserve_seconds);
+      seqno_to_time_mapping_.SetCapacity(cap);
+      seqno_to_time_mapping_.SetMaxTimeSpan(max_preserve_seconds);
     }
     mapping_was_empty = seqno_to_time_mapping_.Empty();
   }
@@ -845,9 +851,8 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
   if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
     // round up to 1 when the time_duration is smaller than
     // kMaxSeqnoTimePairsPerCF
-    seqno_time_cadence = (min_preserve_seconds +
-                          SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
-                         SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+    seqno_time_cadence = (min_preserve_seconds + kMaxSeqnoTimePairsPerCF - 1) /
+                         kMaxSeqnoTimePairsPerCF;
   }
 
   TEST_SYNC_POINT_CALLBACK(
@@ -884,7 +889,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
       assert(mapping_was_empty);
 
       // We can simply modify these, before writes are allowed
-      constexpr uint64_t kMax = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
+      constexpr uint64_t kMax = kMaxSeqnoTimePairsPerSST;
       versions_->SetLastAllocatedSequence(kMax);
       versions_->SetLastPublishedSequence(kMax);
       versions_->SetLastSequence(kMax);
@@ -6639,28 +6644,24 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
       .PermitUncheckedError();  // Ignore error
   uint64_t unix_time = static_cast<uint64_t>(unix_time_signed);
-  bool appended = false;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    if (populate_historical_seconds > 0) {
+  if (populate_historical_seconds > 0) {
+    bool success = true;
+    {
+      InstrumentedMutexLock l(&mutex_);
       if (seqno > 1 && unix_time > populate_historical_seconds) {
         // seqno=0 is reserved
         SequenceNumber from_seqno = 1;
-        appended = seqno_to_time_mapping_.PrePopulate(
+        success = seqno_to_time_mapping_.PrePopulate(
             from_seqno, seqno, unix_time - populate_historical_seconds,
             unix_time);
       } else {
         // One of these will fail
         assert(seqno > 1);
         assert(unix_time > populate_historical_seconds);
+        success = false;
       }
-    } else {
-      // FIXME: assert(seqno > 0);
-      appended = seqno_to_time_mapping_.Append(seqno, unix_time);
     }
-  }
-  if (populate_historical_seconds > 0) {
-    if (appended) {
+    if (success) {
       ROCKS_LOG_INFO(
           immutable_db_options_.info_log,
           "Pre-populated sequence number to time entries: [1,%" PRIu64
@@ -6673,11 +6674,11 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
           "] -> [%" PRIu64 ",%" PRIu64 "]",
           seqno, unix_time - populate_historical_seconds, unix_time);
     }
-  } else if (!appended) {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "Failed to insert sequence number to time entry: %" PRIu64
-                   " -> %" PRIu64,
-                   seqno, unix_time);
+  } else {
+    InstrumentedMutexLock l(&mutex_);
+    // FIXME: assert(seqno > 0);
+    // Always successful assuming seqno never go backwards
+    seqno_to_time_mapping_.Append(seqno, unix_time);
   }
 }
 
