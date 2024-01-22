@@ -6,6 +6,7 @@
 * Add new statistics: `rocksdb.sst.write.micros` measures time of each write to SST file; `rocksdb.file.write.{flush|compaction|db.open}.micros` measure time of each write to SST table (currently only block-based table format) and blob file for flush, compaction and db open.
 
 ### Public API Changes
+* Added another enumerator `kVerify` to enum class `FileOperationType` in listener.h. Update your `switch` statements as needed.
 * Add CompressionOptions to the CompressedSecondaryCacheOptions structure to allow users to specify library specific options when creating the compressed secondary cache.
 * Deprecated several options: `level_compaction_dynamic_file_size`, `ignore_max_compaction_bytes_for_input`, `check_flush_compaction_key_order`, `flush_verify_memtable_count`, `compaction_verify_record_count`, `fail_if_options_file_error`, and `enforce_single_del_contracts`
 * Exposed options ttl via c api.
