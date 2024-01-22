@@ -168,7 +168,10 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   iter->Init(env, read_options, ioptions, mutable_cf_options, version, sequence,
              max_sequential_skip_in_iterations, version_number, read_callback,
-             db_impl, cfd, expose_blob_index, allow_refresh);
+             db_impl, cfd, expose_blob_index,
+             !ioptions.memtable_factory->IsRefreshIterSupported()
+                 ? false
+                 : allow_refresh);
   if (db_impl != nullptr && cfd != nullptr && allow_refresh) {
     iter->StoreRefreshInfo(db_impl, cfd, read_callback, expose_blob_index);
   }

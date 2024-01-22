@@ -1868,9 +1868,8 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
-    // Write-prepared and Write-unprepared do not support Refresh() yet.
-    if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0) &&
-        thread->rand.OneIn(2)) {
+    // Check if Refresh() supported.
+    if (thread->rand.OneIn(2) && iter->IsAllowRefresh()) {
       pre_read_expected_values.clear();
       post_read_expected_values.clear();
       // Refresh after forward/backward scan to allow higher chance of SV
