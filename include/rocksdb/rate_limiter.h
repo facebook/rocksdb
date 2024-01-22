@@ -26,9 +26,9 @@ class RateLimiter {
   };
 
   enum class Mode {
-    kReadsOnly,
-    kWritesOnly,
-    kAllIo,
+    kReadsOnly = 0,
+    kWritesOnly = 1,
+    kAllIo = 2,
   };
 
   // For API compatibility, default to rate-limiting writes only.
