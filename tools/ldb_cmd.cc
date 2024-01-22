@@ -981,7 +981,7 @@ void LDBCommand::PrepareOptions() {
 
   if (column_families_.empty()) {
     // column_families not set. Either set it from MANIFEST or OPTIONS file.
-    if(column_families_from_options.empty()) {
+    if (column_families_from_options.empty()) {
       // Reads the MANIFEST to figure out what column families exist. In this
       // case, the option overrides from the CLI argument/specific subcommand
       // apply to all column families.
@@ -1002,15 +1002,15 @@ void LDBCommand::PrepareOptions() {
     }
   }
 
-  if (! column_families_from_options.empty()) {
+  if (!column_families_from_options.empty()) {
     // We got column families from the OPTIONS file. In this case, the option
     // overrides from the CLI argument/specific subcommand only apply to the
     // column family specified by `--column_family_name`.
-    auto column_families_iter = std::find_if(
-        column_families_.begin(), column_families_.end(),
-        [this](const ColumnFamilyDescriptor& cf_desc) {
-          return cf_desc.name == column_family_name_;
-        });
+    auto column_families_iter =
+        std::find_if(column_families_.begin(), column_families_.end(),
+                     [this](const ColumnFamilyDescriptor& cf_desc) {
+                       return cf_desc.name == column_family_name_;
+                     });
     if (column_families_iter == column_families_.end()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Non-existing column family " + column_family_name_);
