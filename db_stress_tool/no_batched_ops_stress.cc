@@ -930,7 +930,7 @@ class NonBatchedOpsStressTest : public StressTest {
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
-    const Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
+    const Status s = db_->GetEntity(read_opts_copy, cfh, key, &from_db);
 
     int error_count = 0;
 
@@ -953,7 +953,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
       thread->stats.AddGets(1, 1);
 
-      if (!FLAGS_skip_verifydb) {
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
         const WideColumns& columns = from_db.columns();
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
