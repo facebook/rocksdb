@@ -2793,6 +2793,30 @@ int main(int argc, char** argv) {
     rocksdb_memory_allocator_destroy(allocator);
   }
 
+  StartPhase("stderr_logger");
+  {
+    rocksdb_options_t* o_no_prefix = rocksdb_options_create();
+    rocksdb_logger_t* no_prefix_logger =
+        rocksdb_logger_create_stderr_logger(3, NULL);
+    rocksdb_options_set_info_log(o_no_prefix, no_prefix_logger);
+    rocksdb_logger_t* no_prefix_info_log =
+        rocksdb_options_get_info_log(o_no_prefix);
+    CheckCondition(no_prefix_info_log != NULL);
+    rocksdb_logger_destroy(no_prefix_logger);
+    rocksdb_logger_destroy(no_prefix_info_log);
+    rocksdb_options_destroy(o_no_prefix);
+
+    rocksdb_options_t* o_prefix = rocksdb_options_create();
+    rocksdb_logger_t* prefix_logger =
+        rocksdb_logger_create_stderr_logger(3, "some prefix");
+    rocksdb_options_set_info_log(o_prefix, prefix_logger);
+    rocksdb_logger_t* prefix_info_log = rocksdb_options_get_info_log(o_prefix);
+    CheckCondition(prefix_info_log != NULL);
+    rocksdb_logger_destroy(prefix_logger);
+    rocksdb_logger_destroy(prefix_info_log);
+    rocksdb_options_destroy(o_prefix);
+  }
+
   StartPhase("env");
   {
     rocksdb_env_t* e;
