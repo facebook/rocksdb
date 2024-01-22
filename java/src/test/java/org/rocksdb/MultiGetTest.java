@@ -747,6 +747,11 @@ public class MultiGetTest {
     return byteBuffer;
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetDirect() throws RocksDBException {
     try (final Options opt =
@@ -771,6 +776,11 @@ public class MultiGetTest {
     }
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetDirectCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
@@ -803,6 +813,11 @@ public class MultiGetTest {
     }
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetDirect2Keys() throws RocksDBException {
     try (final Options opt =
@@ -833,6 +848,11 @@ public class MultiGetTest {
     }
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetDirect2KeysCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
@@ -871,6 +891,11 @@ public class MultiGetTest {
     }
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetAsList() throws RocksDBException {
     try (final Options opt =
@@ -887,6 +912,11 @@ public class MultiGetTest {
     }
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetAsListCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
@@ -908,6 +938,11 @@ public class MultiGetTest {
     }
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetAsList2Keys() throws RocksDBException {
     try (final Options opt =
@@ -925,6 +960,11 @@ public class MultiGetTest {
     }
   }
 
+  /**
+   * Too slow/disk space dependent for CI
+   * @throws RocksDBException
+   */
+  @Ignore
   @Test
   public void putBigMultiGetAsList2KeysCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
