@@ -931,12 +931,12 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
 // Second, overrides the options according to the CLI arguments and the
 // specific subcommand being run.
 void LDBCommand::PrepareOptions() {
-  std::vector<ColumnFamilyDescriptor> file_based_column_families;
+  std::vector<ColumnFamilyDescriptor> column_families_from_options;
 
   if (!create_if_missing_ && try_load_options_) {
     config_options_.env = options_.env;
     Status s = LoadLatestOptions(config_options_, db_path_, &options_,
-                                 &file_based_column_families);
+                                 &column_families_from_options);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
       std::string current_version = std::to_string(ROCKSDB_MAJOR) + "." +
@@ -962,7 +962,7 @@ void LDBCommand::PrepareOptions() {
     }
 
     // If merge operator is not set, set a string append operator.
-    for (auto& cf_entry : file_based_column_families) {
+    for (auto& cf_entry : column_families_from_options) {
       if (!cf_entry.options.merge_operator) {
         cf_entry.options.merge_operator =
             MergeOperators::CreateStringAppendOperator(':');
@@ -979,8 +979,9 @@ void LDBCommand::PrepareOptions() {
     return;
   }
 
-  if (column_families_.size() == 0) {
-    if (file_based_column_families.empty()) {
+  if (column_families_.empty()) {
+    // column_families not set. Either set it from MANIFEST or OPTIONS file.
+    if(column_families_from_options.empty()) {
       // Reads the MANIFEST to figure out what column families exist. In this
       // case, the option overrides from the CLI argument/specific subcommand
       // apply to all column families.
@@ -993,27 +994,29 @@ void LDBCommand::PrepareOptions() {
       if (st.ok() && cf_list.size() > 1) {
         // Ignore single column family DB.
         for (const auto& cf_name : cf_list) {
-          file_based_column_families.emplace_back(cf_name, options_);
+          column_families_.emplace_back(cf_name, options_);
         }
       }
     } else {
-      // We got column families from the OPTIONS file. In this case, the option
-      // overrides from the CLI argument/specific subcommand only apply to the
-      // column family specified by `--column_family_name`.
-      auto column_families_iter = std::find_if(
-          file_based_column_families.begin(), file_based_column_families.end(),
-          [this](const ColumnFamilyDescriptor& cf_desc) {
-            return cf_desc.name == column_family_name_;
-          });
-      if (column_families_iter == column_families_.end()) {
-        exec_state_ = LDBCommandExecuteResult::Failed(
-            "Non-existing column family " + column_family_name_);
-        return;
-      }
-      OverrideBaseCFOptions(&column_families_iter->options);
+      SetColumnFamilies(&column_families_from_options);
     }
+  }
 
-    SetColumnFamilies(&file_based_column_families);
+  if (! column_families_from_options.empty()) {
+    // We got column families from the OPTIONS file. In this case, the option
+    // overrides from the CLI argument/specific subcommand only apply to the
+    // column family specified by `--column_family_name`.
+    auto column_families_iter = std::find_if(
+        column_families_.begin(), column_families_.end(),
+        [this](const ColumnFamilyDescriptor& cf_desc) {
+          return cf_desc.name == column_family_name_;
+        });
+    if (column_families_iter == column_families_.end()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Non-existing column family " + column_family_name_);
+      return;
+    }
+    OverrideBaseCFOptions(&column_families_iter->options);
   }
 }
 
