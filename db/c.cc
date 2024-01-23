@@ -4005,6 +4005,16 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create_auto_tuned(
   return rate_limiter;
 }
 
+rocksdb_ratelimiter_t* rocksdb_ratelimiter_create_with_mode(
+    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
+    int mode, bool auto_tuned) {
+  rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
+  rate_limiter->rep.reset(
+      NewGenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
+                            static_cast<RateLimiter::Mode>(mode), auto_tuned));
+  return rate_limiter;
+}
+
 void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t* limiter) {
   delete limiter;
 }

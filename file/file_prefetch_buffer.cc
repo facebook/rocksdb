@@ -27,7 +27,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
                                               size_t roundup_len,
                                               bool refit_tail,
                                               uint64_t& aligned_useful_len) {
-  uint64_t chunk_offset_in_buffer = 0;
+  uint64_t aligned_useful_offset_in_buf = 0;
   bool copy_data_to_new_buffer = false;
   // Check if requested bytes are in the existing buffer_.
   // If only a few bytes exist -- reuse them & read only what is really needed.
@@ -37,19 +37,19 @@ void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
     // Only a few requested bytes are in the buffer. memmove those chunk of
     // bytes to the beginning, and memcpy them back into the new buffer if a
     // new buffer is created.
-    chunk_offset_in_buffer =
+    aligned_useful_offset_in_buf =
         Rounddown(static_cast<size_t>(offset - buf->offset_), alignment);
-    aligned_useful_len =
-        static_cast<uint64_t>(buf->CurrentSize()) - chunk_offset_in_buffer;
-    assert(chunk_offset_in_buffer % alignment == 0);
+    aligned_useful_len = static_cast<uint64_t>(buf->CurrentSize()) -
+                         aligned_useful_offset_in_buf;
+    assert(aligned_useful_offset_in_buf % alignment == 0);
     assert(aligned_useful_len % alignment == 0);
-    assert(chunk_offset_in_buffer + aligned_useful_len <=
+    assert(aligned_useful_offset_in_buf + aligned_useful_len <=
            buf->offset_ + buf->CurrentSize());
     if (aligned_useful_len > 0) {
       copy_data_to_new_buffer = true;
     } else {
       // this reset is not necessary, but just to be safe.
-      chunk_offset_in_buffer = 0;
+      aligned_useful_offset_in_buf = 0;
     }
   }
 
@@ -60,11 +60,11 @@ void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
     buf->buffer_.Alignment(alignment);
     buf->buffer_.AllocateNewBuffer(
         static_cast<size_t>(roundup_len), copy_data_to_new_buffer,
-        chunk_offset_in_buffer, static_cast<size_t>(aligned_useful_len));
+        aligned_useful_offset_in_buf, static_cast<size_t>(aligned_useful_len));
   } else if (aligned_useful_len > 0 && refit_tail) {
     // New buffer not needed. But memmove bytes from tail to the beginning since
     // aligned_useful_len is greater than 0.
-    buf->buffer_.RefitTail(static_cast<size_t>(chunk_offset_in_buffer),
+    buf->buffer_.RefitTail(static_cast<size_t>(aligned_useful_offset_in_buf),
                            static_cast<size_t>(aligned_useful_len));
   } else if (aligned_useful_len > 0) {
     // For async prefetching, it doesn't call RefitTail with aligned_useful_len
@@ -75,7 +75,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
     buf->buffer_.Alignment(alignment);
     buf->buffer_.AllocateNewBuffer(
         static_cast<size_t>(roundup_len), copy_data_to_new_buffer,
-        chunk_offset_in_buffer, static_cast<size_t>(aligned_useful_len));
+        aligned_useful_offset_in_buf, static_cast<size_t>(aligned_useful_len));
   }
 }
 
@@ -470,11 +470,8 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     overlap_buf_->offset_ = offset;
     copy_to_overlap_buffer = true;
 
-    size_t initial_buf_size = overlap_buf_->CurrentSize();
     CopyDataToBuffer(buf, tmp_offset, tmp_length);
-    UpdateStats(
-        /*found_in_buffer=*/false,
-        overlap_buf_->CurrentSize() - initial_buf_size);
+    UpdateStats(/*found_in_buffer=*/false, overlap_buf_->CurrentSize());
 
     // Call async prefetching on freed buffer since data has been consumed
     // only if requested data lies within next buffer.
@@ -635,11 +632,14 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
 
   // For length == 0, skip the synchronous prefetching. read_len1 will be 0.
   if (length > 0) {
+    if (buf->IsOffsetInBuffer(offset)) {
+      UpdateStats(/*found_in_buffer=*/false,
+                  (buf->offset_ + buf->CurrentSize() - offset));
+    }
     ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail*/
                         true, start_offset1, alignment, length, readahead_size,
                         start_offset1, end_offset1, read_len1,
                         aligned_useful_len1);
-    UpdateStats(/*found_in_buffer=*/false, aligned_useful_len1);
   } else {
     UpdateStats(/*found_in_buffer=*/true, original_length);
   }

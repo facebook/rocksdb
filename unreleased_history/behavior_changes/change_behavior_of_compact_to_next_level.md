@@ -1,1 +1,0 @@
-Files will be compacted to the next level if the data age exceeds periodic_compaction_seconds except for the last level.

@@ -2067,6 +2067,12 @@ void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
       interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001),
       interval_compact_micros / kMicrosInSec);
   value->append(buf);
+
+  snprintf(buf, sizeof(buf),
+           "Estimated pending compaction bytes: %" PRIu64 "\n",
+           vstorage->estimated_compaction_needed_bytes());
+  value->append(buf);
+
   if (is_periodic) {
     cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
     cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;

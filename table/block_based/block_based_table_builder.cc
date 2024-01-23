@@ -2105,9 +2105,9 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   }
 }
 void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
-    const std::string& encoded_seqno_to_time_mapping,
-    uint64_t oldest_ancestor_time) {
-  rep_->props.seqno_to_time_mapping = encoded_seqno_to_time_mapping;
+    const SeqnoToTimeMapping& relevant_mapping, uint64_t oldest_ancestor_time) {
+  assert(rep_->props.seqno_to_time_mapping.empty());
+  relevant_mapping.EncodeTo(rep_->props.seqno_to_time_mapping);
   rep_->props.creation_time = oldest_ancestor_time;
 }
 

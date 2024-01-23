@@ -324,8 +324,9 @@ jobs:
     - name: compress test report
       run: tar -cvzf scan_build_report.tar.gz scan_build_report
       if: failure()
-    - uses: actions/upload-artifact@v3.1.3
+    - uses: actions/upload-artifact@v4.0.0
       with:
+        name: scan-build-report
         path: scan_build_report.tar.gz
   build-linux-unity-and-headers:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -461,10 +462,20 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: zjay437/rocksdb:0.6
+      image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    # The docker image is intentionally based on an OS that has an older GLIBC version.
+    # That GLIBC is incompatibile with GitHub's actions/checkout. Thus we implement a manual checkout step.
+    - name: Checkout
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        chown `whoami` . || true
+        git clone --no-checkout https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git -c protocol.version=2 fetch --update-head-ok --no-tags --prune --no-recurse-submodules --depth=1 origin +${{ github.sha }}:${{ github.ref }}
+        git checkout --progress --force ${{ github.ref }}
+        git log -1 --format='%H'
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -472,8 +483,8 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Test RocksDBJava
-      run: make V=1 J=8 -j8 jtest
-    - uses: "./.github/actions/post-steps"
+      run: scl enable devtoolset-7 'make V=1 J=8 -j8 jtest'
+    # NOTE: post-steps skipped because of compatibility issues with docker image
   build-linux-java-static:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
@@ -482,9 +493,8 @@ jobs:
       image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
-    # The docker image is based on such an old OS that it has a GLIBC
-    # incompatibility with actions/checkout and other actions. Thus we
-    # implement a manual checkout step.
+    # The docker image is intentionally based on an OS that has an older GLIBC version.
+    # That GLIBC is incompatibile with GitHub's actions/checkout. Thus we implement a manual checkout step.
     - name: Checkout
       env:
         GH_TOKEN: ${{ github.token }}
@@ -574,6 +584,9 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
+    container:
+      image: evolvedbinary/rocksjava:rockylinux8_x64-be
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/install-maven"
@@ -585,4 +598,11 @@ jobs:
         which javac && javac -version
     - name: PMD RocksDBJava
       run: make V=1 J=8 -j8 jpmd
-    - uses: "./.github/actions/post-pmd-steps"
+    - uses: actions/upload-artifact@v4.0.0
+      with:
+        name: pmd-report
+        path: "${{ github.workspace }}/java/target/pmd.xml"
+    - uses: actions/upload-artifact@v4.0.0
+      with:
+        name: maven-site
+        path: "${{ github.workspace }}/java/target/site"

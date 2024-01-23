@@ -3108,8 +3108,8 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
 
   // Simulate a block cache hit
   fpb.UpdateReadPattern(4096, 4096, false);
-  // Now read some data that'll prefetch additional data from 12288 to 16384
-  // (4096) +  8192 (readahead_size).
+  // Now read some data that'll prefetch additional data from 12288 to 24576.
+  // (8192) +  8192 (readahead_size).
   ASSERT_TRUE(
       fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result, &s));
   ASSERT_EQ(s, Status::OK());
@@ -3119,8 +3119,19 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
   ASSERT_TRUE(
       fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
   ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 1);
-  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 8192);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 8192);
+
+  // Now read some data with length doesn't align with aligment and it needs
+  // prefetching. Read from 16000 with length 10000 (i.e. requested end offset -
+  // 26000).
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(
+      stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+      /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

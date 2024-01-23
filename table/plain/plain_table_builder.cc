@@ -339,10 +339,10 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
     return kUnknownFileChecksumFuncName;
   }
 }
-void PlainTableBuilder::SetSeqnoTimeTableProperties(const std::string& string,
-                                                    uint64_t uint_64) {
+void PlainTableBuilder::SetSeqnoTimeTableProperties(
+    const SeqnoToTimeMapping& relevant_mapping, uint64_t uint_64) {
   // TODO: storing seqno to time mapping is not yet support for plain table.
-  TableBuilder::SetSeqnoTimeTableProperties(string, uint_64);
+  TableBuilder::SetSeqnoTimeTableProperties(relevant_mapping, uint_64);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

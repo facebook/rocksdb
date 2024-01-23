@@ -89,7 +89,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WriteBufferManager\
-	org.rocksdb.WBWIRocksIterator
+	org.rocksdb.WBWIRocksIterator\
+	org.rocksdb.util.StdErrLogger
 
 NATIVE_JAVA_TEST_CLASSES = \
     org.rocksdb.RocksDBExceptionTest\
@@ -206,7 +207,8 @@ JAVA_TESTS = \
 	org.rocksdb.WriteBatchTest\
 	org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
-	org.rocksdb.WriteBatchWithIndexTest
+	org.rocksdb.WriteBatchWithIndexTest\
+	org.rocksdb.util.StdErrLoggerTest
 
 MAIN_SRC = src/main/java
 TEST_SRC = src/test/java

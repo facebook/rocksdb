@@ -702,6 +702,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/sst_partitioner.cc                            \
   java/rocksjni/statistics.cc                                 \
   java/rocksjni/statisticsjni.cc                              \
+  java/rocksjni/stderr_logger.cc                              \
   java/rocksjni/table.cc                                      \
   java/rocksjni/table_filter.cc                               \
   java/rocksjni/table_filter_jnicallback.cc                   \

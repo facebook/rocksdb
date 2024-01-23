@@ -4670,6 +4670,13 @@ void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
       op_count++;
     }
   }
+  if (op_count != expected_count) {
+    for (const auto& thread : thread_list) {
+      fprintf(stderr, "thread id: %" PRIu64 ", thread status: %s\n",
+              thread.thread_id,
+              thread.GetOperationName(thread.operation_type).c_str());
+    }
+  }
   ASSERT_EQ(op_count, expected_count);
 }
 }  // anonymous namespace

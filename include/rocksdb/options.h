@@ -502,6 +502,8 @@ struct DBOptions {
   // Default: true
   bool paranoid_checks = true;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If true, during memtable flush, RocksDB will validate total entries
   // read in flush, and compare with counter inserted into it.
   //
@@ -512,6 +514,8 @@ struct DBOptions {
   // Default: true
   bool flush_verify_memtable_count = true;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If true, during compaction, RocksDB will count the number of entries
   // read and compare it against the number of entries in the compaction
   // input files. This is intended to add protection against corruption
@@ -1206,6 +1210,8 @@ struct DBOptions {
   // currently.
   WalFilter* wal_filter = nullptr;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If true, then DB::Open, CreateColumnFamily, DropColumnFamily, and
   // SetOptions will fail if options file is not properly persisted.
   //
@@ -1421,6 +1427,8 @@ struct DBOptions {
   // Default: kNonVolatileBlockTier
   CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If set to false, when compaction or flush sees a SingleDelete followed by
   // a Delete for the same user key, compaction job will not fail.
   // Otherwise, compaction job will fail.

@@ -86,9 +86,9 @@
 namespace ROCKSDB_NAMESPACE {
 #if defined(OS_WIN)
 static const std::string kSharedLibExt = ".dll";
-static const char kPathSeparator = ';';
+[[maybe_unused]] static const char kPathSeparator = ';';
 #else
-static const char kPathSeparator = ':';
+[[maybe_unused]] static const char kPathSeparator = ':';
 #if defined(OS_MACOSX)
 static const std::string kSharedLibExt = ".dylib";
 #else
