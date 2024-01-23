@@ -153,6 +153,9 @@ class ExpectedValue {
 //
 // After a `PendingExpectedValue` object is created, either `Rollback` or
 // `Commit` should be called to close its pending state before it's destructed.
+// In case no pending state was introduced while creating this
+// `PendingExpectedValue` and user want to ignore the unclosed pending state,
+// `PermitUnclosedPendingState` should be called explicitly.
 // This class is not thread-safe.
 class PendingExpectedValue {
  public:
@@ -161,19 +164,22 @@ class PendingExpectedValue {
                                 ExpectedValue final_value)
       : value_ptr_(value_ptr),
         orig_value_(orig_value),
-        final_value_(final_value) {}
+        final_value_(final_value),
+        pending_state_closed_(false) {}
 
   PendingExpectedValue(const PendingExpectedValue& other)
       : value_ptr_(other.value_ptr_),
         orig_value_(other.orig_value_),
-        final_value_(other.final_value_) {
+        final_value_(other.final_value_),
+        pending_state_closed_(false) {
     other.ClosePendingState();
   }
 
-  PendingExpectedValue(PendingExpectedValue&& other)
+  PendingExpectedValue(PendingExpectedValue&& other) noexcept
       : value_ptr_(std::move(other.value_ptr_)),
         orig_value_(std::move(other.orig_value_)),
-        final_value_(std::move(other.final_value_)) {
+        final_value_(std::move(other.final_value_)),
+        pending_state_closed_(false) {
     other.ClosePendingState();
   }
 
@@ -183,6 +189,7 @@ class PendingExpectedValue {
       value_ptr_ = other.value_ptr_;
       orig_value_ = other.orig_value_;
       final_value_ = other.final_value_;
+      pending_state_closed_ = false;
     }
     return *this;
   }
@@ -193,17 +200,12 @@ class PendingExpectedValue {
       value_ptr_ = std::move(other.value_ptr_);
       orig_value_ = std::move(other.orig_value_);
       final_value_ = std::move(other.final_value_);
+      pending_state_closed_ = false;
     }
     return *this;
   }
 
-  ~PendingExpectedValue() {
-    if (!pending_state_closed_) {
-      fprintf(stderr,
-              "A PendingExpectedValue is still pending at destruction %p\n",
-              this);
-    }
-  }
+  ~PendingExpectedValue() { assert(pending_state_closed_); }
 
   void Commit() {
     assert(!pending_state_closed_);
@@ -227,6 +229,11 @@ class PendingExpectedValue {
     value_ptr_->store(orig_value_.Read());
   }
 
+  void PermitUnclosedPendingState() const {
+    assert(!pending_state_closed_);
+    ClosePendingState();
+  }
+
   uint32_t GetFinalValueBase() { return final_value_.GetValueBase(); }
 
  private:
@@ -235,7 +242,7 @@ class PendingExpectedValue {
   std::atomic<uint32_t>* value_ptr_;
   ExpectedValue orig_value_;
   ExpectedValue final_value_;
-  mutable bool pending_state_closed_ = false;
+  mutable bool pending_state_closed_;
 };
 
 // `ExpectedValueHelper` provides utils to parse `ExpectedValue` to obtain

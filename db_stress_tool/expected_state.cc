@@ -80,7 +80,7 @@ std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
     if (prepared) {
       pending_expected_values.push_back(pending_expected_value);
     } else {
-      pending_expected_value.Rollback();
+      pending_expected_value.PermitUnclosedPendingState();
     }
   }
   return pending_expected_values;
