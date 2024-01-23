@@ -74,6 +74,9 @@ struct SstFileWriter::Rep {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
+    if (!builder->status().ok()) {
+      return builder->status();
+    }
 
     if (file_info.num_entries == 0) {
       file_info.smallest_key.assign(user_key.data(), user_key.size());
@@ -103,7 +106,7 @@ struct SstFileWriter::Rep {
     file_info.file_size = builder->FileSize();
 
     InvalidatePageCache(false /* closing */).PermitUncheckedError();
-    return Status::OK();
+    return builder->status();
   }
 
   Status Add(const Slice& user_key, const Slice& value, ValueType value_type) {
@@ -438,7 +441,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   r->file_info.file_size = r->builder->FileSize();
 
   IOOptions opts;
-  s = WritableFileWriter::PrepareIOOptions(r->write_options, opts);
+  if (s.ok()) {
+    s = WritableFileWriter::PrepareIOOptions(r->write_options, opts);
+  }
   if (s.ok()) {
     s = r->file_writer->Sync(opts, r->ioptions.use_fsync);
     r->InvalidatePageCache(true /* closing */).PermitUncheckedError();
