@@ -59,7 +59,7 @@ class SequentialFileMirror : public SequentialFile {
     Status bs = b_->InvalidateCache(offset, length);
     assert(as == bs);
     return as;
-  };
+  }
 };
 
 class RandomAccessFileMirror : public RandomAccessFile {
