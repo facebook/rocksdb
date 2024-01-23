@@ -94,6 +94,10 @@ class ErrorHandler {
   void ClearFilesToQuarantine();
 
  private:
+  void RecordStats(
+      const std::vector<Tickers>& ticker_types,
+      const std::vector<std::tuple<Histograms, uint64_t>>& int_histograms);
+
   DBImpl* db_;
   const ImmutableDBOptions& db_options_;
   Status bg_error_;
@@ -107,7 +111,10 @@ class ErrorHandler {
   std::unique_ptr<port::Thread> recovery_thread_;
 
   InstrumentedMutex* db_mutex_;
-  // A flag indicating whether automatic recovery from errors is enabled
+  // A flag indicating whether automatic recovery from errors is enabled. Auto
+  // recovery applies for delegating to SstFileManager to handle no space type
+  // of errors. This flag doesn't control the auto resume behavior to recover
+  // from retryable IO errors.
   bool auto_recovery_;
   bool recovery_in_prog_;
   // A flag to indicate that for the soft error, we should not allow any

@@ -718,6 +718,11 @@ int main(int argc, char** argv) {
   rocksdb_options_set_ratelimiter(options, rate_limiter);
   rocksdb_ratelimiter_destroy(rate_limiter);
 
+  rate_limiter = rocksdb_ratelimiter_create_with_mode(1000 * 1024 * 1024,
+                                                      100 * 1000, 10, 0, true);
+  rocksdb_options_set_ratelimiter(options, rate_limiter);
+  rocksdb_ratelimiter_destroy(rate_limiter);
+
   roptions = rocksdb_readoptions_create();
   rocksdb_readoptions_set_verify_checksums(roptions, 1);
   rocksdb_readoptions_set_fill_cache(roptions, 1);
