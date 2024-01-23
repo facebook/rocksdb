@@ -94,7 +94,7 @@ class TestFSWritableFile : public FSWritableFile {
   }
   virtual bool use_direct_io() const override {
     return target_->use_direct_io();
-  };
+  }
 
  private:
   FSFileState state_;  // Need protection by mutex_
@@ -124,7 +124,7 @@ class TestFSRandomRWFile : public FSRandomRWFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  bool use_direct_io() const override { return target_->use_direct_io(); };
+  bool use_direct_io() const override { return target_->use_direct_io(); }
 
  private:
   std::unique_ptr<FSRandomRWFile> target_;
