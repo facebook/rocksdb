@@ -692,6 +692,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
           options.track_and_verify_wals_in_manifest),
       verify_sst_unique_id_in_manifest(
           options.verify_sst_unique_id_in_manifest),
+      resume_compaction(options.resume_compaction),
       env(options.env),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),

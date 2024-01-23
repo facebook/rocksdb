@@ -244,6 +244,8 @@ class CompactionJob {
   // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
 
+  void FormResumableCompactionSubcompactionStates();
+
   // Get the number of planned subcompactions based on max_subcompactions and
   // extra reserved resources
   uint64_t GetSubcompactionsLimit();
@@ -266,6 +268,8 @@ class CompactionJob {
 
   CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
+
+  Status PersistResumableCompactionToManifest(SubcompactionState* sub_compact);
 
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
@@ -506,6 +510,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
  private:
   // Get table file name in output_path
   std::string GetTableFileName(uint64_t file_number) override;
+
   // Specific the compaction output path, otherwise it uses default DB path
   const std::string output_path_;
 

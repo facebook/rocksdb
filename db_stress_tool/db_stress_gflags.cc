@@ -1089,6 +1089,9 @@ DEFINE_bool(
     "DB-open try verifying the SST unique id between MANIFEST and SST "
     "properties.");
 
+DEFINE_bool(resume_compaction, ROCKSDB_NAMESPACE::Options().resume_compaction,
+            "If true, resume unfinished compaction from last db session.");
+
 DEFINE_int32(
     create_timestamped_snapshot_one_in, 0,
     "On non-zero, create timestamped snapshots upon transaction commits.");

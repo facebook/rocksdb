@@ -328,6 +328,7 @@ DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
+DECLARE_bool(resume_compaction);
 
 DECLARE_int32(create_timestamped_snapshot_one_in);
 

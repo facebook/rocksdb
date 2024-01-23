@@ -207,6 +207,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
                    "file size check will be skipped during open.");
   }
 
+  if (result.compaction_service == nullptr && result.resume_compaction) {
+    result.resume_compaction = false;
+  }
+
   return result;
 }
 

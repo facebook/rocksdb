@@ -318,6 +318,18 @@ bool VersionEdit::EncodeTo(std::string* dst,
     char p = static_cast<char>(persist_user_defined_timestamps_);
     PutLengthPrefixedSlice(dst, Slice(&p, 1));
   }
+
+  if (has_resumable_compaction_info_) {
+    PutVarint32(dst, kResumableCompactionInfo);
+    std::string encoded_resumable_compaction_info;
+    Status s =
+        resumable_compaction_info_.EncodeTo(&encoded_resumable_compaction_info);
+    if (!s.ok()) {
+      return false;
+    }
+    PutLengthPrefixedSlice(dst, Slice(encoded_resumable_compaction_info));
+  }
+
   return true;
 }
 
@@ -797,6 +809,21 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kResumableCompactionInfo: {
+        if (!GetLengthPrefixedSlice(&input, &str)) {
+          msg = "resumable_compaction_info";
+        } else {
+          ResumableCompactionInfo resumable_compaction_info;
+          Status s = resumable_compaction_info.DecodeFrom(&str);
+          if (!s.ok()) {
+            return s;
+          }
+          resumable_compaction_info_ = std::move(resumable_compaction_info);
+          has_resumable_compaction_info_ = true;
+        }
+        break;
+      }
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -1115,6 +1142,192 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   jw.EndObject();
 
   return jw.Get();
+}
+
+Status ResumableCompactionInfo::EncodeTo(std::string* output) const {
+  if (db_session_id.empty()) {
+    return Status::Incomplete("DB session id should not be empty");
+  }
+  PutVarint32(output, ResumableCompactionCustomTag::kDBSessionId);
+  PutLengthPrefixedSlice(output, db_session_id);
+
+  PutVarint32Varint64(output, ResumableCompactionCustomTag::kCompactionId,
+                      compaction_id);
+
+  if (inputs.empty()) {
+    return Status::Incomplete("Inputs should not be empty");
+  }
+  for (const std::pair<int, std::vector<uint64_t>>& level_and_input_files :
+       inputs) {
+    if (level_and_input_files.first < 0) {
+      return Status::Incomplete(
+          "Input level should be greater than or equal to 0");
+    }
+    if (level_and_input_files.second.empty()) {
+      continue;
+    }
+    PutVarint32(output, ResumableCompactionCustomTag::kInput);
+    PutVarint32(output, level_and_input_files.first /* level */);
+    PutVarint64(output, level_and_input_files.second.size() /* length */);
+    for (uint64_t file_number : level_and_input_files.second) {
+      PutVarint64(output, file_number);
+    }
+  }
+
+  if (output_level < 0) {
+    return Status::Incomplete(
+        "Output level should be greater than or equal to 0");
+  }
+  PutVarint32Varint32(output, ResumableCompactionCustomTag::kOutputLevel,
+                      output_level);
+
+  if (penultimate_output_level >= 0) {
+    if (!penultimate_output_level_smallest.Valid() ||
+        !penultimate_output_level_largest.Valid()) {
+      return Status::Incomplete(
+          "Penultimate output level range should be valid when penultimate "
+          "output level is valid");
+    }
+    PutVarint32Varint32(output,
+                        ResumableCompactionCustomTag::kPenultimateOutputLevel,
+                        penultimate_output_level);
+    PutVarint32(output,
+                ResumableCompactionCustomTag::kPenultimateOutputLevelSmallest);
+    PutLengthPrefixedSlice(output, penultimate_output_level_smallest.Encode());
+    PutVarint32(output,
+                ResumableCompactionCustomTag::kPenultimateOutputLevelLargest);
+    PutLengthPrefixedSlice(output, penultimate_output_level_largest.Encode());
+  }
+
+  if (!subcompaction_start.empty()) {
+    PutVarint32(output, ResumableCompactionCustomTag::kSubcompactionStart);
+    PutLengthPrefixedSlice(output, subcompaction_start);
+  }
+
+  if (!subcompaction_end.empty()) {
+    PutVarint32(output, ResumableCompactionCustomTag::kSubcompactionEnd);
+    PutLengthPrefixedSlice(output, subcompaction_end);
+  }
+
+  PutVarint32(output, ResumableCompactionCustomTag::kRCTerminate);
+
+  return Status::OK();
+}
+
+Status ResumableCompactionInfo::DecodeFrom(Slice* input) {
+  while (true) {
+    uint32_t custom_tag = 0;
+    Slice slice_field;
+    if (!GetVarint32(input, &custom_tag)) {
+      return Status::Corruption(
+          "Error decoding custom tag for resumable compaction info");
+    }
+    if (custom_tag == ResumableCompactionCustomTag::kRCTerminate) {
+      break;
+    }
+    switch (custom_tag) {
+      case ResumableCompactionCustomTag::kDBSessionId:
+        if (!GetLengthPrefixedSlice(input, &slice_field)) {
+          return Status::Corruption(
+              "Error decoding db dession id for resumable compaction info");
+
+        } else {
+          db_session_id.assign(slice_field.data(), slice_field.size());
+        }
+        break;
+      case ResumableCompactionCustomTag::kCompactionId:
+        if (!GetVarint64(input, &compaction_id)) {
+          return Status::Corruption(
+              "Error decoding compaction id for resumable compaction info");
+        }
+        break;
+      case ResumableCompactionCustomTag::kInput: {
+        uint32_t input_level;
+        if (!GetVarint32(input, &input_level)) {
+          return Status::Corruption(
+              "Error decoding input level for resumable compaction info");
+        }
+        uint64_t input_length;
+        if (!GetVarint64(input, &input_length)) {
+          return Status::Corruption(
+              "Error decoding input length for resumable compaction info");
+        }
+        if (input_length == 0) {
+          return Status::Corruption("There is no input file for input level " +
+                                    std::to_string(input_level) +
+                                    " for resumable compaction info");
+        }
+        std::vector<uint64_t> input_file_numbers;
+        for (uint64_t i = 0; i < input_length; ++i) {
+          uint64_t input_file_number;
+          if (!GetVarint64(input, &input_file_number)) {
+            return Status::Corruption(
+                "Error decoding input file number for resumable compaction "
+                "info");
+          }
+          input_file_numbers.push_back(input_file_number);
+        }
+        inputs.push_back({input_level, input_file_numbers});
+        break;
+      }
+      case ResumableCompactionCustomTag::kOutputLevel:
+        uint32_t output_level_decoded;
+        if (!GetVarint32(input, &output_level_decoded)) {
+          return Status::Corruption(
+              "Error decoding output level for resumable compaction info");
+        } else {
+          output_level = output_level_decoded;
+        }
+        break;
+      case ResumableCompactionCustomTag::kPenultimateOutputLevel:
+        uint32_t penultimate_output_level_decoded;
+        if (!GetVarint32(input, &penultimate_output_level_decoded)) {
+          return Status::Corruption(
+              "Error decoding penultimate output level for resumable "
+              "compaction info");
+        } else {
+          penultimate_output_level = penultimate_output_level_decoded;
+        }
+        break;
+      case ResumableCompactionCustomTag::kPenultimateOutputLevelSmallest:
+        if (!GetInternalKey(input, &penultimate_output_level_smallest)) {
+          return Status::Corruption(
+              "Error decoding penultimate output level smallest for "
+              "resumable compaction info");
+        }
+        break;
+      case ResumableCompactionCustomTag::kPenultimateOutputLevelLargest:
+        if (!GetInternalKey(input, &penultimate_output_level_largest)) {
+          return Status::Corruption(
+              "Error decoding penultimate output level largest for resumable "
+              "compaction info");
+        }
+        break;
+      case ResumableCompactionCustomTag::kSubcompactionStart:
+        if (!GetLengthPrefixedSlice(input, &slice_field)) {
+          return Status::Corruption(
+              "Error decoding subcompaction start for resumable compaction "
+              "info");
+        } else {
+          subcompaction_start.assign(slice_field.data(), slice_field.size());
+        }
+        break;
+      case ResumableCompactionCustomTag::kSubcompactionEnd:
+        if (!GetLengthPrefixedSlice(input, &slice_field)) {
+          return Status::Corruption(
+              "Error decoding subcompaction end for resumable compaction "
+              "info");
+
+        } else {
+          subcompaction_end.assign(slice_field.data(), slice_field.size());
+        }
+        break;
+      default:
+        // Ignore unknown tags
+        break;
+    }
+  }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

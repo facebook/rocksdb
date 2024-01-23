@@ -1138,18 +1138,104 @@ void ColumnFamilyData::CreateNewMemtable(
 
 bool ColumnFamilyData::NeedsCompaction() const {
   return !mutable_cf_options_.disable_auto_compactions &&
-         compaction_picker_->NeedsCompaction(current_->storage_info());
+         (!resumable_compactions_of_all_db_sessions_.empty() ||
+          compaction_picker_->NeedsCompaction(current_->storage_info()));
 }
 
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options, LogBuffer* log_buffer) {
-  auto* result = compaction_picker_->PickCompaction(
-      GetName(), mutable_options, mutable_db_options, current_->storage_info(),
-      log_buffer);
+  Compaction* result =
+      PickResumableCompaction(mutable_options, mutable_db_options);
+  if (result == nullptr) {
+    result = compaction_picker_->PickCompaction(
+        GetName(), mutable_options, mutable_db_options,
+        current_->storage_info(), log_buffer);
+  }
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
+  return result;
+}
+
+Compaction* ColumnFamilyData::PickResumableCompaction(
+    const MutableCFOptions& mutable_options,
+    const MutableDBOptions& mutable_db_options) {
+  Compaction* result = nullptr;
+
+  while (!resumable_compactions_of_all_db_sessions_.empty()) {
+    auto iter_1 = resumable_compactions_of_all_db_sessions_.begin();
+    auto db_session_id = iter_1->first;
+    ResumableCompactionsPerDBSession resumable_compactions_per_db_session =
+        iter_1->second;
+    while (!resumable_compactions_per_db_session.empty()) {
+      auto iter_2 = resumable_compactions_per_db_session.begin();
+      auto compaction_job_id = iter_2->first;
+      ResumableCompaction resumable_compaction = iter_2->second;
+
+      resumable_compactions_per_db_session.erase(iter_2);
+      if (resumable_compactions_per_db_session.empty()) {
+        resumable_compactions_of_all_db_sessions_.erase(iter_1);
+      }
+
+      result = GetCompactionFromResumableCompaction(
+          db_session_id, compaction_job_id, resumable_compaction,
+          mutable_options, mutable_db_options);
+
+      if (result != nullptr) {
+        return result;
+      }
+    }
+  }
+
+  return result;
+}
+
+Compaction* ColumnFamilyData::GetCompactionFromResumableCompaction(
+    std::string& db_session_id, uint64_t compaction_job_id,
+    ResumableCompaction& resumable_compaction,
+    const MutableCFOptions& mutable_options,
+    const MutableDBOptions& mutable_db_options) const {
+  std::vector<CompactionInputFiles> inputs;
+
+  for (const auto& resumable_compaction_inputs_per_level :
+       resumable_compaction.inputs) {
+    CompactionInputFiles compaction_input_files;
+    compaction_input_files.level = resumable_compaction_inputs_per_level.first;
+    if (resumable_compaction_inputs_per_level.second.empty()) {
+      return nullptr;
+    }
+    for (const auto& compaction_input_file :
+         resumable_compaction_inputs_per_level.second) {
+      FileMetaData* file = current_->storage_info()->GetFileMetaDataByNumber(
+          compaction_input_file);
+      if (file == nullptr || file->being_compacted) {
+        return nullptr;
+      } else {
+        compaction_input_files.files.push_back(file);
+      }
+    }
+    inputs.push_back(compaction_input_files);
+  }
+
+  if (compaction_picker_->FilesRangeOverlapWithCompaction(
+          inputs, resumable_compaction.output_level,
+          resumable_compaction.penultimate_output_level)) {
+    return nullptr;
+  }
+
+  Compaction* result = new Compaction(
+      current_->storage_info(), ioptions_, mutable_options, mutable_db_options,
+      inputs, resumable_compaction.output_level,
+      std::numeric_limits<uint64_t>::max(),
+      std::numeric_limits<uint64_t>::max(), 0, CompressionType::kNoCompression,
+      CompressionOptions(), Temperature::kUnknown, 0 /* max_subcompactions */,
+      {}, false, "", -1, false, true, CompactionReason::kResumableCompaction,
+      BlobGarbageCollectionPolicy::kUseDefault, -1,
+      {db_session_id, compaction_job_id, resumable_compaction});
+
+  compaction_picker_->RegisterCompaction(result);
+
   return result;
 }
 
@@ -1605,6 +1691,48 @@ void ColumnFamilyData::RecoverEpochNumbers() {
   auto* vstorage = current_->storage_info();
   assert(vstorage);
   vstorage->RecoverEpochNumbers(this);
+}
+
+void ColumnFamilyData::AddResumableCompaction(
+    const ResumableCompactionInfo& info) {
+  const uint64_t compaction_job_id =
+      GetCompactionJobIdFromCompactionID(info.compaction_id);
+  const uint64_t subcompaction_job_id =
+      GetSubCompactionJobIdFromCompactionID(info.compaction_id);
+
+  auto iter_1 =
+      resumable_compactions_of_all_db_sessions_.find(info.db_session_id);
+  if (iter_1 == resumable_compactions_of_all_db_sessions_.end()) {
+    resumable_compactions_of_all_db_sessions_.insert({info.db_session_id, {}});
+  }
+  ResumableCompactionsPerDBSession& resumable_compactions_per_db_session =
+      resumable_compactions_of_all_db_sessions_[info.db_session_id];
+
+  auto iter_2 = resumable_compactions_per_db_session.find(compaction_job_id);
+  if (iter_2 == resumable_compactions_per_db_session.end()) {
+    ResumableCompaction resumable_compaction = {
+        info.inputs,
+        info.output_level,
+        info.penultimate_output_level,
+        info.penultimate_output_level_smallest,
+        info.penultimate_output_level_largest,
+        {}};
+    resumable_compactions_per_db_session.insert(
+        {compaction_job_id, resumable_compaction});
+  }
+
+  const bool has_subcompaction = info.subcompaction_start.size() != 0 ||
+                                 info.subcompaction_end.size() != 0;
+  if (has_subcompaction) {
+    ResumableCompaction& resumable_compaction =
+        resumable_compactions_per_db_session[compaction_job_id];
+    assert(resumable_compaction.subcompaction_job_id_to_range.find(
+               subcompaction_job_id) ==
+           resumable_compaction.subcompaction_job_id_to_range.end());
+    resumable_compaction.subcompaction_job_id_to_range.insert(
+        {subcompaction_job_id,
+         {info.subcompaction_start, info.subcompaction_end}});
+  }
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,

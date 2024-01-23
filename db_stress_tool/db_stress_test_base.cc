@@ -3393,6 +3393,7 @@ void InitializeOptionsFromFlags(
   options.track_and_verify_wals_in_manifest = true;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
+  options.resume_compaction = FLAGS_resume_compaction;
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;

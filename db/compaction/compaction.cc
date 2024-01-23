@@ -285,7 +285,9 @@ Compaction::Compaction(
     bool _deletion_compaction, bool l0_files_might_overlap,
     CompactionReason _compaction_reason,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
-    double _blob_garbage_collection_age_cutoff)
+    double _blob_garbage_collection_age_cutoff,
+    std::tuple<std::string, uint64_t, ResumableCompaction>
+        resumable_compaction_info)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
@@ -333,11 +335,15 @@ Compaction::Compaction(
                   _blob_garbage_collection_age_cutoff > 1
               ? mutable_cf_options()->blob_garbage_collection_age_cutoff
               : _blob_garbage_collection_age_cutoff),
+      resumable_compaction_info_(resumable_compaction_info),
       penultimate_level_(
-          // For simplicity, we don't support the concept of "penultimate level"
-          // with `CompactionReason::kExternalSstIngestion` and
-          // `CompactionReason::kRefitLevel`
-          _compaction_reason == CompactionReason::kExternalSstIngestion ||
+          IsResumableCompaction()
+              ? GetResumableCompaction().penultimate_output_level
+              :
+              // For simplicity, we don't support the concept of "penultimate
+              // level" with `CompactionReason::kExternalSstIngestion` and
+              // `CompactionReason::kRefitLevel`
+              _compaction_reason == CompactionReason::kExternalSstIngestion ||
                   _compaction_reason == CompactionReason::kRefitLevel
               ? Compaction::kInvalidLevel
               : EvaluatePenultimateLevel(vstorage, immutable_options_,
@@ -396,7 +402,15 @@ Compaction::Compaction(
     }
   }
 
-  PopulatePenultimateLevelOutputRange();
+  if (IsResumableCompaction()) {
+    const ResumableCompaction& resumable_compaction = GetResumableCompaction();
+    penultimate_level_smallest_ =
+        resumable_compaction.penultimate_output_level_smallest;
+    penultimate_level_largest_ =
+        resumable_compaction.penultimate_output_level_largest;
+  } else {
+    PopulatePenultimateLevelOutputRange();
+  }
 }
 
 void Compaction::PopulatePenultimateLevelOutputRange() {

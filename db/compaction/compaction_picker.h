@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/column_family.h"
 #include "db/compaction/compaction.h"
 #include "db/version_set.h"
 #include "options/cf_options.h"
@@ -86,13 +87,13 @@ class CompactionPicker {
 
   virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const = 0;
 
-// Sanitize the input set of compaction input files.
-// When the input parameters do not describe a valid compaction, the
-// function will try to fix the input_files by adding necessary
-// files.  If it's not possible to conver an invalid input_files
-// into a valid one by adding more files, the function will return a
-// non-ok status with specific reason.
-//
+  // Sanitize the input set of compaction input files.
+  // When the input parameters do not describe a valid compaction, the
+  // function will try to fix the input_files by adding necessary
+  // files.  If it's not possible to conver an invalid input_files
+  // into a valid one by adding more files, the function will return a
+  // non-ok status with specific reason.
+  //
   Status SanitizeCompactionInputFiles(std::unordered_set<uint64_t>* input_files,
                                       const ColumnFamilyMetaData& cf_meta,
                                       const int output_level) const;

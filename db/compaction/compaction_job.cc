@@ -101,6 +101,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "RoundRobinTtl";
     case CompactionReason::kRefitLevel:
       return "RefitLevel";
+    case CompactionReason::kResumableCompaction:
+      return "ResumableCompaction";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -256,28 +258,33 @@ void CompactionJob::Prepare() {
   write_hint_ = cfd->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
-  if (c->ShouldFormSubcompactions()) {
-    StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
-    GenSubcompactionBoundaries();
-  }
-  if (boundaries_.size() >= 1) {
-    for (size_t i = 0; i <= boundaries_.size(); i++) {
-      compact_->sub_compact_states.emplace_back(
-          c, (i != 0) ? std::optional<Slice>(boundaries_[i - 1]) : std::nullopt,
-          (i != boundaries_.size()) ? std::optional<Slice>(boundaries_[i])
-                                    : std::nullopt,
-          static_cast<uint32_t>(i));
-      // assert to validate that boundaries don't have same user keys (without
-      // timestamp part).
-      assert(i == 0 || i == boundaries_.size() ||
-             cfd->user_comparator()->CompareWithoutTimestamp(
-                 boundaries_[i - 1], boundaries_[i]) < 0);
-    }
-    RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
-                      compact_->sub_compact_states.size());
+  if (c->IsResumableCompaction()) {
+    FormResumableCompactionSubcompactionStates();
   } else {
-    compact_->sub_compact_states.emplace_back(c, std::nullopt, std::nullopt,
-                                              /*sub_job_id*/ 0);
+    if (c->ShouldFormSubcompactions()) {
+      StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
+      GenSubcompactionBoundaries();
+    }
+    if (boundaries_.size() >= 1) {
+      for (size_t i = 0; i <= boundaries_.size(); i++) {
+        compact_->sub_compact_states.emplace_back(
+            c,
+            (i != 0) ? std::optional<Slice>(boundaries_[i - 1]) : std::nullopt,
+            (i != boundaries_.size()) ? std::optional<Slice>(boundaries_[i])
+                                      : std::nullopt,
+            static_cast<uint32_t>(i));
+        // assert to validate that boundaries don't have same user keys (without
+        // timestamp part).
+        assert(i == 0 || i == boundaries_.size() ||
+               cfd->user_comparator()->CompareWithoutTimestamp(
+                   boundaries_[i - 1], boundaries_[i]) < 0);
+      }
+      RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
+                        compact_->sub_compact_states.size());
+    } else {
+      compact_->sub_compact_states.emplace_back(c, std::nullopt, std::nullopt,
+                                                /*sub_job_id*/ 0);
+    }
   }
 
   // collect all seqno->time information from the input files which will be used
@@ -457,6 +464,37 @@ struct RangeWithSize {
   RangeWithSize(const Slice& a, const Slice& b, uint64_t s = 0)
       : range(a, b), size(s) {}
 };
+
+void CompactionJob::FormResumableCompactionSubcompactionStates() {
+  auto* c = compact_->compaction;
+  assert(c->IsResumableCompaction());
+
+  const auto& resumable_compaction_subcompactions =
+      c->GetResumableCompaction().subcompaction_job_id_to_range;
+
+  if (resumable_compaction_subcompactions.empty()) {
+    compact_->sub_compact_states.emplace_back(c, std::nullopt, std::nullopt,
+                                              /*sub_job_id*/ 0);
+  } else {
+    uint64_t num_actual_subcompactions =
+        resumable_compaction_subcompactions.size();
+    uint64_t max_subcompactions_limit = GetSubcompactionsLimit();
+    if (num_actual_subcompactions > max_subcompactions_limit) {
+      InstrumentedMutexUnlock unlock_guard(db_mutex_);
+      AcquireSubcompactionResources(
+          (int)(num_actual_subcompactions - max_subcompactions_limit));
+    }
+    for (const auto& subcompaction_job_id_and_range :
+         resumable_compaction_subcompactions) {
+      compact_->sub_compact_states.emplace_back(
+          c, std::optional<Slice>(subcompaction_job_id_and_range.second.first),
+          std::optional<Slice>(subcompaction_job_id_and_range.second.second),
+          subcompaction_job_id_and_range.first);
+    }
+    RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
+                      compact_->sub_compact_states.size());
+  }
+}
 
 void CompactionJob::GenSubcompactionBoundaries() {
   // The goal is to find some boundary keys so that we can evenly partition
@@ -1503,7 +1541,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 }
 
 uint64_t CompactionJob::GetCompactionId(SubcompactionState* sub_compact) const {
-  return (uint64_t)job_id_ << 32 | sub_compact->sub_job_id;
+  return CalculateCompactionId((uint64_t)job_id_,
+                               (uint64_t)sub_compact->sub_job_id);
 }
 
 void CompactionJob::RecordDroppedKeys(
