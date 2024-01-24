@@ -243,7 +243,7 @@ class TransactionBaseImpl : public Transaction {
                         const Slice& key) override;
   void UndoGetForUpdate(const Slice& key) override {
     return UndoGetForUpdate(nullptr, key);
-  };
+  }
 
   WriteOptions* GetWriteOptions() override { return &write_options_; }
 
