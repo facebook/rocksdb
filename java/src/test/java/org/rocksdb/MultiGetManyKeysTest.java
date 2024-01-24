@@ -33,8 +33,8 @@ public class MultiGetManyKeysTest {
 
   @BeforeClass
   public static void beforeAllTest() {
-    Assume.assumeFalse("We are not running this test on OpenBSD dues to memory constraints",
-        Environment.isOpenBSD());
+    Assume.assumeFalse("We are not running this test on 32bit systems dues to memory constraints",
+        !Environment.is64Bit());
   }
 
   /**
