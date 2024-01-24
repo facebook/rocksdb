@@ -1274,7 +1274,8 @@ public class DBOptions extends RocksObject
   private static native boolean paranoidChecks(long handle);
   private static native void setRateLimiter(long handle, long rateLimiterHandle);
   private static native void setSstFileManager(final long handle, final long sstFileManagerHandle);
-  private static native void setLogger(final long handle, final long loggerHandle, final byte loggerType);
+  private static native void setLogger(
+      final long handle, final long loggerHandle, final byte loggerType);
   private static native void setInfoLogLevel(long handle, byte logLevel);
   private static native byte infoLogLevel(long handle);
   private static native void setMaxOpenFiles(long handle, int maxOpenFiles);
