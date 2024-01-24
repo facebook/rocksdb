@@ -208,6 +208,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   if (parsed_params.cmd == GetCommand::Name()) {
     return new GetCommand(parsed_params.cmd_params, parsed_params.option_map,
                           parsed_params.flags);
+  } else if (parsed_params.cmd == MultiGetCommand::Name()) {
+    return new MultiGetCommand(parsed_params.cmd_params,
+                               parsed_params.option_map, parsed_params.flags);
   } else if (parsed_params.cmd == GetEntityCommand::Name()) {
     return new GetEntityCommand(parsed_params.cmd_params,
                                 parsed_params.option_map, parsed_params.flags);
@@ -2867,6 +2870,66 @@ void GetCommand::DoCommand() {
     std::stringstream oss;
     oss << "Get failed: " << st.ToString();
     exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+MultiGetCommand::MultiGetCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() < 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "At least one <key> must be specified for multi_get.");
+  } else {
+    for (size_t i = 0; i < params.size(); ++i) {
+      std::string key = params.at(i);
+      keys_.emplace_back(is_key_hex_ ? HexToString(key) : key);
+    }
+  }
+}
+
+void MultiGetCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(MultiGetCommand::Name());
+  ret.append(" <key_1> <key_2> <key_3> ...");
+  ret.append(" [--" + ARG_TTL + "]");
+  ret.append("\n");
+}
+
+void MultiGetCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  size_t num_keys = keys_.size();
+  std::vector<Slice> key_slices;
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+  for (const std::string& key : keys_) {
+    key_slices.emplace_back(key);
+  }
+  db_->MultiGet(ReadOptions(), GetCfHandle(), num_keys, key_slices.data(),
+                values.data(), statuses.data());
+
+  bool failed = false;
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (statuses[i].ok()) {
+      fprintf(stdout, is_value_hex_ ? "0x%s\n" : "%s\n",
+              values[i].ToString(is_value_hex_).c_str());
+    } else {
+      fprintf(stderr, "Status for key %s: %s\n",
+              (is_key_hex_ ? StringToHex(keys_[i]) : keys_[i]).c_str(),
+              statuses[i].ToString().c_str());
+      failed = false;
+    }
+  }
+  if (failed) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("one or more keys had non-okay status");
   }
 }
 
