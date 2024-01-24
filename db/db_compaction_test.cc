@@ -9650,6 +9650,7 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   test::SleepingBackgroundTask sleeping_task_low;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
+  sleeping_task_low.WaitUntilSleeping();
 
   TEST_SYNC_POINT(
       "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
