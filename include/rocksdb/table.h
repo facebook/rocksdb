@@ -518,7 +518,15 @@ struct BlockBasedTableOptions {
   // 6 -- Modified the file footer and checksum matching so that SST data
   // misplaced within or between files is as likely to fail checksum
   // verification as random corruption. Also checksum-protects SST footer.
-  uint32_t format_version = 5;
+  // Can be read by RocksDB versions >= 8.6.0.
+  //
+  // Using the default setting of format_version is strongly recommended, so
+  // that available enhancements are adopted eventually and automatically. The
+  // default setting will only update to the latest after thorough production
+  // validation and sufficient time and number of releases have elapsed
+  // (6 months recommended) to ensure a clean downgrade/revert path for users
+  // who might only upgrade a few times per year.
+  uint32_t format_version = 6;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
