@@ -484,7 +484,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // overlap with N-1 other ranges. Since we requested a relatively large number
   // (128) of ranges from each input files, even N range overlapping would
   // cause relatively small inaccuracy.
-  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  ReadOptions read_options(Env::IOActivity::kCompaction);
+  read_options.rate_limiter_priority = GetRateLimiterPriority();
   auto* c = compact_->compaction;
   if (c->max_subcompactions() <= 1 &&
       !(c->immutable_options()->compaction_pri == kRoundRobin &&
@@ -736,8 +737,9 @@ Status CompactionJob::Run() {
         // use_direct_io_for_flush_and_compaction is true, we will regard this
         // verification as user reads since the goal is to cache it here for
         // further user reads
-        const ReadOptions verify_table_read_options(
-            Env::IOActivity::kCompaction);
+        ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
+        verify_table_read_options.rate_limiter_priority =
+            GetRateLimiterPriority();
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             verify_table_read_options, file_options_,
             cfd->internal_comparator(), files_output[file_idx]->meta,

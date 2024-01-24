@@ -960,7 +960,8 @@ Status FlushJob::WriteLevel0Table() {
 
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
-      const ReadOptions read_options(Env::IOActivity::kFlush);
+      ReadOptions read_options(Env::IOActivity::kFlush);
+      read_options.rate_limiter_priority = io_priority;
       const WriteOptions write_options(io_priority, Env::IOActivity::kFlush);
       TableBuilderOptions tboptions(
           *cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
