@@ -937,26 +937,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         overlap_with_db = true;
         break;
       }
-
-      if (compaction_style == kCompactionStyleUniversal && lvl != 0) {
-        const std::vector<FileMetaData*>& level_files =
-            vstorage->LevelFiles(lvl);
-        const SequenceNumber level_largest_seqno =
-            (*std::max_element(level_files.begin(), level_files.end(),
-                               [](FileMetaData* f1, FileMetaData* f2) {
-                                 return f1->fd.largest_seqno <
-                                        f2->fd.largest_seqno;
-                               }))
-                ->fd.largest_seqno;
-        // should only assign seqno to current level's largest seqno when
-        // the file fits
-        if (level_largest_seqno != 0 &&
-            IngestedFileFitInLevel(file_to_ingest, lvl)) {
-          *assigned_seqno = level_largest_seqno;
-        } else {
-          continue;
-        }
-      }
     } else if (compaction_style == kCompactionStyleUniversal) {
       continue;
     }
