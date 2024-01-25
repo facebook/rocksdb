@@ -596,7 +596,9 @@ class VersionStorageInfo {
     return estimated_compaction_needed_bytes_;
   }
 
-  void TEST_set_estimated_compaction_needed_bytes(uint64_t v) {
+  void TEST_set_estimated_compaction_needed_bytes(uint64_t v,
+                                                  InstrumentedMutex* mu) {
+    InstrumentedMutexLock l(mu);
     estimated_compaction_needed_bytes_ = v;
   }
 
