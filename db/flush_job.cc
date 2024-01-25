@@ -861,7 +861,7 @@ Status FlushJob::WriteLevel0Table() {
 
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
-    Env::IOPriority io_priority = GetRateLimiterPriorityForWrite();
+    Env::IOPriority io_priority = GetRateLimiterPriority();
     db_mutex_->Unlock();
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
@@ -1088,7 +1088,7 @@ Status FlushJob::WriteLevel0Table() {
   return s;
 }
 
-Env::IOPriority FlushJob::GetRateLimiterPriorityForWrite() {
+Env::IOPriority FlushJob::GetRateLimiterPriority() {
   if (versions_ && versions_->GetColumnFamilySet() &&
       versions_->GetColumnFamilySet()->write_controller()) {
     WriteController* write_controller =
