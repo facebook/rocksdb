@@ -14,7 +14,7 @@ find_library(zstd_LIBRARIES
   HINTS ${zstd_ROOT_DIR}/lib)
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(zstd DEFAULT_MSG zstd_LIBRARIES zstd_INCLUDE_DIRS)
+find_package_handle_standard_args(zstd DEFAULT_MSG zstd_LIBRARIES ZSTD_INCLUDE_DIRS)
 
 mark_as_advanced(
   zstd_LIBRARIES
