@@ -231,19 +231,20 @@ public final class SstFileManager extends RocksObject {
   private static native long newSstFileManager(final long handle, final long logger_handle,
       final long rateBytesPerSec, final double maxTrashDbRatio, final long bytesMaxDeleteChunk)
       throws RocksDBException;
-  private native void setMaxAllowedSpaceUsage(final long handle,
-      final long maxAllowedSpace);
-  private native void setCompactionBufferSize(final long handle,
-      final long compactionBufferSize);
-  private native boolean isMaxAllowedSpaceReached(final long handle);
-  private native boolean isMaxAllowedSpaceReachedIncludingCompactions(
-      final long handle);
-  private native long getTotalSize(final long handle);
-  private native Map<String, Long> getTrackedFiles(final long handle);
-  private native long getDeleteRateBytesPerSecond(final long handle);
-  private native void setDeleteRateBytesPerSecond(final long handle,
-        final long deleteRate);
-  private native double getMaxTrashDBRatio(final long handle);
-  private native void setMaxTrashDBRatio(final long handle, final double ratio);
-  @Override protected native void disposeInternal(final long handle);
+  private static native void setMaxAllowedSpaceUsage(final long handle, final long maxAllowedSpace);
+  private static native void setCompactionBufferSize(
+      final long handle, final long compactionBufferSize);
+  private static native boolean isMaxAllowedSpaceReached(final long handle);
+  private static native boolean isMaxAllowedSpaceReachedIncludingCompactions(final long handle);
+  private static native long getTotalSize(final long handle);
+  private static native Map<String, Long> getTrackedFiles(final long handle);
+  private static native long getDeleteRateBytesPerSecond(final long handle);
+  private static native void setDeleteRateBytesPerSecond(final long handle, final long deleteRate);
+  private static native double getMaxTrashDBRatio(final long handle);
+  private static native void setMaxTrashDBRatio(final long handle, final double ratio);
+  @Override
+  protected void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

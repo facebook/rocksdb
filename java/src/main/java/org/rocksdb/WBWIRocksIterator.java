@@ -40,31 +40,87 @@ public class WBWIRocksIterator
     return entry;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
-  @Override final native boolean isValid0(long handle);
-  @Override final native void seekToFirst0(long handle);
-  @Override final native void seekToLast0(long handle);
-  @Override final native void next0(long handle);
-  @Override final native void prev0(long handle);
-  @Override final native void refresh0(final long handle) throws RocksDBException;
   @Override final native void refresh1(long handle, long snapshotHandle);
-  @Override final native void seek0(long handle, byte[] target, int targetLen);
-  @Override final native void seekForPrev0(long handle, byte[] target, int targetLen);
-  @Override final native void status0(long handle) throws RocksDBException;
   @Override
-  final native void seekDirect0(
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
+  @Override
+  final boolean isValid0(long handle) {
+    return isValid0Jni(handle);
+  }
+  private static native boolean isValid0Jni(long handle);
+  @Override
+  final void seekToFirst0(long handle) {
+    seekToFirst0Jni(handle);
+  }
+  private static native void seekToFirst0Jni(long handle);
+  @Override
+  final void seekToLast0(long handle) {
+    seekToLast0Jni(handle);
+  }
+  private static native void seekToLast0Jni(long handle);
+  @Override
+  final void next0(long handle) {
+    next0Jni(handle);
+  }
+  private static native void next0Jni(long handle);
+  @Override
+  final void prev0(long handle) {
+    prev0Jni(handle);
+  }
+  private static native void prev0Jni(long handle);
+  @Override
+  final void refresh0(final long handle) throws RocksDBException {
+    refresh0Jni(handle);
+  }
+  private static native void refresh0Jni(final long handle) throws RocksDBException;
+  @Override
+  final void seek0(long handle, byte[] target, int targetLen) {
+    seek0Jni(handle, target, targetLen);
+  }
+  private static native void seek0Jni(long handle, byte[] target, int targetLen);
+  @Override
+  final void seekForPrev0(long handle, byte[] target, int targetLen) {
+    seekForPrev0Jni(handle, target, targetLen);
+  }
+  private static native void seekForPrev0Jni(long handle, byte[] target, int targetLen);
+  @Override
+  final void status0(long handle) throws RocksDBException {
+    status0Jni(handle);
+  }
+  private static native void status0Jni(long handle) throws RocksDBException;
+  @Override
+  final void seekDirect0(
+      final long handle, final ByteBuffer target, final int targetOffset, final int targetLen) {
+    seekDirect0Jni(handle, target, targetOffset, targetLen);
+  }
+  private static native void seekDirect0Jni(
       final long handle, final ByteBuffer target, final int targetOffset, final int targetLen);
   @Override
-  final native void seekForPrevDirect0(
+  final void seekForPrevDirect0(
+      final long handle, final ByteBuffer target, final int targetOffset, final int targetLen) {
+    seekForPrevDirect0Jni(handle, target, targetOffset, targetLen);
+  }
+  private static native void seekForPrevDirect0Jni(
       final long handle, final ByteBuffer target, final int targetOffset, final int targetLen);
   @Override
-  final native void seekByteArray0(
+  final void seekByteArray0(
+      final long handle, final byte[] target, final int targetOffset, final int targetLen) {
+    seekByteArray0Jni(handle, target, targetOffset, targetLen);
+  }
+  private static native void seekByteArray0Jni(
       final long handle, final byte[] target, final int targetOffset, final int targetLen);
   @Override
-  final native void seekForPrevByteArray0(
+  final void seekForPrevByteArray0(
+      final long handle, final byte[] target, final int targetOffset, final int targetLen) {
+    seekForPrevByteArray0Jni(handle, target, targetOffset, targetLen);
+  }
+  private static native void seekForPrevByteArray0Jni(
       final long handle, final byte[] target, final int targetOffset, final int targetLen);
 
-  private native long[] entry1(final long handle);
+  private static native long[] entry1(final long handle);
 
   /**
    * Enumeration of the Write operation

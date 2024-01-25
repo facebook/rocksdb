@@ -142,10 +142,15 @@ public class ColumnFamilyHandle extends RocksObject {
     }
   }
 
-  private native byte[] getName(final long handle) throws RocksDBException;
-  private native int getID(final long handle);
-  private native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
-  @Override protected final native void disposeInternal(final long handle);
+  private static native byte[] getName(final long handle) throws RocksDBException;
+  private static native int getID(final long handle);
+  private static native ColumnFamilyDescriptor getDescriptor(final long handle)
+      throws RocksDBException;
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   private final RocksDB rocksDB_;
 }

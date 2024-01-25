@@ -230,15 +230,19 @@ public class TtlDB extends RocksDB {
     super(nativeHandle);
   }
 
-  @Override protected native void disposeInternal(final long handle);
+  @Override
+  protected void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   private static native long open(final long optionsHandle, final String db_path, final int ttl,
       final boolean readOnly) throws RocksDBException;
   private static native long[] openCF(final long optionsHandle, final String db_path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions, final int[] ttlValues,
       final boolean readOnly) throws RocksDBException;
-  private native long createColumnFamilyWithTtl(final long handle,
-      final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
+  private static native long createColumnFamilyWithTtl(
+      final long handle, final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
       throws RocksDBException;
   private static native void closeDatabase(final long handle) throws RocksDBException;
 }

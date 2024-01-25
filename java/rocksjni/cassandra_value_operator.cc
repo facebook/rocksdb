@@ -41,8 +41,8 @@ jlong Java_org_rocksdb_CassandraValueMergeOperator_newSharedCassandraValueMergeO
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_CassandraValueMergeOperator_disposeInternal(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+void Java_org_rocksdb_CassandraValueMergeOperator_disposeInternalJni(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   auto* op =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
           jhandle);

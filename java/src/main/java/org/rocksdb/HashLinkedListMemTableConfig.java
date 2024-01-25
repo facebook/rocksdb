@@ -161,9 +161,8 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
         thresholdUseSkiplist_);
   }
 
-  private native long newMemTableFactoryHandle(long bucketCount,
-      long hugePageTlbSize, int bucketEntriesLoggingThreshold,
-      boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
+  private static native long newMemTableFactoryHandle(long bucketCount, long hugePageTlbSize,
+      int bucketEntriesLoggingThreshold, boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
       throws IllegalArgumentException;
 
   private long bucketCount_;
