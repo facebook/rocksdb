@@ -1181,6 +1181,8 @@ class DBImpl : public DB {
 
   void TEST_UnlockMutex();
 
+  InstrumentedMutex* TEST_Mutex() { return &mutex_; }
+
   void TEST_SignalAllBgCv();
 
   // REQUIRES: mutex locked
