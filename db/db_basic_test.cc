@@ -1922,8 +1922,6 @@ TEST_P(DBMultiGetTestWithParam, MultiGetDuplicatesEmptyLevel) {
   options.env = env.get();
   options.disable_auto_compactions = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  options.compression = CompressionType::kZSTD;
-  options.compression_opts.max_dict_bytes = 1024;
 
   LRUCacheOptions cache_opts;
   cache_opts.capacity = 1 << 20;
@@ -1983,10 +1981,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetDuplicatesEmptyLevel) {
   SyncPoint::GetInstance()->SetCallBack(
       "FaultInjectionTestFS::RandomRead", [&](void*) {
         ++num_reads;
-        // Fail on the 3rd read. First read is index partition,
-        // second read is compression dict, third read is data
-        // block in level 1
-        if (num_reads == 3) {
+        // Fail on the 2nd read. First read is index partition,
+        // second read is data block in level 1
+        if (num_reads == 2) {
           fault_fs->SetFilesystemActive(false);
         } else {
           fault_fs->SetFilesystemActive(true);
@@ -2024,8 +2021,6 @@ TEST_P(DBMultiGetTestWithParam, MultiGetDuplicatesNonEmptyLevel) {
   options.env = env.get();
   options.disable_auto_compactions = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  options.compression = CompressionType::kZSTD;
-  options.compression_opts.max_dict_bytes = 1024;
 
   LRUCacheOptions cache_opts;
   cache_opts.capacity = 1 << 20;
@@ -2093,10 +2088,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetDuplicatesNonEmptyLevel) {
   SyncPoint::GetInstance()->SetCallBack(
       "FaultInjectionTestFS::RandomRead", [&](void*) {
         ++num_reads;
-        // Fail on the 3rd read. First read is index partition,
-        // second read is compression dict, third read is data
-        // block in level 1
-        if (num_reads == 3) {
+        // Fail on the 2nd read. First read is index partition,
+        // second read is data block in level 1
+        if (num_reads == 2) {
           fault_fs->SetFilesystemActive(false);
         } else {
           fault_fs->SetFilesystemActive(true);

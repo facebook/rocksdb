@@ -538,8 +538,6 @@ class FilePickerMultiGet {
         internal_comparator_(other.internal_comparator_),
         hit_file_(other.hit_file_) {}
 
-  Status status_;
-
  private:
   unsigned int num_levels_;
   unsigned int curr_level_;
