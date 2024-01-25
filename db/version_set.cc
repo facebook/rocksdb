@@ -4546,8 +4546,10 @@ const char* VersionStorageInfo::LevelSummary(
     // overwrite the last space
     --len;
   }
-  len += snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
-                  "] max score %.2f", compaction_score_[0]);
+  len +=
+      snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+               "] max score %.2f, estimated pending compaction bytes %" PRIu64,
+               compaction_score_[0], estimated_compaction_needed_bytes_);
 
   if (!files_marked_for_compaction_.empty()) {
     snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,

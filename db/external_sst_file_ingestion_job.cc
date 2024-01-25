@@ -886,16 +886,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     SequenceNumber* assigned_seqno) {
   Status status;
   *assigned_seqno = 0;
-  if (force_global_seqno) {
+  if (force_global_seqno || files_overlap_) {
     *assigned_seqno = last_seqno + 1;
-    if (compaction_style == kCompactionStyleUniversal || files_overlap_) {
+    // If files overlap, we have to ingest them at level 0.
+    if (files_overlap_) {
+      file_to_ingest->picked_level = 0;
       if (ingestion_options_.fail_if_not_bottommost_level) {
         status = Status::TryAgain(
             "Files cannot be ingested to Lmax. Please make sure key range of "
             "Lmax does not overlap with files to ingest.");
-        return status;
       }
-      file_to_ingest->picked_level = 0;
       return status;
     }
   }
@@ -937,26 +937,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         overlap_with_db = true;
         break;
       }
-
-      if (compaction_style == kCompactionStyleUniversal && lvl != 0) {
-        const std::vector<FileMetaData*>& level_files =
-            vstorage->LevelFiles(lvl);
-        const SequenceNumber level_largest_seqno =
-            (*std::max_element(level_files.begin(), level_files.end(),
-                               [](FileMetaData* f1, FileMetaData* f2) {
-                                 return f1->fd.largest_seqno <
-                                        f2->fd.largest_seqno;
-                               }))
-                ->fd.largest_seqno;
-        // should only assign seqno to current level's largest seqno when
-        // the file fits
-        if (level_largest_seqno != 0 &&
-            IngestedFileFitInLevel(file_to_ingest, lvl)) {
-          *assigned_seqno = level_largest_seqno;
-        } else {
-          continue;
-        }
-      }
     } else if (compaction_style == kCompactionStyleUniversal) {
       continue;
     }
@@ -966,12 +946,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
-  }
-  // If files overlap, we have to ingest them at level 0 and assign the newest
-  // sequence number
-  if (files_overlap_) {
-    target_level = 0;
-    *assigned_seqno = last_seqno + 1;
   }
 
   if (ingestion_options_.fail_if_not_bottommost_level &&
