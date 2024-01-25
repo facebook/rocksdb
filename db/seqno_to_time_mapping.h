@@ -244,6 +244,14 @@ class SeqnoToTimeMapping {
 
   std::deque<SeqnoTimePair> pairs_;
 
+  // Whether this object is in the "enforced" state. Between calls to public
+  // functions, enforced_==true means that
+  // * `pairs_` is sorted
+  // * The capacity limit (non-strict) is met
+  // * The time span limit is met
+  // However, some places within the implementation (Append()) will temporarily
+  // violate those last two conditions while enforced_==true. See also the
+  // Enforce*() and Sort*() private functions below.
   bool enforced_ = true;
 
   void EnforceMaxTimeSpan(uint64_t now = 0);
