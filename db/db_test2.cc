@@ -3947,6 +3947,15 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
       options.table_factory.reset(NewBlockBasedTableFactory(bbto));
       DestroyAndReopen(options);
 
+      // To precisely control when to start bg compaction for excluding previous
+      // rate-limited bytes of flush read for table verification
+      std::shared_ptr<test::SleepingBackgroundTask> sleeping_task(
+          new test::SleepingBackgroundTask());
+      env_->SetBackgroundThreads(1, Env::LOW);
+      env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                     sleeping_task.get(), Env::Priority::LOW);
+      sleeping_task->WaitUntilSleeping();
+
       for (int i = 0; i < kNumL0Files; ++i) {
         for (int j = 0; j <= kNumKeysPerFile; ++j) {
           ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
@@ -3956,13 +3965,20 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
           ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
         }
       }
+
+      size_t rate_limited_bytes_start_bytes =
+          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL);
+
+      sleeping_task->WakeUp();
+      sleeping_task->WaitUntilDone();
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
       ASSERT_EQ(0, NumTableFilesAtLevel(0));
-
       // should be slightly above 512KB due to non-data blocks read. Arbitrarily
       // chose 1MB as the upper bound on the total bytes read.
-      size_t rate_limited_bytes = static_cast<size_t>(
-          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL));
+      size_t rate_limited_bytes =
+          static_cast<size_t>(
+              options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL)) -
+          rate_limited_bytes_start_bytes;
       // The charges can exist for `IO_LOW` and `IO_USER` priorities.
       size_t rate_limited_bytes_by_pri =
           options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW) +

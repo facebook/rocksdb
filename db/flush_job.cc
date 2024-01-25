@@ -861,7 +861,7 @@ Status FlushJob::WriteLevel0Table() {
 
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
-    Env::IOPriority io_priority = GetRateLimiterPriorityForWrite();
+    Env::IOPriority io_priority = GetRateLimiterPriority();
     db_mutex_->Unlock();
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
@@ -960,7 +960,8 @@ Status FlushJob::WriteLevel0Table() {
 
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
-      const ReadOptions read_options(Env::IOActivity::kFlush);
+      ReadOptions read_options(Env::IOActivity::kFlush);
+      read_options.rate_limiter_priority = io_priority;
       const WriteOptions write_options(io_priority, Env::IOActivity::kFlush);
       TableBuilderOptions tboptions(
           *cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
@@ -1087,7 +1088,7 @@ Status FlushJob::WriteLevel0Table() {
   return s;
 }
 
-Env::IOPriority FlushJob::GetRateLimiterPriorityForWrite() {
+Env::IOPriority FlushJob::GetRateLimiterPriority() {
   if (versions_ && versions_->GetColumnFamilySet() &&
       versions_->GetColumnFamilySet()->write_controller()) {
     WriteController* write_controller =
