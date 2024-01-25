@@ -588,7 +588,7 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
       Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
 
   // When the state from WriteController is normal.
-  ASSERT_EQ(flush_job.GetRateLimiterPriorityForWrite(), Env::IO_HIGH);
+  ASSERT_EQ(flush_job.GetRateLimiterPriority(), Env::IO_HIGH);
 
   WriteController* write_controller =
       flush_job.versions_->GetColumnFamilySet()->write_controller();
@@ -597,14 +597,14 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
     // When the state from WriteController is Delayed.
     std::unique_ptr<WriteControllerToken> delay_token =
         write_controller->GetDelayToken(1000000);
-    ASSERT_EQ(flush_job.GetRateLimiterPriorityForWrite(), Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(), Env::IO_USER);
   }
 
   {
     // When the state from WriteController is Stopped.
     std::unique_ptr<WriteControllerToken> stop_token =
         write_controller->GetStopToken();
-    ASSERT_EQ(flush_job.GetRateLimiterPriorityForWrite(), Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(), Env::IO_USER);
   }
 }
 
