@@ -1080,6 +1080,10 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.logger);
   } else {
     assert(false);
+    r->SetStatus(Status::InvalidArgument(
+        "BlockBasedBuilder::Add() received a key with invalid value type " +
+        std::to_string(static_cast<unsigned int>(value_type))));
+    return;
   }
 
   r->props.num_entries++;
