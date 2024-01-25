@@ -125,12 +125,13 @@ class SeqnoToTimeMapping {
   // under enforcement mode, the structure will maintian only one entry older
   // than the newest entry time minus max_time_span, so that
   // GetProximalSeqnoBeforeTime queries back to that time return a good result.
-  // UINT64_MAX == unlimited. Returns *this.
+  // UINT64_MAX == unlimited. 0 == retain just one latest entry. Returns *this.
   SeqnoToTimeMapping& SetMaxTimeSpan(uint64_t max_time_span);
 
   // Set the nominal capacity under enforcement mode. The structure is allowed
   // to grow some reasonable fraction larger but will automatically compact
-  // down to this size. UINT64_MAX == unlimited. Returns *this.
+  // down to this size. UINT64_MAX == unlimited. 0 == retain nothing.
+  // Returns *this.
   SeqnoToTimeMapping& SetCapacity(uint64_t capacity);
 
   // ==== Modifiers, enforced ==== //
@@ -243,6 +244,14 @@ class SeqnoToTimeMapping {
 
   std::deque<SeqnoTimePair> pairs_;
 
+  // Whether this object is in the "enforced" state. Between calls to public
+  // functions, enforced_==true means that
+  // * `pairs_` is sorted
+  // * The capacity limit (non-strict) is met
+  // * The time span limit is met
+  // However, some places within the implementation (Append()) will temporarily
+  // violate those last two conditions while enforced_==true. See also the
+  // Enforce*() and Sort*() private functions below.
   bool enforced_ = true;
 
   void EnforceMaxTimeSpan(uint64_t now = 0);
