@@ -1053,6 +1053,114 @@ TEST_F(SeqnoTimeTest, MappingAppend) {
   ASSERT_EQ(test.TEST_GetLastEntry(), P({11, 250}));
 }
 
+TEST_F(SeqnoTimeTest, CapacityLimits) {
+  using P = SeqnoToTimeMapping::SeqnoTimePair;
+  SeqnoToTimeMapping test;
+
+  test.SetCapacity(3);
+  EXPECT_TRUE(test.Append(10, 300));
+  EXPECT_TRUE(test.Append(20, 400));
+  EXPECT_TRUE(test.Append(30, 500));
+  EXPECT_TRUE(test.Append(40, 600));
+  // Capacity 3 is small enough that the non-strict limit is
+  // equal to the strict limit.
+  EXPECT_EQ(3U, test.Size());
+  EXPECT_EQ(test.TEST_GetLastEntry(), P({40, 600}));
+
+  // Same for Capacity 2
+  test.SetCapacity(2);
+  EXPECT_EQ(2U, test.Size());
+  EXPECT_EQ(test.TEST_GetLastEntry(), P({40, 600}));
+
+  EXPECT_TRUE(test.Append(50, 700));
+  EXPECT_EQ(2U, test.Size());
+  EXPECT_EQ(test.TEST_GetLastEntry(), P({50, 700}));
+
+  // Capacity 1 is difficult to work with internally, so is
+  // coerced to 2.
+  test.SetCapacity(1);
+  EXPECT_EQ(2U, test.Size());
+  EXPECT_EQ(test.TEST_GetLastEntry(), P({50, 700}));
+
+  EXPECT_TRUE(test.Append(60, 800));
+  EXPECT_EQ(2U, test.Size());
+  EXPECT_EQ(test.TEST_GetLastEntry(), P({60, 800}));
+
+  // Capacity 0 means throw everything away
+  test.SetCapacity(0);
+  EXPECT_EQ(0U, test.Size());
+
+  EXPECT_FALSE(test.Append(70, 900));
+  EXPECT_EQ(0U, test.Size());
+
+  // Unlimited capacity
+  test.SetCapacity(UINT64_MAX);
+  for (unsigned i = 1; i <= 10101U; i++) {
+    EXPECT_TRUE(test.Append(i, 11U * i));
+  }
+  EXPECT_EQ(10101U, test.Size());
+}
+
+TEST_F(SeqnoTimeTest, TimeSpanLimits) {
+  SeqnoToTimeMapping test;
+
+  // Default: no limit
+  for (unsigned i = 1; i <= 63U; i++) {
+    EXPECT_TRUE(test.Append(1000 + i, uint64_t{1} << i));
+  }
+  // None dropped.
+  EXPECT_EQ(63U, test.Size());
+
+  test.Clear();
+
+  // Explicit no limit
+  test.SetMaxTimeSpan(UINT64_MAX);
+  for (unsigned i = 1; i <= 63U; i++) {
+    EXPECT_TRUE(test.Append(1000 + i, uint64_t{1} << i));
+  }
+  // None dropped.
+  EXPECT_EQ(63U, test.Size());
+
+  // We generally keep 2 entries as long as the configured max time span
+  // is non-zero
+  test.SetMaxTimeSpan(10);
+  EXPECT_EQ(2U, test.Size());
+
+  test.SetMaxTimeSpan(1);
+  EXPECT_EQ(2U, test.Size());
+
+  // But go down to 1 entry if the max time span is zero
+  test.SetMaxTimeSpan(0);
+  EXPECT_EQ(1U, test.Size());
+
+  EXPECT_TRUE(test.Append(2000, (uint64_t{1} << 63) + 42U));
+  EXPECT_EQ(1U, test.Size());
+
+  test.Clear();
+
+  // Test more typical behavior. Note that one entry at or beyond the max span
+  // is kept.
+  test.SetMaxTimeSpan(100);
+  EXPECT_TRUE(test.Append(1001, 123));
+  EXPECT_TRUE(test.Append(1002, 134));
+  EXPECT_TRUE(test.Append(1003, 150));
+  EXPECT_TRUE(test.Append(1004, 189));
+  EXPECT_TRUE(test.Append(1005, 220));
+  EXPECT_EQ(5U, test.Size());
+  EXPECT_TRUE(test.Append(1006, 233));
+  EXPECT_EQ(6U, test.Size());
+  EXPECT_TRUE(test.Append(1007, 234));
+  EXPECT_EQ(6U, test.Size());
+  EXPECT_TRUE(test.Append(1008, 235));
+  EXPECT_EQ(7U, test.Size());
+  EXPECT_TRUE(test.Append(1009, 300));
+  EXPECT_EQ(6U, test.Size());
+  EXPECT_TRUE(test.Append(1010, 350));
+  EXPECT_EQ(3U, test.Size());
+  EXPECT_TRUE(test.Append(1011, 470));
+  EXPECT_EQ(2U, test.Size());
+}
+
 TEST_F(SeqnoTimeTest, ProximalFunctions) {
   SeqnoToTimeMapping test;
   test.SetCapacity(10);
@@ -1200,6 +1308,93 @@ TEST_F(SeqnoTimeTest, PrePopulate) {
     // bounds to account for limited samples.
     EXPECT_EQ(test.GetProximalSeqnoBeforeTime(t), s);
   }
+}
+
+TEST_F(SeqnoTimeTest, CopyFromSeqnoRange) {
+  SeqnoToTimeMapping test_from;
+  SeqnoToTimeMapping test_to;
+
+  // With zero to draw from
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 0, 1000000);
+  EXPECT_EQ(test_to.Size(), 0U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 100, 100);
+  EXPECT_EQ(test_to.Size(), 0U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, kMaxSequenceNumber, 0);
+  EXPECT_EQ(test_to.Size(), 0U);
+
+  // With one to draw from
+  EXPECT_TRUE(test_from.Append(10, 500));
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 0, 1000000);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  // Includes one entry before range
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 100, 100);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  // Includes one entry before range (even if somewhat nonsensical)
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, kMaxSequenceNumber, 0);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 0, 9);
+  EXPECT_EQ(test_to.Size(), 0U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 0, 10);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  // With more to draw from
+  EXPECT_TRUE(test_from.Append(20, 600));
+  EXPECT_TRUE(test_from.Append(30, 700));
+  EXPECT_TRUE(test_from.Append(40, 800));
+  EXPECT_TRUE(test_from.Append(50, 900));
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 0, 1000000);
+  EXPECT_EQ(test_to.Size(), 5U);
+
+  // Includes one entry before range
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 100, 100);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 19, 19);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  // Includes one entry before range (even if somewhat nonsensical)
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, kMaxSequenceNumber, 0);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 0, 9);
+  EXPECT_EQ(test_to.Size(), 0U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 0, 10);
+  EXPECT_EQ(test_to.Size(), 1U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 20, 20);
+  EXPECT_EQ(test_to.Size(), 2U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 20, 29);
+  EXPECT_EQ(test_to.Size(), 2U);
+
+  test_to.Clear();
+  test_to.CopyFromSeqnoRange(test_from, 20, 30);
+  EXPECT_EQ(test_to.Size(), 3U);
 }
 
 TEST_F(SeqnoTimeTest, EnforceWithNow) {
