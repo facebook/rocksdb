@@ -16,6 +16,7 @@
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 #include "util/random.h"
@@ -38,6 +39,8 @@ IOStatus SequentialFileReader::Create(
 IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch,
                                     Env::IOPriority rate_limiter_priority) {
   IOStatus io_s;
+  IOOptions io_opts;
+  io_opts.rate_limiter_priority = rate_limiter_priority;
   if (use_direct_io()) {
     //
     //    |-offset_advance-|---bytes returned--|
@@ -76,7 +79,7 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch,
         start_ts = FileOperationInfo::StartNow();
       }
       io_s = file_->PositionedRead(aligned_offset + buf.CurrentSize(), allowed,
-                                   IOOptions(), &tmp, buf.Destination(),
+                                   io_opts, &tmp, buf.Destination(),
                                    nullptr /* dbg */);
       if (ShouldNotifyListeners()) {
         auto finish_ts = FileOperationInfo::FinishNow();
@@ -119,7 +122,7 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch,
         start_ts = FileOperationInfo::StartNow();
       }
       Slice tmp;
-      io_s = file_->Read(allowed, IOOptions(), &tmp, scratch + read,
+      io_s = file_->Read(allowed, io_opts, &tmp, scratch + read,
                          nullptr /* dbg */);
       if (ShouldNotifyListeners()) {
         auto finish_ts = FileOperationInfo::FinishNow();
