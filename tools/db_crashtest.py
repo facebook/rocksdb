@@ -837,16 +837,15 @@ def execute_cmd(cmd, timeout=None):
     return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
 
 
-def print_if_stderr_has_errors(stderr, print_stderr=True):
-    if print_stderr:
-        for line in stderr.split("\n"):
-            if line != "" and not line.startswith("WARNING"):
-                print("stderr has error message:")
-                print("***" + line + "***")
+def print_if_stderr_has_errors(stderr):
+    for line in stderr.split("\n"):
+        if line != "" and not line.startswith("WARNING"):
+            print("stderr has error message:")
+            print("***" + line + "***")
 
     stderrdata = stderr.lower()
     errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
-    print("For debugging - #times std::error occurred in output is " + str(errorcount) + "\n")
+    print("#times error occurred in output is " + str(errorcount) + "\n")
 
 
 def cleanup_after_success(dbname):
@@ -1074,8 +1073,6 @@ def whitebox_crash_main(args, unknown_args):
             print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
-        #stderr already printed above
-        print_if_stderr_has_errors(stderrdata, False)
 
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
