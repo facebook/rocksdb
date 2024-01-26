@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.11.1 (01/25/2024)
+### Bug Fixes
+* Fix a bug where older data of an ingested key can be returned for read when universal compaction is used
+* Apply appropriate rate limiting and priorities in more places.
+
 ## 8.11.0 (01/19/2024)
 ### New Features
 * Add new statistics: `rocksdb.sst.write.micros` measures time of each write to SST file; `rocksdb.file.write.{flush|compaction|db.open}.micros` measure time of each write to SST table (currently only block-based table format) and blob file for flush, compaction and db open.
