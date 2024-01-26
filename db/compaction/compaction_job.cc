@@ -831,24 +831,27 @@ Status CompactionJob::Run() {
     // input keys. So the number of keys it processed is not suitable for
     // verification here.
     // TODO: support verification when trim_ts_ is non-empty.
-    if (!(ts_sz > 0 && !trim_ts_.empty()) &&
-        db_options_.compaction_verify_record_count) {
+    if (!(ts_sz > 0 && !trim_ts_.empty())) {
       assert(compaction_stats_.stats.num_input_records > 0);
       // TODO: verify the number of range deletion entries.
       uint64_t expected =
           compaction_stats_.stats.num_input_records - num_input_range_del;
       uint64_t actual = compaction_job_stats_->num_input_records;
       if (expected != actual) {
+        char scratch[2345];
+        compact_->compaction->Summary(scratch, sizeof(scratch));
         std::string msg =
-            "Total number of input records: " + std::to_string(expected) +
-            ", but processed " + std::to_string(actual) + " records.";
+            "Compaction number of input keys does not match "
+            "number of keys processed. Expected " +
+            std::to_string(expected) + " but processed " +
+            std::to_string(actual) + ". Compaction summary: " + scratch;
         ROCKS_LOG_WARN(
-            db_options_.info_log, "[%s] [JOB %d] Compaction %s",
+            db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
             compact_->compaction->column_family_data()->GetName().c_str(),
             job_context_->job_id, msg.c_str());
-        status = Status::Corruption(
-            "Compaction number of input keys does not match number of keys "
-            "processed.");
+        if (db_options_.compaction_verify_record_count) {
+          status = Status::Corruption(msg);
+        }
       }
     }
   }
