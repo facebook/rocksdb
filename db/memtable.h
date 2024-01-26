@@ -699,6 +699,6 @@ class MemTable {
   void MaybeUpdateNewestUDT(const Slice& user_key);
 };
 
-extern const char* EncodeKey(std::string* scratch, const Slice& target);
+const char* EncodeKey(std::string* scratch, const Slice& target);
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -50,7 +50,7 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 //
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown.
-extern Status BuildTable(
+Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
     const FileOptions& file_options, TableCache* table_cache,

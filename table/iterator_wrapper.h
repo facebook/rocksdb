@@ -214,6 +214,6 @@ using IteratorWrapper = IteratorWrapperBase<Slice>;
 class Arena;
 // Return an empty iterator (yields nothing) allocated from arena.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena);
+InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena);
 
 }  // namespace ROCKSDB_NAMESPACE

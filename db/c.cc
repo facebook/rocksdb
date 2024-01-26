@@ -3144,7 +3144,7 @@ void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
                                            unsigned char val) {
   opt->rep.enable_blob_files = val;
 }
-extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
+ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
     rocksdb_options_t* opt) {
   return opt->rep.enable_blob_files;
 }
@@ -4636,7 +4636,7 @@ void rocksdb_readoptions_set_io_timeout(rocksdb_readoptions_t* opt,
   opt->rep.io_timeout = std::chrono::microseconds(microseconds);
 }
 
-extern ROCKSDB_LIBRARY_API uint64_t
+ROCKSDB_LIBRARY_API uint64_t
 rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t* opt) {
   return opt->rep.io_timeout.count();
 }
@@ -5469,9 +5469,7 @@ uint64_t rocksdb_livefiles_deletions(const rocksdb_livefiles_t* lf, int index) {
   return lf->rep[index].num_deletions;
 }
 
-extern void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) {
-  delete lf;
-}
+void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) { delete lf; }
 
 void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
                                      const char* opts_str,

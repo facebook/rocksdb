@@ -251,20 +251,19 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
 };
 
-extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
+Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 
-extern Status CheckConcurrentWritesSupported(
-    const ColumnFamilyOptions& cf_options);
+Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options);
 
-extern Status CheckCFPathsSupported(const DBOptions& db_options,
-                                    const ColumnFamilyOptions& cf_options);
+Status CheckCFPathsSupported(const DBOptions& db_options,
+                             const ColumnFamilyOptions& cf_options);
 
-extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                           const ColumnFamilyOptions& src);
+ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
+                                    const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
 // one too.
-extern void GetIntTblPropCollectorFactory(
+void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
     IntTblPropCollectorFactories* int_tbl_prop_collector_factories);
 
@@ -872,12 +871,11 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   ColumnFamilyHandleInternal handle_;
 };
 
-extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
+uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 
-extern const Comparator* GetColumnFamilyUserComparator(
+const Comparator* GetColumnFamilyUserComparator(
     ColumnFamilyHandle* column_family);
 
-extern const ImmutableOptions& GetImmutableOptions(
-    ColumnFamilyHandle* column_family);
+const ImmutableOptions& GetImmutableOptions(ColumnFamilyHandle* column_family);
 
 }  // namespace ROCKSDB_NAMESPACE

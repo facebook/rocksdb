@@ -49,8 +49,8 @@ extern const std::set<uint32_t> kFooterFormatVersionsToTest;
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
 enum RandomKeyType : char { RANDOM, LARGEST, SMALLEST, MIDDLE };
-extern std::string RandomKey(Random* rnd, int len,
-                             RandomKeyType type = RandomKeyType::RANDOM);
+std::string RandomKey(Random* rnd, int len,
+                      RandomKeyType type = RandomKeyType::RANDOM);
 
 enum class UserDefinedTimestampTestMode {
   // Test does not enable user-defined timestamp feature.
@@ -62,17 +62,17 @@ enum class UserDefinedTimestampTestMode {
   kStripUserDefinedTimestamp,
 };
 
-extern const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes();
+const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes();
 
-extern bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode);
+bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode);
 
-extern bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
+bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
 
 // Store in *dst a string of length "len" that will compress to
 // "N*compressed_fraction" bytes and return a Slice that references
 // the generated data.
-extern Slice CompressibleString(Random* rnd, double compressed_fraction,
-                                int len, std::string* dst);
+Slice CompressibleString(Random* rnd, double compressed_fraction, int len,
+                         std::string* dst);
 
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
@@ -127,13 +127,13 @@ class SimpleSuffixReverseComparator : public Comparator {
 // at once. Assumes same endian-ness is used though the database's lifetime.
 // Symantics of comparison would differ from Bytewise comparator in little
 // endian machines.
-extern const Comparator* Uint64Comparator();
+const Comparator* Uint64Comparator();
 
 // A wrapper api for getting the ComparatorWithU64Ts<BytewiseComparator>
-extern const Comparator* BytewiseComparatorWithU64TsWrapper();
+const Comparator* BytewiseComparatorWithU64TsWrapper();
 
 // A wrapper api for getting the ComparatorWithU64Ts<ReverseBytewiseComparator>
-extern const Comparator* ReverseBytewiseComparatorWithU64TsWrapper();
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper();
 
 class StringSink : public FSWritableFile {
  public:
@@ -364,15 +364,14 @@ class NullLogger : public Logger {
 };
 
 // Corrupts key by changing the type
-extern void CorruptKeyType(InternalKey* ikey);
+void CorruptKeyType(InternalKey* ikey);
 
-extern std::string KeyStr(const std::string& user_key,
-                          const SequenceNumber& seq, const ValueType& t,
-                          bool corrupt = false);
+std::string KeyStr(const std::string& user_key, const SequenceNumber& seq,
+                   const ValueType& t, bool corrupt = false);
 
-extern std::string KeyStr(uint64_t ts, const std::string& user_key,
-                          const SequenceNumber& seq, const ValueType& t,
-                          bool corrupt = false);
+std::string KeyStr(uint64_t ts, const std::string& user_key,
+                   const SequenceNumber& seq, const ValueType& t,
+                   bool corrupt = false);
 
 class SleepingBackgroundTask {
  public:
@@ -831,7 +830,7 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 
 // The factory for the hacky skip list mem table that triggers flush after
 // number of entries exceeds a threshold.
-extern MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
+MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
 
 CompressionType RandomCompressionType(Random* rnd);
 

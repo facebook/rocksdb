@@ -428,13 +428,15 @@ class DBIter final : public Iterator {
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
-extern Iterator* NewDBIterator(
-    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options,
-    const Comparator* user_key_comparator, InternalIterator* internal_iter,
-    const Version* version, const SequenceNumber& sequence,
-    uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool expose_blob_index = false);
+Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
+                        const ImmutableOptions& ioptions,
+                        const MutableCFOptions& mutable_cf_options,
+                        const Comparator* user_key_comparator,
+                        InternalIterator* internal_iter, const Version* version,
+                        const SequenceNumber& sequence,
+                        uint64_t max_sequential_skip_in_iterations,
+                        ReadCallback* read_callback, DBImpl* db_impl = nullptr,
+                        ColumnFamilyData* cfd = nullptr,
+                        bool expose_blob_index = false);
 
 }  // namespace ROCKSDB_NAMESPACE

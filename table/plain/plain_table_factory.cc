@@ -279,7 +279,7 @@ Status GetPlainTableOptionsFromMap(
   return s;
 }
 
-extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
+TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }
 

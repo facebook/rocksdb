@@ -2855,17 +2855,16 @@ class GetWithTimestampReadCallback : public ReadCallback {
   }
 };
 
-extern Options SanitizeOptions(const std::string& db, const Options& src,
-                               bool read_only = false,
-                               Status* logger_creation_s = nullptr);
+Options SanitizeOptions(const std::string& db, const Options& src,
+                        bool read_only = false,
+                        Status* logger_creation_s = nullptr);
 
-extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
-                                 bool read_only = false,
-                                 Status* logger_creation_s = nullptr);
+DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
+                          bool read_only = false,
+                          Status* logger_creation_s = nullptr);
 
-extern CompressionType GetCompressionFlush(
-    const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options);
+CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions,
+                                    const MutableCFOptions& mutable_cf_options);
 
 // Return the earliest log file to keep after the memtable flush is
 // finalized.
@@ -2873,13 +2872,13 @@ extern CompressionType GetCompressionFlush(
 // `memtables_to_flush`) will be flushed and thus will not depend on any WAL
 // file.
 // The function is only applicable to 2pc mode.
-extern uint64_t PrecomputeMinLogNumberToKeep2PC(
+uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list,
     const autovector<MemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
 // For atomic flush.
-extern uint64_t PrecomputeMinLogNumberToKeep2PC(
+uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush,
@@ -2887,21 +2886,21 @@ extern uint64_t PrecomputeMinLogNumberToKeep2PC(
 
 // In non-2PC mode, WALs with log number < the returned number can be
 // deleted after the cfd_to_flush column family is flushed successfully.
-extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list);
 // For atomic flush.
-extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
     const autovector<autovector<VersionEdit*>>& edit_lists);
 
 // `cfd_to_flush` is the column family whose memtable will be flushed and thus
 // will not depend on any WAL file. nullptr means no memtable is being flushed.
 // The function is only applicable to 2pc mode.
-extern uint64_t FindMinPrepLogReferencedByMemTable(
+uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset, const autovector<MemTable*>& memtables_to_flush);
 // For atomic flush.
-extern uint64_t FindMinPrepLogReferencedByMemTable(
+uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush);
 

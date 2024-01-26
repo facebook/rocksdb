@@ -68,12 +68,6 @@ SstFileDumper::SstFileDumper(const Options& options,
   init_result_ = GetTableReader(file_name_);
 }
 
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
-extern const uint64_t kLegacyPlainTableMagicNumber;
-extern const uint64_t kCuckooTableMagicNumber;
-
 const char* testFileName = "test_file_name";
 
 Status SstFileDumper::GetTableReader(const std::string& file_path) {
