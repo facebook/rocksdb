@@ -181,6 +181,40 @@ class TestFs : public FileSystemWrapper {
     bool fail_reads_;
   };
 
+  class CheckIOOptsSequentialFile : public FSSequentialFileOwnerWrapper {
+   public:
+    CheckIOOptsSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
+                              const std::string& file_name)
+        : FSSequentialFileOwnerWrapper(std::move(f)) {
+      is_sst_file_ = file_name.find(".sst") != std::string::npos;
+    }
+
+    IOStatus Read(size_t n, const IOOptions& options, Slice* result,
+                  char* scratch, IODebugContext* dbg) override {
+      // Backup currently associates only SST read with rate limiter priority
+      assert(!is_sst_file_ || options.rate_limiter_priority ==
+                                  kExpectedBackupReadRateLimiterPri);
+      IOStatus rv = target()->Read(n, options, result, scratch, dbg);
+      return rv;
+    }
+
+    IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
+                            Slice* result, char* scratch,
+                            IODebugContext* dbg) override {
+      // Backup currently associates only SST read with rate limiter priority
+      assert(!is_sst_file_ || options.rate_limiter_priority ==
+                                  kExpectedBackupReadRateLimiterPri);
+      IOStatus rv =
+          target()->PositionedRead(offset, n, options, result, scratch, dbg);
+      return rv;
+    }
+
+   private:
+    static const Env::IOPriority kExpectedBackupReadRateLimiterPri =
+        Env::IO_LOW;
+    bool is_sst_file_;
+  };
+
   IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
                              std::unique_ptr<FSSequentialFile>* r,
                              IODebugContext* dbg) override {
@@ -189,6 +223,14 @@ class TestFs : public FileSystemWrapper {
       r->reset(
           new TestFs::DummySequentialFile(dummy_sequential_file_fail_reads_));
       return IOStatus::OK();
+    } else if (check_iooptions_sequential_file_) {
+      std::unique_ptr<FSSequentialFile> file;
+      IOStatus s =
+          FileSystemWrapper::NewSequentialFile(f, file_opts, &file, dbg);
+      if (s.ok()) {
+        r->reset(new TestFs::CheckIOOptsSequentialFile(std::move(file), f));
+      }
+      return s;
     } else {
       IOStatus s = FileSystemWrapper::NewSequentialFile(f, file_opts, r, dbg);
       if (s.ok()) {
@@ -292,6 +334,11 @@ class TestFs : public FileSystemWrapper {
     dummy_sequential_file_fail_reads_ = dummy_sequential_file_fail_reads;
   }
 
+  void SetCheckIOOptionsSequentialFile(bool check_iooptions_sequential_file) {
+    MutexLock l(&mutex_);
+    check_iooptions_sequential_file_ = check_iooptions_sequential_file;
+  }
+
   void SetGetChildrenFailure(bool fail) { get_children_failure_ = fail; }
   IOStatus GetChildren(const std::string& dir, const IOOptions& io_opts,
                        std::vector<std::string>* r,
@@ -387,6 +434,7 @@ class TestFs : public FileSystemWrapper {
   port::Mutex mutex_;
   bool dummy_sequential_file_ = false;
   bool dummy_sequential_file_fail_reads_ = false;
+  bool check_iooptions_sequential_file_ = false;
   std::vector<std::string> written_files_;
   std::vector<std::string> filenames_for_mocked_attrs_;
   uint64_t limit_written_files_ = 1000000;
@@ -1184,7 +1232,8 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
   // restore)
   // options_.db_paths.emplace_back(dbname_, 500 * 1024);
   // options_.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
-
+  test_db_fs_->SetCheckIOOptionsSequentialFile(true);
+  test_backup_fs_->SetCheckIOOptionsSequentialFile(true);
   OpenDBAndBackupEngine(true);
   // write some data, backup, repeat
   for (int i = 0; i < 5; ++i) {
@@ -1241,6 +1290,8 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
   AssertBackupConsistency(0, 0, 3 * keys_iteration, max_key);
 
   CloseBackupEngine();
+  test_db_fs_->SetCheckIOOptionsSequentialFile(false);
+  test_backup_fs_->SetCheckIOOptionsSequentialFile(false);
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
