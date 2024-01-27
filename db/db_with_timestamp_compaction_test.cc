@@ -64,7 +64,7 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        const auto* compaction = reinterpret_cast<Compaction*>(arg);
+        const auto* compaction = static_cast<Compaction*>(arg);
         ASSERT_NE(nullptr, compaction);
         ASSERT_EQ(0, compaction->start_level());
         ASSERT_EQ(1, compaction->num_input_levels());

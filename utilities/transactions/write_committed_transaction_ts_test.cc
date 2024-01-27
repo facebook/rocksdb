@@ -628,7 +628,7 @@ TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::GetLatestSequenceForKey:mem", [&](void* arg) {
-        auto* const ts_ptr = reinterpret_cast<std::string*>(arg);
+        auto* const ts_ptr = static_cast<std::string*>(arg);
         assert(ts_ptr);
         Slice ts_slc = *ts_ptr;
         uint64_t last_ts = 0;

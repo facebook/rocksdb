@@ -373,7 +373,7 @@ struct WritePreparedTxnDB::IteratorState {
 
 namespace {
 static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
-  delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
+  delete static_cast<WritePreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
 
@@ -636,7 +636,7 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
                                         const size_t batch_cnt) {
   TEST_SYNC_POINT_CALLBACK(
       "RemovePrepared:Start",
-      const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+      const_cast<void*>(static_cast<const void*>(&prepare_seq)));
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:pause");
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:resume");
   ROCKS_LOG_DETAILS(info_log_,

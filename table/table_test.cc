@@ -3208,7 +3208,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
            &keys, &kvmap);
 
-  BlockBasedTable* bbt = reinterpret_cast<BlockBasedTable*>(c.GetTableReader());
+  BlockBasedTable* bbt = static_cast<BlockBasedTable*>(c.GetTableReader());
   BlockHandle block_handle;
 
   ReadOptions read_options;
@@ -3246,7 +3246,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       ASSERT_EQ(iter->value().ToString(), kv_iter->second);
 
       FilePrefetchBuffer* prefetch_buffer =
-          (reinterpret_cast<BlockBasedTableIterator*>(iter.get()))
+          (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
       std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
@@ -3284,7 +3284,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       ASSERT_EQ(iter->value().ToString(), kv_iter->second);
 
       FilePrefetchBuffer* prefetch_buffer =
-          (reinterpret_cast<BlockBasedTableIterator*>(iter.get()))
+          (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
       std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
@@ -3349,7 +3349,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
            &keys, &kvmap);
 
-  BlockBasedTable* bbt = reinterpret_cast<BlockBasedTable*>(c.GetTableReader());
+  BlockBasedTable* bbt = static_cast<BlockBasedTable*>(c.GetTableReader());
   BlockHandle block_handle;
 
   ReadOptions read_options;
@@ -3392,7 +3392,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       ASSERT_EQ(iter->value().ToString(), kv_iter->second);
 
       FilePrefetchBuffer* prefetch_buffer =
-          (reinterpret_cast<BlockBasedTableIterator*>(iter.get()))
+          (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
       std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
@@ -3431,7 +3431,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       ASSERT_EQ(iter->value().ToString(), kv_iter->second);
 
       FilePrefetchBuffer* prefetch_buffer =
-          (reinterpret_cast<BlockBasedTableIterator*>(iter.get()))
+          (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
       std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
@@ -3482,7 +3482,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       ASSERT_EQ(iter->value().ToString(), kv_iter->second);
 
       FilePrefetchBuffer* prefetch_buffer =
-          (reinterpret_cast<BlockBasedTableIterator*>(iter.get()))
+          (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
 
       {

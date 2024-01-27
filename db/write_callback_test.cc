@@ -220,7 +220,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
           is_last = (cur_threads_linked == write_group.size() - 1);
 
           // check my state
-          auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+          auto* writer = static_cast<WriteThread::Writer*>(arg);
 
           if (is_leader) {
             ASSERT_TRUE(writer->state ==
@@ -250,7 +250,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:DoneWaiting", [&](void* arg) {
           // check my state
-          auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+          auto* writer = static_cast<WriteThread::Writer*>(arg);
 
           if (!allow_batching_) {
             // no batching so everyone should be a leader

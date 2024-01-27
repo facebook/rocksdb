@@ -905,7 +905,7 @@ struct Saver {
 
 static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
-  Saver* s = reinterpret_cast<Saver*>(arg);
+  Saver* s = static_cast<Saver*>(arg);
   assert(s != nullptr);
   assert(!s->value || !s->columns);
 

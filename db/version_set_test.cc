@@ -1508,7 +1508,7 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   int count = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
-        uint32_t* cf_id = reinterpret_cast<uint32_t*>(arg);
+        uint32_t* cf_id = static_cast<uint32_t*>(arg);
         EXPECT_EQ(0u, *cf_id);
         ++count;
       });
@@ -1785,7 +1785,7 @@ TEST_F(VersionSetTest, WalEditsNotAppliedToVersion) {
   autovector<Version*> versions;
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:NewVersion",
-      [&](void* arg) { versions.push_back(reinterpret_cast<Version*>(arg)); });
+      [&](void* arg) { versions.push_back(static_cast<Version*>(arg)); });
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(LogAndApplyToDefaultCF(edits));
@@ -1821,7 +1821,7 @@ TEST_F(VersionSetTest, NonWalEditsAppliedToVersion) {
   autovector<Version*> versions;
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:NewVersion",
-      [&](void* arg) { versions.push_back(reinterpret_cast<Version*>(arg)); });
+      [&](void* arg) { versions.push_back(static_cast<Version*>(arg)); });
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(LogAndApplyToDefaultCF(edits));
@@ -2029,7 +2029,7 @@ TEST_F(VersionSetTest, WalDeletion) {
     std::vector<WalAddition> wal_additions;
     SyncPoint::GetInstance()->SetCallBack(
         "VersionSet::WriteCurrentStateToManifest:SaveWal", [&](void* arg) {
-          VersionEdit* edit = reinterpret_cast<VersionEdit*>(arg);
+          VersionEdit* edit = static_cast<VersionEdit*>(arg);
           ASSERT_TRUE(edit->IsWalAddition());
           for (auto& addition : edit->GetWalAdditions()) {
             wal_additions.push_back(addition);
@@ -2570,36 +2570,32 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:FirstInAtomicGroup", [&](void* arg) {
-          VersionEdit* e = reinterpret_cast<VersionEdit*>(arg);
+          VersionEdit* e = static_cast<VersionEdit*>(arg);
           EXPECT_EQ(edits_.front().DebugString(),
                     e->DebugString());  // compare based on value
           first_in_atomic_group_ = true;
         });
     SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:LastInAtomicGroup", [&](void* arg) {
-          VersionEdit* e = reinterpret_cast<VersionEdit*>(arg);
+          VersionEdit* e = static_cast<VersionEdit*>(arg);
           EXPECT_EQ(edits_.back().DebugString(),
                     e->DebugString());  // compare based on value
           EXPECT_TRUE(first_in_atomic_group_);
           last_in_atomic_group_ = true;
         });
     SyncPoint::GetInstance()->SetCallBack(
-        "VersionEditHandlerBase::Iterate:Finish", [&](void* arg) {
-          num_recovered_edits_ = *reinterpret_cast<size_t*>(arg);
-        });
+        "VersionEditHandlerBase::Iterate:Finish",
+        [&](void* arg) { num_recovered_edits_ = *static_cast<size_t*>(arg); });
     SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:AtomicGroup",
         [&](void* /* arg */) { ++num_edits_in_atomic_group_; });
     SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:AtomicGroupMixedWithNormalEdits",
-        [&](void* arg) {
-          corrupted_edit_ = *reinterpret_cast<VersionEdit*>(arg);
-        });
+        [&](void* arg) { corrupted_edit_ = *static_cast<VersionEdit*>(arg); });
     SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize",
         [&](void* arg) {
-          edit_with_incorrect_group_size_ =
-              *reinterpret_cast<VersionEdit*>(arg);
+          edit_with_incorrect_group_size_ = *static_cast<VersionEdit*>(arg);
         });
     SyncPoint::GetInstance()->EnableProcessing();
   }
@@ -2966,7 +2962,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:CheckOneAtomicGroup", [&](void* arg) {
         std::vector<VersionEdit*>* tmp_edits =
-            reinterpret_cast<std::vector<VersionEdit*>*>(arg);
+            static_cast<std::vector<VersionEdit*>*>(arg);
         EXPECT_EQ(kAtomicGroupSize - 1, tmp_edits->size());
         for (const auto e : *tmp_edits) {
           bool found = false;

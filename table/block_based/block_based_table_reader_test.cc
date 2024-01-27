@@ -184,7 +184,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
         &general_table, prefetch_index_and_filter_in_cache);
 
     if (s.ok()) {
-      table->reset(reinterpret_cast<BlockBasedTable*>(general_table.release()));
+      table->reset(static_cast<BlockBasedTable*>(general_table.release()));
     }
 
     if (status) {

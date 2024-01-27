@@ -1023,8 +1023,8 @@ Status WriteUnpreparedTxn::GetImpl(const ReadOptions& options,
 
 namespace {
 static void CleanupWriteUnpreparedWBWIIterator(void* arg1, void* arg2) {
-  auto txn = reinterpret_cast<WriteUnpreparedTxn*>(arg1);
-  auto iter = reinterpret_cast<Iterator*>(arg2);
+  auto txn = static_cast<WriteUnpreparedTxn*>(arg1);
+  auto iter = static_cast<Iterator*>(arg2);
   txn->RemoveActiveIterator(iter);
 }
 }  // anonymous namespace

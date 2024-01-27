@@ -1424,7 +1424,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
         [&](void* arg) {
-          TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+          TableProperties* props = static_cast<TableProperties*>(arg);
           props->orig_file_number = 0;
         });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();

@@ -1679,7 +1679,7 @@ TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
   bool is_get_file_size_called = false;
   SyncPoint::GetInstance()->SetCallBack(
       "MockFileSystem::GetFileSize:CheckFileType", [&](void* arg) {
-        std::string* filename = reinterpret_cast<std::string*>(arg);
+        std::string* filename = static_cast<std::string*>(arg);
         if (filename->find(".blob") != std::string::npos) {
           is_get_file_size_called = true;
         }

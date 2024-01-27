@@ -289,7 +289,7 @@ bool GenerateRfcUuid(std::string* output) {
   }
 
   // rpc_str is nul-terminated
-  *output = reinterpret_cast<char*>(rpc_str);
+  *output = static_cast<char*>(rpc_str);
 
   status = RpcStringFreeA(&rpc_str);
   assert(status == RPC_S_OK);

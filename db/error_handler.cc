@@ -234,7 +234,7 @@ void ErrorHandler::CancelErrorRecovery() {
   // recovery gets scheduled at that point
   auto_recovery_ = false;
   SstFileManagerImpl* sfm =
-      reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm) {
     // This may or may not cancel a pending recovery
     db_mutex_->Unlock();
@@ -534,7 +534,7 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
 
 void ErrorHandler::RecoverFromNoSpace() {
   SstFileManagerImpl* sfm =
-      reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
 
   // Inform SFM of the error, so it can kick-off the recovery
   if (sfm) {

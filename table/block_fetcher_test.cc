@@ -278,7 +278,7 @@ class BlockFetcherTest : public testing::Test {
                                     0 /* block_protection_bytes_per_key */,
                                     &table_reader, 0 /* tail_size */));
 
-    table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
+    table->reset(static_cast<BlockBasedTable*>(table_reader.release()));
   }
 
   std::string ToInternalKey(const std::string& key) {
