@@ -812,6 +812,7 @@ def gen_cmd(params, unknown_params):
                 "test_tiered_storage",
                 "cleanup_cmd",
                 "skip_tmpdir_check",
+                "print_stderr_separately"
             }
             and v is not None
         ]
@@ -885,11 +886,17 @@ def blackbox_crash_main(args, unknown_args):
             print("Exit Before Killing")
             print("stdout:")
             print(outs)
-            print("stderr:")
-            print(errs)
+            if args.print_stderr_separately:
+                print(errs, file=sys.stderr)
+            else:
+                print("stderr:")
+                print(errs)
             sys.exit(2)
 
-        print_if_stderr_has_errors(errs);
+        if args.print_stderr_separately:
+            print(errs, file=sys.stderr)
+        else:
+            print_if_stderr_has_errors(errs);
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -909,7 +916,11 @@ def blackbox_crash_main(args, unknown_args):
     # Print stats of the final run
     print("stdout:", outs)
 
-    print_if_stderr_has_errors(errs)
+    # Print stderr of the final run
+    if args.print_stderr_separately:
+        print(errs, file=sys.stderr)
+    else:
+        print_if_stderr_has_errors(errs);
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
@@ -1054,7 +1065,10 @@ def whitebox_crash_main(args, unknown_args):
 
         print(msg)
         print(stdoutdata)
-        print(stderrdata)
+        if args.print_stderr_separately:
+            print(stderrdata, file=sys.stderr)
+        else:
+            print(stderrdata)
 
         if hit_timeout:
             print("Killing the run for running too long")
@@ -1118,6 +1132,7 @@ def main():
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
     parser.add_argument("--skip_tmpdir_check", action="store_true")
+    parser.add_argument("--print_stderr_separately", action="store_true", default=False)
 
     all_params = dict(
         list(default_params.items())
