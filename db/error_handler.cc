@@ -576,7 +576,7 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
     // If its a manual recovery and there's a background recovery in progress
     // return busy status
     if (recovery_in_prog_) {
-      return Status::Busy();
+      return Status::Busy("Recovery already in progress");
     }
     recovery_in_prog_ = true;
 

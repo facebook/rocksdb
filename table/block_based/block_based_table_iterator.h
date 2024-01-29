@@ -122,7 +122,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
     } else if (async_read_in_progress_) {
-      return Status::TryAgain();
+      return Status::TryAgain("Async read in progress");
     } else {
       return Status::OK();
     }
