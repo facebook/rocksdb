@@ -364,14 +364,9 @@ enum Tickers : uint32_t {
 
   // The counters for error handler, note that, bg_io_error is the subset of
   // bg_error and bg_retryable_io_error is the subset of bg_io_error.
-  // The misspelled versions are deprecated and only kept for compatibility.
-  // TODO: remove the misspelled tickers in the next major release.
   ERROR_HANDLER_BG_ERROR_COUNT,
-  ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_BG_IO_ERROR_COUNT,
-  ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
-  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_AUTORESUME_COUNT,
   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
