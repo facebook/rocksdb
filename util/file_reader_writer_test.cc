@@ -463,6 +463,11 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
     void Setuse_direct_io(bool val) { use_direct_io_ = val; }
     void SetIOError(bool val) { io_error_ = val; }
 
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      return 0;
+    }
+
    protected:
     bool use_direct_io_;
     bool io_error_;
@@ -860,6 +865,11 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
     void CheckCounters(int file_append_errors, int file_flush_errors) {
       ASSERT_EQ(file_append_errors, file_append_errors_);
       ASSERT_EQ(file_flush_errors_, file_flush_errors);
+    }
+
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      return 0;
     }
 
    protected:

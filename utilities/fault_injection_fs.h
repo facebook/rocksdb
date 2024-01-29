@@ -96,6 +96,11 @@ class TestFSWritableFile : public FSWritableFile {
     return target_->use_direct_io();
   }
 
+  virtual uint64_t GetFileSize(const IOOptions& options,
+                               IODebugContext* dbg) override {
+    return target_->GetFileSize(options, dbg);
+  }
+
  private:
   FSFileState state_;  // Need protection by mutex_
   FileOptions file_opts_;
