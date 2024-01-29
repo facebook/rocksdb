@@ -2701,7 +2701,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     exit(1);
   }
   if (FLAGS_prefix_size != 0 && FLAGS_rep_factory != kHashSkipList) {
-    fprintf(stderr,
+    fprintf(stdout,
             "WARNING: prefix_size is non-zero but "
             "memtablerep != prefix_hash\n");
   }

@@ -200,7 +200,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         // Lower by upto 50% of usable block cache capacity
         adjustment = (adjustment * thread->rand.Uniform(50)) / 100;
         block_cache->SetCapacity(capacity - adjustment);
-        fprintf(stderr, "New cache capacity = %lu\n",
+        fprintf(stdout, "New cache capacity = %lu\n",
                 block_cache->GetCapacity());
         db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
         block_cache->SetCapacity(capacity);
@@ -210,7 +210,7 @@ void CompressedCacheSetCapacityThread(void* v) {
             (double)thread->rand.Uniform(
                 FLAGS_compressed_secondary_cache_ratio * 100) /
             100;
-        fprintf(stderr, "New comp cache ratio = %f\n", new_comp_cache_ratio);
+        fprintf(stdout, "New comp cache ratio = %f\n", new_comp_cache_ratio);
 
         s = UpdateTieredCache(block_cache, /*capacity*/ -1,
                               new_comp_cache_ratio);
