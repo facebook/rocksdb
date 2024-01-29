@@ -165,6 +165,9 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
   // assert(IsExtendedValueType(*t));
 }
 
+const uint64_t kRangeTombstoneSentinel =
+    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
+
 EntryType GetEntryType(ValueType value_type);
 
 // Append the serialization of "key" to *result.
@@ -183,6 +186,15 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 void AppendInternalKeyWithDifferentTimestamp(std::string* result,
                                              const ParsedInternalKey& key,
                                              const Slice& ts);
+
+// Append the user key to *result, replacing the original timestamp with
+// argument ts.
+//
+// input [user key]:       <user_provided_key | original_ts>
+// output before: empty
+// output after:           <user_provided_key | ts>
+void AppendUserKeyWithDifferentTimestamp(std::string* result, const Slice& key,
+                                         const Slice& ts);
 
 // Serialized internal key consists of user key followed by footer.
 // This function appends the footer to *result, assuming that *result already
@@ -235,6 +247,16 @@ void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
 // output before: empty
 // output after:           <user_provided_key | min_ts | seqno + type>
 void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz);
+
+// `key` is an internal key containing a user key without timestamp. Create a
+// new key in *result by padding a max timestamp of size `ts_sz` to the user key
+// and copying the remaining internal key bytes.
+//
+// input [internal key]:   <user_provided_key | seqno + type>
+// output before: empty
+// output after:           <user_provided_key | max_ts | seqno + type>
+void PadInternalKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                     size_t ts_sz);
 
 // `key` is an internal key containing a user key with timestamp of size
@@ -883,17 +905,25 @@ struct RangeTombstone {
   // User-defined timestamp is enabled, `sk` and `ek` should be user key
   // with timestamp, `ts` will replace the timestamps in `sk` and
   // `ek`.
-  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts)
-      : seq_(sn), ts_(ts) {
-    assert(!ts.empty());
+  // When `logical_strip_timestamp` is true, the timestamps in `sk` and `ek`
+  // will be replaced with min timestamp.
+  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts,
+                 bool logical_strip_timestamp)
+      : seq_(sn) {
+    const size_t ts_sz = ts.size();
+    assert(ts_sz > 0);
     pinned_start_key_.reserve(sk.size());
-    pinned_start_key_.append(sk.data(), sk.size() - ts.size());
-    pinned_start_key_.append(ts.data(), ts.size());
     pinned_end_key_.reserve(ek.size());
-    pinned_end_key_.append(ek.data(), ek.size() - ts.size());
-    pinned_end_key_.append(ts.data(), ts.size());
+    if (logical_strip_timestamp) {
+      AppendUserKeyWithMinTimestamp(&pinned_start_key_, sk, ts_sz);
+      AppendUserKeyWithMinTimestamp(&pinned_end_key_, ek, ts_sz);
+    } else {
+      AppendUserKeyWithDifferentTimestamp(&pinned_start_key_, sk, ts);
+      AppendUserKeyWithDifferentTimestamp(&pinned_end_key_, ek, ts);
+    }
     start_key_ = pinned_start_key_;
     end_key_ = pinned_end_key_;
+    ts_ = Slice(pinned_start_key_.data() + sk.size() - ts_sz, ts_sz);
   }
 
   RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
