@@ -812,6 +812,7 @@ def gen_cmd(params, unknown_params):
                 "test_tiered_storage",
                 "cleanup_cmd",
                 "skip_tmpdir_check",
+                "print_stderr_separately"
             }
             and v is not None
         ]
@@ -837,15 +838,15 @@ def execute_cmd(cmd, timeout=None):
     return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
 
 
-def print_if_stderr_has_errors(stderr):
-    for line in stderr.split("\n"):
-        if line != "" and not line.startswith("WARNING"):
-            print("stderr has error message:")
-            print("***" + line + "***")
+def print_if_stderr_has_errors(stderr, print_as_stderr=False):
+    if len(stderr) == 0:
+        return
 
-    stderrdata = stderr.lower()
-    errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
-    print("#times error occurred in output is " + str(errorcount) + "\n")
+    if print_as_stderr:
+        print(stderr, file=sys.stderr)
+    else:
+        print("stderr:")
+        print(stderr)
 
 
 def cleanup_after_success(dbname):
@@ -885,11 +886,10 @@ def blackbox_crash_main(args, unknown_args):
             print("Exit Before Killing")
             print("stdout:")
             print(outs)
-            print("stderr:")
-            print(errs)
+            print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
             sys.exit(2)
 
-        print_if_stderr_has_errors(errs);
+        print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -909,7 +909,8 @@ def blackbox_crash_main(args, unknown_args):
     # Print stats of the final run
     print("stdout:", outs)
 
-    print_if_stderr_has_errors(errs)
+    # Print stderr of the final run
+    print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
@@ -1054,7 +1055,7 @@ def whitebox_crash_main(args, unknown_args):
 
         print(msg)
         print(stdoutdata)
-        print(stderrdata)
+        print_if_stderr_has_errors(stderrdata, print_as_stderr=args.print_stderr_separately)
 
         if hit_timeout:
             print("Killing the run for running too long")
@@ -1118,6 +1119,7 @@ def main():
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
     parser.add_argument("--skip_tmpdir_check", action="store_true")
+    parser.add_argument("--print_stderr_separately", action="store_true", default=False)
 
     all_params = dict(
         list(default_params.items())
