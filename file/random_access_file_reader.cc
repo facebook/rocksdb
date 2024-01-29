@@ -420,7 +420,8 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           remaining_bytes -= request_bytes;
         }
       }
-      io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts,
+                              /*IODebugContext*=*/nullptr);
       RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
