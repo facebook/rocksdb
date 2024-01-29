@@ -3056,8 +3056,7 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForMarkedFiles) {
   // Make a nonempty last level. Only marked files in upper levels count.
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "bar"));
   ASSERT_OK(db_->Flush(FlushOptions()));
-  AssertFilesPerLevel("1", 0 /* cf */);
-  CompactAll(0 /* cf */);
+  WaitForCompaction();
   AssertFilesPerLevel("0,1", 0 /* cf */);
 
   // Block the compaction thread pool so marked files accumulate in L0.
