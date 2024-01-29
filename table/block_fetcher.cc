@@ -238,7 +238,8 @@ inline void BlockFetcher::GetBlockContents() {
 }
 
 IOStatus BlockFetcher::ReadBlockContents() {
-  std::vector<FSReadRequest> read_reqs;
+  FSReadRequest read_req;
+  read_req.status.PermitUncheckedError();
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
@@ -266,7 +267,6 @@ IOStatus BlockFetcher::ReadBlockContents() {
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else if (use_fs_scratch_) {
-        FSReadRequest read_req;
         PERF_TIMER_GUARD(block_read_time);
         PERF_CPU_TIMER_GUARD(
             block_read_cpu_time,
@@ -274,15 +274,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
         read_req.offset = handle_.offset();
         read_req.len = block_size_with_trailer_;
         read_req.scratch = nullptr;
-        read_reqs.emplace_back(std::move(read_req));
-
-        io_status_ = file_->MultiRead(
-            opts, read_reqs.data(), read_reqs.size(),
-            (file_->use_direct_io() ? (&direct_io_buf_) : nullptr));
-
+        io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
+                                      /*AlignedBuf* =*/nullptr);
         PERF_COUNTER_ADD(block_read_count, 1);
 
-        slice_ = Slice(read_reqs[0].result.data(), read_reqs[0].result.size());
+        slice_ = Slice(read_req.result.data(), read_req.result.size());
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         // It allocates/assign used_buf_
@@ -331,17 +327,17 @@ IOStatus BlockFetcher::ReadBlockContents() {
 
     PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
     if (!io_status_.ok()) {
-      ReleaseFileSystemProvidedBuffer(read_reqs);
+      ReleaseFileSystemProvidedBuffer(&read_req);
       return io_status_;
     }
 
-    if (!read_reqs.empty() && !read_reqs[0].status.ok()) {
-      ReleaseFileSystemProvidedBuffer(read_reqs);
-      return read_reqs[0].status;
+    if (use_fs_scratch_ && !read_req.status.ok()) {
+      ReleaseFileSystemProvidedBuffer(&read_req);
+      return read_req.status;
     }
 
     if (slice_.size() != block_size_with_trailer_) {
-      ReleaseFileSystemProvidedBuffer(read_reqs);
+      ReleaseFileSystemProvidedBuffer(&read_req);
       return IOStatus::Corruption(
           "truncated block read from " + file_->file_name() + " offset " +
           std::to_string(handle_.offset()) + ", expected " +
@@ -353,7 +349,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       InsertCompressedBlockToPersistentCacheIfNeeded();
     } else {
-      ReleaseFileSystemProvidedBuffer(read_reqs);
+      ReleaseFileSystemProvidedBuffer(&read_req);
       return io_status_;
     }
   }
@@ -377,7 +373,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
   }
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
-  ReleaseFileSystemProvidedBuffer(read_reqs);
+  ReleaseFileSystemProvidedBuffer(&read_req);
 
   return io_status_;
 }

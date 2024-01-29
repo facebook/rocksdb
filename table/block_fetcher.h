@@ -148,14 +148,12 @@ class BlockFetcher {
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void ProcessTrailerIfPresent();
 
-  void ReleaseFileSystemProvidedBuffer(std::vector<FSReadRequest>& read_reqs) {
+  void ReleaseFileSystemProvidedBuffer(FSReadRequest* read_req) {
     if (use_fs_scratch_) {
       // Free the scratch buffer allocated by FileSystem.
-      for (FSReadRequest& req : read_reqs) {
-        if (req.fs_scratch != nullptr) {
-          req.fs_scratch.reset();
-          req.fs_scratch = nullptr;
-        }
+      if (read_req->fs_scratch != nullptr) {
+        read_req->fs_scratch.reset();
+        read_req->fs_scratch = nullptr;
       }
     }
   }
