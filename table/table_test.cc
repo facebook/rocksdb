@@ -79,11 +79,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyPlainTableMagicNumber;
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
-
 namespace {
 
 const std::string kDummyValue(10000, 'o');

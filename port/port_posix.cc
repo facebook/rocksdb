@@ -41,9 +41,9 @@ namespace ROCKSDB_NAMESPACE {
 // build environment then this happens automatically; otherwise it's up to the
 // consumer to define the identifier.
 #ifdef ROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX
-extern const bool kDefaultToAdaptiveMutex = true;
+const bool kDefaultToAdaptiveMutex = true;
 #else
-extern const bool kDefaultToAdaptiveMutex = false;
+const bool kDefaultToAdaptiveMutex = false;
 #endif
 
 namespace port {

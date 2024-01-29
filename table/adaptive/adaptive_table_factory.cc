@@ -34,12 +34,6 @@ AdaptiveTableFactory::AdaptiveTableFactory(
   }
 }
 
-extern const uint64_t kPlainTableMagicNumber;
-extern const uint64_t kLegacyPlainTableMagicNumber;
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kCuckooTableMagicNumber;
-
 Status AdaptiveTableFactory::NewTableReader(
     const ReadOptions& ro, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
@@ -112,7 +106,7 @@ std::string AdaptiveTableFactory::GetPrintableOptions() const {
   return ret;
 }
 
-extern TableFactory* NewAdaptiveTableFactory(
+TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write,
     std::shared_ptr<TableFactory> block_based_table_factory,
     std::shared_ptr<TableFactory> plain_table_factory,

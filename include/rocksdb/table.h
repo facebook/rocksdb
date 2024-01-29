@@ -674,9 +674,8 @@ struct BlockBasedTablePropertyNames {
 };
 
 // Create default block based table factory.
-extern TableFactory* NewBlockBasedTableFactory(
+TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
-
 
 enum EncodingType : char {
   // Always write full keys without any special encoding.
@@ -763,7 +762,7 @@ struct PlainTableOptions {
 // the hash bucket found, a binary search is executed for hash conflicts.
 // Finally, a linear search is used.
 
-extern TableFactory* NewPlainTableFactory(
+TableFactory* NewPlainTableFactory(
     const PlainTableOptions& options = PlainTableOptions());
 
 struct CuckooTablePropertyNames {
@@ -830,9 +829,8 @@ struct CuckooTableOptions {
 };
 
 // Cuckoo Table Factory for SST table format using Cache Friendly Cuckoo Hashing
-extern TableFactory* NewCuckooTableFactory(
+TableFactory* NewCuckooTableFactory(
     const CuckooTableOptions& table_options = CuckooTableOptions());
-
 
 class RandomAccessFileReader;
 
@@ -923,11 +921,10 @@ class TableFactory : public Customizable {
 // @plain_table_factory: plain table factory to use. If NULL, use a default one.
 // @cuckoo_table_factory: cuckoo table factory to use. If NULL, use a default
 // one.
-extern TableFactory* NewAdaptiveTableFactory(
+TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write = nullptr,
     std::shared_ptr<TableFactory> block_based_table_factory = nullptr,
     std::shared_ptr<TableFactory> plain_table_factory = nullptr,
     std::shared_ptr<TableFactory> cuckoo_table_factory = nullptr);
-
 
 }  // namespace ROCKSDB_NAMESPACE

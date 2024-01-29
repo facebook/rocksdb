@@ -52,8 +52,8 @@ IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
 // kPlainTableMagicNumber was picked by running
 //    echo rocksdb.table.plain | sha1sum
 // and taking the leading 64 bits.
-extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
-extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
+const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
+const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
     const ImmutableOptions& ioptions, const MutableCFOptions& moptions,

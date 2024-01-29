@@ -252,8 +252,6 @@ TEST_P(PlainTableDBTest, Empty) {
   ASSERT_EQ("NOT_FOUND", Get("0000000000000foo"));
 }
 
-extern const uint64_t kPlainTableMagicNumber;
-
 class TestPlainTableReader : public PlainTableReader {
  public:
   TestPlainTableReader(
@@ -307,7 +305,6 @@ class TestPlainTableReader : public PlainTableReader {
   bool* expect_bloom_not_match_;
 };
 
-extern const uint64_t kPlainTableMagicNumber;
 class TestPlainTableFactory : public PlainTableFactory {
  public:
   explicit TestPlainTableFactory(bool* expect_bloom_not_match,

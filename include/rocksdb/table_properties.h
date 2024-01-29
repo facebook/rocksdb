@@ -349,8 +349,8 @@ struct TableProperties {
 // DEPRECATED: these properties now belong as TableProperties members. Please
 // use TableProperties::num_deletions and TableProperties::num_merge_operands,
 // respectively.
-extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
-extern uint64_t GetMergeOperands(const UserCollectedProperties& props,
-                                 bool* property_present);
+uint64_t GetDeletedKeys(const UserCollectedProperties& props);
+uint64_t GetMergeOperands(const UserCollectedProperties& props,
+                          bool* property_present);
 
 }  // namespace ROCKSDB_NAMESPACE

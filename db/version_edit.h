@@ -113,7 +113,7 @@ constexpr uint64_t kUnknownEpochNumber = 0;
 // will be dedicated to files ingested behind.
 constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
-extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
+uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
 // A copyable structure contains information needed to read data from an SST
 // file. It can contain a pointer to a table reader opened for the file, or

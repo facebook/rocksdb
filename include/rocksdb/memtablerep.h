@@ -56,7 +56,7 @@ struct DBOptions;
 
 using KeyHandle = void*;
 
-extern Slice GetLengthPrefixedSlice(const char* data);
+Slice GetLengthPrefixedSlice(const char* data);
 
 class MemTableRep {
  public:
@@ -392,7 +392,7 @@ class VectorRepFactory : public MemTableRepFactory {
 // skiplist_height: the max height of the skiplist
 // skiplist_branching_factor: probabilistic size ratio between adjacent
 //                            link lists in the skiplist
-extern MemTableRepFactory* NewHashSkipListRepFactory(
+MemTableRepFactory* NewHashSkipListRepFactory(
     size_t bucket_count = 1000000, int32_t skiplist_height = 4,
     int32_t skiplist_branching_factor = 4);
 
@@ -412,7 +412,7 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 //                                 entries when flushing.
 // @threshold_use_skiplist: a bucket switches to skip list if number of
 //                          entries exceed this parameter.
-extern MemTableRepFactory* NewHashLinkListRepFactory(
+MemTableRepFactory* NewHashLinkListRepFactory(
     size_t bucket_count = 50000, size_t huge_page_tlb_size = 0,
     int bucket_entries_logging_threshold = 4096,
     bool if_log_bucket_dist_when_flash = true,

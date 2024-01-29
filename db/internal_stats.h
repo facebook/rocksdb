@@ -58,7 +58,7 @@ struct DBPropertyInfo {
   bool (DBImpl::*handle_string_dbimpl)(std::string* value);
 };
 
-extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
+const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #undef SCORE
 enum class LevelStatType {

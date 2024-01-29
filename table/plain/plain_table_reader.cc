@@ -87,7 +87,6 @@ class PlainTableIterator : public InternalIterator {
   Status status_;
 };
 
-extern const uint64_t kPlainTableMagicNumber;
 PlainTableReader::PlainTableReader(
     const ImmutableOptions& ioptions,
     std::unique_ptr<RandomAccessFileReader>&& file,

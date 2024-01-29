@@ -36,7 +36,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-extern const bool kDefaultToAdaptiveMutex = false;
+const bool kDefaultToAdaptiveMutex = false;
 
 namespace port {
 

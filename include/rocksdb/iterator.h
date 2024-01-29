@@ -155,9 +155,9 @@ class Iterator : public Cleanable {
 };
 
 // Return an empty iterator (yields nothing).
-extern Iterator* NewEmptyIterator();
+Iterator* NewEmptyIterator();
 
 // Return an empty iterator with the specified status.
-extern Iterator* NewErrorIterator(const Status& status);
+Iterator* NewErrorIterator(const Status& status);
 
 }  // namespace ROCKSDB_NAMESPACE

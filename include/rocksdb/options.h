@@ -1877,9 +1877,9 @@ struct FlushOptions {
 };
 
 // Create a Logger from provided DBOptions
-extern Status CreateLoggerFromOptions(const std::string& dbname,
-                                      const DBOptions& options,
-                                      std::shared_ptr<Logger>* logger);
+Status CreateLoggerFromOptions(const std::string& dbname,
+                               const DBOptions& options,
+                               std::shared_ptr<Logger>* logger);
 
 // CompactionOptions are used in CompactFiles() call.
 struct CompactionOptions {

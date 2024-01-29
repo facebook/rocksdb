@@ -136,7 +136,7 @@ class SstPartitionerFixedPrefixFactory : public SstPartitionerFactory {
   size_t len_;
 };
 
-extern std::shared_ptr<SstPartitionerFactory>
-NewSstPartitionerFixedPrefixFactory(size_t prefix_len);
+std::shared_ptr<SstPartitionerFactory> NewSstPartitionerFixedPrefixFactory(
+    size_t prefix_len);
 
 }  // namespace ROCKSDB_NAMESPACE
