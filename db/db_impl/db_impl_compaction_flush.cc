@@ -1695,7 +1695,7 @@ Status DBImpl::PauseBackgroundWork() {
 Status DBImpl::ContinueBackgroundWork() {
   InstrumentedMutexLock guard_lock(&mutex_);
   if (bg_work_paused_ == 0) {
-    return Status::InvalidArgument();
+    return Status::InvalidArgument("Background work already unpaused");
   }
   assert(bg_work_paused_ > 0);
   assert(bg_compaction_paused_ > 0);

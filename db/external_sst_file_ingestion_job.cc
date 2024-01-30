@@ -387,7 +387,7 @@ Status ExternalSstFileIngestionJob::Run() {
     return status;
   }
   if (need_flush) {
-    return Status::TryAgain();
+    return Status::TryAgain("need_flush");
   }
   assert(status.ok() && need_flush == false);
 #endif
