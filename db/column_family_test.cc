@@ -3020,6 +3020,75 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForCompactionDebt) {
   }
 }
 
+TEST_P(ColumnFamilyTest, CompactionSpeedupForMarkedFiles) {
+  const int kParallelismLimit = 3;
+  class AlwaysCompactTpc : public TablePropertiesCollector {
+   public:
+    Status Finish(UserCollectedProperties* /* properties */) override {
+      return Status::OK();
+    }
+
+    UserCollectedProperties GetReadableProperties() const override {
+      return UserCollectedProperties{};
+    }
+
+    const char* Name() const override { return "AlwaysCompactTpc"; }
+
+    bool NeedCompact() const override { return true; }
+  };
+
+  class AlwaysCompactTpcf : public TablePropertiesCollectorFactory {
+   public:
+    TablePropertiesCollector* CreateTablePropertiesCollector(
+        TablePropertiesCollectorFactory::Context /* context */) override {
+      return new AlwaysCompactTpc();
+    }
+
+    const char* Name() const override { return "AlwaysCompactTpcf"; }
+  };
+
+  column_family_options_.num_levels = 2;
+  column_family_options_.table_properties_collector_factories.emplace_back(
+      std::make_shared<AlwaysCompactTpcf>());
+  db_options_.max_background_compactions = kParallelismLimit;
+  Open();
+
+  // Make a nonempty last level. Only marked files in upper levels count.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  WaitForCompaction();
+  AssertFilesPerLevel("0,1", 0 /* cf */);
+
+  // Block the compaction thread pool so marked files accumulate in L0.
+  test::SleepingBackgroundTask sleeping_tasks[kParallelismLimit];
+  for (int i = 0; i < kParallelismLimit; i++) {
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_tasks[i], Env::Priority::LOW);
+    sleeping_tasks[i].WaitUntilSleeping();
+  }
+
+  // Zero marked upper-level files. No speedup.
+  ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+  AssertFilesPerLevel("0,1", 0 /* cf */);
+
+  // One marked upper-level file. No speedup.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+  AssertFilesPerLevel("1,1", 0 /* cf */);
+
+  // Two marked upper-level files. Speedup.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(kParallelismLimit, dbfull()->TEST_BGCompactionsAllowed());
+  AssertFilesPerLevel("2,1", 0 /* cf */);
+
+  for (int i = 0; i < kParallelismLimit; i++) {
+    sleeping_tasks[i].WakeUp();
+    sleeping_tasks[i].WaitUntilDone();
+  }
+}
+
 TEST_P(ColumnFamilyTest, CreateAndDestroyOptions) {
   std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
   ColumnFamilyHandle* cfh;

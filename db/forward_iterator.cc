@@ -648,7 +648,7 @@ Status ForwardIterator::GetProperty(std::string prop_name, std::string* prop) {
     *prop = std::to_string(sv_->version_number);
     return Status::OK();
   }
-  return Status::InvalidArgument();
+  return Status::InvalidArgument("Unrecognized property: " + prop_name);
 }
 
 void ForwardIterator::SetPinnedItersMgr(
