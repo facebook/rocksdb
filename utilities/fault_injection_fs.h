@@ -98,6 +98,7 @@ class TestFSWritableFile : public FSWritableFile {
 
   virtual uint64_t GetFileSize(const IOOptions& options,
                                IODebugContext* dbg) override {
+    MutexLock l(&mutex_);
     return target_->GetFileSize(options, dbg);
   }
 
