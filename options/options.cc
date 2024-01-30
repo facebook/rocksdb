@@ -533,7 +533,6 @@ Options* Options::DisableExtraChecks() {
   // See https://github.com/facebook/rocksdb/issues/9354
   force_consistency_checks = false;
   // Considered but no clear performance impact seen:
-  // * check_flush_compaction_key_order
   // * paranoid_checks
   // * flush_verify_memtable_count
   // By current API contract, not including

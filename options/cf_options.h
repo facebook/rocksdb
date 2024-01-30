@@ -160,8 +160,6 @@ struct MutableCFOptions {
         prepopulate_blob_cache(options.prepopulate_blob_cache),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
-        check_flush_compaction_key_order(
-            options.check_flush_compaction_key_order),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
@@ -221,7 +219,6 @@ struct MutableCFOptions {
         blob_file_starting_level(0),
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
         max_sequential_skip_in_iterations(0),
-        check_flush_compaction_key_order(true),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
@@ -311,7 +308,6 @@ struct MutableCFOptions {
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
-  bool check_flush_compaction_key_order;
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;

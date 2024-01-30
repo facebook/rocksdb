@@ -83,11 +83,9 @@ Status BuildTable(
   auto& ioptions = tboptions.ioptions;
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
-  OutputValidator output_validator(
-      tboptions.internal_comparator,
-      /*enable_order_check=*/
-      mutable_cf_options.check_flush_compaction_key_order,
-      /*enable_hash=*/paranoid_file_checks);
+  OutputValidator output_validator(tboptions.internal_comparator,
+                                   /*enable_order_check=*/true,
+                                   /*enable_hash=*/paranoid_file_checks);
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();

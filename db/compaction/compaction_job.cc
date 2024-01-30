@@ -1948,9 +1948,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     }
 
     outputs.AddOutput(std::move(meta), cfd->internal_comparator(),
-                      sub_compact->compaction->mutable_cf_options()
-                          ->check_flush_compaction_key_order,
-                      paranoid_file_checks_);
+                      true /* enable_order_check */, paranoid_file_checks_);
   }
 
   writable_file->SetIOPriority(GetRateLimiterPriority());
