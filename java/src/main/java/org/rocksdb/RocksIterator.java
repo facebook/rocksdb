@@ -8,6 +8,9 @@ package org.rocksdb;
 import static org.rocksdb.util.BufferUtil.CheckBounds;
 
 import java.nio.ByteBuffer;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * <p>An iterator that yields a sequence of key/value pairs from a source.
