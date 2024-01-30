@@ -25,6 +25,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
+#include "rocksdb/wide_columns.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/jni_multiget_helpers.h"
 #include "rocksjni/kv_helper.h"
@@ -746,6 +747,131 @@ void Java_org_rocksdb_RocksDB_putDirect(
   ROCKSDB_NAMESPACE::JniUtil::kv_op_direct(put, env, jkey, jkey_off, jkey_len,
                                            jval, jval_off, jval_len);
 }
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    putEntity
+ * Signature: (J[B[[B[[BJ)V
+ */
+void Java_org_rocksdb_RocksDB_putEntity
+    (JNIEnv* env, jclass, jlong jdb_handle, jbyteArray jkey, jobjectArray jnames, jobjectArray jvalues, jlong jcf_handle) {
+  std::cout << "start of the method\n";
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  auto jkey_len = env->GetArrayLength(jkey);
+  jbyte* key = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, 0, jkey_len, key);
+  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+  auto column_len = env->GetArrayLength(jnames);
+  rocksdb::WideColumns columns;
+  columns.reserve(column_len);
+
+  std::cout << "before for\n";
+  for(int i = 0 ; i < column_len ; i++) {
+
+    std::cout << "for, iteration :" << i << "\n";
+
+    auto jname = static_cast<jbyteArray>(env->GetObjectArrayElement(jnames, i));
+    auto jname_len = env->GetArrayLength(jname);
+    jbyte* name = new jbyte [jname_len];
+    env->GetByteArrayRegion(jname, 0, jname_len, name);
+    ROCKSDB_NAMESPACE::Slice name_slice(reinterpret_cast<char*>(name), jname_len);
+
+    auto jvalue = static_cast<jbyteArray>(env->GetObjectArrayElement(jvalues, i));
+    auto jvalue_len =  env->GetArrayLength(jvalue);
+    jbyte* value = new jbyte [jvalue_len];
+    env->GetByteArrayRegion(jvalue, 0, jvalue_len, value);
+    ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
+
+    ROCKSDB_NAMESPACE::WideColumn wide_entity(name_slice, value_slice);
+
+    columns.push_back(wide_entity);
+
+  }
+  std::cout << "after for\n";
+
+  const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
+      ROCKSDB_NAMESPACE::WriteOptions();
+
+  auto columns_family = (jcf_handle == 0) ? db->DefaultColumnFamily() : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  db->PutEntity(default_write_options, columns_family, key_slice, columns);
+  std::cout << "after put entity\n";
+
+  //TODO - Delete all the manual allocations ???
+  //        Is this correct??
+  for(auto& column : columns ) {
+
+    delete column.name().data();
+    delete column.value().data();
+  }
+
+
+}
+
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getEntity
+ * Signature: (J[BLorg/rocksdb/RocksDB/GetEntityResult;J)V
+ */
+void Java_org_rocksdb_RocksDB_getEntity
+    (JNIEnv* env, jclass, jlong jdb_handle, jbyteArray jkey, jobject jresult, jlong jcf_handle) {
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto jkey_len = env->GetArrayLength(jkey);
+  jbyte* key = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, 0, jkey_len, key);
+  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+  ROCKSDB_NAMESPACE::PinnableWideColumns columns;
+
+  auto columns_family = (jcf_handle == 0) ? db->DefaultColumnFamily() : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  const ROCKSDB_NAMESPACE::ReadOptions default_read_options = ROCKSDB_NAMESPACE::ReadOptions();
+  const auto status = db->GetEntity(default_read_options, columns_family, key_slice, &columns);
+
+  const auto jniStatus = ROCKSDB_NAMESPACE::StatusJni::construct(env, status);
+
+  const auto j_status_clazz = ROCKSDB_NAMESPACE::JavaClass::getJClass(env, "org/rocksdb/RocksDB$GetEntityResult");
+  const auto statusFieldId = env->GetFieldID(j_status_clazz, "status", "Lorg/rocksdb/Status;");
+  const auto namesFieldId = env->GetFieldID(j_status_clazz, "names", "[[B");
+  const auto valuesFieldId = env->GetFieldID(j_status_clazz, "values", "[[B");
+
+  env->SetObjectField(jresult, statusFieldId, jniStatus);
+
+  if(status.ok()) {
+    const auto columns_len = static_cast<jsize>(columns.columns().size());
+    const auto j_double_byte_array_clazz = ROCKSDB_NAMESPACE::JavaClass::getJClass(env, "[B");
+
+    auto jnames = env->NewObjectArray(columns_len, j_double_byte_array_clazz, nullptr);
+    auto jvalues = env->NewObjectArray(columns_len, j_double_byte_array_clazz, nullptr);
+
+
+    for (int  i = 0 ; i < columns_len ; i++) {
+      auto column = columns.columns()[i];
+      auto jname = env->NewByteArray(static_cast<jsize>(column.name().size()));
+
+      env->SetByteArrayRegion(jname, 0, static_cast<jsize>(column.name().size()),
+          reinterpret_cast<const jbyte*>(column.name().data()));
+      env->SetObjectArrayElement(jnames, i, jname);
+
+      auto jvalue = env->NewByteArray(static_cast<jsize>(column.value().size()));
+      env->SetByteArrayRegion(jvalue, 0, static_cast<jsize>(column.value().size()),
+                              reinterpret_cast<const jbyte*>(column.value().data()));
+      env->SetObjectArrayElement(jvalues, i, jvalue);
+
+      std::cout << column.name().ToString() << "\t" << column.value().ToString() << "\n";
+    }
+    env->SetObjectField(jresult, namesFieldId, jnames);
+    env->SetObjectField(jresult, valuesFieldId, jvalues);
+  }
+}
+
+
+
 
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::Delete()
