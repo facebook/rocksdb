@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
+import org.rocksdb.util.Environment;
 
 public class PerfContextTest {
   @ClassRule
@@ -80,6 +81,8 @@ public class PerfContextTest {
 
   @Test
   public void testGetBlockReadCpuTime() throws RocksDBException {
+    Assume.assumeFalse("We are not running this test on OpenBSD or Windows",
+        Environment.isOpenBSD() || Environment.isWindows());
     db.setPerfLevel(PerfLevel.ENABLE_TIME_AND_CPU_TIME_EXCEPT_FOR_MUTEX);
     db.put("key".getBytes(), "value".getBytes());
     db.compactRange();

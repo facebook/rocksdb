@@ -618,7 +618,7 @@ fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
 # -Wshorten-64-to-32 breaks compilation on FreeBSD aarch64 and i386
-if ! { [ "$TARGET_OS" = FreeBSD ] && [ "$TARGET_ARCHITECTURE" = arm64 -o "$TARGET_ARCHITECTURE" = i386 ]; }; then
+if ! { [ "$TARGET_OS" = FreeBSD -o "$TARGET_OS" = OpenBSD ] && [ "$TARGET_ARCHITECTURE" = arm64 -o "$TARGET_ARCHITECTURE" = i386 ]; }; then
   # Test whether -Wshorten-64-to-32 is available
   $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o -Wshorten-64-to-32 2>/dev/null  <<EOF
     int main() {}
