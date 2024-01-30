@@ -189,6 +189,11 @@ class StringSink : public FSWritableFile {
     }
   }
 
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return contents_.size();
+  }
+
  private:
   Slice* reader_contents_;
   size_t last_flush_;
@@ -283,6 +288,11 @@ class OverwritingStringSink : public FSWritableFile {
   void Drop(size_t bytes) {
     contents_.resize(contents_.size() - bytes);
     if (last_flush_ > contents_.size()) last_flush_ = contents_.size();
+  }
+
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return contents_.size();
   }
 
  private:
@@ -560,6 +570,14 @@ class StringFS : public FileSystemWrapper {
                     IODebugContext* /*dbg*/) override {
       contents_->append(slice.data(), slice.size());
       return IOStatus::OK();
+    }
+
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      if (contents_ != nullptr) {
+        return contents_->size();
+      }
+      return 0;
     }
 
    private:
