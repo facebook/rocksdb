@@ -893,6 +893,14 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
   uint64_t size_threshold = bottommost_files_size / kBottommostSizeDivisor;
   return std::min(size_threshold, slowdown_threshold);
 }
+
+uint64_t GetMarkedFileCountForCompactionSpeedup() {
+  // When just one file is marked, it is not clear that parallel compaction will
+  // help the compaction that the user nicely requested to happen sooner. When
+  // multiple files are marked, however, it is pretty clearly helpful, except
+  // for the rare case in which a single compaction grabs all the marked files.
+  return 2;
+}
 }  // anonymous namespace
 
 std::pair<WriteStallCondition, WriteStallCause>
@@ -1074,6 +1082,16 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
             "compaction "
             "bytes %" PRIu64,
             name_.c_str(), vstorage->estimated_compaction_needed_bytes());
+      } else if (uint64_t(vstorage->FilesMarkedForCompaction().size()) >=
+                 GetMarkedFileCountForCompactionSpeedup()) {
+        write_controller_token_ =
+            write_controller->GetCompactionPressureToken();
+        ROCKS_LOG_INFO(
+            ioptions_.logger,
+            "[%s] Increasing compaction threads because we have %" PRIu64
+            " files marked for compaction",
+            name_.c_str(),
+            uint64_t(vstorage->FilesMarkedForCompaction().size()));
       } else {
         write_controller_token_.reset();
       }
