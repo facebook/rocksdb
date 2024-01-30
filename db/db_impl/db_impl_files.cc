@@ -52,7 +52,7 @@ Status DBImpl::DisableFileDeletions() {
   if (my_disable_delete_obsolete_files == 1) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
   } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "File Deletions Disabled, but already disabled. Counter: %d",
                    my_disable_delete_obsolete_files);
   }
@@ -92,7 +92,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
       PurgeObsoleteFiles(job_context);
     }
   } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "File Deletions Enable, but not really enabled. Counter: %d",
                    saved_counter);
   }
