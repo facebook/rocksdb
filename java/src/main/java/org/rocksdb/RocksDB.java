@@ -877,6 +877,61 @@ public class RocksDB extends RocksObject {
     }
   }
 
+  public void putEntity(final byte[] key, final List<WideColumn<byte []>> columns) {
+    putEntity(null, key, columns);
+  }
+
+  public void putEntity(final ColumnFamilyHandle columnFamily, final byte[] key, final List<WideColumn<byte []>> columns) {
+    byte[][] name = new byte[columns.size()][];
+    byte[][] value = new byte[columns.size()][];
+
+    for(int i = 0; i < columns.size() ; i++) {
+      name[i] = columns.get(i).getName();
+      value[i] = columns.get(i).getValue();
+    }
+    putEntity(nativeHandle_, key, name, value, columnFamily == null ? 0 : columnFamily.nativeHandle_); //TODO Is it ok to pass 0(ZERO) value ?
+  }
+
+  private static native void putEntity(final long handle, final byte[] key, final byte[][] name, final byte[][] value, final long cfHandle);
+
+  public void putEntity(final ByteBuffer key, final List<WideColumn<ByteBuffer>> columns) {
+    return;
+  }
+
+  private static class GetEntityResult {
+    public Status status;
+    public byte[][] names;
+    public byte[][] values;
+  }
+
+  public Status getEntity(final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> values) {
+    return null;
+  }
+
+  public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values) {
+    return getEntity(null, key, values);
+  }
+  public Status multiGetEntity(final byte[][] keys, List<WideColumn<byte[]>>[] multiValues){
+    assert keys.length == multiValues.length;
+    return null;
+  }
+  public Status getEntity(final ColumnFamilyHandle columnFamily, final byte[] key, final List<WideColumn<byte[]>> values) {
+    GetEntityResult result = new GetEntityResult();
+    getEntity(nativeHandle_, key, result, columnFamily == null ? 0 : columnFamily.nativeHandle_);
+
+    if(result.status.getCode() == Status.Code.Ok) {
+      for(int i = 0; i < result.names.length ; i++) {
+        values.add(new WideColumn<>(
+                result.names[i], result.values[i]
+        ));
+      }
+    }
+    return result.status;
+  }
+
+
+  private static native void getEntity(final long handle, final byte[] key, final GetEntityResult result, final long cfHandle);
+
   /**
    * Set the database entry for "key" to "value".
    *
