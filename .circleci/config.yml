@@ -547,7 +547,7 @@ jobs:
     resource_class: large
     steps:
       - pre-steps
-      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000 --use_io_uring=0' blackbox_crash_test_with_atomic_flush
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000' blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-linux-crashtest-tiered-storage-bb:
@@ -557,7 +557,7 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800 --use_io_uring=0' blackbox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800' blackbox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
 
@@ -568,7 +568,7 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800 --use_io_uring=0' whitebox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800' whitebox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
 
