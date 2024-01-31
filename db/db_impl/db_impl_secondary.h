@@ -22,13 +22,19 @@ class LogReaderContainer {
   LogReaderContainer(Env* env, std::shared_ptr<Logger> info_log,
                      std::string fname,
                      std::unique_ptr<SequentialFileReader>&& file_reader,
-                     uint64_t log_number) {
+                     uint64_t log_number,
+                     bool skip) {
     LogReporter* reporter = new LogReporter();
     status_ = new Status();
     reporter->env = env;
     reporter->info_log = info_log.get();
     reporter->fname = std::move(fname);
     reporter->status = status_;
+
+    if (skip) {
+      reporter->status = nullptr;
+    }
+
     reporter_ = reporter;
     // We intentially make log::Reader do checksumming even if
     // paranoid_checks==false so that corruptions cause entire commits

@@ -168,9 +168,12 @@ Status DBImplSecondary::MaybeInitLogReader(
     }
 
     // Create the log reader.
+    bool skip = !immutable_db_options_.paranoid_checks ||
+        immutable_db_options_.wal_recovery_mode ==
+            WALRecoveryMode::kSkipAnyCorruptedRecords;
     LogReaderContainer* log_reader_container = new LogReaderContainer(
         env_, immutable_db_options_.info_log, std::move(fname),
-        std::move(file_reader), log_number);
+        std::move(file_reader), log_number, skip);
     log_readers_.insert(std::make_pair(
         log_number, std::unique_ptr<LogReaderContainer>(log_reader_container)));
   }

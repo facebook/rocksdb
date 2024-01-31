@@ -793,7 +793,7 @@ bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
   if (!eof_ && !read_error_) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
-    // TODO: rate limit log reader with approriate priority.
+    // TODO: rate limit log reader with appropriate priority.
     // TODO: avoid overcharging rate limiter:
     // Note that the Read here might overcharge SequentialFileReader's internal
     // rate limiter if priority is not IO_TOTAL, e.g., when there is not enough
