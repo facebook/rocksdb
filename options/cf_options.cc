@@ -855,7 +855,7 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
     return s;
   }
 
-  virtual const void* GetOptionsPtr(const std::string& name) const override {
+  const void* GetOptionsPtr(const std::string& name) const override {
     if (name == OptionsHelper::kCFOptionsName) {
       return &cf_options_;
     } else {

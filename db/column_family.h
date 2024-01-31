@@ -169,10 +169,10 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
 
-  virtual uint32_t GetID() const override;
-  virtual const std::string& GetName() const override;
-  virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
-  virtual const Comparator* GetComparator() const override;
+  uint32_t GetID() const override;
+  const std::string& GetName() const override;
+  Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
+  const Comparator* GetComparator() const override;
 
  private:
   ColumnFamilyData* cfd_;
@@ -193,7 +193,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
         internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
-  virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
+  ColumnFamilyData* cfd() const override { return internal_cfd_; }
 
  private:
   ColumnFamilyData* internal_cfd_;
@@ -853,17 +853,17 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   // REQUIRES: Seek() called first
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual MemTable* GetMemTable() const override;
+  MemTable* GetMemTable() const override;
 
   // Returns column family handle for the selected column family
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual ColumnFamilyHandle* GetColumnFamilyHandle() override;
+  ColumnFamilyHandle* GetColumnFamilyHandle() override;
 
   // Cannot be called while another thread is calling Seek().
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual ColumnFamilyData* current() override { return current_; }
+  ColumnFamilyData* current() override { return current_; }
 
  private:
   ColumnFamilySet* column_family_set_;

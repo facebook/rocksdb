@@ -158,7 +158,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
   ~ToFileCacheDumpWriter() { Close().PermitUncheckedError(); }
 
   // Write the serialized metadata to the file
-  virtual IOStatus WriteMetadata(const Slice& metadata) override {
+  IOStatus WriteMetadata(const Slice& metadata) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(metadata.size()));
@@ -172,7 +172,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
   }
 
   // Write the serialized data to the file
-  virtual IOStatus WritePacket(const Slice& data) override {
+  IOStatus WritePacket(const Slice& data) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(data.size()));
@@ -186,7 +186,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
   }
 
   // Reset the writer
-  virtual IOStatus Close() override {
+  IOStatus Close() override {
     file_writer_.reset();
     return IOStatus::OK();
   }
@@ -208,7 +208,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 
   ~FromFileCacheDumpReader() { delete[] buffer_; }
 
-  virtual IOStatus ReadMetadata(std::string* metadata) override {
+  IOStatus ReadMetadata(std::string* metadata) override {
     uint32_t metadata_len = 0;
     IOStatus io_s = ReadSizePrefix(&metadata_len);
     if (!io_s.ok()) {
@@ -217,7 +217,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
     return Read(metadata_len, metadata);
   }
 
-  virtual IOStatus ReadPacket(std::string* data) override {
+  IOStatus ReadPacket(std::string* data) override {
     uint32_t data_len = 0;
     IOStatus io_s = ReadSizePrefix(&data_len);
     if (!io_s.ok()) {

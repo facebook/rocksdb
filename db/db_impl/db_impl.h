@@ -229,16 +229,14 @@ class DBImpl : public DB {
                      const Slice& end_key, const Slice& ts) override;
 
   using DB::Write;
-  virtual Status Write(const WriteOptions& options,
-                       WriteBatch* updates) override;
+  Status Write(const WriteOptions& options, WriteBatch* updates) override;
 
   using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override;
-  virtual Status Get(const ReadOptions& _read_options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value, std::string* timestamp) override;
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
 
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
@@ -263,12 +261,12 @@ class DBImpl : public DB {
   }
 
   using DB::MultiGet;
-  virtual std::vector<Status> MultiGet(
+  std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
-  virtual std::vector<Status> MultiGet(
+  std::vector<Status> MultiGet(
       const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values,
@@ -319,9 +317,9 @@ class DBImpl : public DB {
                       const Slice* keys,
                       PinnableAttributeGroups* results) override;
 
-  virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
-                                    const std::string& column_family,
-                                    ColumnFamilyHandle** handle) override {
+  Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
+                            const std::string& column_family,
+                            ColumnFamilyHandle** handle) override {
     // TODO: plumb Env::IOActivity, Env::IOPriority
     return CreateColumnFamily(ReadOptions(), WriteOptions(), cf_options,
                               column_family, handle);
@@ -331,7 +329,7 @@ class DBImpl : public DB {
                                     const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
                                     ColumnFamilyHandle** handle);
-  virtual Status CreateColumnFamilies(
+  Status CreateColumnFamilies(
       const ColumnFamilyOptions& cf_options,
       const std::vector<std::string>& column_family_names,
       std::vector<ColumnFamilyHandle*>* handles) override {
@@ -345,7 +343,7 @@ class DBImpl : public DB {
       const std::vector<std::string>& column_family_names,
       std::vector<ColumnFamilyHandle*>* handles);
 
-  virtual Status CreateColumnFamilies(
+  Status CreateColumnFamilies(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles) override {
     // TODO: plumb Env::IOActivity, Env::IOPriority
@@ -356,8 +354,8 @@ class DBImpl : public DB {
       const ReadOptions& read_options, const WriteOptions& write_options,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles);
-  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
-  virtual Status DropColumnFamilies(
+  Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
+  Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families) override;
 
   // Returns false if key doesn't exist in the database and true if it may.
@@ -365,21 +363,20 @@ class DBImpl : public DB {
   // memory. On return, if value was found, then value_found will be set to true
   // , otherwise false.
   using DB::KeyMayExist;
-  virtual bool KeyMayExist(const ReadOptions& options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value, std::string* timestamp,
-                           bool* value_found = nullptr) override;
+  bool KeyMayExist(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   std::string* value, std::string* timestamp,
+                   bool* value_found = nullptr) override;
 
   using DB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& _read_options,
-                                ColumnFamilyHandle* column_family) override;
-  virtual Status NewIterators(
-      const ReadOptions& _read_options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators) override;
+  Iterator* NewIterator(const ReadOptions& _read_options,
+                        ColumnFamilyHandle* column_family) override;
+  Status NewIterators(const ReadOptions& _read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
 
-  virtual const Snapshot* GetSnapshot() override;
-  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+  const Snapshot* GetSnapshot() override;
+  void ReleaseSnapshot(const Snapshot* snapshot) override;
   // Create a timestamped snapshot. This snapshot can be shared by multiple
   // readers. If any of them uses it for write conflict checking, then
   // is_write_conflict_boundary is true. For simplicity, set it to true by
@@ -394,35 +391,33 @@ class DBImpl : public DB {
                                      timestamped_snapshots) const;
 
   using DB::GetProperty;
-  virtual bool GetProperty(ColumnFamilyHandle* column_family,
-                           const Slice& property, std::string* value) override;
+  bool GetProperty(ColumnFamilyHandle* column_family, const Slice& property,
+                   std::string* value) override;
   using DB::GetMapProperty;
-  virtual bool GetMapProperty(
-      ColumnFamilyHandle* column_family, const Slice& property,
-      std::map<std::string, std::string>* value) override;
+  bool GetMapProperty(ColumnFamilyHandle* column_family, const Slice& property,
+                      std::map<std::string, std::string>* value) override;
   using DB::GetIntProperty;
-  virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
-                              const Slice& property, uint64_t* value) override;
+  bool GetIntProperty(ColumnFamilyHandle* column_family, const Slice& property,
+                      uint64_t* value) override;
   using DB::GetAggregatedIntProperty;
-  virtual bool GetAggregatedIntProperty(const Slice& property,
-                                        uint64_t* aggregated_value) override;
+  bool GetAggregatedIntProperty(const Slice& property,
+                                uint64_t* aggregated_value) override;
   using DB::GetApproximateSizes;
-  virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
-                                     ColumnFamilyHandle* column_family,
-                                     const Range* range, int n,
-                                     uint64_t* sizes) override;
+  Status GetApproximateSizes(const SizeApproximationOptions& options,
+                             ColumnFamilyHandle* column_family,
+                             const Range* range, int n,
+                             uint64_t* sizes) override;
   using DB::GetApproximateMemTableStats;
-  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
-                                           const Range& range,
-                                           uint64_t* const count,
-                                           uint64_t* const size) override;
+  void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                   const Range& range, uint64_t* const count,
+                                   uint64_t* const size) override;
   using DB::CompactRange;
-  virtual Status CompactRange(const CompactRangeOptions& options,
-                              ColumnFamilyHandle* column_family,
-                              const Slice* begin, const Slice* end) override;
+  Status CompactRange(const CompactRangeOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice* begin,
+                      const Slice* end) override;
 
   using DB::CompactFiles;
-  virtual Status CompactFiles(
+  Status CompactFiles(
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& input_file_names, const int output_level,
@@ -430,55 +425,54 @@ class DBImpl : public DB {
       std::vector<std::string>* const output_file_names = nullptr,
       CompactionJobInfo* compaction_job_info = nullptr) override;
 
-  virtual Status PauseBackgroundWork() override;
-  virtual Status ContinueBackgroundWork() override;
+  Status PauseBackgroundWork() override;
+  Status ContinueBackgroundWork() override;
 
-  virtual Status EnableAutoCompaction(
+  Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) override;
 
-  virtual void EnableManualCompaction() override;
-  virtual void DisableManualCompaction() override;
+  void EnableManualCompaction() override;
+  void DisableManualCompaction() override;
 
   using DB::SetOptions;
   Status SetOptions(
       ColumnFamilyHandle* column_family,
       const std::unordered_map<std::string, std::string>& options_map) override;
 
-  virtual Status SetDBOptions(
+  Status SetDBOptions(
       const std::unordered_map<std::string, std::string>& options_map) override;
 
   using DB::NumberLevels;
-  virtual int NumberLevels(ColumnFamilyHandle* column_family) override;
+  int NumberLevels(ColumnFamilyHandle* column_family) override;
   using DB::MaxMemCompactionLevel;
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override;
+  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override;
   using DB::Level0StopWriteTrigger;
-  virtual int Level0StopWriteTrigger(
-      ColumnFamilyHandle* column_family) override;
-  virtual const std::string& GetName() const override;
-  virtual Env* GetEnv() const override;
-  virtual FileSystem* GetFileSystem() const override;
+  int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) override;
+  const std::string& GetName() const override;
+  Env* GetEnv() const override;
+  FileSystem* GetFileSystem() const override;
   using DB::GetOptions;
-  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override;
+  Options GetOptions(ColumnFamilyHandle* column_family) const override;
   using DB::GetDBOptions;
-  virtual DBOptions GetDBOptions() const override;
+  DBOptions GetDBOptions() const override;
   using DB::Flush;
-  virtual Status Flush(const FlushOptions& options,
-                       ColumnFamilyHandle* column_family) override;
-  virtual Status Flush(
+  Status Flush(const FlushOptions& options,
+               ColumnFamilyHandle* column_family) override;
+  Status Flush(
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
-  virtual Status FlushWAL(bool sync) override {
+  Status FlushWAL(bool sync) override {
     // TODO: plumb Env::IOActivity, Env::IOPriority
     return FlushWAL(WriteOptions(), sync);
   }
 
   virtual Status FlushWAL(const WriteOptions& write_options, bool sync);
   bool WALBufferIsEmpty();
-  virtual Status SyncWAL() override;
-  virtual Status LockWAL() override;
-  virtual Status UnlockWAL() override;
+  Status SyncWAL() override;
+  Status LockWAL() override;
+  Status UnlockWAL() override;
 
-  virtual SequenceNumber GetLatestSequenceNumber() const override;
+  SequenceNumber GetLatestSequenceNumber() const override;
 
   // IncreaseFullHistoryTsLow(ColumnFamilyHandle*, std::string) will acquire
   // and release db_mutex
@@ -490,21 +484,21 @@ class DBImpl : public DB {
   Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                              std::string* ts_low) override;
 
-  virtual Status GetDbIdentity(std::string& identity) const override;
+  Status GetDbIdentity(std::string& identity) const override;
 
   virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
 
-  virtual Status GetDbSessionId(std::string& session_id) const override;
+  Status GetDbSessionId(std::string& session_id) const override;
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   ColumnFamilyHandle* PersistentStatsColumnFamily() const;
 
-  virtual Status Close() override;
+  Status Close() override;
 
-  virtual Status DisableFileDeletions() override;
+  Status DisableFileDeletions() override;
 
-  virtual Status EnableFileDeletions(bool force) override;
+  Status EnableFileDeletions(bool force) override;
 
   virtual bool IsFileDeletionsEnabled() const;
 
@@ -513,40 +507,35 @@ class DBImpl : public DB {
       std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
 
   using DB::ResetStats;
-  virtual Status ResetStats() override;
+  Status ResetStats() override;
   // All the returned filenames start with "/"
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size,
-                              bool flush_memtable = true) override;
-  virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
-  virtual Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* current_log_file) override;
-  virtual Status GetCreationTimeOfOldestFile(
-      uint64_t* creation_time) override;
+  Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
+                      bool flush_memtable = true) override;
+  Status GetSortedWalFiles(VectorLogPtr& files) override;
+  Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) override;
+  Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override;
 
-  virtual Status GetUpdatesSince(
+  Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options =
           TransactionLogIterator::ReadOptions()) override;
-  virtual Status DeleteFile(std::string name) override;
+  Status DeleteFile(std::string name) override;
   Status DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                              const RangePtr* ranges, size_t n,
                              bool include_end = true);
 
-  virtual void GetLiveFilesMetaData(
-      std::vector<LiveFileMetaData>* metadata) override;
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) override;
 
-  virtual Status GetLiveFilesChecksumInfo(
-      FileChecksumList* checksum_list) override;
+  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) override;
 
-  virtual Status GetLiveFilesStorageInfo(
+  Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
 
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
-  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
-                                       ColumnFamilyMetaData* metadata) override;
+  void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               ColumnFamilyMetaData* metadata) override;
 
   void GetAllColumnFamilyMetaData(
       std::vector<ColumnFamilyMetaData>* metadata) override;
@@ -558,32 +547,32 @@ class DBImpl : public DB {
                    int target_level) override;
 
   using DB::IngestExternalFile;
-  virtual Status IngestExternalFile(
+  Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
 
   using DB::IngestExternalFiles;
-  virtual Status IngestExternalFiles(
+  Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) override;
 
   using DB::CreateColumnFamilyWithImport;
-  virtual Status CreateColumnFamilyWithImport(
+  Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
       const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) override;
 
   using DB::ClipColumnFamily;
-  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
-                                  const Slice& begin_key,
-                                  const Slice& end_key) override;
+  Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                          const Slice& begin_key,
+                          const Slice& end_key) override;
 
   using DB::VerifyFileChecksums;
   Status VerifyFileChecksums(const ReadOptions& read_options) override;
 
   using DB::VerifyChecksum;
-  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
+  Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
   // Verify the checksums of files in db. Currently only tables are checked.
   //
   // read_options: controls file I/O behavior, e.g. read ahead size while
@@ -604,18 +593,16 @@ class DBImpl : public DB {
                                 const ReadOptions& read_options);
 
   using DB::StartTrace;
-  virtual Status StartTrace(
-      const TraceOptions& options,
-      std::unique_ptr<TraceWriter>&& trace_writer) override;
+  Status StartTrace(const TraceOptions& options,
+                    std::unique_ptr<TraceWriter>&& trace_writer) override;
 
   using DB::EndTrace;
-  virtual Status EndTrace() override;
+  Status EndTrace() override;
 
   using DB::NewDefaultReplayer;
-  virtual Status NewDefaultReplayer(
-      const std::vector<ColumnFamilyHandle*>& handles,
-      std::unique_ptr<TraceReader>&& reader,
-      std::unique_ptr<Replayer>* replayer) override;
+  Status NewDefaultReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                            std::unique_ptr<TraceReader>&& reader,
+                            std::unique_ptr<Replayer>* replayer) override;
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
@@ -637,13 +624,11 @@ class DBImpl : public DB {
   Status EndIOTrace() override;
 
   using DB::GetPropertiesOfAllTables;
-  virtual Status GetPropertiesOfAllTables(
-      ColumnFamilyHandle* column_family,
-      TablePropertiesCollection* props) override;
-  virtual Status GetPropertiesOfTablesInRange(
+  Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
+                                  TablePropertiesCollection* props) override;
+  Status GetPropertiesOfTablesInRange(
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) override;
-
 
   // ---- End of implementations of the DB interface ----
   SystemClock* GetSystemClock() const;

@@ -225,9 +225,9 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     return Status::OK();
   }
 
-  virtual void BlockAdd(uint64_t /* block_uncomp_bytes */,
-                        uint64_t /* block_compressed_bytes_fast */,
-                        uint64_t /* block_compressed_bytes_slow */) override {
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
+                uint64_t /* block_compressed_bytes_fast */,
+                uint64_t /* block_compressed_bytes_slow */) override {
     // Intentionally left blank. No interest in collecting stats for
     // blocks.
   }

@@ -94,9 +94,9 @@ class Column : public ColumnBase {
   Column(int8_t mask, int8_t index, int64_t timestamp, int32_t value_size,
          const char* value);
 
-  virtual int64_t Timestamp() const override;
-  virtual std::size_t Size() const override;
-  virtual void Serialize(std::string* dest) const override;
+  int64_t Timestamp() const override;
+  std::size_t Size() const override;
+  void Serialize(std::string* dest) const override;
   static std::shared_ptr<Column> Deserialize(const char* src,
                                              std::size_t offset);
 
@@ -111,9 +111,9 @@ class Tombstone : public ColumnBase {
   Tombstone(int8_t mask, int8_t index, int32_t local_deletion_time,
             int64_t marked_for_delete_at);
 
-  virtual int64_t Timestamp() const override;
-  virtual std::size_t Size() const override;
-  virtual void Serialize(std::string* dest) const override;
+  int64_t Timestamp() const override;
+  std::size_t Size() const override;
+  void Serialize(std::string* dest) const override;
   bool Collectable(int32_t gc_grace_period) const;
   static std::shared_ptr<Tombstone> Deserialize(const char* src,
                                                 std::size_t offset);
@@ -128,8 +128,8 @@ class ExpiringColumn : public Column {
   ExpiringColumn(int8_t mask, int8_t index, int64_t timestamp,
                  int32_t value_size, const char* value, int32_t ttl);
 
-  virtual std::size_t Size() const override;
-  virtual void Serialize(std::string* dest) const override;
+  std::size_t Size() const override;
+  void Serialize(std::string* dest) const override;
   bool Expired() const;
   std::shared_ptr<Tombstone> ToTombstone() const;
 

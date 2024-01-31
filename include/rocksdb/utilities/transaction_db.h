@@ -390,8 +390,8 @@ class TransactionDB : public StackableDB {
   // WRITE_PREPARED or WRITE_UNPREPARED , `skip_duplicate_key_check` must
   // additionally be set.
   using StackableDB::DeleteRange;
-  virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
-                             const Slice&, const Slice&) override {
+  Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*, const Slice&,
+                     const Slice&) override {
     return Status::NotSupported();
   }
   // Open a TransactionDB similar to DB::Open().

@@ -1571,7 +1571,7 @@ class VersionSet {
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
-    virtual void Corruption(size_t /*bytes*/, const Status& s) override {
+    void Corruption(size_t /*bytes*/, const Status& s) override {
       if (status->ok()) {
         *status = s;
       }
