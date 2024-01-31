@@ -1373,7 +1373,7 @@ class StableCacheKeyTestFS : public FaultInjectionTestFS {
     SetFailGetUniqueId(true);
   }
 
-  virtual ~StableCacheKeyTestFS() override {}
+  ~StableCacheKeyTestFS() override {}
 
   IOStatus LinkFile(const std::string&, const std::string&, const IOOptions&,
                     IODebugContext*) override {

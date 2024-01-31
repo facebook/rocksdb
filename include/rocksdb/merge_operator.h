@@ -278,7 +278,7 @@ class MergeOperator : public Customizable {
   // TODO: the name is currently not stored persistently and thus
   //       no checking is enforced. Client is responsible for providing
   //       consistent MergeOperator between DB opens.
-  virtual const char* Name() const override = 0;
+  const char* Name() const override = 0;
 
   // Determines whether the PartialMerge can be called with just a single
   // merge operand.

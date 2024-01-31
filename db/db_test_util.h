@@ -438,15 +438,15 @@ class SpecialEnv : public EnvWrapper {
           : target_(std::move(target)),
             counter_(counter),
             bytes_read_(bytes_read) {}
-      virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const override {
+      Status Read(uint64_t offset, size_t n, Slice* result,
+                  char* scratch) const override {
         counter_->Increment();
         Status s = target_->Read(offset, n, result, scratch);
         *bytes_read_ += result->size();
         return s;
       }
 
-      virtual Status Prefetch(uint64_t offset, size_t n) override {
+      Status Prefetch(uint64_t offset, size_t n) override {
         Status s = target_->Prefetch(offset, n);
         *bytes_read_ += n;
         return s;
@@ -465,8 +465,8 @@ class SpecialEnv : public EnvWrapper {
           : target_(std::move(target)),
             fail_cnt_(failure_cnt),
             fail_odd_(fail_odd) {}
-      virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const override {
+      Status Read(uint64_t offset, size_t n, Slice* result,
+                  char* scratch) const override {
         if (Random::GetTLSInstance()->OneIn(fail_odd_)) {
           fail_cnt_->fetch_add(1);
           return Status::IOError("random error");
@@ -474,7 +474,7 @@ class SpecialEnv : public EnvWrapper {
         return target_->Read(offset, n, result, scratch);
       }
 
-      virtual Status Prefetch(uint64_t offset, size_t n) override {
+      Status Prefetch(uint64_t offset, size_t n) override {
         return target_->Prefetch(offset, n);
       }
 
@@ -502,19 +502,19 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status NewSequentialFile(const std::string& f,
-                                   std::unique_ptr<SequentialFile>* r,
-                                   const EnvOptions& soptions) override {
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
+                           const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
       CountingFile(std::unique_ptr<SequentialFile>&& target,
                    anon::AtomicCounter* counter)
           : target_(std::move(target)), counter_(counter) {}
-      virtual Status Read(size_t n, Slice* result, char* scratch) override {
+      Status Read(size_t n, Slice* result, char* scratch) override {
         counter_->Increment();
         return target_->Read(n, result, scratch);
       }
-      virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
+      Status Skip(uint64_t n) override { return target_->Skip(n); }
 
      private:
       std::unique_ptr<SequentialFile> target_;
@@ -528,7 +528,7 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual void SleepForMicroseconds(int micros) override {
+  void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
     if (no_slowdown_ || time_elapse_only_sleep_) {
       addon_microseconds_.fetch_add(micros);
@@ -550,7 +550,7 @@ class SpecialEnv : public EnvWrapper {
     addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
-  virtual Status GetCurrentTime(int64_t* unix_time) override {
+  Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
     if (time_elapse_only_sleep_) {
       *unix_time = maybe_starting_time_;
@@ -564,22 +564,22 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual uint64_t NowCPUNanos() override {
+  uint64_t NowCPUNanos() override {
     now_cpu_count_.fetch_add(1);
     return target()->NowCPUNanos();
   }
 
-  virtual uint64_t NowNanos() override {
+  uint64_t NowNanos() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
            addon_microseconds_.load() * 1000;
   }
 
-  virtual uint64_t NowMicros() override {
+  uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
            addon_microseconds_.load();
   }
 
-  virtual Status DeleteFile(const std::string& fname) override {
+  Status DeleteFile(const std::string& fname) override {
     delete_count_.fetch_add(1);
     return target()->DeleteFile(fname);
   }
@@ -882,8 +882,8 @@ class FlushCounterListener : public EventListener {
 // "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
 class TestPutOperator : public MergeOperator {
  public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     static const std::map<std::string, MergeOperator::OpFailureScope>
         bad_operand_to_op_failure_scope = {
             {"corrupted", MergeOperator::OpFailureScope::kDefault},
@@ -914,7 +914,7 @@ class TestPutOperator : public MergeOperator {
     return true;
   }
 
-  virtual const char* Name() const override { return "TestPutOperator"; }
+  const char* Name() const override { return "TestPutOperator"; }
 };
 
 /*

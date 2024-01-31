@@ -277,8 +277,7 @@ class NullCompactionPicker : public CompactionPicker {
   }
 
   // Always returns false.
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* /*vstorage*/) const override {
+  bool NeedsCompaction(const VersionStorageInfo* /*vstorage*/) const override {
     return false;
   }
 };

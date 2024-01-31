@@ -66,22 +66,20 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
 
   virtual ~UserKeyTablePropertiesCollector() {}
 
-  virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override;
+  Status InternalAdd(const Slice& key, const Slice& value,
+                     uint64_t file_size) override;
 
-  virtual void BlockAdd(uint64_t block_uncomp_bytes,
-                        uint64_t block_compressed_bytes_fast,
-                        uint64_t block_compressed_bytes_slow) override;
+  void BlockAdd(uint64_t block_uncomp_bytes,
+                uint64_t block_compressed_bytes_fast,
+                uint64_t block_compressed_bytes_slow) override;
 
-  virtual Status Finish(UserCollectedProperties* properties) override;
+  Status Finish(UserCollectedProperties* properties) override;
 
-  virtual const char* Name() const override { return collector_->Name(); }
+  const char* Name() const override { return collector_->Name(); }
 
   UserCollectedProperties GetReadableProperties() const override;
 
-  virtual bool NeedCompact() const override {
-    return collector_->NeedCompact();
-  }
+  bool NeedCompact() const override { return collector_->NeedCompact(); }
 
  protected:
   std::unique_ptr<TablePropertiesCollector> collector_;
@@ -93,7 +91,7 @@ class UserKeyTablePropertiesCollectorFactory
   explicit UserKeyTablePropertiesCollectorFactory(
       std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory)
       : user_collector_factory_(user_collector_factory) {}
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
+  IntTblPropCollector* CreateIntTblPropCollector(
       uint32_t column_family_id, int level_at_creation) override {
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = column_family_id;
@@ -107,9 +105,7 @@ class UserKeyTablePropertiesCollectorFactory
     }
   }
 
-  virtual const char* Name() const override {
-    return user_collector_factory_->Name();
-  }
+  const char* Name() const override { return user_collector_factory_->Name(); }
 
  private:
   std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory_;

@@ -843,19 +843,19 @@ class InternalKeySliceTransform : public SliceTransform {
   explicit InternalKeySliceTransform(const SliceTransform* transform)
       : transform_(transform) {}
 
-  virtual const char* Name() const override { return transform_->Name(); }
+  const char* Name() const override { return transform_->Name(); }
 
-  virtual Slice Transform(const Slice& src) const override {
+  Slice Transform(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->Transform(user_key);
   }
 
-  virtual bool InDomain(const Slice& src) const override {
+  bool InDomain(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->InDomain(user_key);
   }
 
-  virtual bool InRange(const Slice& dst) const override {
+  bool InRange(const Slice& dst) const override {
     auto user_key = ExtractUserKey(dst);
     return transform_->InRange(user_key);
   }

@@ -1593,16 +1593,16 @@ class FileSystemWrapper : public FileSystem {
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
 
-  virtual IOStatus Poll(std::vector<void*>& io_handles,
-                        size_t min_completions) override {
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t min_completions) override {
     return target_->Poll(io_handles, min_completions);
   }
 
-  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
   }
 
-  virtual void SupportedOps(int64_t& supported_ops) override {
+  void SupportedOps(int64_t& supported_ops) override {
     return target_->SupportedOps(supported_ops);
   }
 

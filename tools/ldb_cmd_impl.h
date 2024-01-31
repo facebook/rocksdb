@@ -208,9 +208,9 @@ class UpdateManifestCommand : public LDBCommand {
                         const std::vector<std::string>& flags);
 
   static void Help(std::string& ret);
-  virtual void DoCommand() override;
+  void DoCommand() override;
 
-  virtual bool NoDBOpen() override { return true; }
+  bool NoDBOpen() override { return true; }
 
  private:
   bool verbose_;

@@ -1853,8 +1853,8 @@ class FixedDistribution : public BaseDistribution {
       : BaseDistribution(size, size), size_(size) {}
 
  private:
-  virtual unsigned int Get() override { return size_; }
-  virtual bool NeedTruncate() override { return false; }
+  unsigned int Get() override { return size_; }
+  bool NeedTruncate() override { return false; }
   unsigned int size_;
 };
 
@@ -1870,7 +1870,7 @@ class NormalDistribution : public BaseDistribution,
         gen_(rd_()) {}
 
  private:
-  virtual unsigned int Get() override {
+  unsigned int Get() override {
     return static_cast<unsigned int>((*this)(gen_));
   }
   std::random_device rd_;
@@ -1886,8 +1886,8 @@ class UniformDistribution : public BaseDistribution,
         gen_(rd_()) {}
 
  private:
-  virtual unsigned int Get() override { return (*this)(gen_); }
-  virtual bool NeedTruncate() override { return false; }
+  unsigned int Get() override { return (*this)(gen_); }
+  bool NeedTruncate() override { return false; }
   std::random_device rd_;
   std::mt19937 gen_;
 };

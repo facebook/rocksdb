@@ -53,10 +53,9 @@ class ErrorFS : public FileSystemWrapper {
         num_writable_file_errors_(0) {}
   const char* Name() const override { return "ErrorEnv"; }
 
-  virtual IOStatus NewWritableFile(const std::string& fname,
-                                   const FileOptions& opts,
-                                   std::unique_ptr<FSWritableFile>* result,
-                                   IODebugContext* dbg) override {
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
     result->reset();
     if (writable_file_error_) {
       ++num_writable_file_errors_;
