@@ -186,7 +186,7 @@ void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
 
 bool NotifyCollectTableCollectorsOnAdd(
     const Slice& key, const Slice& value, uint64_t file_size,
-    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
+    const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
     Logger* info_log) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
@@ -201,7 +201,7 @@ bool NotifyCollectTableCollectorsOnAdd(
 }
 
 void NotifyCollectTableCollectorsOnBlockAdd(
-    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
+    const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
     const uint64_t block_uncomp_bytes,
     const uint64_t block_compressed_bytes_fast,
     const uint64_t block_compressed_bytes_slow) {
@@ -212,7 +212,7 @@ void NotifyCollectTableCollectorsOnBlockAdd(
 }
 
 bool NotifyCollectTableCollectorsOnFinish(
-    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
+    const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
     Logger* info_log, PropertyBlockBuilder* builder,
     UserCollectedProperties& user_collected_properties,
     UserCollectedProperties& readable_properties) {

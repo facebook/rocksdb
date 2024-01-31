@@ -76,7 +76,7 @@ class BlockFetcherTest : public testing::Test {
     InternalKeyComparator comparator(options_.comparator);
     ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
-    IntTblPropCollectorFactories factories;
+    InternalTblPropCollFactories factories;
     const ReadOptions read_options;
     const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(

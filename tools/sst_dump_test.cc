@@ -118,7 +118,7 @@ class SSTDumpToolTest : public testing::Test {
     ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
     std::unique_ptr<TableBuilder> tb;
 
-    IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+    InternalTblPropCollFactories internal_tbl_prop_coll_factories;
     std::unique_ptr<WritableFileWriter> file_writer;
     ASSERT_OK(WritableFileWriter::Create(test_env->GetFileSystem(), file_name,
                                          file_options, &file_writer, nullptr));
@@ -129,7 +129,7 @@ class SSTDumpToolTest : public testing::Test {
     tb.reset(opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
             imoptions, moptions, read_options, write_options, ikc,
-            &int_tbl_prop_collector_factories, CompressionType::kNoCompression,
+            &internal_tbl_prop_coll_factories, CompressionType::kNoCompression,
             CompressionOptions(),
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
             column_family_name, unknown_level),
