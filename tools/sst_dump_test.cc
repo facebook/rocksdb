@@ -540,7 +540,8 @@ TEST_F(SSTDumpToolTest, SstFileDumperVerifyNumRecords) {
                          env_opts, /*silent=*/true);
     ASSERT_OK(dumper.getStatus());
     ASSERT_OK(dumper.ReadSequential(
-        /*print_kv=*/false, /*read_num=*/std::numeric_limits<uint64_t>::max(),
+        /*print_kv=*/false,
+        /*read_num_limit=*/std::numeric_limits<uint64_t>::max(),
         /*has_from=*/false, /*from_key=*/"",
         /*has_to=*/false, /*to_key=*/""));
     cleanup(opts, file_path);
@@ -555,7 +556,8 @@ TEST_F(SSTDumpToolTest, SstFileDumperVerifyNumRecords) {
                          env_opts, /*silent=*/true);
     ASSERT_OK(dumper.getStatus());
     ASSERT_OK(dumper.ReadSequential(
-        /*print_kv=*/false, /*read_num=*/std::numeric_limits<uint64_t>::max(),
+        /*print_kv=*/false,
+        /*read_num_limit=*/std::numeric_limits<uint64_t>::max(),
         /*has_from=*/false, /*from_key=*/"",
         /*has_to=*/false, /*to_key=*/""));
     cleanup(opts, file_path);
@@ -575,7 +577,8 @@ TEST_F(SSTDumpToolTest, SstFileDumperVerifyNumRecords) {
                          env_opts, /*silent=*/true);
     ASSERT_OK(dumper.getStatus());
     Status s = dumper.ReadSequential(
-        /*print_kv=*/false, /*read_num=*/std::numeric_limits<uint64_t>::max(),
+        /*print_kv=*/false,
+        /*read_num_limit==*/std::numeric_limits<uint64_t>::max(),
         /*has_from=*/false, /*from_key=*/"",
         /*has_to=*/false, /*to_key=*/"");
     ASSERT_TRUE(s.IsCorruption());
@@ -586,17 +589,19 @@ TEST_F(SSTDumpToolTest, SstFileDumperVerifyNumRecords) {
 
     // Validation is not performed when read_num, has_from, has_to are set
     ASSERT_OK(dumper.ReadSequential(
-        /*print_kv=*/false, /*read_num=*/10,
+        /*print_kv=*/false, /*read_num_limit=*/10,
         /*has_from=*/false, /*from_key=*/"",
         /*has_to=*/false, /*to_key=*/""));
 
     ASSERT_OK(dumper.ReadSequential(
-        /*print_kv=*/false, /*read_num=*/std::numeric_limits<uint64_t>::max(),
+        /*print_kv=*/false,
+        /*read_num_limit=*/std::numeric_limits<uint64_t>::max(),
         /*has_from=*/true, /*from_key=*/MakeKey(100),
         /*has_to=*/false, /*to_key=*/""));
 
     ASSERT_OK(dumper.ReadSequential(
-        /*print_kv=*/false, /*read_num=*/std::numeric_limits<uint64_t>::max(),
+        /*print_kv=*/false,
+        /*read_num_limit=*/std::numeric_limits<uint64_t>::max(),
         /*has_from=*/false, /*from_key=*/"",
         /*has_to=*/true, /*to_key=*/MakeKey(100)));
 
