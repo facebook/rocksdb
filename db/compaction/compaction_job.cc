@@ -760,7 +760,6 @@ Status CompactionJob::Run() {
 
         if (s.ok() && paranoid_file_checks_) {
           OutputValidator validator(cfd->internal_comparator(),
-                                    /*_enable_order_check=*/true,
                                     /*_enable_hash=*/true);
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             s = validator.Add(iter->key(), iter->value());
@@ -1948,8 +1947,6 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     }
 
     outputs.AddOutput(std::move(meta), cfd->internal_comparator(),
-                      sub_compact->compaction->mutable_cf_options()
-                          ->check_flush_compaction_key_order,
                       paranoid_file_checks_);
   }
 
