@@ -102,6 +102,12 @@ Status ExternalSstFileIngestionJob::Prepare(
         "behind mode.");
   }
 
+  if (ucmp->timestamp_size() > 0 && files_overlap_) {
+    return Status::NotSupported(
+        "Files with overlapping ranges cannot be ingested to column "
+        "family with user-defined timestamp enabled.");
+  }
+
   // Copy/Move external files into DB
   std::unordered_set<size_t> ingestion_path_ids;
   for (IngestedFileInfo& f : files_to_ingest_) {
@@ -317,11 +323,6 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
   }
 
-  if (!status.ok()) {
-    // We failed, remove all files that we copied into the db
-    DeleteInternalFiles();
-  }
-
   return status;
 }
 
@@ -329,20 +330,10 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                                                SuperVersion* super_version) {
   size_t n = files_to_ingest_.size();
   autovector<UserKeyRange> ranges;
-  std::vector<std::string> keys;
   ranges.reserve(n);
-  keys.reserve(2 * n);
-  size_t ts_sz = cfd_->user_comparator()->timestamp_size();
-  // Check all ranges [begin, end] inclusively.
   for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-    Slice start_ukey = file_to_ingest.smallest_internal_key.user_key();
-    Slice end_ukey = file_to_ingest.largest_internal_key.user_key();
-    auto [start, end] = MaybeAddTimestampsToRange(
-        &start_ukey, &end_ukey, ts_sz, &keys.emplace_back(),
-        &keys.emplace_back(), /*exclusive_end=*/false);
-    assert(start.has_value());
-    assert(end.has_value());
-    ranges.emplace_back(start.value(), end.value());
+    ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
+                        file_to_ingest.largest_internal_key.user_key());
   }
   Status status = cfd_->RangesOverlapWithMemtables(
       ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
@@ -871,10 +862,13 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     SequenceNumber* assigned_seqno) {
   Status status;
   *assigned_seqno = 0;
+  auto ucmp = cfd_->user_comparator();
+  const size_t ts_sz = ucmp->timestamp_size();
   if (force_global_seqno || files_overlap_) {
     *assigned_seqno = last_seqno + 1;
     // If files overlap, we have to ingest them at level 0.
     if (files_overlap_) {
+      assert(ts_sz == 0);
       file_to_ingest->picked_level = 0;
       if (ingestion_options_.fail_if_not_bottommost_level) {
         status = Status::TryAgain(
@@ -946,8 +940,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
       &overlap_with_db);
   file_to_ingest->picked_level = target_level;
-  if (overlap_with_db && *assigned_seqno == 0) {
-    *assigned_seqno = last_seqno + 1;
+  if (overlap_with_db) {
+    if (ts_sz > 0) {
+      status = Status::InvalidArgument(
+          "Column family enables user-defined timestamps, please make sure the "
+          "key range (without timestamp) of external file does not overlap "
+          "with key range (without timestamp) in the db");
+    }
+    if (*assigned_seqno == 0) {
+      *assigned_seqno = last_seqno + 1;
+    }
   }
   return status;
 }

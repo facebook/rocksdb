@@ -5817,10 +5817,18 @@ Status DBImpl::IngestExternalFiles(
   }
   for (const auto& arg : args) {
     const IngestExternalFileOptions& ingest_opts = arg.options;
-    if (ingest_opts.ingest_behind &&
-        !immutable_db_options_.allow_ingest_behind) {
-      return Status::InvalidArgument(
-          "can't ingest_behind file in DB with allow_ingest_behind=false");
+    if (ingest_opts.ingest_behind) {
+      if (!immutable_db_options_.allow_ingest_behind) {
+        return Status::InvalidArgument(
+            "can't ingest_behind file in DB with allow_ingest_behind=false");
+      }
+      auto ucmp = arg.column_family->GetComparator();
+      assert(ucmp);
+      if (ucmp->timestamp_size() > 0) {
+        return Status::NotSupported(
+            "Column family with user-defined "
+            "timestamps enabled doesn't support ingest behind.");
+      }
     }
   }
 
