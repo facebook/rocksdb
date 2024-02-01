@@ -45,6 +45,8 @@ struct SstFileWriter::Rep {
     // TODO (hx235): pass in `WriteOptions` instead of `rate_limiter_priority`
     // during construction
     write_options.rate_limiter_priority = io_priority;
+    ts_sz = _user_comparator->timestamp_size();
+    strip_timestamp = ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
   }
 
   std::unique_ptr<WritableFileWriter> file_writer;
@@ -68,6 +70,8 @@ struct SstFileWriter::Rep {
   bool skip_filters;
   std::string db_session_id;
   uint64_t next_file_number = 1;
+  size_t ts_sz;
+  bool strip_timestamp;
 
   Status AddImpl(const Slice& user_key, const Slice& value,
                  ValueType value_type) {
@@ -78,11 +82,20 @@ struct SstFileWriter::Rep {
       return builder->status();
     }
 
+    std::string user_key_buf;
+    Slice effective_user_key = user_key;
+    if (strip_timestamp) {
+      // Logically remove the timestamp while the table builder will later
+      // remove it physically when data block is being built.
+      AppendUserKeyWithMinTimestamp(&user_key_buf, user_key, ts_sz);
+      effective_user_key = user_key_buf;
+    }
     if (file_info.num_entries == 0) {
-      file_info.smallest_key.assign(user_key.data(), user_key.size());
+      file_info.smallest_key.assign(effective_user_key.data(),
+                                    effective_user_key.size());
     } else {
       if (internal_comparator.user_comparator()->Compare(
-              user_key, file_info.largest_key) <= 0) {
+              effective_user_key, file_info.largest_key) <= 0) {
         // Make sure that keys are added in order
         return Status::InvalidArgument(
             "Keys must be added in strict ascending order.");
@@ -96,13 +109,14 @@ struct SstFileWriter::Rep {
 
     constexpr SequenceNumber sequence_number = 0;
 
-    ikey.Set(user_key, sequence_number, value_type);
+    ikey.Set(effective_user_key, sequence_number, value_type);
 
     builder->Add(ikey.Encode(), value);
 
     // update file info
     file_info.num_entries++;
-    file_info.largest_key.assign(user_key.data(), user_key.size());
+    file_info.largest_key.assign(effective_user_key.data(),
+                                 effective_user_key.size());
     file_info.file_size = builder->FileSize();
 
     InvalidatePageCache(false /* closing */).PermitUncheckedError();
@@ -462,6 +476,32 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   if (file_info != nullptr) {
     *file_info = r->file_info;
+    // Remove user-defined timestamps from external file metadata too when they
+    // should not be persisted.
+    if (r->strip_timestamp) {
+      if (!r->file_info.smallest_key.empty()) {
+        Slice smallest_key = r->file_info.smallest_key;
+        Slice largest_key = r->file_info.largest_key;
+        assert(smallest_key.size() >= r->ts_sz);
+        assert(largest_key.size() >= r->ts_sz);
+        file_info->smallest_key.assign(smallest_key.data(),
+                                       smallest_key.size() - r->ts_sz);
+        file_info->largest_key.assign(largest_key.data(),
+                                      largest_key.size() - r->ts_sz);
+      }
+      if (!r->file_info.smallest_range_del_key.empty()) {
+        Slice smallest_range_del_key = r->file_info.smallest_range_del_key;
+        Slice largest_range_del_key = r->file_info.largest_range_del_key;
+        assert(smallest_range_del_key.size() >= r->ts_sz);
+        assert(largest_range_del_key.size() >= r->ts_sz);
+        file_info->smallest_range_del_key.assign(
+            smallest_range_del_key.data(),
+            smallest_range_del_key.size() - r->ts_sz);
+        file_info->largest_range_del_key.assign(
+            largest_range_del_key.data(),
+            largest_range_del_key.size() - r->ts_sz);
+      }
+    }
   }
 
   r->builder.reset();
