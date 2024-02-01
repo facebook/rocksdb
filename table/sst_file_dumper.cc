@@ -554,6 +554,25 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   read_num_ += i;
 
   Status ret = iter->status();
+
+  bool verify_num_entries =
+      (read_num == 0 || read_num == std::numeric_limits<uint64_t>::max()) &&
+      !has_from && !has_to;
+  if (verify_num_entries && ret.ok()) {
+    // Compare the number of entries
+    if (!table_properties_) {
+      fprintf(stderr, "Table properties not available.");
+    } else {
+      if (i != table_properties_->num_entries) {
+        ret =
+            Status::Corruption("Table property has num_entries = " +
+                               std::to_string(table_properties_->num_entries) +
+                               " but scanning the table returns " +
+                               std::to_string(i) + " records.");
+      }
+    }
+  }
+
   delete iter;
   return ret;
 }

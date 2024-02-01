@@ -23,6 +23,12 @@ class SstFileDumper {
                          const EnvOptions& soptions = EnvOptions(),
                          bool silent = false);
 
+  // read_num limits the total number of keys read. If read_num = 0, then
+  // there is no limit.
+  // If read_num = 0 or std::numeric_limits<uint64_t>::max(), has_from and
+  // has_to are false, then the number of keys read is compared with
+  // `num_entries` field in table properties. A Corruption status is returned if
+  // they do not match.
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
                         const std::string& to_key,

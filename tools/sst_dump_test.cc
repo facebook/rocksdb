@@ -520,6 +520,54 @@ TEST_F(SSTDumpToolTest, SstFileDumperMmapReads) {
 
   cleanup(opts, file_path);
 }
+
+TEST_F(SSTDumpToolTest, SstFileDumperVerifyNumRecords) {
+  Options opts;
+  opts.env = env();
+
+  EnvOptions env_opts;
+  {
+    std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+    createSST(opts, file_path, 10);
+    SstFileDumper dumper(opts, file_path, Temperature::kUnknown,
+                         1024 /*readahead_size*/, true /*verify_checksum*/,
+                         false /*output_hex*/, false /*decode_blob_index*/,
+                         env_opts, /*silent=*/true);
+    ASSERT_OK(dumper.getStatus());
+    ASSERT_OK(dumper.ReadSequential(
+        /*print_kv=*/false, /*read_num=*/std::numeric_limits<uint64_t>::max(),
+        /*has_from=*/false, /*from_key=*/"",
+        /*has_to=*/false, /*to_key=*/""));
+    cleanup(opts, file_path);
+  }
+
+  {
+    SyncPoint::GetInstance()->SetCallBack(
+        "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+          TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+          props->num_entries = kNumKey + 2;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    std::string file_path = MakeFilePath("rocksdb_sst_test2.sst");
+    createSST(opts, file_path, 10);
+    SstFileDumper dumper(opts, file_path, Temperature::kUnknown,
+                         1024 /*readahead_size*/, true /*verify_checksum*/,
+                         false /*output_hex*/, false /*decode_blob_index*/,
+                         env_opts, /*silent=*/true);
+    ASSERT_OK(dumper.getStatus());
+    Status s = dumper.ReadSequential(
+        /*print_kv=*/false, /*read_num=*/std::numeric_limits<uint64_t>::max(),
+        /*has_from=*/false, /*from_key=*/"",
+        /*has_to=*/false, /*to_key=*/"");
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(
+        std::strstr("Table property has num_entries = 1026 but scanning the "
+                    "table returns 1024 records.",
+                    s.getState()));
+    cleanup(opts, file_path);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
