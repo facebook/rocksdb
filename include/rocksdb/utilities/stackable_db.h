@@ -27,7 +27,7 @@ class StackableDB : public DB {
   explicit StackableDB(std::shared_ptr<DB> db)
       : db_(db.get()), shared_db_ptr_(db) {}
 
-  ~StackableDB() {
+  ~StackableDB() override {
     if (shared_db_ptr_ == nullptr) {
       delete db_;
     } else {
