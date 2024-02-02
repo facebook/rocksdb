@@ -135,7 +135,7 @@ class RangeLockManagerHandle : public LockManagerHandle {
   virtual std::vector<RangeDeadlockPath> GetRangeDeadlockInfoBuffer() = 0;
   virtual void SetRangeDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
-  virtual ~RangeLockManagerHandle() {}
+  ~RangeLockManagerHandle() override {}
 };
 
 // A factory function to create a Range Lock Manager. The created object should
@@ -503,4 +503,3 @@ class TransactionDB : public StackableDB {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
