@@ -16,6 +16,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class InternalTblPropColl;
+
 // -- Table Properties
 // Other than basic table properties, each table may also have the user
 // collected properties.
@@ -138,6 +140,9 @@ class TablePropertiesCollector {
 
   // EXPERIMENTAL Return whether the output file should be further compacted
   virtual bool NeedCompact() const { return false; }
+
+  // For internal use only.
+  virtual InternalTblPropColl* AsInternal() { return nullptr; }
 };
 
 // Constructs TablePropertiesCollector instances for each table file creation.

@@ -321,10 +321,10 @@ Status SstFileWriter::Open(const std::string& file_path) {
     compression_opts = r->mutable_cf_options.compression_opts;
   }
 
-  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
 
   // SstFileWriter properties collector to add SstFileWriter version.
-  int_tbl_prop_collector_factories.emplace_back(
+  internal_tbl_prop_coll_factories.emplace_back(
       new SstFileWriterPropertiesCollectorFactory(2 /* version */,
                                                   0 /* global_seqno*/));
 
@@ -332,7 +332,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   auto user_collector_factories =
       r->ioptions.table_properties_collector_factories;
   for (size_t i = 0; i < user_collector_factories.size(); i++) {
-    int_tbl_prop_collector_factories.emplace_back(
+    internal_tbl_prop_coll_factories.emplace_back(
         new UserKeyTablePropertiesCollectorFactory(
             user_collector_factories[i]));
   }
@@ -354,7 +354,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, ReadOptions(), r->write_options,
-      r->internal_comparator, &int_tbl_prop_collector_factories,
+      r->internal_comparator, &internal_tbl_prop_coll_factories,
       compression_type, compression_opts, cf_id, r->column_family_name,
       unknown_level, false /* is_bottommost */, TableFileCreationReason::kMisc,
       0 /* oldest_key_time */, 0 /* file_creation_time */,

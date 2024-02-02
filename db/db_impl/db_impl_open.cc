@@ -1682,7 +1682,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       const WriteOptions write_option(Env::IO_HIGH, Env::IOActivity::kDBOpen);
       TableBuilderOptions tboptions(
           *cfd->ioptions(), mutable_cf_options, read_option, write_option,
-          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+          cfd->internal_comparator(), cfd->internal_tbl_prop_coll_factories(),
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.compression_opts, cfd->GetID(), cfd->GetName(),
           0 /* level */, false /* is_bottommost */,

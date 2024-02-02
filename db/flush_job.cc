@@ -965,7 +965,7 @@ Status FlushJob::WriteLevel0Table() {
       const WriteOptions write_options(io_priority, Env::IOActivity::kFlush);
       TableBuilderOptions tboptions(
           *cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
-          cfd_->internal_comparator(), cfd_->int_tbl_prop_collector_factories(),
+          cfd_->internal_comparator(), cfd_->internal_tbl_prop_coll_factories(),
           output_compression_, mutable_cf_options_.compression_opts,
           cfd_->GetID(), cfd_->GetName(), 0 /* level */,
           false /* is_bottommost */, TableFileCreationReason::kFlush,

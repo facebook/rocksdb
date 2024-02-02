@@ -3494,7 +3494,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_OK(s);
       std::unique_ptr<WritableFileWriter> fwriter(new WritableFileWriter(
           std::move(file), fname, FileOptions(), env_->GetSystemClock().get()));
-      IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+      InternalTblPropCollFactories internal_tbl_prop_coll_factories;
 
       const ReadOptions read_options;
       const WriteOptions write_options;
@@ -3502,7 +3502,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
           TableBuilderOptions(
               immutable_options_, mutable_cf_options_, read_options,
               write_options, *internal_comparator_,
-              &int_tbl_prop_collector_factories, kNoCompression,
+              &internal_tbl_prop_coll_factories, kNoCompression,
               CompressionOptions(),
               TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
               info.column_family, info.level),

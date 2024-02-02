@@ -302,7 +302,7 @@ class CompactionJobTestBase : public testing::Test {
             TableBuilderOptions(*cfd_->ioptions(), mutable_cf_options_,
                                 read_options, write_options,
                                 cfd_->internal_comparator(),
-                                cfd_->int_tbl_prop_collector_factories(),
+                                cfd_->internal_tbl_prop_coll_factories(),
                                 CompressionType::kNoCompression,
                                 CompressionOptions(), 0 /* column_family_id */,
                                 kDefaultColumnFamilyName, -1 /* level */),

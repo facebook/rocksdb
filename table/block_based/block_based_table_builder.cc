@@ -209,7 +209,7 @@ const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 // But in the foreseeable future, we will add more and more properties that are
 // specific to block-based table.
 class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
-    : public IntTblPropCollector {
+    : public InternalTblPropColl {
  public:
   explicit BlockBasedTablePropertiesCollector(
       BlockBasedTableOptions::IndexType index_type, bool whole_key_filtering,
@@ -353,7 +353,7 @@ struct BlockBasedTableBuilder::Rep {
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
-  std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
+  std::vector<std::unique_ptr<InternalTblPropColl>> table_properties_collectors;
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
   BlockCreateContext create_context;
@@ -575,12 +575,12 @@ struct BlockBasedTableBuilder::Rep {
           persist_user_defined_timestamps));
     }
 
-    assert(tbo.int_tbl_prop_collector_factories);
-    for (auto& factory : *tbo.int_tbl_prop_collector_factories) {
+    assert(tbo.internal_tbl_prop_coll_factories);
+    for (auto& factory : *tbo.internal_tbl_prop_coll_factories) {
       assert(factory);
 
-      std::unique_ptr<IntTblPropCollector> collector{
-          factory->CreateIntTblPropCollector(tbo.column_family_id,
+      std::unique_ptr<InternalTblPropColl> collector{
+          factory->CreateInternalTblPropColl(tbo.column_family_id,
                                              tbo.level_at_creation)};
       if (collector) {
         table_properties_collectors.emplace_back(std::move(collector));

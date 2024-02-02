@@ -1969,7 +1969,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       read_options, write_options, cfd->internal_comparator(),
-      cfd->int_tbl_prop_collector_factories(),
+      cfd->internal_tbl_prop_coll_factories(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),

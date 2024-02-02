@@ -17,9 +17,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Base class for internal table properties collector.
-class IntTblPropCollector {
+class InternalTblPropColl {
  public:
-  virtual ~IntTblPropCollector() {}
+  virtual ~InternalTblPropColl() {}
   virtual Status Finish(UserCollectedProperties* properties) = 0;
 
   virtual const char* Name() const = 0;
@@ -39,26 +39,26 @@ class IntTblPropCollector {
 };
 
 // Factory for internal table properties collector.
-class IntTblPropCollectorFactory {
+class InternalTblPropCollFactory {
  public:
-  virtual ~IntTblPropCollectorFactory() {}
+  virtual ~InternalTblPropCollFactory() {}
   // has to be thread-safe
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
+  virtual InternalTblPropColl* CreateInternalTblPropColl(
       uint32_t column_family_id, int level_at_creation) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
 };
 
-using IntTblPropCollectorFactories =
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>;
+using InternalTblPropCollFactories =
+    std::vector<std::unique_ptr<InternalTblPropCollFactory>>;
 
 // When rocksdb creates a new table, it will encode all "user keys" into
 // "internal keys", which contains meta information of a given entry.
 //
 // This class extracts user key from the encoded internal key when Add() is
 // invoked.
-class UserKeyTablePropertiesCollector : public IntTblPropCollector {
+class UserKeyTablePropertiesCollector : public InternalTblPropColl {
  public:
   // transfer of ownership
   explicit UserKeyTablePropertiesCollector(TablePropertiesCollector* collector)
@@ -86,12 +86,12 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
 };
 
 class UserKeyTablePropertiesCollectorFactory
-    : public IntTblPropCollectorFactory {
+    : public InternalTblPropCollFactory {
  public:
   explicit UserKeyTablePropertiesCollectorFactory(
       std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory)
       : user_collector_factory_(user_collector_factory) {}
-  IntTblPropCollector* CreateIntTblPropCollector(
+  InternalTblPropColl* CreateInternalTblPropColl(
       uint32_t column_family_id, int level_at_creation) override {
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = column_family_id;
@@ -116,7 +116,7 @@ class UserKeyTablePropertiesCollectorFactory
 // internal key when Add() is invoked.
 //
 // @param cmp  the user comparator to compare the timestamps in internal key.
-class TimestampTablePropertiesCollector : public IntTblPropCollector {
+class TimestampTablePropertiesCollector : public InternalTblPropColl {
  public:
   explicit TimestampTablePropertiesCollector(const Comparator* cmp)
       : cmp_(cmp),
