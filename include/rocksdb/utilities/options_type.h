@@ -299,9 +299,9 @@ class OptionTypeInfo {
   template <typename T>
   static OptionTypeInfo Enum(
       int offset, const std::unordered_map<std::string, T>* const map,
-      OptionTypeFlags flags = OptionTypeFlags::kNone) {
-    OptionTypeInfo info(offset, OptionType::kEnum,
-                        OptionVerificationType::kNormal, flags);
+      OptionTypeFlags flags = OptionTypeFlags::kNone,
+      OptionVerificationType verification = OptionVerificationType::kNormal) {
+    OptionTypeInfo info(offset, OptionType::kEnum, verification, flags);
     info.SetParseFunc(
         // Uses the map argument to convert the input string into
         // its corresponding enum value.  If value is found in the map,

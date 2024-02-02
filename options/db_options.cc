@@ -35,12 +35,6 @@ static std::unordered_map<std::string, WALRecoveryMode>
         {"kSkipAnyCorruptedRecords",
          WALRecoveryMode::kSkipAnyCorruptedRecords}};
 
-static std::unordered_map<std::string, DBOptions::AccessHint>
-    access_hint_string_map = {{"NONE", DBOptions::AccessHint::NONE},
-                              {"NORMAL", DBOptions::AccessHint::NORMAL},
-                              {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
-                              {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
-
 static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
     {"kVolatileTier", CacheTier::kVolatileTier},
     {"kNonVolatileBlockTier", CacheTier::kNonVolatileBlockTier}};
@@ -357,10 +351,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"access_hint_on_compaction_start",
-         OptionTypeInfo::Enum<DBOptions::AccessHint>(
-             offsetof(struct ImmutableDBOptions,
-                      access_hint_on_compaction_start),
-             &access_hint_string_map)},
+         OptionTypeInfo::Enum<bool>(0, nullptr, OptionTypeFlags::kNone,
+                                    OptionVerificationType::kDeprecated)},
         {"info_log_level",
          OptionTypeInfo::Enum<InfoLogLevel>(
              offsetof(struct ImmutableDBOptions, info_log_level),
@@ -724,7 +716,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       advise_random_on_open(options.advise_random_on_open),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
-      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       random_access_max_buffer_size(options.random_access_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       listeners(options.listeners),
@@ -862,8 +853,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
       db_write_buffer_size);
   ROCKS_LOG_HEADER(log, "                   Options.write_buffer_manager: %p",
                    write_buffer_manager.get());
-  ROCKS_LOG_HEADER(log, "        Options.access_hint_on_compaction_start: %d",
-                   static_cast<int>(access_hint_on_compaction_start));
   ROCKS_LOG_HEADER(
       log, "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
       random_access_max_buffer_size);

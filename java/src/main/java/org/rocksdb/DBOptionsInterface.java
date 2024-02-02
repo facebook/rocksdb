@@ -939,28 +939,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   long dbWriteBufferSize();
 
   /**
-   * Specify the file access pattern once a compaction is started.
-   * It will be applied to all input files of a compaction.
-   *
-   * Default: {@link AccessHint#NORMAL}
-   *
-   * @param accessHint The access hint
-   *
-   * @return the reference to the current options.
-   */
-  @Deprecated T setAccessHintOnCompactionStart(final AccessHint accessHint);
-
-  /**
-   * Specify the file access pattern once a compaction is started.
-   * It will be applied to all input files of a compaction.
-   *
-   * Default: {@link AccessHint#NORMAL}
-   *
-   * @return The access hint
-   */
-  @Deprecated AccessHint accessHintOnCompactionStart();
-
-  /**
    * This is a maximum buffer size that is used by WinMmapReadableFile in
    * unbuffered disk I/O mode. We need to maintain an aligned buffer for
    * reads. We allow the buffer to grow until the specified value and then

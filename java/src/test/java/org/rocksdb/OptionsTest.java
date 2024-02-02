@@ -699,16 +699,6 @@ public class OptionsTest {
     }
   }
 
-  @SuppressWarnings("deprecated")
-  @Test
-  public void accessHintOnCompactionStart() {
-    try (final Options opt = new Options()) {
-      final AccessHint accessHint = AccessHint.SEQUENTIAL;
-      opt.setAccessHintOnCompactionStart(accessHint);
-      assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
-    }
-  }
-
   @Test
   public void compactionReadaheadSize() {
     try (final Options opt = new Options()) {

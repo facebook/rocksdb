@@ -2039,8 +2039,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_advise_random_on_open(o, 1);
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(o));
 
-    rocksdb_options_set_access_hint_on_compaction_start(o, 3);
-    CheckCondition(3 == rocksdb_options_get_access_hint_on_compaction_start(o));
 
     rocksdb_options_set_use_adaptive_mutex(o, 1);
     CheckCondition(1 == rocksdb_options_get_use_adaptive_mutex(o));
@@ -2236,8 +2234,6 @@ int main(int argc, char** argv) {
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(copy));
     CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(copy));
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(copy));
-    CheckCondition(3 ==
-                   rocksdb_options_get_access_hint_on_compaction_start(copy));
     CheckCondition(1 == rocksdb_options_get_use_adaptive_mutex(copy));
     CheckCondition(19 == rocksdb_options_get_bytes_per_sync(copy));
     CheckCondition(20 == rocksdb_options_get_wal_bytes_per_sync(copy));
@@ -2519,11 +2515,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_advise_random_on_open(copy, 0);
     CheckCondition(0 == rocksdb_options_get_advise_random_on_open(copy));
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(o));
-
-    rocksdb_options_set_access_hint_on_compaction_start(copy, 2);
-    CheckCondition(2 ==
-                   rocksdb_options_get_access_hint_on_compaction_start(copy));
-    CheckCondition(3 == rocksdb_options_get_access_hint_on_compaction_start(o));
 
     rocksdb_options_set_use_adaptive_mutex(copy, 0);
     CheckCondition(0 == rocksdb_options_get_use_adaptive_mutex(copy));
