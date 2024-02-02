@@ -4720,7 +4720,6 @@ TEST_F(DBCompactionTest, LevelTtlCompactionOutputCuttingIteractingWithOther) {
   options.env = env_;
   options.target_file_size_base = 4 << 10;
   options.disable_auto_compactions = true;
-  options.level_compaction_dynamic_file_size = false;
 
   DestroyAndReopen(options);
   Random rnd(301);
