@@ -27,7 +27,7 @@ class SnapshotChecker {
 class DisableGCSnapshotChecker : public SnapshotChecker {
  public:
   virtual ~DisableGCSnapshotChecker() {}
-  virtual SnapshotCheckerResult CheckInSnapshot(
+  SnapshotCheckerResult CheckInSnapshot(
       SequenceNumber /*sequence*/,
       SequenceNumber /*snapshot_sequence*/) const override {
     // By returning kNotInSnapshot, we prevent all the values from being GCed
@@ -48,7 +48,7 @@ class WritePreparedSnapshotChecker : public SnapshotChecker {
   explicit WritePreparedSnapshotChecker(WritePreparedTxnDB* txn_db);
   virtual ~WritePreparedSnapshotChecker() {}
 
-  virtual SnapshotCheckerResult CheckInSnapshot(
+  SnapshotCheckerResult CheckInSnapshot(
       SequenceNumber sequence, SequenceNumber snapshot_sequence) const override;
 
  private:

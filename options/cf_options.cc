@@ -266,8 +266,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
         {"check_flush_compaction_key_order",
-         {offsetof(struct MutableCFOptions, check_flush_compaction_key_order),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
         {"paranoid_file_checks",
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
@@ -855,7 +854,7 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
     return s;
   }
 
-  virtual const void* GetOptionsPtr(const std::string& name) const override {
+  const void* GetOptionsPtr(const std::string& name) const override {
     if (name == OptionsHelper::kCFOptionsName) {
       return &cf_options_;
     } else {
@@ -1111,8 +1110,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  result.c_str());
   ROCKS_LOG_INFO(log, "        max_sequential_skip_in_iterations: %" PRIu64,
                  max_sequential_skip_in_iterations);
-  ROCKS_LOG_INFO(log, "         check_flush_compaction_key_order: %d",
-                 check_flush_compaction_key_order);
   ROCKS_LOG_INFO(log, "                     paranoid_file_checks: %d",
                  paranoid_file_checks);
   ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",

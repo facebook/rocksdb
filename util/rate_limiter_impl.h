@@ -34,23 +34,23 @@ class GenericRateLimiter : public RateLimiter {
   virtual ~GenericRateLimiter();
 
   // This API allows user to dynamically change rate limiter's bytes per second.
-  virtual void SetBytesPerSecond(int64_t bytes_per_second) override;
+  void SetBytesPerSecond(int64_t bytes_per_second) override;
 
-  virtual Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
+  Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes() and bytes >= 0. Negative bytes
   // passed in will be rounded up to 0.
   using RateLimiter::Request;
-  virtual void Request(const int64_t bytes, const Env::IOPriority pri,
-                       Statistics* stats) override;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats) override;
 
-  virtual int64_t GetSingleBurstBytes() const override {
+  int64_t GetSingleBurstBytes() const override {
     return refill_bytes_per_period_.load(std::memory_order_relaxed);
   }
 
-  virtual int64_t GetTotalBytesThrough(
+  int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
@@ -63,7 +63,7 @@ class GenericRateLimiter : public RateLimiter {
     return total_bytes_through_[pri];
   }
 
-  virtual int64_t GetTotalRequests(
+  int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
@@ -76,7 +76,7 @@ class GenericRateLimiter : public RateLimiter {
     return total_requests_[pri];
   }
 
-  virtual Status GetTotalPendingRequests(
+  Status GetTotalPendingRequests(
       int64_t* total_pending_requests,
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     assert(total_pending_requests != nullptr);
@@ -93,7 +93,7 @@ class GenericRateLimiter : public RateLimiter {
     return Status::OK();
   }
 
-  virtual int64_t GetBytesPerSecond() const override {
+  int64_t GetBytesPerSecond() const override {
     return rate_bytes_per_sec_.load(std::memory_order_relaxed);
   }
 

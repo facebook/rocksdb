@@ -3658,11 +3658,9 @@ class DBBasicTestMultiGet : public DBTestBase {
    public:
     MyFlushBlockPolicyFactory() {}
 
-    virtual const char* Name() const override {
-      return "MyFlushBlockPolicyFactory";
-    }
+    const char* Name() const override { return "MyFlushBlockPolicyFactory"; }
 
-    virtual FlushBlockPolicy* NewFlushBlockPolicy(
+    FlushBlockPolicy* NewFlushBlockPolicy(
         const BlockBasedTableOptions& /*table_options*/,
         const BlockBuilder& data_block_builder) const override {
       return new MyFlushBlockPolicy(data_block_builder);

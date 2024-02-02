@@ -930,11 +930,6 @@ DEFINE_bool(force_consistency_checks,
             "Runs consistency checks on the LSM every time a change is "
             "applied.");
 
-DEFINE_bool(check_flush_compaction_key_order,
-            ROCKSDB_NAMESPACE::Options().check_flush_compaction_key_order,
-            "During flush or compaction, check whether keys inserted to "
-            "output files are in order.");
-
 DEFINE_uint64(delete_obsolete_files_period_micros, 0,
               "Ignored. Left here for backward compatibility");
 
@@ -1853,8 +1848,8 @@ class FixedDistribution : public BaseDistribution {
       : BaseDistribution(size, size), size_(size) {}
 
  private:
-  virtual unsigned int Get() override { return size_; }
-  virtual bool NeedTruncate() override { return false; }
+  unsigned int Get() override { return size_; }
+  bool NeedTruncate() override { return false; }
   unsigned int size_;
 };
 
@@ -1870,7 +1865,7 @@ class NormalDistribution : public BaseDistribution,
         gen_(rd_()) {}
 
  private:
-  virtual unsigned int Get() override {
+  unsigned int Get() override {
     return static_cast<unsigned int>((*this)(gen_));
   }
   std::random_device rd_;
@@ -1886,8 +1881,8 @@ class UniformDistribution : public BaseDistribution,
         gen_(rd_()) {}
 
  private:
-  virtual unsigned int Get() override { return (*this)(gen_); }
-  virtual bool NeedTruncate() override { return false; }
+  unsigned int Get() override { return (*this)(gen_); }
+  bool NeedTruncate() override { return false; }
   std::random_device rd_;
   std::mt19937 gen_;
 };
@@ -4617,8 +4612,6 @@ class Benchmark {
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
     options.paranoid_checks = FLAGS_paranoid_checks;
     options.force_consistency_checks = FLAGS_force_consistency_checks;
-    options.check_flush_compaction_key_order =
-        FLAGS_check_flush_compaction_key_order;
     options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
     options.ttl = FLAGS_ttl_seconds;
     // fill storage options

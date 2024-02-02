@@ -341,15 +341,15 @@ class SkipListFactory : public MemTableRepFactory {
   // Methods for Configurable/Customizable class overrides
   static const char* kClassName() { return "SkipListFactory"; }
   static const char* kNickName() { return "skip_list"; }
-  virtual const char* Name() const override { return kClassName(); }
-  virtual const char* NickName() const override { return kNickName(); }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
   std::string GetId() const override;
 
   // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Allocator*, const SliceTransform*,
-                                         Logger* logger) override;
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,
+                                 const SliceTransform*,
+                                 Logger* logger) override;
 
   bool IsInsertConcurrentlySupported() const override { return true; }
 
@@ -381,9 +381,9 @@ class VectorRepFactory : public MemTableRepFactory {
 
   // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Allocator*, const SliceTransform*,
-                                         Logger* logger) override;
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,
+                                 const SliceTransform*,
+                                 Logger* logger) override;
 };
 
 // This class contains a fixed array of buckets, each

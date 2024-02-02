@@ -18,9 +18,9 @@ class FileTraceReader : public TraceReader {
   explicit FileTraceReader(std::unique_ptr<RandomAccessFileReader>&& reader);
   ~FileTraceReader();
 
-  virtual Status Read(std::string* data) override;
-  virtual Status Close() override;
-  virtual Status Reset() override;
+  Status Read(std::string* data) override;
+  Status Close() override;
+  Status Reset() override;
 
  private:
   std::unique_ptr<RandomAccessFileReader> file_reader_;
@@ -37,9 +37,9 @@ class FileTraceWriter : public TraceWriter {
   explicit FileTraceWriter(std::unique_ptr<WritableFileWriter>&& file_writer);
   ~FileTraceWriter();
 
-  virtual Status Write(const Slice& data) override;
-  virtual Status Close() override;
-  virtual uint64_t GetFileSize() override;
+  Status Write(const Slice& data) override;
+  Status Close() override;
+  uint64_t GetFileSize() override;
 
  private:
   std::unique_ptr<WritableFileWriter> file_writer_;

@@ -460,7 +460,7 @@ Status SstFileDumper::SetOldTableOptions() {
   return Status::OK();
 }
 
-Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
+Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
                                      bool has_from, const std::string& from_key,
                                      bool has_to, const std::string& to_key,
                                      bool use_from_as_prefix) {
@@ -494,7 +494,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     Slice key = iter->key();
     Slice value = iter->value();
     ++i;
-    if (read_num > 0 && i > read_num) {
+    if (read_num_limit > 0 && i > read_num_limit) {
       break;
     }
 
@@ -554,6 +554,28 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   read_num_ += i;
 
   Status ret = iter->status();
+
+  bool verify_num_entries =
+      (read_num_limit == 0 ||
+       read_num_limit == std::numeric_limits<uint64_t>::max()) &&
+      !has_from && !has_to;
+  if (verify_num_entries && ret.ok()) {
+    // Compare the number of entries
+    if (!table_properties_) {
+      fprintf(stderr, "Table properties not available.");
+    } else {
+      // TODO: verify num_range_deletions
+      if (i != table_properties_->num_entries -
+                   table_properties_->num_range_deletions) {
+        ret =
+            Status::Corruption("Table property has num_entries = " +
+                               std::to_string(table_properties_->num_entries) +
+                               " but scanning the table returns " +
+                               std::to_string(i) + " records.");
+      }
+    }
+  }
+
   delete iter;
   return ret;
 }
