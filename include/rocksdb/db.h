@@ -663,7 +663,8 @@ class DB {
   // (*values) will always be resized to be the same size as (keys).
   // Similarly, the number of returned statuses will be the number of keys.
   // Note: keys will not be "de-duplicated". Duplicate keys will return
-  // duplicate values in order.
+  // duplicate values in order, and may return different status values
+  // in case there are errors.
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,

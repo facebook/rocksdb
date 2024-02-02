@@ -591,6 +591,7 @@ class FilePickerMultiGet {
     FdWithKeyRange* f = nullptr;
     bool file_hit = false;
     int cmp_largest = -1;
+    int cmp_smallest = -1;
     if (curr_file_index >= curr_file_level_->num_files) {
       // In the unlikely case the next key is a duplicate of the current key,
       // and the current key is the last in the level and the internal key
@@ -642,7 +643,7 @@ class FilePickerMultiGet {
         // Check if key is within a file's range. If search left bound and
         // right bound point to the same find, we are sure key falls in
         // range.
-        int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
+        cmp_smallest = user_comparator_->CompareWithoutTimestamp(
             user_key, false, ExtractUserKey(f->smallest_key), true);
 
         assert(curr_level_ == 0 ||
@@ -688,6 +689,12 @@ class FilePickerMultiGet {
                user_comparator_->CompareWithoutTimestamp(
                    batch_iter_->ukey_without_ts, false,
                    upper_key_->ukey_without_ts, false) == 0) {
+          if (curr_level_ > 0) {
+            struct FilePickerContext& ctx = fp_ctx_array_[upper_key_.index()];
+            file_indexer_->GetNextLevelIndex(
+                curr_level_, ctx.curr_index_in_curr_level, cmp_smallest,
+                cmp_largest, &ctx.search_left_bound, &ctx.search_right_bound);
+          }
           ++upper_key_;
         }
         break;
