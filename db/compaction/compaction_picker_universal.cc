@@ -1139,8 +1139,7 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // from bottom_start_idx and bottom_end_idx, but for now, we use
   // SetupOtherInputs() for simplicity.
   int parent_index = -1;  // Create and use bottom_start_idx?
-  if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
-                                 &second_last_level_inputs,
+  if (!picker_->SetupOtherInputs(cf_name_, vstorage_, &second_last_level_inputs,
                                  &bottom_level_inputs, &parent_index,
                                  /*base_index=*/-1)) {
     return nullptr;
@@ -1311,9 +1310,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       int parent_index = -1;
 
       output_level_inputs.level = output_level;
-      if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
-                                     &start_level_inputs, &output_level_inputs,
-                                     &parent_index, -1)) {
+      if (!picker_->SetupOtherInputs(cf_name_, vstorage_, &start_level_inputs,
+                                     &output_level_inputs, &parent_index, -1)) {
         return nullptr;
       }
       inputs.push_back(start_level_inputs);

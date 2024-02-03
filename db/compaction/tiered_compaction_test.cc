@@ -1823,7 +1823,6 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
   options.env = mock_env_.get();
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
-  options.ignore_max_compaction_bytes_for_input = false;
   options.periodic_compaction_seconds = 10000;
   DestroyAndReopen(options);
 
