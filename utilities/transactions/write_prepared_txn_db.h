@@ -84,14 +84,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   using DB::Get;
   Status Get(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
-             PinnableSlice* value) override;
+             PinnableSlice* value, std::string* timestamp) override;
 
   using DB::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+      const std::vector<Slice>& keys, std::vector<std::string>* values,
+      std::vector<std::string>* timestamps) override;
 
   using DB::NewIterator;
   Iterator* NewIterator(const ReadOptions& _read_options,

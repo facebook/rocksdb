@@ -2020,12 +2020,6 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
   return persist_stats_cf_handle_;
 }
 
-Status DBImpl::Get(const ReadOptions& read_options,
-                   ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableSlice* value) {
-  return Get(read_options, column_family, key, value, /*timestamp=*/nullptr);
-}
-
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
@@ -2498,14 +2492,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 }
 
 std::vector<Status> DBImpl::MultiGet(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  return MultiGet(read_options, column_family, keys, values,
-                  /*timestamps=*/nullptr);
-}
-
-std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values,
@@ -2898,14 +2884,6 @@ Status DBImpl::MultiCFSnapshot(
   return s;
 }
 
-void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
-                      ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableSlice* values, Status* statuses,
-                      const bool sorted_input) {
-  MultiGet(read_options, num_keys, column_families, keys, values,
-           /* timestamps */ nullptr, statuses, sorted_input);
-}
-
 void DBImpl::MultiGet(const ReadOptions& _read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, std::string* timestamps,
@@ -3120,14 +3098,6 @@ void DBImpl::PrepareMultiGetKeys(
 
   std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
             CompareKeyContext());
-}
-
-void DBImpl::MultiGet(const ReadOptions& read_options,
-                      ColumnFamilyHandle* column_family, const size_t num_keys,
-                      const Slice* keys, PinnableSlice* values,
-                      Status* statuses, const bool sorted_input) {
-  MultiGet(read_options, column_family, num_keys, keys, values,
-           /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& _read_options,

@@ -249,12 +249,17 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
 
 Status WritePreparedTxnDB::Get(const ReadOptions& _read_options,
                                ColumnFamilyHandle* column_family,
-                               const Slice& key, PinnableSlice* value) {
+                               const Slice& key, PinnableSlice* value,
+                               std::string* timestamp) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not implemented");
   }
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
@@ -328,21 +333,30 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
 std::vector<Status> WritePreparedTxnDB::MultiGet(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+    const std::vector<Slice>& keys, std::vector<std::string>* values,
+    std::vector<std::string>* timestamps) {
   assert(values);
   size_t num_keys = keys.size();
   std::vector<Status> stat_list(num_keys);
 
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kMultiGet) {
-    Status s = Status::InvalidArgument(
-        "Can only call MultiGet with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
-
-    for (size_t i = 0; i < num_keys; ++i) {
-      stat_list[i] = s;
+  {
+    Status s;
+    if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+        _read_options.io_activity != Env::IOActivity::kMultiGet) {
+      s = Status::InvalidArgument(
+          "Can only call MultiGet with `ReadOptions::io_activity` is "
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    } else if (timestamps) {
+      s = Status::NotSupported(
+          "MultiGet() returning timestamps is not implemented");
     }
-    return stat_list;
+
+    if (!s.ok()) {
+      for (size_t i = 0; i < num_keys; ++i) {
+        stat_list[i] = s;
+      }
+      return stat_list;
+    }
   }
 
   ReadOptions read_options(_read_options);

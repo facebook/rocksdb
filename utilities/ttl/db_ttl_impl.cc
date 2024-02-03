@@ -493,7 +493,11 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          PinnableSlice* value) {
+                          PinnableSlice* value, std::string* timestamp) {
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not supported");
+  }
   Status st = db_->Get(options, column_family, key, value);
   if (!st.ok()) {
     return st;
@@ -508,7 +512,13 @@ Status DBWithTTLImpl::Get(const ReadOptions& options,
 std::vector<Status> DBWithTTLImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+    const std::vector<Slice>& keys, std::vector<std::string>* values,
+    std::vector<std::string>* timestamps) {
+  if (timestamps) {
+    return std::vector<Status>(
+        keys.size(), Status::NotSupported(
+                         "MultiGet() returning timestamps is not implemented"));
+  }
   auto statuses = db_->MultiGet(options, column_family, keys, values);
   for (size_t i = 0; i < keys.size(); ++i) {
     if (!statuses[i].ok()) {

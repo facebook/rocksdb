@@ -232,8 +232,6 @@ class DBImpl : public DB {
   Status Write(const WriteOptions& options, WriteBatch* updates) override;
 
   using DB::Get;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
   Status Get(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
              PinnableSlice* value, std::string* timestamp) override;
@@ -262,11 +260,6 @@ class DBImpl : public DB {
 
   using DB::MultiGet;
   std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
-  std::vector<Status> MultiGet(
       const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values,
@@ -279,18 +272,10 @@ class DBImpl : public DB {
   // The values and statuses parameters are arrays with number of elements
   // equal to keys.size(). This allows the storage for those to be alloacted
   // by the caller on the stack for small batches
-  void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                const size_t num_keys, const Slice* keys, PinnableSlice* values,
-                Status* statuses, const bool sorted_input = false) override;
   void MultiGet(const ReadOptions& _read_options,
                 ColumnFamilyHandle* column_family, const size_t num_keys,
                 const Slice* keys, PinnableSlice* values,
                 std::string* timestamps, Status* statuses,
-                const bool sorted_input = false) override;
-
-  void MultiGet(const ReadOptions& options, const size_t num_keys,
-                ColumnFamilyHandle** column_families, const Slice* keys,
-                PinnableSlice* values, Status* statuses,
                 const bool sorted_input = false) override;
   void MultiGet(const ReadOptions& _read_options, const size_t num_keys,
                 ColumnFamilyHandle** column_families, const Slice* keys,

@@ -1,0 +1,1 @@
+Deprecate non-timestamp returning  and a few other variants of Get and MultiGet in DB. If the underlying DB implementation doesn't support returning timestamp, and the caller passes a pointer to a timestamp, a Status::NotSupported() error will be returned. 

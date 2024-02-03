@@ -3098,7 +3098,8 @@ class ModelDB : public DB {
   }
   using DB::Get;
   Status Get(const ReadOptions& /*options*/, ColumnFamilyHandle* /*cf*/,
-             const Slice& key, PinnableSlice* /*value*/) override {
+             const Slice& key, PinnableSlice* /*value*/,
+             std::string* /*timestamp*/) override {
     return Status::NotSupported(key);
   }
 
@@ -3115,8 +3116,8 @@ class ModelDB : public DB {
   std::vector<Status> MultiGet(
       const ReadOptions& /*options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_family*/,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* /*values*/) override {
+      const std::vector<Slice>& keys, std::vector<std::string>* /*values*/,
+      std::vector<std::string>* /*timestamps*/) override {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
     return s;
