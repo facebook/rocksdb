@@ -129,6 +129,14 @@ class StackableDB : public DB {
     return db_->MultiGet(options, column_family, keys, values, timestamps);
   }
 
+  void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                const size_t num_keys, const Slice* keys, PinnableSlice* values,
+                std::string* timestamps, Status* statuses,
+                const bool sorted_input = false) override {
+    return db_->MultiGet(options, column_family, num_keys, keys, values,
+                         timestamps, statuses, sorted_input);
+  }
+
   using DB::MultiGetEntity;
 
   void MultiGetEntity(const ReadOptions& options,
