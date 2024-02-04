@@ -98,8 +98,8 @@ using VersionEditParams = VersionEdit;
 // Return file_level.num_files if there is no such file.
 // REQUIRES: "file_level.files" contains a sorted list of
 // non-overlapping files.
-extern int FindFile(const InternalKeyComparator& icmp,
-                    const LevelFilesBrief& file_level, const Slice& key);
+int FindFile(const InternalKeyComparator& icmp,
+             const LevelFilesBrief& file_level, const Slice& key);
 
 // Returns true iff some file in "files" overlaps the user key range
 // [*smallest,*largest].
@@ -107,18 +107,18 @@ extern int FindFile(const InternalKeyComparator& icmp,
 // largest==nullptr represents a key largest than all keys in the DB.
 // REQUIRES: If disjoint_sorted_files, file_level.files[]
 // contains disjoint ranges in sorted order.
-extern bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
-                                  bool disjoint_sorted_files,
-                                  const LevelFilesBrief& file_level,
-                                  const Slice* smallest_user_key,
-                                  const Slice* largest_user_key);
+bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
+                           bool disjoint_sorted_files,
+                           const LevelFilesBrief& file_level,
+                           const Slice* smallest_user_key,
+                           const Slice* largest_user_key);
 
 // Generate LevelFilesBrief from vector<FdWithKeyRange*>
 // Would copy smallest_key and largest_key data to sequential memory
 // arena: Arena used to allocate the memory
-extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
-                                      const std::vector<FileMetaData*>& files,
-                                      Arena* arena);
+void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
+                               const std::vector<FileMetaData*>& files,
+                               Arena* arena);
 enum EpochNumberRequirement {
   kMightMissing,
   kMustPresent,
@@ -596,7 +596,9 @@ class VersionStorageInfo {
     return estimated_compaction_needed_bytes_;
   }
 
-  void TEST_set_estimated_compaction_needed_bytes(uint64_t v) {
+  void TEST_set_estimated_compaction_needed_bytes(uint64_t v,
+                                                  InstrumentedMutex* mu) {
+    InstrumentedMutexLock l(mu);
     estimated_compaction_needed_bytes_ = v;
   }
 
@@ -1569,7 +1571,7 @@ class VersionSet {
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
-    virtual void Corruption(size_t /*bytes*/, const Status& s) override {
+    void Corruption(size_t /*bytes*/, const Status& s) override {
       if (status->ok()) {
         *status = s;
       }

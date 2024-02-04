@@ -46,6 +46,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "util/stderr_logger.h"
 #include "utilities/merge_operators.h"
 
 using ROCKSDB_NAMESPACE::BackupEngine;
@@ -115,6 +116,7 @@ using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
 using ROCKSDB_NAMESPACE::SstFileWriter;
 using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
@@ -2919,6 +2921,23 @@ void rocksdb_options_set_cf_paths(rocksdb_options_t* opt,
   opt->rep.cf_paths = cf_paths;
 }
 
+rocksdb_logger_t* rocksdb_logger_create_stderr_logger(int log_level,
+                                                      const char* prefix) {
+  rocksdb_logger_t* logger = new rocksdb_logger_t;
+
+  if (prefix) {
+    logger->rep = std::make_shared<StderrLogger>(
+        static_cast<InfoLogLevel>(log_level), prefix);
+  } else {
+    logger->rep =
+        std::make_shared<StderrLogger>(static_cast<InfoLogLevel>(log_level));
+  }
+
+  return logger;
+}
+
+void rocksdb_logger_destroy(rocksdb_logger_t* logger) { delete logger; }
+
 void rocksdb_options_set_env(rocksdb_options_t* opt, rocksdb_env_t* env) {
   opt->rep.env = (env ? env->rep : nullptr);
 }
@@ -2927,6 +2946,12 @@ void rocksdb_options_set_info_log(rocksdb_options_t* opt, rocksdb_logger_t* l) {
   if (l) {
     opt->rep.info_log = l->rep;
   }
+}
+
+rocksdb_logger_t* rocksdb_options_get_info_log(rocksdb_options_t* opt) {
+  rocksdb_logger_t* info_log = new rocksdb_logger_t;
+  info_log->rep = opt->rep.info_log;
+  return info_log;
 }
 
 void rocksdb_options_set_info_log_level(rocksdb_options_t* opt, int v) {
@@ -3119,7 +3144,7 @@ void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
                                            unsigned char val) {
   opt->rep.enable_blob_files = val;
 }
-extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
+ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
     rocksdb_options_t* opt) {
   return opt->rep.enable_blob_files;
 }
@@ -4611,7 +4636,7 @@ void rocksdb_readoptions_set_io_timeout(rocksdb_readoptions_t* opt,
   opt->rep.io_timeout = std::chrono::microseconds(microseconds);
 }
 
-extern ROCKSDB_LIBRARY_API uint64_t
+ROCKSDB_LIBRARY_API uint64_t
 rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t* opt) {
   return opt->rep.io_timeout.count();
 }
@@ -5444,9 +5469,7 @@ uint64_t rocksdb_livefiles_deletions(const rocksdb_livefiles_t* lf, int index) {
   return lf->rep[index].num_deletions;
 }
 
-extern void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) {
-  delete lf;
-}
+void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) { delete lf; }
 
 void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
                                      const char* opts_str,

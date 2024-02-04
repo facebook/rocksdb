@@ -38,11 +38,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kBlockBasedTableMagicNumber;
-
-extern const uint64_t kLegacyPlainTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
 const char* kHostnameForDbHostId = "__hostname__";
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {

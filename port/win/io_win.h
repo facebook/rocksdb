@@ -125,9 +125,7 @@ class WinSequentialFile : protected WinFileData, public FSSequentialFile {
 
   IOStatus InvalidateCache(size_t offset, size_t length) override;
 
-  virtual bool use_direct_io() const override {
-    return WinFileData::use_direct_io();
-  }
+  bool use_direct_io() const override { return WinFileData::use_direct_io(); }
 };
 
 // mmap() based random-access
@@ -151,9 +149,9 @@ class WinMmapReadableFile : private WinFileData, public FSRandomAccessFile {
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
 
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
 // We preallocate and use memcpy to append new
@@ -243,7 +241,7 @@ class WinMmapFile : private WinFileData, public FSWritableFile {
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
 class WinRandomAccessImpl {
@@ -287,15 +285,13 @@ class WinRandomAccessFile
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 
-  virtual bool use_direct_io() const override {
-    return WinFileData::use_direct_io();
-  }
+  bool use_direct_io() const override { return WinFileData::use_direct_io(); }
 
   IOStatus InvalidateCache(size_t offset, size_t length) override;
 
-  virtual size_t GetRequiredBufferAlignment() const override;
+  size_t GetRequiredBufferAlignment() const override;
 };
 
 // This is a sequential write class. It has been mimicked (as others) after
@@ -399,20 +395,20 @@ class WinWritableFile : private WinFileData,
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual bool IsSyncThreadSafe() const override;
+  bool IsSyncThreadSafe() const override;
 
   // Indicates if the class makes use of direct I/O
   // Use PositionedAppend
-  virtual bool use_direct_io() const override;
+  bool use_direct_io() const override;
 
-  virtual size_t GetRequiredBufferAlignment() const override;
+  size_t GetRequiredBufferAlignment() const override;
 
   uint64_t GetFileSize(const IOOptions& options, IODebugContext* dbg) override;
 
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
 class WinRandomRWFile : private WinFileData,
@@ -427,11 +423,11 @@ class WinRandomRWFile : private WinFileData,
 
   // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool use_direct_io() const override;
+  bool use_direct_io() const override;
 
   // Use the returned alignment value to allocate aligned
   // buffer for Write() when use_direct_io() returns true
-  virtual size_t GetRequiredBufferAlignment() const override;
+  size_t GetRequiredBufferAlignment() const override;
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
   // Pass aligned buffer when use_direct_io() returns true.

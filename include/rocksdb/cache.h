@@ -497,7 +497,7 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
 // has been removed. The new HyperClockCache requires an additional
 // configuration parameter that is not provided by this API. This function
 // simply returns a new LRUCache for functional compatibility.
-extern std::shared_ptr<Cache> NewClockCache(
+std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false,
     CacheMetadataChargePolicy metadata_charge_policy =
@@ -556,8 +556,7 @@ struct TieredCacheOptions {
   std::shared_ptr<SecondaryCache> nvm_sec_cache;
 };
 
-extern std::shared_ptr<Cache> NewTieredCache(
-    const TieredCacheOptions& cache_opts);
+std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& cache_opts);
 
 // EXPERIMENTAL
 // Dynamically update some of the parameters of a TieredCache. The input
@@ -568,7 +567,7 @@ extern std::shared_ptr<Cache> NewTieredCache(
 // 2. Once the compressed secondary cache is disabled by setting the
 //    compressed_secondary_ratio to 0.0, it cannot be dynamically re-enabled
 //    again
-extern Status UpdateTieredCache(
+Status UpdateTieredCache(
     const std::shared_ptr<Cache>& cache, int64_t total_capacity = -1,
     double compressed_secondary_ratio = std::numeric_limits<double>::max(),
     TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyMax);

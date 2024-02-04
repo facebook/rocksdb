@@ -201,7 +201,7 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
-  virtual void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
+  void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
   }
 
   const Snapshot* GetSnapshot() const override {
@@ -213,7 +213,7 @@ class TransactionBaseImpl : public Transaction {
     return snapshot_;
   }
 
-  virtual void SetSnapshot() override;
+  void SetSnapshot() override;
   void SetSnapshotOnNextOperation(
       std::shared_ptr<TransactionNotifier> notifier = nullptr) override;
 
@@ -243,7 +243,7 @@ class TransactionBaseImpl : public Transaction {
                         const Slice& key) override;
   void UndoGetForUpdate(const Slice& key) override {
     return UndoGetForUpdate(nullptr, key);
-  };
+  }
 
   WriteOptions* GetWriteOptions() override { return &write_options_; }
 
@@ -256,7 +256,7 @@ class TransactionBaseImpl : public Transaction {
 
   // iterates over the given batch and makes the appropriate inserts.
   // used for rebuilding prepared transactions after recovery.
-  virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+  Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
 
   WriteBatch* GetCommitTimeWriteBatch() override;
 
@@ -266,9 +266,8 @@ class TransactionBaseImpl : public Transaction {
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, std::string* value) override;
 
-  virtual Status GetImpl(const ReadOptions& options,
-                         ColumnFamilyHandle* column_family, const Slice& key,
-                         PinnableSlice* value) override;
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, PinnableSlice* value) override;
 
   // Add a key to the list of tracked keys.
   //

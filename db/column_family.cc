@@ -96,16 +96,16 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
   return cfd()->user_comparator();
 }
 
-void GetIntTblPropCollectorFactory(
+void GetInternalTblPropCollFactory(
     const ImmutableCFOptions& ioptions,
-    IntTblPropCollectorFactories* int_tbl_prop_collector_factories) {
-  assert(int_tbl_prop_collector_factories);
+    InternalTblPropCollFactories* internal_tbl_prop_coll_factories) {
+  assert(internal_tbl_prop_coll_factories);
 
   auto& collector_factories = ioptions.table_properties_collector_factories;
   for (size_t i = 0; i < ioptions.table_properties_collector_factories.size();
        ++i) {
     assert(collector_factories[i]);
-    int_tbl_prop_collector_factories->emplace_back(
+    internal_tbl_prop_coll_factories->emplace_back(
         new UserKeyTablePropertiesCollectorFactory(collector_factories[i]));
   }
 }
@@ -572,7 +572,7 @@ ColumnFamilyData::ColumnFamilyData(
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
-  GetIntTblPropCollectorFactory(ioptions_, &int_tbl_prop_collector_factories_);
+  GetInternalTblPropCollFactory(ioptions_, &internal_tbl_prop_coll_factories_);
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
@@ -893,6 +893,14 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
   uint64_t size_threshold = bottommost_files_size / kBottommostSizeDivisor;
   return std::min(size_threshold, slowdown_threshold);
 }
+
+uint64_t GetMarkedFileCountForCompactionSpeedup() {
+  // When just one file is marked, it is not clear that parallel compaction will
+  // help the compaction that the user nicely requested to happen sooner. When
+  // multiple files are marked, however, it is pretty clearly helpful, except
+  // for the rare case in which a single compaction grabs all the marked files.
+  return 2;
+}
 }  // anonymous namespace
 
 std::pair<WriteStallCondition, WriteStallCause>
@@ -1074,6 +1082,16 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
             "compaction "
             "bytes %" PRIu64,
             name_.c_str(), vstorage->estimated_compaction_needed_bytes());
+      } else if (uint64_t(vstorage->FilesMarkedForCompaction().size()) >=
+                 GetMarkedFileCountForCompactionSpeedup()) {
+        write_controller_token_ =
+            write_controller->GetCompactionPressureToken();
+        ROCKS_LOG_INFO(
+            ioptions_.logger,
+            "[%s] Increasing compaction threads because we have %" PRIu64
+            " files marked for compaction",
+            name_.c_str(),
+            uint64_t(vstorage->FilesMarkedForCompaction().size()));
       } else {
         write_controller_token_.reset();
       }
@@ -1205,7 +1223,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 
     if (status.ok()) {
       if (memtable_iter->Valid() &&
-          ucmp->Compare(seek_result.user_key, ranges[i].limit) <= 0) {
+          ucmp->CompareWithoutTimestamp(seek_result.user_key,
+                                        ranges[i].limit) <= 0) {
         *overlap = true;
       } else if (range_del_agg.IsRangeOverlapped(ranges[i].start,
                                                  ranges[i].limit)) {

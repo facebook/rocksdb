@@ -1443,15 +1443,12 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping4) {
   ioptions_.compaction_pri = kMinOverlappingRatio;
   mutable_cf_options_.max_bytes_for_level_base = 10000000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
-  mutable_cf_options_.ignore_max_compaction_bytes_for_input = false;
 
-  // file 7 and 8 over lap with the same file, but file 8 is smaller so
-  // it will be picked.
-  // Overlaps with file 26, 27. And the file is compensated so will be
-  // picked up.
+  // Overlaps with file 26, 27, ratio is
+  // (60000000U + 60000000U / 180000000U) = 0.67
   Add(2, 6U, "150", "167", 60000000U, 0, 100, 100, 180000000U);
-  Add(2, 7U, "168", "169", 60000000U);  // Overlaps with file 27
-  Add(2, 8U, "201", "300", 61000000U);  // Overlaps with file 28
+  Add(2, 7U, "178", "189", 60000000U);  // Overlaps with file 28
+  Add(2, 8U, "401", "500", 61000000U);  // Overlaps with file 29
 
   Add(3, 26U, "160", "165", 60000000U);
   // Boosted file size in output level is not considered.
@@ -1465,7 +1462,7 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping4) {
       &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
-  // Picking file 8 because overlapping ratio is the biggest.
+  // Picking file 6 because overlapping ratio is the biggest.
   ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
 }
 
@@ -2468,20 +2465,23 @@ TEST_F(CompactionPickerTest, IsBottommostLevelTest) {
   DeleteVersionStorage();
 }
 
-TEST_F(CompactionPickerTest, MaxCompactionBytesHit) {
+TEST_F(CompactionPickerTest, IgnoreCompactionLimitWhenAddFileFromInputLevel) {
   mutable_cf_options_.max_bytes_for_level_base = 1000000u;
   mutable_cf_options_.max_compaction_bytes = 800000u;
-  mutable_cf_options_.ignore_max_compaction_bytes_for_input = false;
   ioptions_.level_compaction_dynamic_level_bytes = false;
   NewVersionStorage(6, kCompactionStyleLevel);
   // A compaction should be triggered and pick file 2 and 5.
-  // It can expand because adding file 1 and 3, the compaction size will
-  // exceed mutable_cf_options_.max_bytes_for_level_base.
+  // It pulls in other compaction input file from the input level L1
+  // without pulling in more output level files.
+  // Files 1, 3, 4 will be included in the compaction.
+  // File 6 is excluded since it overlaps with file 7.
   Add(1, 1U, "100", "150", 300000U);
   Add(1, 2U, "151", "200", 300001U, 0, 0);
   Add(1, 3U, "201", "250", 300000U, 0, 0);
   Add(1, 4U, "251", "300", 300000U, 0, 0);
-  Add(2, 5U, "100", "256", 1U);
+  Add(1, 6U, "325", "400", 300000U, 0, 0);
+  Add(2, 5U, "100", "350", 1U);
+  Add(2, 7U, "375", "425", 1U);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
@@ -2489,37 +2489,12 @@ TEST_F(CompactionPickerTest, MaxCompactionBytesHit) {
       &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
-  ASSERT_EQ(1U, compaction->num_input_files(0));
-  ASSERT_EQ(1U, compaction->num_input_files(1));
-  ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
-  ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
-}
-
-TEST_F(CompactionPickerTest, MaxCompactionBytesNotHit) {
-  mutable_cf_options_.max_bytes_for_level_base = 800000u;
-  mutable_cf_options_.max_compaction_bytes = 1000000u;
-  mutable_cf_options_.ignore_max_compaction_bytes_for_input = false;
-  ioptions_.level_compaction_dynamic_level_bytes = false;
-  NewVersionStorage(6, kCompactionStyleLevel);
-  // A compaction should be triggered and pick file 2 and 5.
-  // and it expands to file 1 and 3 too.
-  Add(1, 1U, "100", "150", 300000U);
-  Add(1, 2U, "151", "200", 300001U, 0, 0);
-  Add(1, 3U, "201", "250", 300000U, 0, 0);
-  Add(1, 4U, "251", "300", 300000U, 0, 0);
-  Add(2, 5U, "000", "251", 1U);
-  UpdateVersionStorageInfo();
-
-  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
-  ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(2U, compaction->num_input_levels());
-  ASSERT_EQ(3U, compaction->num_input_files(0));
+  ASSERT_EQ(4U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->num_input_files(1));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
   ASSERT_EQ(3U, compaction->input(0, 2)->fd.GetNumber());
+  ASSERT_EQ(4U, compaction->input(0, 3)->fd.GetNumber());
   ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
 }
 

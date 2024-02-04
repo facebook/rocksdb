@@ -36,7 +36,7 @@ class AutoRollLogger : public Logger {
 
   // Write a header entry to the log. All header information will be written
   // again every time the log rolls over.
-  virtual void LogHeader(const char* format, va_list ap) override;
+  void LogHeader(const char* format, va_list ap) override;
 
   // check if the logger has encountered any problem.
   Status GetStatus() { return status_; }
@@ -106,7 +106,7 @@ class AutoRollLogger : public Logger {
 
  protected:
   // Implementation of Close()
-  virtual Status CloseImpl() override {
+  Status CloseImpl() override {
     if (logger_) {
       return logger_->Close();
     } else {

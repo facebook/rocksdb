@@ -773,7 +773,6 @@ Status BlockBasedTable::Open(
       PersistentCacheOptions(rep->table_options.persistent_cache,
                              rep->base_cache_key, rep->ioptions.stats);
 
-  // TODO(yuzhangyu): handle range deletion entries for UDT in memtable only.
   s = new_table->ReadRangeDelBlock(ro, prefetch_buffer.get(),
                                    metaindex_iter.get(), internal_comparator,
                                    &lookup_context);
@@ -1006,9 +1005,16 @@ Status BlockBasedTable::ReadRangeDelBlock(
           s.ToString().c_str());
       IGNORE_STATUS_IF_ERROR(s);
     } else {
+      std::vector<SequenceNumber> snapshots;
+      // When user defined timestamps are not persisted, the range tombstone end
+      // key read from the data block doesn't include user timestamp.
+      // The range tombstone start key should already include user timestamp as
+      // it's handled at block parsing level in the same way as the other data
+      // blocks.
       rep_->fragmented_range_dels =
-          std::make_shared<FragmentedRangeTombstoneList>(std::move(iter),
-                                                         internal_comparator);
+          std::make_shared<FragmentedRangeTombstoneList>(
+              std::move(iter), internal_comparator, false /*for_compaction=*/,
+              snapshots, rep_->user_defined_timestamps_persisted);
     }
   }
   return s;

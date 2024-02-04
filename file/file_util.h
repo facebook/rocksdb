@@ -20,16 +20,15 @@
 namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
-extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                         std::unique_ptr<WritableFileWriter>& dest_writer,
-                         uint64_t size, bool use_fsync,
-                         const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature);
-extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                         const std::string& destination, uint64_t size,
-                         bool use_fsync,
-                         const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature);
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  std::unique_ptr<WritableFileWriter>& dest_writer,
+                  uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const Temperature temperature);
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const Temperature temperature);
 inline IOStatus CopyFile(const std::shared_ptr<FileSystem>& fs,
                          const std::string& source,
                          const std::string& destination, uint64_t size,
@@ -39,8 +38,8 @@ inline IOStatus CopyFile(const std::shared_ptr<FileSystem>& fs,
   return CopyFile(fs.get(), source, destination, size, use_fsync, io_tracer,
                   temperature);
 }
-extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
-                           const std::string& contents, bool use_fsync);
+IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+                    const std::string& contents, bool use_fsync);
 
 inline IOStatus CreateFile(const std::shared_ptr<FileSystem>& fs,
                            const std::string& destination,
@@ -48,13 +47,12 @@ inline IOStatus CreateFile(const std::shared_ptr<FileSystem>& fs,
   return CreateFile(fs.get(), destination, contents, use_fsync);
 }
 
-extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
-                           const std::string& fname,
-                           const std::string& path_to_sync, const bool force_bg,
-                           const bool force_fg);
+Status DeleteDBFile(const ImmutableDBOptions* db_options,
+                    const std::string& fname, const std::string& path_to_sync,
+                    const bool force_bg, const bool force_fg);
 
 // TODO(hx235): pass the whole DBOptions intead of its individual fields
-extern IOStatus GenerateOneFileChecksum(
+IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,
     FileChecksumGenFactory* checksum_factory,
     const std::string& requested_checksum_func_name, std::string* file_checksum,

@@ -175,11 +175,11 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
   }
 
   protected static native long createNewSliceFromString(final String str);
-  private native int size0(long handle);
-  private native boolean empty0(long handle);
-  private native String toString0(long handle, boolean hex);
-  private native int compare0(long handle, long otherHandle);
-  private native boolean startsWith0(long handle, long otherHandle);
+  private static native int size0(long handle);
+  private static native boolean empty0(long handle);
+  private static native String toString0(long handle, boolean hex);
+  private static native int compare0(long handle, long otherHandle);
+  private static native boolean startsWith0(long handle, long otherHandle);
 
   /**
    * Deletes underlying C++ slice pointer.
@@ -188,6 +188,9 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    * Otherwise, an undefined behavior will occur.
    */
   @Override
-  protected final native void disposeInternal(final long handle);
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
 
+  private static native void disposeInternalJni(final long handle);
 }

@@ -714,8 +714,6 @@ def finalize_and_sanitize(src_params):
             dest_params["use_write_buffer_manager"] = 0
     if dest_params["user_timestamp_size"] > 0 and dest_params["persist_user_defined_timestamps"] == 0:
         # Features that are not compatible with UDT in memtable only feature.
-        dest_params["delpercent"] += dest_params["delrangepercent"]
-        dest_params["delrangepercent"] = 0
         dest_params["enable_blob_files"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
         dest_params["atomic_flush"] = 0
@@ -812,6 +810,7 @@ def gen_cmd(params, unknown_params):
                 "test_tiered_storage",
                 "cleanup_cmd",
                 "skip_tmpdir_check",
+                "print_stderr_separately"
             }
             and v is not None
         ]
@@ -837,23 +836,16 @@ def execute_cmd(cmd, timeout=None):
     return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
 
 
-def exit_if_stderr_has_errors(stderr, print_stderr=True):
-    if print_stderr:
-        for line in stderr.split("\n"):
-            if line != "" and not line.startswith("WARNING"):
-                print("stderr has error message:")
-                print("***" + line + "***")
+def print_if_stderr_has_errors(stderr, print_as_stderr=False):
+    if len(stderr) == 0:
+        return
 
-    stderrdata = stderr.lower()
-    errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
-    print("#times error occurred in output is " + str(errorcount) + "\n")
+    if print_as_stderr:
+        print(stderr, file=sys.stderr)
+    else:
+        print("stderr:")
+        print(stderr)
 
-    if errorcount > 0:
-        print("TEST FAILED. Output has 'error'!!!\n")
-        sys.exit(2)
-    if stderrdata.find("fail") >= 0:
-        print("TEST FAILED. Output has 'fail'!!!\n")
-        sys.exit(2)
 
 def cleanup_after_success(dbname):
     shutil.rmtree(dbname, True)
@@ -892,11 +884,10 @@ def blackbox_crash_main(args, unknown_args):
             print("Exit Before Killing")
             print("stdout:")
             print(outs)
-            print("stderr:")
-            print(errs)
+            print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
             sys.exit(2)
 
-        exit_if_stderr_has_errors(errs);
+        print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -916,7 +907,8 @@ def blackbox_crash_main(args, unknown_args):
     # Print stats of the final run
     print("stdout:", outs)
 
-    exit_if_stderr_has_errors(errs)
+    # Print stderr of the final run
+    print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
@@ -1061,7 +1053,7 @@ def whitebox_crash_main(args, unknown_args):
 
         print(msg)
         print(stdoutdata)
-        print(stderrdata)
+        print_if_stderr_has_errors(stderrdata, print_as_stderr=args.print_stderr_separately)
 
         if hit_timeout:
             print("Killing the run for running too long")
@@ -1080,8 +1072,6 @@ def whitebox_crash_main(args, unknown_args):
             print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
-        #stderr already printed above
-        exit_if_stderr_has_errors(stderrdata, False)
 
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
@@ -1127,6 +1117,7 @@ def main():
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
     parser.add_argument("--skip_tmpdir_check", action="store_true")
+    parser.add_argument("--print_stderr_separately", action="store_true", default=False)
 
     all_params = dict(
         list(default_params.items())

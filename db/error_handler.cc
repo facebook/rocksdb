@@ -395,11 +395,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
 
-  RecordStats(
-      {ERROR_HANDLER_BG_ERROR_COUNT, ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED,
-       ERROR_HANDLER_BG_IO_ERROR_COUNT,
-       ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED},
-      {} /* int_histograms */);
+  RecordStats({ERROR_HANDLER_BG_ERROR_COUNT, ERROR_HANDLER_BG_IO_ERROR_COUNT},
+              {} /* int_histograms */);
 
   Status new_bg_io_err = bg_io_err;
   DBRecoverContext context;
@@ -434,8 +431,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
                                           &new_bg_io_err, db_mutex_,
                                           &auto_recovery);
 
-    RecordStats({ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
-                 ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED},
+    RecordStats({ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT},
                 {} /* int_histograms */);
     ROCKS_LOG_INFO(db_options_.info_log,
                    "ErrorHandler: Set background retryable IO error\n");
@@ -576,7 +572,7 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
     // If its a manual recovery and there's a background recovery in progress
     // return busy status
     if (recovery_in_prog_) {
-      return Status::Busy();
+      return Status::Busy("Recovery already in progress");
     }
     recovery_in_prog_ = true;
 

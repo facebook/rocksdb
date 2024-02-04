@@ -1144,9 +1144,7 @@ class FSWritableFile {
    * Get the size of valid data in the file.
    */
   virtual uint64_t GetFileSize(const IOOptions& /*options*/,
-                               IODebugContext* /*dbg*/) {
-    return 0;
-  }
+                               IODebugContext* /*dbg*/) = 0;
 
   /*
    * Get and set the default pre-allocation block size for writes to
@@ -1595,16 +1593,16 @@ class FileSystemWrapper : public FileSystem {
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
 
-  virtual IOStatus Poll(std::vector<void*>& io_handles,
-                        size_t min_completions) override {
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t min_completions) override {
     return target_->Poll(io_handles, min_completions);
   }
 
-  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
   }
 
-  virtual void SupportedOps(int64_t& supported_ops) override {
+  void SupportedOps(int64_t& supported_ops) override {
     return target_->SupportedOps(supported_ops);
   }
 
@@ -1916,13 +1914,12 @@ class FSDirectoryWrapper : public FSDirectory {
 };
 
 // A utility routine: write "data" to the named file.
-extern IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
-                                  const std::string& fname,
-                                  bool should_sync = false,
-                                  const IOOptions& io_options = IOOptions());
+IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
+                           const std::string& fname, bool should_sync = false,
+                           const IOOptions& io_options = IOOptions());
 
 // A utility routine: read contents of named file into *data
-extern IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
-                                 std::string* data);
+IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
+                          std::string* data);
 
 }  // namespace ROCKSDB_NAMESPACE

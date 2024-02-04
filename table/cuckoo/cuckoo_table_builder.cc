@@ -44,7 +44,7 @@ const std::string CuckooTablePropertyNames::kUserKeyLength =
     "rocksdb.cuckoo.hash.userkeylength";
 
 // Obtained by running echo rocksdb.table.cuckoo | sha1sum
-extern const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
+const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
 
 CuckooTableBuilder::CuckooTableBuilder(
     WritableFileWriter* file, double max_hash_table_ratio,

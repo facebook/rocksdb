@@ -203,33 +203,35 @@ public class SstFileWriter extends RocksObject {
   private static native long newSstFileWriter(
       final long envOptionsHandle, final long optionsHandle);
 
-  private native void open(final long handle, final String filePath)
+  private static native void open(final long handle, final String filePath) throws RocksDBException;
+
+  private static native void put(final long handle, final long keyHandle, final long valueHandle)
       throws RocksDBException;
 
-  private native void put(final long handle, final long keyHandle,
-      final long valueHandle) throws RocksDBException;
-      
-  private native void put(final long handle, final byte[] key,
-      final byte[] value) throws RocksDBException;
+  private static native void put(final long handle, final byte[] key, final byte[] value)
+      throws RocksDBException;
 
-  private native void putDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
+  private static native void putDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
       ByteBuffer value, int valueOffset, int valueLength) throws RocksDBException;
 
-  private native long fileSize(long handle) throws RocksDBException;
+  private static native long fileSize(long handle) throws RocksDBException;
 
-  private native void merge(final long handle, final long keyHandle,
-      final long valueHandle) throws RocksDBException;
-
-  private native void merge(final long handle, final byte[] key,
-      final byte[] value) throws RocksDBException;
-
-  private native void delete(final long handle, final long keyHandle)
+  private static native void merge(final long handle, final long keyHandle, final long valueHandle)
       throws RocksDBException;
 
-  private native void delete(final long handle, final byte[] key)
+  private static native void merge(final long handle, final byte[] key, final byte[] value)
       throws RocksDBException;
 
-  private native void finish(final long handle) throws RocksDBException;
+  private static native void delete(final long handle, final long keyHandle)
+      throws RocksDBException;
 
-  @Override protected final native void disposeInternal(final long handle);
+  private static native void delete(final long handle, final byte[] key) throws RocksDBException;
+
+  private static native void finish(final long handle) throws RocksDBException;
+
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

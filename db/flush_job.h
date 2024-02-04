@@ -129,7 +129,7 @@ class FlushJob {
   Status MemPurge();
   bool MemPurgeDecider(double threshold);
   // The rate limiter priority (io_priority) is determined dynamically here.
-  Env::IOPriority GetRateLimiterPriorityForWrite();
+  Env::IOPriority GetRateLimiterPriority();
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 
   // Require db_mutex held.

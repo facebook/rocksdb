@@ -1002,7 +1002,7 @@ class WritableFile {
   /*
    * Get the size of valid data in the file.
    */
-  virtual uint64_t GetFileSize() { return 0; }
+  virtual uint64_t GetFileSize() = 0;
 
   /*
    * Get and set the default pre-allocation block size for writes to
@@ -1302,63 +1302,60 @@ class DynamicLibrary {
   virtual Status LoadSymbol(const std::string& sym_name, void** func) = 0;
 };
 
-extern void LogFlush(const std::shared_ptr<Logger>& info_log);
+void LogFlush(const std::shared_ptr<Logger>& info_log);
 
-extern void Log(const InfoLogLevel log_level,
-                const std::shared_ptr<Logger>& info_log, const char* format,
-                ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
+void Log(const InfoLogLevel log_level, const std::shared_ptr<Logger>& info_log,
+         const char* format, ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // a set of log functions with different log levels.
-extern void Header(const std::shared_ptr<Logger>& info_log, const char* format,
-                   ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Debug(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Info(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Warn(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Error(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Fatal(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Header(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Debug(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Info(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Warn(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Error(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Fatal(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // Log the specified data to *info_log if info_log is non-nullptr.
 // The default info log level is InfoLogLevel::INFO_LEVEL.
-extern void Log(const std::shared_ptr<Logger>& info_log, const char* format,
-                ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
-extern void LogFlush(Logger* info_log);
+void LogFlush(Logger* info_log);
 
-extern void Log(const InfoLogLevel log_level, Logger* info_log,
-                const char* format, ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
+void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
+         ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // The default info log level is InfoLogLevel::INFO_LEVEL.
-extern void Log(Logger* info_log, const char* format, ...)
+void Log(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // a set of log functions with different log levels.
-extern void Header(Logger* info_log, const char* format, ...)
+void Header(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Debug(Logger* info_log, const char* format, ...)
+void Debug(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Info(Logger* info_log, const char* format, ...)
+void Info(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Warn(Logger* info_log, const char* format, ...)
+void Warn(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Error(Logger* info_log, const char* format, ...)
+void Error(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Fatal(Logger* info_log, const char* format, ...)
+void Fatal(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // A utility routine: write "data" to the named file.
-extern Status WriteStringToFile(Env* env, const Slice& data,
-                                const std::string& fname,
-                                bool should_sync = false,
-                                const IOOptions* io_options = nullptr);
+Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
+                         bool should_sync = false,
+                         const IOOptions* io_options = nullptr);
 
 // A utility routine: read contents of named file into *data
-extern Status ReadFileToString(Env* env, const std::string& fname,
-                               std::string* data);
+Status ReadFileToString(Env* env, const std::string& fname, std::string* data);
 
 // Below are helpers for wrapping most of the classes in this file.
 // They forward all calls to another instance of the class.

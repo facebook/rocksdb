@@ -547,17 +547,6 @@ struct AdvancedColumnFamilyOptions {
   // Default: true
   bool level_compaction_dynamic_level_bytes = true;
 
-  // DEPRECATED: This option might be removed in a future release.
-  //
-  // Allows RocksDB to generate files that are not exactly the target_file_size
-  // only for the non-bottommost files. Which can reduce the write-amplification
-  // from compaction. The file size could be from 0 to 2x target_file_size.
-  // Once enabled, non-bottommost compaction will try to cut the files align
-  // with the next level file boundaries (grandparent level).
-  //
-  // Default: true
-  bool level_compaction_dynamic_file_size = true;
-
   // Default: 10.
   //
   // Dynamically changeable through SetOptions() API
@@ -583,19 +572,6 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;
-
-  // DEPRECATED: This option might be removed in a future release.
-  //
-  // When setting up compaction input files, we ignore the
-  // `max_compaction_bytes` limit when pulling in input files that are entirely
-  // within output key range.
-  //
-  // Default: true
-  //
-  // Dynamically changeable through SetOptions() API
-  // We could remove this knob and always ignore the limit once it is proven
-  // safe.
-  bool ignore_max_compaction_bytes_for_input = true;
 
   // All writes will be slowed down to at least delayed_write_rate if estimated
   // bytes needed to be compaction exceed this threshold.
@@ -700,16 +676,6 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: false
   bool optimize_filters_for_hits = false;
-
-  // DEPRECATED: This option might be removed in a future release.
-  //
-  // During flush or compaction, check whether keys inserted to output files
-  // are in order.
-  //
-  // Default: true
-  //
-  // Dynamically changeable through SetOptions() API
-  bool check_flush_compaction_key_order = true;
 
   // After writing every SST file, reopen it and read all the keys.
   // Checks the hash of all of the keys and values written versus the

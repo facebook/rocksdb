@@ -351,7 +351,6 @@ DECLARE_uint64(readahead_size);
 DECLARE_uint64(initial_auto_readahead_size);
 DECLARE_uint64(max_auto_readahead_size);
 DECLARE_uint64(num_file_reads_for_auto_readahead);
-DECLARE_bool(use_io_uring);
 DECLARE_bool(auto_readahead_size);
 
 constexpr long KB = 1024;
@@ -489,7 +488,7 @@ inline bool GetNextPrefix(const ROCKSDB_NAMESPACE::Slice& src, std::string* v) {
 #endif
 
 // Append `val` to `*key` in fixed-width big-endian format
-extern inline void AppendIntToString(uint64_t val, std::string* key) {
+inline void AppendIntToString(uint64_t val, std::string* key) {
   // PutFixed64 uses little endian
   PutFixed64(key, val);
   // Reverse to get big endian
@@ -518,7 +517,7 @@ extern KeyGenContext key_gen_ctx;
 // - {0}...{x-1}
 // {(x-1),0}..{(x-1),(y-1)},{(x-1),(y-1),0}..{(x-1),(y-1),(z-1)} and so on.
 // Additionally, a trailer of 0-7 bytes could be appended.
-extern inline std::string Key(int64_t val) {
+inline std::string Key(int64_t val) {
   uint64_t window = key_gen_ctx.window;
   size_t levels = key_gen_ctx.weights.size();
   std::string key;
@@ -556,7 +555,7 @@ extern inline std::string Key(int64_t val) {
 }
 
 // Given a string key, map it to an index into the expected values buffer
-extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
+inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
   size_t size_key = big_endian_key.size();
   std::vector<uint64_t> prefixes;
 
@@ -611,8 +610,8 @@ inline bool GetFirstIntValInPrefix(std::string big_endian_prefix,
   return GetIntVal(std::move(big_endian_prefix), key_p);
 }
 
-extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
-                                         const std::string& ub) {
+inline uint64_t GetPrefixKeyCount(const std::string& prefix,
+                                  const std::string& ub) {
   uint64_t start = 0;
   uint64_t end = 0;
 
@@ -624,7 +623,7 @@ extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
   return end - start;
 }
 
-extern inline std::string StringToHex(const std::string& str) {
+inline std::string StringToHex(const std::string& str) {
   std::string result = "0x";
   result.append(Slice(str).ToString(true));
   return result;
@@ -643,49 +642,49 @@ inline std::string WideColumnsToHex(const WideColumns& columns) {
 }
 
 // Unified output format for double parameters
-extern inline std::string FormatDoubleParam(double param) {
+inline std::string FormatDoubleParam(double param) {
   return std::to_string(param);
 }
 
 // Make sure that double parameter is a value we can reproduce by
 // re-inputting the value printed.
-extern inline void SanitizeDoubleParam(double* param) {
+inline void SanitizeDoubleParam(double* param) {
   *param = std::atof(FormatDoubleParam(*param).c_str());
 }
 
-extern void PoolSizeChangeThread(void* v);
+void PoolSizeChangeThread(void* v);
 
-extern void DbVerificationThread(void* v);
+void DbVerificationThread(void* v);
 
-extern void CompressedCacheSetCapacityThread(void* v);
+void CompressedCacheSetCapacityThread(void* v);
 
-extern void TimestampedSnapshotsThread(void* v);
+void TimestampedSnapshotsThread(void* v);
 
-extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
+void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 
-extern int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration);
+int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration);
 
-extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
-                                          uint64_t iteration);
+std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
+                                   uint64_t iteration);
 
-extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
-extern uint32_t GetValueBase(Slice s);
+size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
+uint32_t GetValueBase(Slice s);
 
-extern WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
-extern WideColumns GenerateExpectedWideColumns(uint32_t value_base,
-                                               const Slice& slice);
-extern bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
-extern bool VerifyWideColumns(const WideColumns& columns);
+WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
+WideColumns GenerateExpectedWideColumns(uint32_t value_base,
+                                        const Slice& slice);
+bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
+bool VerifyWideColumns(const WideColumns& columns);
 
-extern StressTest* CreateCfConsistencyStressTest();
-extern StressTest* CreateBatchedOpsStressTest();
-extern StressTest* CreateNonBatchedOpsStressTest();
-extern StressTest* CreateMultiOpsTxnsStressTest();
-extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
-extern void InitializeHotKeyGenerator(double alpha);
-extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+StressTest* CreateCfConsistencyStressTest();
+StressTest* CreateBatchedOpsStressTest();
+StressTest* CreateNonBatchedOpsStressTest();
+StressTest* CreateMultiOpsTxnsStressTest();
+void CheckAndSetOptionsForMultiOpsTxnStressTest();
+void InitializeHotKeyGenerator(double alpha);
+int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
-extern std::string GetNowNanos();
+std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

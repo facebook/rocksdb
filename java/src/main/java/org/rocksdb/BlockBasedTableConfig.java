@@ -949,7 +949,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits);
   }
 
-  private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
+  private static native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
       final boolean cacheIndexAndFilterBlocksWithHighPriority,
       final boolean pinL0FilterAndIndexBlocksInCache, final boolean pinTopLevelIndexAndFilter,
       final byte indexTypeValue, final byte dataBlockIndexTypeValue,

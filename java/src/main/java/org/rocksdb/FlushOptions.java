@@ -78,12 +78,15 @@ public class FlushOptions extends RocksObject {
     return newFlushOptions();
   }
   private static native long newFlushOptions();
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
 
-  private native void setWaitForFlush(final long handle,
-      final boolean wait);
-  private native boolean waitForFlush(final long handle);
-  private native void setAllowWriteStall(final long handle,
-      final boolean allowWriteStall);
-  private native boolean allowWriteStall(final long handle);
+  private static native void disposeInternalJni(final long handle);
+
+  private static native void setWaitForFlush(final long handle, final boolean wait);
+  private static native boolean waitForFlush(final long handle);
+  private static native void setAllowWriteStall(final long handle, final boolean allowWriteStall);
+  private static native boolean allowWriteStall(final long handle);
 }

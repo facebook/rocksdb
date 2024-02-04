@@ -269,36 +269,35 @@ public class CompactRangeOptions extends RocksObject {
   }
 
   private static native long newCompactRangeOptions();
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native boolean exclusiveManualCompaction(final long handle);
-  private native void setExclusiveManualCompaction(final long handle,
-      final boolean exclusive_manual_compaction);
-  private native boolean changeLevel(final long handle);
-  private native void setChangeLevel(final long handle,
-      final boolean changeLevel);
-  private native int targetLevel(final long handle);
-  private native void setTargetLevel(final long handle,
-      final int targetLevel);
-  private native int targetPathId(final long handle);
-  private native void setTargetPathId(final long handle,
-      final int targetPathId);
-  private native int bottommostLevelCompaction(final long handle);
-  private native void setBottommostLevelCompaction(final long handle,
-      final int bottommostLevelCompaction);
-  private native boolean allowWriteStall(final long handle);
-  private native void setAllowWriteStall(final long handle,
-      final boolean allowWriteStall);
-  private native void setMaxSubcompactions(final long handle,
-      final int maxSubcompactions);
-  private native int maxSubcompactions(final long handle);
+  private static native boolean exclusiveManualCompaction(final long handle);
+  private static native void setExclusiveManualCompaction(
+      final long handle, final boolean exclusive_manual_compaction);
+  private static native boolean changeLevel(final long handle);
+  private static native void setChangeLevel(final long handle, final boolean changeLevel);
+  private static native int targetLevel(final long handle);
+  private static native void setTargetLevel(final long handle, final int targetLevel);
+  private static native int targetPathId(final long handle);
+  private static native void setTargetPathId(final long handle, final int targetPathId);
+  private static native int bottommostLevelCompaction(final long handle);
+  private static native void setBottommostLevelCompaction(
+      final long handle, final int bottommostLevelCompaction);
+  private static native boolean allowWriteStall(final long handle);
+  private static native void setAllowWriteStall(final long handle, final boolean allowWriteStall);
+  private static native void setMaxSubcompactions(final long handle, final int maxSubcompactions);
+  private static native int maxSubcompactions(final long handle);
 
-  private native void setFullHistoryTSLow(
+  private static native void setFullHistoryTSLow(
       final long handle, final long timestampStart, final long timestampRange);
 
-  private native Timestamp fullHistoryTSLow(final long handle);
+  private static native Timestamp fullHistoryTSLow(final long handle);
 
-  private native void setCanceled(final long handle, final boolean canceled);
+  private static native void setCanceled(final long handle, final boolean canceled);
 
-  private native boolean canceled(final long handle);
+  private static native boolean canceled(final long handle);
 }

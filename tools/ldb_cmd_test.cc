@@ -1232,7 +1232,8 @@ TEST_F(LdbCmdTest, CustomComparator) {
   std::string dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
   DB* db = nullptr;
 
-  std::vector<ColumnFamilyDescriptor> cfds = {{kDefaultColumnFamilyName, opts}};
+  std::vector<ColumnFamilyDescriptor> cfds = {
+      {kDefaultColumnFamilyName, opts}, {"cf1", opts}, {"cf2", opts}};
   std::vector<ColumnFamilyHandle*> handles;
   ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, cfds, &handles, &db));
@@ -1250,7 +1251,7 @@ TEST_F(LdbCmdTest, CustomComparator) {
   char* argv[] = {arg1, const_cast<char*>(arg2.c_str()), arg3, arg4};
 
   ASSERT_EQ(0,
-            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), &cfds));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

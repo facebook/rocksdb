@@ -819,6 +819,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   }
 
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
+    PERF_TIMER_GUARD(write_memtable_time);
+
     assert(w.ShouldWriteToMemtable());
     ColumnFamilyMemTablesImpl column_family_memtables(
         versions_->GetColumnFamilySet());
@@ -828,6 +831,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
         0 /*log_number*/, this, true /*concurrent_memtable_writes*/,
         false /*seq_per_batch*/, 0 /*batch_cnt*/, true /*batch_per_txn*/,
         write_options.memtable_insert_hint_per_batch);
+
+    PERF_TIMER_STOP(write_memtable_time);
+    PERF_TIMER_START(write_pre_and_post_process_time);
+
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       MemTableInsertStatusCheck(w.status);
       versions_->SetLastSequence(w.write_group->last_sequence);
@@ -860,6 +867,9 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     stats->AddDBStats(InternalStats::kIntStatsNumKeysWritten, total_count);
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
 
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
+    PERF_TIMER_GUARD(write_memtable_time);
+
     ColumnFamilyMemTablesImpl column_family_memtables(
         versions_->GetColumnFamilySet());
     w.status = WriteBatchInternal::InsertInto(
@@ -871,6 +881,8 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     if (write_options.disableWAL) {
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
     }
+
+    PERF_TIMER_START(write_pre_and_post_process_time);
   }
 
   size_t pending_cnt = pending_memtable_writes_.fetch_sub(1) - 1;
@@ -941,9 +953,13 @@ Status DBImpl::WriteImplWALOnly(
       return status;
     }
   } else {
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
+    PERF_TIMER_GUARD(write_delay_time);
     InstrumentedMutexLock lock(&mutex_);
     Status status =
         DelayWrite(/*num_bytes=*/0ull, *write_thread, write_options);
+    PERF_TIMER_STOP(write_delay_time);
+    PERF_TIMER_START(write_pre_and_post_process_time);
     if (!status.ok()) {
       WriteThread::WriteGroup write_group;
       write_thread->EnterAsBatchGroupLeader(&w, &write_group);

@@ -43,7 +43,7 @@ struct IngestedFileInfo {
   uint64_t num_entries;
   // total number of range deletions in external file
   uint64_t num_range_deletions;
-  // Id of column family this file shoule be ingested into
+  // Id of column family this file should be ingested into
   uint32_t cf_id;
   // TableProperties read from external file
   TableProperties table_properties;
@@ -102,16 +102,7 @@ class ExternalSstFileIngestionJob {
     assert(directories != nullptr);
   }
 
-  ~ExternalSstFileIngestionJob() {
-    for (const auto& c : file_ingesting_compactions_) {
-      cfd_->compaction_picker()->UnregisterCompaction(c);
-      delete c;
-    }
-
-    for (const auto& f : compaction_input_metdatas_) {
-      delete f;
-    }
-  }
+  ~ExternalSstFileIngestionJob() { UnregisterRange(); }
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
@@ -156,7 +147,7 @@ class ExternalSstFileIngestionJob {
     return files_to_ingest_;
   }
 
-  // How many sequence numbers did we consume as part of the ingest job?
+  // How many sequence numbers did we consume as part of the ingestion job?
   int ConsumedSequenceNumbersCount() const { return consumed_seqno_count_; }
 
  private:
@@ -202,6 +193,9 @@ class ExternalSstFileIngestionJob {
   // , which will be used to check range conflict with other ongoing
   // compactions.
   void CreateEquivalentFileIngestingCompactions();
+
+  // Remove all the internal files created, called when ingestion job fails.
+  void DeleteInternalFiles();
 
   SystemClock* clock_;
   FileSystemPtr fs_;

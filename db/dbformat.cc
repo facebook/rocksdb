@@ -66,6 +66,13 @@ void AppendInternalKeyWithDifferentTimestamp(std::string* result,
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
 
+void AppendUserKeyWithDifferentTimestamp(std::string* result, const Slice& key,
+                                         const Slice& ts) {
+  assert(key.size() >= ts.size());
+  result->append(key.data(), key.size() - ts.size());
+  result->append(ts.data(), ts.size());
+}
+
 void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
                              ValueType t) {
   PutFixed64(result, PackSequenceAndType(s, t));
@@ -110,10 +117,22 @@ void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
 void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
                                     size_t ts_sz) {
   assert(ts_sz > 0);
+  assert(key.size() >= kNumInternalBytes);
   size_t user_key_size = key.size() - kNumInternalBytes;
   result->reserve(key.size() + ts_sz);
   result->append(key.data(), user_key_size);
   result->append(ts_sz, static_cast<unsigned char>(0));
+  result->append(key.data() + user_key_size, kNumInternalBytes);
+}
+
+void PadInternalKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz) {
+  assert(ts_sz > 0);
+  assert(key.size() >= kNumInternalBytes);
+  size_t user_key_size = key.size() - kNumInternalBytes;
+  result->reserve(key.size() + ts_sz);
+  result->append(key.data(), user_key_size);
+  result->append(std::string(ts_sz, '\xff'));
   result->append(key.data() + user_key_size, kNumInternalBytes);
 }
 

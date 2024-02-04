@@ -201,7 +201,7 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
       FileOperationInfo(FileOperationType::kRead, file_path, start_timestamp,
                         finish_timestamp, status);
   op_info.offset = UINT64_MAX;
-  op_info.length = SIZE_MAX;
+  op_info.length = 4096;
 
   el->OnFileReadFinish(op_info);
   el->OnFileWriteFinish(op_info);

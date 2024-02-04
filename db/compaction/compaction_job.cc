@@ -484,7 +484,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // overlap with N-1 other ranges. Since we requested a relatively large number
   // (128) of ranges from each input files, even N range overlapping would
   // cause relatively small inaccuracy.
-  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  ReadOptions read_options(Env::IOActivity::kCompaction);
+  read_options.rate_limiter_priority = GetRateLimiterPriority();
   auto* c = compact_->compaction;
   if (c->max_subcompactions() <= 1 &&
       !(c->immutable_options()->compaction_pri == kRoundRobin &&
@@ -736,8 +737,9 @@ Status CompactionJob::Run() {
         // use_direct_io_for_flush_and_compaction is true, we will regard this
         // verification as user reads since the goal is to cache it here for
         // further user reads
-        const ReadOptions verify_table_read_options(
-            Env::IOActivity::kCompaction);
+        ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
+        verify_table_read_options.rate_limiter_priority =
+            GetRateLimiterPriority();
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             verify_table_read_options, file_options_,
             cfd->internal_comparator(), files_output[file_idx]->meta,
@@ -758,7 +760,6 @@ Status CompactionJob::Run() {
 
         if (s.ok() && paranoid_file_checks_) {
           OutputValidator validator(cfd->internal_comparator(),
-                                    /*_enable_order_check=*/true,
                                     /*_enable_hash=*/true);
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             s = validator.Add(iter->key(), iter->value());
@@ -829,24 +830,27 @@ Status CompactionJob::Run() {
     // input keys. So the number of keys it processed is not suitable for
     // verification here.
     // TODO: support verification when trim_ts_ is non-empty.
-    if (!(ts_sz > 0 && !trim_ts_.empty()) &&
-        db_options_.compaction_verify_record_count) {
+    if (!(ts_sz > 0 && !trim_ts_.empty())) {
       assert(compaction_stats_.stats.num_input_records > 0);
       // TODO: verify the number of range deletion entries.
       uint64_t expected =
           compaction_stats_.stats.num_input_records - num_input_range_del;
       uint64_t actual = compaction_job_stats_->num_input_records;
       if (expected != actual) {
+        char scratch[2345];
+        compact_->compaction->Summary(scratch, sizeof(scratch));
         std::string msg =
-            "Total number of input records: " + std::to_string(expected) +
-            ", but processed " + std::to_string(actual) + " records.";
+            "Compaction number of input keys does not match "
+            "number of keys processed. Expected " +
+            std::to_string(expected) + " but processed " +
+            std::to_string(actual) + ". Compaction summary: " + scratch;
         ROCKS_LOG_WARN(
-            db_options_.info_log, "[%s] [JOB %d] Compaction %s",
+            db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
             compact_->compaction->column_family_data()->GetName().c_str(),
             job_context_->job_id, msg.c_str());
-        status = Status::Corruption(
-            "Compaction number of input keys does not match number of keys "
-            "processed.");
+        if (db_options_.compaction_verify_record_count) {
+          status = Status::Corruption(msg);
+        }
       }
     }
   }
@@ -1943,8 +1947,6 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     }
 
     outputs.AddOutput(std::move(meta), cfd->internal_comparator(),
-                      sub_compact->compaction->mutable_cf_options()
-                          ->check_flush_compaction_key_order,
                       paranoid_file_checks_);
   }
 
@@ -1967,7 +1969,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       read_options, write_options, cfd->internal_comparator(),
-      cfd->int_tbl_prop_collector_factories(),
+      cfd->internal_tbl_prop_coll_factories(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),

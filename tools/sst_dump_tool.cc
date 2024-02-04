@@ -55,6 +55,8 @@ void print_help(bool to_stderr) {
 
     --command=check|scan|raw|verify|identify
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
+               When read_num, from and to are not set, it compares the number of keys read with num_entries in table
+               property and will report corruption if there is a mismatch.
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
         verify: Iterate all the blocks in files verifying checksum to detect possible corruption but don't print anything except if a corruption is encountered

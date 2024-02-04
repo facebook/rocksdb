@@ -29,7 +29,7 @@ class StderrLogger : public Logger {
   // a subset of them.
   using Logger::Logv;
 
-  virtual void Logv(const char* format, va_list ap) override;
+  void Logv(const char* format, va_list ap) override;
 
  private:
   // This prefix will be appended after the time/thread info of every log

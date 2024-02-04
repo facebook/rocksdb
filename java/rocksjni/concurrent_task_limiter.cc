@@ -88,9 +88,8 @@ jint Java_org_rocksdb_ConcurrentTaskLimiterImpl_outstandingTask(JNIEnv*, jclass,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ConcurrentTaskLimiterImpl_disposeInternal(JNIEnv*,
-                                                                jobject,
-                                                                jlong jhandle) {
+void Java_org_rocksdb_ConcurrentTaskLimiterImpl_disposeInternalJni(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* ptr = reinterpret_cast<
       std::shared_ptr<ROCKSDB_NAMESPACE::ConcurrentTaskLimiter>*>(jhandle);
   delete ptr;  // delete std::shared_ptr

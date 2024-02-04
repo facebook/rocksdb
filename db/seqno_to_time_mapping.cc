@@ -72,20 +72,16 @@ SequenceNumber SeqnoToTimeMapping::GetProximalSeqnoBeforeTime(
 void SeqnoToTimeMapping::EnforceMaxTimeSpan(uint64_t now) {
   assert(enforced_);  // at least sorted
   uint64_t cutoff_time;
+  if (pairs_.size() <= 1) {
+    return;
+  }
   if (now > 0) {
-    if (pairs_.size() <= 1) {
-      return;
-    }
     if (now < max_time_span_) {
       // Nothing eligible to prune / avoid underflow
       return;
     }
     cutoff_time = now - max_time_span_;
   } else {
-    if (pairs_.size() <= 2) {
-      // Need to keep at least two if we don't know the current time
-      return;
-    }
     const auto& last = pairs_.back();
     if (last.time < max_time_span_) {
       // Nothing eligible to prune / avoid underflow
@@ -108,7 +104,6 @@ void SeqnoToTimeMapping::EnforceCapacity(bool strict) {
     return;
   }
   // Treat cap of 1 as 2 to work with the below algorithm (etc.)
-  // TODO: unit test
   if (strict_cap == 1) {
     strict_cap = 2;
   }
@@ -400,12 +395,16 @@ void SeqnoToTimeMapping::CopyFromSeqnoRange(const SeqnoToTimeMapping& src,
                                             SequenceNumber to_seqno) {
   bool orig_empty = Empty();
   auto src_it = src.FindGreaterEqSeqno(from_seqno);
+  // Allow nonsensical ranges like [1000, 0] which might show up e.g. for
+  // an SST file with no entries.
+  auto src_it_end =
+      to_seqno < from_seqno ? src_it : src.FindGreaterSeqno(to_seqno);
   // To best answer GetProximalTimeBeforeSeqno(from_seqno) we need an entry
   // with a seqno before that (if available)
   if (src_it != src.pairs_.begin()) {
     --src_it;
   }
-  auto src_it_end = src.FindGreaterSeqno(to_seqno);
+  assert(src_it <= src_it_end);
   std::copy(src_it, src_it_end, std::back_inserter(pairs_));
 
   if (!orig_empty || max_time_span_ < UINT64_MAX || capacity_ < UINT64_MAX) {
@@ -420,6 +419,7 @@ bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
   bool added = false;
   if (seqno == 0) {
     // skip seq number 0, which may have special meaning, like zeroed out data
+    // TODO: consider changing?
   } else if (pairs_.empty()) {
     enforced_ = true;
     pairs_.push_back({seqno, time});

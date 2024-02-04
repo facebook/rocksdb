@@ -468,7 +468,7 @@ class Repairer {
       TableBuilderOptions tboptions(
           *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), read_options,
           write_option, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), kNoCompression,
+          cfd->internal_tbl_prop_coll_factories(), kNoCompression,
           default_compression, cfd->GetID(), cfd->GetName(), -1 /* level */,
           false /* is_bottommost */, TableFileCreationReason::kRecovery,
           0 /* oldest_key_time */, 0 /* file_creation_time */,

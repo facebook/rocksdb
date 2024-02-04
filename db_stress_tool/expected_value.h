@@ -8,6 +8,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include <atomic>
 #include <cassert>
@@ -150,6 +151,11 @@ class ExpectedValue {
 // `PendingExpectedValue` represents the expected value of a key undergoing a
 // pending operation in db stress.
 //
+// After a `PendingExpectedValue` object is created, either `Rollback` or
+// `Commit` should be called to close its pending state before it's destructed.
+// In case no pending state was introduced while creating this
+// `PendingExpectedValue` and user want to ignore the unclosed pending state,
+// `PermitUnclosedPendingState` should be called explicitly.
 // This class is not thread-safe.
 class PendingExpectedValue {
  public:
@@ -158,9 +164,52 @@ class PendingExpectedValue {
                                 ExpectedValue final_value)
       : value_ptr_(value_ptr),
         orig_value_(orig_value),
-        final_value_(final_value) {}
+        final_value_(final_value),
+        pending_state_closed_(false) {}
+
+  PendingExpectedValue(const PendingExpectedValue& other)
+      : value_ptr_(other.value_ptr_),
+        orig_value_(other.orig_value_),
+        final_value_(other.final_value_),
+        pending_state_closed_(false) {
+    other.ClosePendingState();
+  }
+
+  PendingExpectedValue(PendingExpectedValue&& other) noexcept
+      : value_ptr_(std::move(other.value_ptr_)),
+        orig_value_(std::move(other.orig_value_)),
+        final_value_(std::move(other.final_value_)),
+        pending_state_closed_(false) {
+    other.ClosePendingState();
+  }
+
+  PendingExpectedValue& operator=(const PendingExpectedValue& other) {
+    if (this != &other) {
+      other.ClosePendingState();
+      value_ptr_ = other.value_ptr_;
+      orig_value_ = other.orig_value_;
+      final_value_ = other.final_value_;
+      pending_state_closed_ = false;
+    }
+    return *this;
+  }
+
+  PendingExpectedValue& operator=(PendingExpectedValue&& other) {
+    if (this != &other) {
+      other.ClosePendingState();
+      value_ptr_ = std::move(other.value_ptr_);
+      orig_value_ = std::move(other.orig_value_);
+      final_value_ = std::move(other.final_value_);
+      pending_state_closed_ = false;
+    }
+    return *this;
+  }
+
+  ~PendingExpectedValue() { assert(pending_state_closed_); }
 
   void Commit() {
+    assert(!pending_state_closed_);
+    ClosePendingState();
     // To prevent low-level instruction reordering that results
     // in setting expected value happens before db write
     std::atomic_thread_fence(std::memory_order_release);
@@ -172,18 +221,28 @@ class PendingExpectedValue {
   // such as pending delete, pending put. If `ExpectedState::Precommit()` is not
   // called before creating this `PendingExpectedValue`, this is a no-op.
   void Rollback() {
+    assert(!pending_state_closed_);
+    ClosePendingState();
     // To prevent low-level instruction reordering that results
     // in setting expected value happens before db write
     std::atomic_thread_fence(std::memory_order_release);
     value_ptr_->store(orig_value_.Read());
   }
 
+  void PermitUnclosedPendingState() const {
+    assert(!pending_state_closed_);
+    ClosePendingState();
+  }
+
   uint32_t GetFinalValueBase() { return final_value_.GetValueBase(); }
 
  private:
-  std::atomic<uint32_t>* const value_ptr_;
-  const ExpectedValue orig_value_;
-  const ExpectedValue final_value_;
+  inline void ClosePendingState() const { pending_state_closed_ = true; }
+
+  std::atomic<uint32_t>* value_ptr_;
+  ExpectedValue orig_value_;
+  ExpectedValue final_value_;
+  mutable bool pending_state_closed_;
 };
 
 // `ExpectedValueHelper` provides utils to parse `ExpectedValue` to obtain

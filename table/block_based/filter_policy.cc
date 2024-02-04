@@ -74,7 +74,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
   ~XXPH3FilterBitsBuilder() override = default;
 
-  virtual void AddKey(const Slice& key) override {
+  void AddKey(const Slice& key) override {
     uint64_t hash = GetSliceHash64(key);
     // Especially with prefixes, it is common to have repetition,
     // though only adjacent repetition, which we want to immediately
@@ -100,11 +100,11 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     }
   }
 
-  virtual size_t EstimateEntriesAdded() override {
+  size_t EstimateEntriesAdded() override {
     return hash_entries_info_.entries.size();
   }
 
-  virtual Status MaybePostVerify(const Slice& filter_content) override;
+  Status MaybePostVerify(const Slice& filter_content) override;
 
  protected:
   static constexpr uint32_t kMetadataLen = 5;
@@ -325,12 +325,11 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 
   using FilterBitsBuilder::Finish;
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf) override {
     return Finish(buf, nullptr);
   }
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
-                       Status* status) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf, Status* status) override {
     size_t num_entries = hash_entries_info_.entries.size();
     size_t len_with_metadata = CalculateSpace(num_entries);
 
@@ -536,7 +535,7 @@ class FastLocalBloomBitsReader : public BuiltinFilterBitsReader {
                                                     data_ + byte_offset);
   }
 
-  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+  void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {
@@ -610,12 +609,11 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 
   using FilterBitsBuilder::Finish;
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf) override {
     return Finish(buf, nullptr);
   }
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
-                       Status* status) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf, Status* status) override {
     if (hash_entries_info_.entries.size() > kMaxRibbonEntries) {
       ROCKS_LOG_WARN(
           info_log_, "Too many keys for Ribbon filter: %llu",
@@ -974,7 +972,7 @@ class Standard128RibbonBitsReader : public BuiltinFilterBitsReader {
     return soln_.FilterQuery(h, hasher_);
   }
 
-  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+  void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
     struct SavedData {
       uint64_t seeded_hash;
       uint32_t segment_num;
@@ -1020,9 +1018,7 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
   void AddKey(const Slice& key) override;
 
-  virtual size_t EstimateEntriesAdded() override {
-    return hash_entries_.size();
-  }
+  size_t EstimateEntriesAdded() override { return hash_entries_.size(); }
 
   using FilterBitsBuilder::Finish;
 
@@ -1236,7 +1232,7 @@ class LegacyBloomBitsReader : public BuiltinFilterBitsReader {
         hash, num_probes_, data_ + byte_offset, log2_cache_line_size_);
   }
 
-  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+  void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {

@@ -91,8 +91,8 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
   return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
 }
 
-extern Slice CompressibleString(Random* rnd, double compressed_fraction,
-                                int len, std::string* dst) {
+Slice CompressibleString(Random* rnd, double compressed_fraction, int len,
+                         std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
   if (raw < 1) {
     raw = 1;
@@ -591,13 +591,13 @@ class SpecialMemTableRep : public MemTableRep {
         num_entries_flush_(num_entries_flush),
         num_entries_(0) {}
 
-  virtual KeyHandle Allocate(const size_t len, char** buf) override {
+  KeyHandle Allocate(const size_t len, char** buf) override {
     return memtable_->Allocate(len, buf);
   }
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual void Insert(KeyHandle handle) override {
+  void Insert(KeyHandle handle) override {
     num_entries_++;
     memtable_->Insert(handle);
   }
@@ -608,19 +608,18 @@ class SpecialMemTableRep : public MemTableRep {
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
-  virtual bool Contains(const char* key) const override {
+  bool Contains(const char* key) const override {
     return memtable_->Contains(key);
   }
 
-  virtual size_t ApproximateMemoryUsage() override {
+  size_t ApproximateMemoryUsage() override {
     // Return a high memory usage when number of entries exceeds the threshold
     // to trigger a flush.
     return (num_entries_ < num_entries_flush_) ? 0 : 1024 * 1024 * 1024;
   }
 
-  virtual void Get(const LookupKey& k, void* callback_args,
-                   bool (*callback_func)(void* arg,
-                                         const char* entry)) override {
+  void Get(const LookupKey& k, void* callback_args,
+           bool (*callback_func)(void* arg, const char* entry)) override {
     memtable_->Get(k, callback_args, callback_func);
   }
 
@@ -629,11 +628,11 @@ class SpecialMemTableRep : public MemTableRep {
     return memtable_->ApproximateNumEntries(start_ikey, end_ikey);
   }
 
-  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
+  MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
     return memtable_->GetIterator(arena);
   }
 
-  virtual ~SpecialMemTableRep() override = default;
+  ~SpecialMemTableRep() override = default;
 
  private:
   std::unique_ptr<MemTableRep> memtable_;
@@ -665,16 +664,17 @@ class SpecialSkipListFactory : public MemTableRepFactory {
       : num_entries_flush_(num_entries_flush) {}
 
   using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, Allocator* allocator,
-      const SliceTransform* transform, Logger* /*logger*/) override {
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& compare,
+                                 Allocator* allocator,
+                                 const SliceTransform* transform,
+                                 Logger* /*logger*/) override {
     return new SpecialMemTableRep(
         allocator,
         factory_.CreateMemTableRep(compare, allocator, transform, nullptr),
         num_entries_flush_);
   }
   static const char* kClassName() { return "SpecialSkipListFactory"; }
-  virtual const char* Name() const override { return kClassName(); }
+  const char* Name() const override { return kClassName(); }
   std::string GetId() const override {
     std::string id = Name();
     if (num_entries_flush_ > 0) {

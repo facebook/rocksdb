@@ -234,10 +234,8 @@ public class PlainTableConfig extends TableFormatConfig {
         storeIndexInFile_);
   }
 
-  private native long newTableFactoryHandle(
-      int keySize, int bloomBitsPerKey,
-      double hashTableRatio, int indexSparseness,
-      int hugePageTlbSize, byte encodingType,
+  private static native long newTableFactoryHandle(int keySize, int bloomBitsPerKey,
+      double hashTableRatio, int indexSparseness, int hugePageTlbSize, byte encodingType,
       boolean fullScanMode, boolean storeIndexInFile);
 
   private int keySize_;

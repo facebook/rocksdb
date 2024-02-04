@@ -309,7 +309,7 @@ Status DBImpl::Resume() {
 
   if (error_handler_.IsRecoveryInProgress()) {
     // Don't allow a mix of manual and automatic recovery
-    return Status::Busy();
+    return Status::Busy("Recovery in progress");
   }
 
   mutex_.Unlock();

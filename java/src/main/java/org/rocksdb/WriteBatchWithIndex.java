@@ -292,67 +292,188 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
         options.nativeHandle_, key, key.length);
   }
 
-  @Override protected final native void disposeInternal(final long handle);
-  @Override final native int count0(final long handle);
-  @Override final native void put(final long handle, final byte[] key,
-      final int keyLen, final byte[] value, final int valueLen);
-  @Override final native void put(final long handle, final byte[] key,
-      final int keyLen, final byte[] value, final int valueLen,
-      final long cfHandle);
   @Override
-  final native void putDirect(final long handle, final ByteBuffer key, final int keyOffset,
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
+  @Override
+  final int count0(final long handle) {
+    return count0Jni(handle);
+  }
+  private static native int count0Jni(final long handle);
+
+  @Override
+  final void put(final long handle, final byte[] key, final int keyLen, final byte[] value,
+      final int valueLen) {
+    putJni(handle, key, keyLen, value, valueLen);
+  }
+
+  private static native void putJni(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen);
+
+  @Override
+  final void put(final long handle, final byte[] key, final int keyLen, final byte[] value,
+      final int valueLen, final long cfHandle) {
+    putJni(handle, key, keyLen, value, valueLen, cfHandle);
+  }
+
+  private static native void putJni(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen, final long cfHandle);
+
+  @Override
+  final void putDirect(final long handle, final ByteBuffer key, final int keyOffset,
       final int keyLength, final ByteBuffer value, final int valueOffset, final int valueLength,
-      final long cfHandle);
-  @Override final native void merge(final long handle, final byte[] key,
-      final int keyLen, final byte[] value, final int valueLen);
-  @Override final native void merge(final long handle, final byte[] key,
-      final int keyLen, final byte[] value, final int valueLen,
-      final long cfHandle);
-  @Override final native void delete(final long handle, final byte[] key,
-      final int keyLen) throws RocksDBException;
-  @Override final native void delete(final long handle, final byte[] key,
-      final int keyLen, final long cfHandle) throws RocksDBException;
-  @Override final native void singleDelete(final long handle, final byte[] key,
-      final int keyLen) throws RocksDBException;
-  @Override final native void singleDelete(final long handle, final byte[] key,
-      final int keyLen, final long cfHandle) throws RocksDBException;
+      final long cfHandle) {
+    putDirectJni(handle, key, keyOffset, keyLength, value, valueOffset, valueLength, cfHandle);
+  }
+
+  private static native void putDirectJni(final long handle, final ByteBuffer key,
+      final int keyOffset, final int keyLength, final ByteBuffer value, final int valueOffset,
+      final int valueLength, final long cfHandle);
+
   @Override
-  final native void deleteDirect(final long handle, final ByteBuffer key, final int keyOffset,
-      final int keyLength, final long cfHandle) throws RocksDBException;
+  final void merge(final long handle, final byte[] key, final int keyLen, final byte[] value,
+      final int valueLen) {
+    mergeJni(handle, key, keyLen, value, valueLen);
+  }
+
+  private static native void mergeJni(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen);
+
+  @Override
+  final void merge(final long handle, final byte[] key, final int keyLen, final byte[] value,
+      final int valueLen, final long cfHandle) {
+    mergeJni(handle, key, keyLen, value, valueLen, cfHandle);
+  }
+
+  private static native void mergeJni(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen, final long cfHandle);
+  @Override
+  final void delete(final long handle, final byte[] key, final int keyLen) throws RocksDBException {
+    deleteJni(handle, key, keyLen);
+  }
+  private static native void deleteJni(final long handle, final byte[] key, final int keyLen)
+      throws RocksDBException;
+
+  @Override
+  final void delete(final long handle, final byte[] key, final int keyLen, final long cfHandle)
+      throws RocksDBException {
+    deleteJni(handle, key, keyLen, cfHandle);
+  }
+
+  private static native void deleteJni(final long handle, final byte[] key, final int keyLen,
+      final long cfHandle) throws RocksDBException;
+
+  @Override
+  final void singleDelete(final long handle, final byte[] key, final int keyLen)
+      throws RocksDBException {
+    singleDeleteJni(handle, key, keyLen);
+  }
+
+  private static native void singleDeleteJni(final long handle, final byte[] key, final int keyLen)
+      throws RocksDBException;
+
+  @Override
+  final void singleDelete(final long handle, final byte[] key, final int keyLen,
+      final long cfHandle) throws RocksDBException {
+    singleDeleteJni(handle, key, keyLen, cfHandle);
+  }
+
+  private static native void singleDeleteJni(final long handle, final byte[] key, final int keyLen,
+      final long cfHandle) throws RocksDBException;
+
+  @Override
+  final void deleteDirect(final long handle, final ByteBuffer key, final int keyOffset,
+      final int keyLength, final long cfHandle) throws RocksDBException {
+    deleteDirectJni(handle, key, keyOffset, keyLength, cfHandle);
+  }
+
+  private static native void deleteDirectJni(final long handle, final ByteBuffer key,
+      final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
+
   // DO NOT USE - `WriteBatchWithIndex::deleteRange` is not yet supported
   @Override
-  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
-      final byte[] endKey, final int endKeyLen);
+  final void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen) {
+    deleteRangeJni(handle, beginKey, beginKeyLen, endKey, endKeyLen);
+  }
+
+  private static native void deleteRangeJni(final long handle, final byte[] beginKey,
+      final int beginKeyLen, final byte[] endKey, final int endKeyLen);
+
   // DO NOT USE - `WriteBatchWithIndex::deleteRange` is not yet supported
   @Override
-  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
-      final byte[] endKey, final int endKeyLen, final long cfHandle);
-  @Override final native void putLogData(final long handle, final byte[] blob,
-      final int blobLen) throws RocksDBException;
-  @Override final native void clear0(final long handle);
-  @Override final native void setSavePoint0(final long handle);
-  @Override final native void rollbackToSavePoint0(final long handle);
-  @Override final native void popSavePoint(final long handle) throws RocksDBException;
-  @Override final native void setMaxBytes(final long nativeHandle,
-      final long maxBytes);
-  @Override final native WriteBatch getWriteBatch(final long handle);
+  final void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen, final long cfHandle) {
+    deleteRangeJni(handle, beginKey, beginKeyLen, endKey, endKeyLen, cfHandle);
+  }
+
+  private static native void deleteRangeJni(final long handle, final byte[] beginKey,
+      final int beginKeyLen, final byte[] endKey, final int endKeyLen, final long cfHandle);
+
+  @Override
+  final void putLogData(final long handle, final byte[] blob, final int blobLen)
+      throws RocksDBException {
+    putLogDataJni(handle, blob, blobLen);
+  }
+  private static native void putLogDataJni(final long handle, final byte[] blob, final int blobLen)
+      throws RocksDBException;
+
+  @Override
+  final void clear0(final long handle) {
+    clear0Jni(handle);
+  }
+
+  private static native void clear0Jni(final long handle);
+  @Override
+  final void setSavePoint0(final long handle) {
+    setSavePoint0Jni(handle);
+  }
+  private static native void setSavePoint0Jni(final long handle);
+
+  @Override
+  final void rollbackToSavePoint0(final long handle) {
+    rollbackToSavePoint0Jni(handle);
+  }
+
+  private static native void rollbackToSavePoint0Jni(final long handle);
+
+  @Override
+  final void popSavePoint(final long handle) throws RocksDBException {
+    popSavePointJni(handle);
+  }
+
+  private static native void popSavePointJni(final long handle) throws RocksDBException;
+
+  @Override
+  final void setMaxBytes(final long nativeHandle, final long maxBytes) {
+    setMaxBytesJni(nativeHandle, maxBytes);
+  }
+
+  private static native void setMaxBytesJni(final long nativeHandle, final long maxBytes);
+
+  @Override
+  final WriteBatch getWriteBatch(final long handle) {
+    return getWriteBatchJni(handle);
+  }
+
+  private static native WriteBatch getWriteBatchJni(final long handle);
 
   private static native long newWriteBatchWithIndex();
   private static native long newWriteBatchWithIndex(final boolean overwriteKey);
   private static native long newWriteBatchWithIndex(final long fallbackIndexComparatorHandle,
       final byte comparatorType, final int reservedBytes, final boolean overwriteKey);
-  private native long iterator0(final long handle);
-  private native long iterator1(final long handle, final long cfHandle);
-  private native long iteratorWithBase(final long handle, final long cfHandle,
+  private static native long iterator0(final long handle);
+  private static native long iterator1(final long handle, final long cfHandle);
+  private static native long iteratorWithBase(final long handle, final long cfHandle,
       final long baseIteratorHandle, final long readOptionsHandle);
-  private native byte[] getFromBatch(final long handle, final long optHandle,
-      final byte[] key, final int keyLen);
-  private native byte[] getFromBatch(final long handle, final long optHandle,
+  private static native byte[] getFromBatch(
+      final long handle, final long optHandle, final byte[] key, final int keyLen);
+  private static native byte[] getFromBatch(final long handle, final long optHandle,
       final byte[] key, final int keyLen, final long cfHandle);
-  private native byte[] getFromBatchAndDB(final long handle,
-      final long dbHandle,  final long readOptHandle, final byte[] key,
-      final int keyLen);
-  private native byte[] getFromBatchAndDB(final long handle,
-      final long dbHandle, final long readOptHandle, final byte[] key,
-      final int keyLen, final long cfHandle);
+  private static native byte[] getFromBatchAndDB(final long handle, final long dbHandle,
+      final long readOptHandle, final byte[] key, final int keyLen);
+  private static native byte[] getFromBatchAndDB(final long handle, final long dbHandle,
+      final long readOptHandle, final byte[] key, final int keyLen, final long cfHandle);
 }

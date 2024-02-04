@@ -150,7 +150,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
     const std::vector<std::string>& args, const Options& options,
     const LDBOptions& ldb_options,
-    const std::vector<ColumnFamilyDescriptor>* /*column_families*/,
+    const std::vector<ColumnFamilyDescriptor>* column_families,
     const std::function<LDBCommand*(const ParsedParams&)>& selector) {
   // --x=y command line arguments are added as x->y map entries in
   // parsed_params.option_map.
@@ -200,6 +200,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   if (command) {
     command->SetDBOptions(options);
     command->SetLDBOptions(ldb_options);
+    command->SetColumnFamilies(column_families);
   }
   return command;
 }
@@ -208,6 +209,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   if (parsed_params.cmd == GetCommand::Name()) {
     return new GetCommand(parsed_params.cmd_params, parsed_params.option_map,
                           parsed_params.flags);
+  } else if (parsed_params.cmd == MultiGetCommand::Name()) {
+    return new MultiGetCommand(parsed_params.cmd_params,
+                               parsed_params.option_map, parsed_params.flags);
   } else if (parsed_params.cmd == GetEntityCommand::Name()) {
     return new GetEntityCommand(parsed_params.cmd_params,
                                 parsed_params.option_map, parsed_params.flags);
@@ -930,10 +934,12 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
 // Second, overrides the options according to the CLI arguments and the
 // specific subcommand being run.
 void LDBCommand::PrepareOptions() {
+  std::vector<ColumnFamilyDescriptor> column_families_from_options;
+
   if (!create_if_missing_ && try_load_options_) {
     config_options_.env = options_.env;
     Status s = LoadLatestOptions(config_options_, db_path_, &options_,
-                                 &column_families_);
+                                 &column_families_from_options);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
       std::string current_version = std::to_string(ROCKSDB_MAJOR) + "." +
@@ -959,7 +965,7 @@ void LDBCommand::PrepareOptions() {
     }
 
     // If merge operator is not set, set a string append operator.
-    for (auto& cf_entry : column_families_) {
+    for (auto& cf_entry : column_families_from_options) {
       if (!cf_entry.options.merge_operator) {
         cf_entry.options.merge_operator =
             MergeOperators::CreateStringAppendOperator(':');
@@ -977,22 +983,29 @@ void LDBCommand::PrepareOptions() {
   }
 
   if (column_families_.empty()) {
-    // Reads the MANIFEST to figure out what column families exist. In this
-    // case, the option overrides from the CLI argument/specific subcommand
-    // apply to all column families.
-    std::vector<std::string> cf_list;
-    Status st = DB::ListColumnFamilies(options_, db_path_, &cf_list);
-    // It is possible the DB doesn't exist yet, for "create if not
-    // existing" case. The failure is ignored here. We rely on DB::Open()
-    // to give us the correct error message for problem with opening
-    // existing DB.
-    if (st.ok() && cf_list.size() > 1) {
-      // Ignore single column family DB.
-      for (const auto& cf_name : cf_list) {
-        column_families_.emplace_back(cf_name, options_);
+    // column_families not set. Either set it from MANIFEST or OPTIONS file.
+    if (column_families_from_options.empty()) {
+      // Reads the MANIFEST to figure out what column families exist. In this
+      // case, the option overrides from the CLI argument/specific subcommand
+      // apply to all column families.
+      std::vector<std::string> cf_list;
+      Status st = DB::ListColumnFamilies(options_, db_path_, &cf_list);
+      // It is possible the DB doesn't exist yet, for "create if not
+      // existing" case. The failure is ignored here. We rely on DB::Open()
+      // to give us the correct error message for problem with opening
+      // existing DB.
+      if (st.ok() && cf_list.size() > 1) {
+        // Ignore single column family DB.
+        for (const auto& cf_name : cf_list) {
+          column_families_.emplace_back(cf_name, options_);
+        }
       }
+    } else {
+      SetColumnFamilies(&column_families_from_options);
     }
-  } else {
+  }
+
+  if (!column_families_from_options.empty()) {
     // We got column families from the OPTIONS file. In this case, the option
     // overrides from the CLI argument/specific subcommand only apply to the
     // column family specified by `--column_family_name`.
@@ -2867,6 +2880,66 @@ void GetCommand::DoCommand() {
     std::stringstream oss;
     oss << "Get failed: " << st.ToString();
     exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+MultiGetCommand::MultiGetCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() < 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "At least one <key> must be specified for multi_get.");
+  } else {
+    for (size_t i = 0; i < params.size(); ++i) {
+      std::string key = params.at(i);
+      keys_.emplace_back(is_key_hex_ ? HexToString(key) : key);
+    }
+  }
+}
+
+void MultiGetCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(MultiGetCommand::Name());
+  ret.append(" <key_1> <key_2> <key_3> ...");
+  ret.append(" [--" + ARG_TTL + "]");
+  ret.append("\n");
+}
+
+void MultiGetCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  size_t num_keys = keys_.size();
+  std::vector<Slice> key_slices;
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+  for (const std::string& key : keys_) {
+    key_slices.emplace_back(key);
+  }
+  db_->MultiGet(ReadOptions(), GetCfHandle(), num_keys, key_slices.data(),
+                values.data(), statuses.data());
+
+  bool failed = false;
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (statuses[i].ok()) {
+      fprintf(stdout, is_value_hex_ ? "0x%s\n" : "%s\n",
+              values[i].ToString(is_value_hex_).c_str());
+    } else {
+      fprintf(stderr, "Status for key %s: %s\n",
+              (is_key_hex_ ? StringToHex(keys_[i]) : keys_[i]).c_str(),
+              statuses[i].ToString().c_str());
+      failed = false;
+    }
+  }
+  if (failed) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("one or more keys had non-okay status");
   }
 }
 

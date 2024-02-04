@@ -135,8 +135,8 @@ class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {
                                       dbg);
   }
 
-  virtual IOStatus Truncate(uint64_t size, const IOOptions& options,
-                            IODebugContext* dbg) override {
+  IOStatus Truncate(uint64_t size, const IOOptions& options,
+                    IODebugContext* dbg) override {
 #ifndef NDEBUG
     const ThreadStatus::OperationType thread_op =
         ThreadStatusUtil::GetThreadOperation();
@@ -148,8 +148,7 @@ class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {
     return target()->Truncate(size, options, dbg);
   }
 
-  virtual IOStatus Close(const IOOptions& options,
-                         IODebugContext* dbg) override {
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
 #ifndef NDEBUG
     const ThreadStatus::OperationType thread_op =
         ThreadStatusUtil::GetThreadOperation();
@@ -161,8 +160,7 @@ class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {
     return target()->Close(options, dbg);
   }
 
-  virtual IOStatus Flush(const IOOptions& options,
-                         IODebugContext* dbg) override {
+  IOStatus Flush(const IOOptions& options, IODebugContext* dbg) override {
 #ifndef NDEBUG
     const ThreadStatus::OperationType thread_op =
         ThreadStatusUtil::GetThreadOperation();
@@ -174,8 +172,7 @@ class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {
     return target()->Flush(options, dbg);
   }
 
-  virtual IOStatus Sync(const IOOptions& options,
-                        IODebugContext* dbg) override {
+  IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override {
 #ifndef NDEBUG
     const ThreadStatus::OperationType thread_op =
         ThreadStatusUtil::GetThreadOperation();
@@ -187,8 +184,7 @@ class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {
     return target()->Sync(options, dbg);
   }
 
-  virtual IOStatus Fsync(const IOOptions& options,
-                         IODebugContext* dbg) override {
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
 #ifndef NDEBUG
     const ThreadStatus::OperationType thread_op =
         ThreadStatusUtil::GetThreadOperation();
@@ -201,9 +197,8 @@ class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {
   }
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual IOStatus Allocate(uint64_t offset, uint64_t len,
-                            const IOOptions& options,
-                            IODebugContext* dbg) override {
+  IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
+                    IODebugContext* dbg) override {
 #ifndef NDEBUG
     const ThreadStatus::OperationType thread_op =
         ThreadStatusUtil::GetThreadOperation();
@@ -216,9 +211,8 @@ class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {
   }
 #endif
 
-  virtual IOStatus RangeSync(uint64_t offset, uint64_t nbytes,
-                             const IOOptions& options,
-                             IODebugContext* dbg) override {
+  IOStatus RangeSync(uint64_t offset, uint64_t nbytes, const IOOptions& options,
+                     IODebugContext* dbg) override {
 #ifndef NDEBUG
     const ThreadStatus::OperationType thread_op =
         ThreadStatusUtil::GetThreadOperation();

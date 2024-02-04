@@ -45,7 +45,11 @@ public class WriteBufferManager extends RocksObject {
       final long bufferSizeBytes, final long cacheHandle, final boolean allowStall);
 
   @Override
-  protected native void disposeInternal(final long handle);
+  protected void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+
+  private static native void disposeInternalJni(final long handle);
 
   private final boolean allowStall_;
 }

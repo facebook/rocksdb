@@ -398,6 +398,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
                                       const IOOptions& options, Slice* result,
                                       char* scratch,
                                       IODebugContext* dbg) const {
+  TEST_SYNC_POINT("FaultInjectionTestFS::RandomRead");
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -457,8 +458,8 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     bool this_injected_error;
     reqs[i].status = fs_->InjectThreadSpecificReadError(
-        FaultInjectionTestFS::ErrorOperation::kMultiReadSingleReq,
-        &(reqs[i].result), use_direct_io(), reqs[i].scratch,
+        FaultInjectionTestFS::ErrorOperation::kRead, &(reqs[i].result),
+        use_direct_io(), reqs[i].scratch,
         /*need_count_increase=*/true,
         /*fault_injected=*/&this_injected_error);
     injected_error |= this_injected_error;

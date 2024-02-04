@@ -709,9 +709,15 @@ Status VersionEditHandler::MaybeHandleFileBoundariesForNewFiles(
     }
     std::string smallest_buf;
     std::string largest_buf;
+    Slice largest_slice = meta.largest.Encode();
     PadInternalKeyWithMinTimestamp(&smallest_buf, meta.smallest.Encode(),
                                    ts_sz);
-    PadInternalKeyWithMinTimestamp(&largest_buf, meta.largest.Encode(), ts_sz);
+    auto largest_footer = ExtractInternalKeyFooter(largest_slice);
+    if (largest_footer == kRangeTombstoneSentinel) {
+      PadInternalKeyWithMaxTimestamp(&largest_buf, largest_slice, ts_sz);
+    } else {
+      PadInternalKeyWithMinTimestamp(&largest_buf, largest_slice, ts_sz);
+    }
     meta.smallest.DecodeFrom(smallest_buf);
     meta.largest.DecodeFrom(largest_buf);
   }

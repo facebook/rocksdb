@@ -28,8 +28,8 @@ jlong Java_org_rocksdb_CompactionOptions_newCompactionOptions(JNIEnv*, jclass) {
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_CompactionOptions_disposeInternal(JNIEnv*, jobject,
-                                                        jlong jhandle) {
+void Java_org_rocksdb_CompactionOptions_disposeInternalJni(JNIEnv*, jclass,
+                                                           jlong jhandle) {
   auto* compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptions*>(jhandle);
   delete compact_opts;

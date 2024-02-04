@@ -44,6 +44,6 @@ class AggMergeOperator : public MergeOperator {
   static Accumulator& GetTLSAccumulator();
 };
 
-extern std::string EncodeAggFuncAndPayloadNoCheck(const Slice& function_name,
-                                                  const Slice& value);
+std::string EncodeAggFuncAndPayloadNoCheck(const Slice& function_name,
+                                           const Slice& value);
 }  // namespace ROCKSDB_NAMESPACE
