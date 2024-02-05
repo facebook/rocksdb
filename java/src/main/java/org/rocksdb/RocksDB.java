@@ -894,8 +894,36 @@ public class RocksDB extends RocksObject {
 
   private static native void putEntity(final long handle, final byte[] key, final byte[][] name, final byte[][] value, final long cfHandle);
 
+
+  private static native void putEntityDirect(final long handle, final ByteBuffer key, int keyOffset, int keyLength,
+                                       final ByteBuffer[] name, int[] nameOffset, int[] nameLength,
+                                       final ByteBuffer[] value, int[] valueOffset, int[] valueLenght,
+                                       final long cfHandle);
   public void putEntity(final ByteBuffer key, final List<WideColumn<ByteBuffer>> columns) {
-    return;
+    ByteBuffer[] names = new ByteBuffer[columns.size()];
+    int[] namesOffset = new int[columns.size()];
+    int[] namesLength = new int[columns.size()];
+
+    ByteBuffer[] values = new ByteBuffer[columns.size()];
+    int[] valuesOffset = new int[columns.size()];
+    int[] valuesLength = new int[columns.size()];
+
+    for(int i = 0; i < names.length ; i++) {
+      WideColumn<ByteBuffer> column = columns.get(i); //TODO slow for LinkedList
+      names[i] = column.getName();
+      namesOffset[i] = column.getName().position();
+      namesLength[i] = column.getName().remaining();
+
+      values[i] = column.getValue();
+      valuesOffset[i] = column.getValue().position();
+      valuesLength[i] = column.getValue().remaining();
+    }
+
+    putEntityDirect(nativeHandle_, key, key.position(), key.remaining(),
+            names, namesOffset, namesLength,
+            values, valuesOffset, valuesLength,
+            0);
+
   }
 
   private static class GetEntityResult {
@@ -904,9 +932,55 @@ public class RocksDB extends RocksObject {
     public byte[][] values;
   }
 
-  public Status getEntity(final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> values) {
-    return null;
+
+
+
+  public Status getEntity(final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> columns) {
+
+    ByteBuffer[] names = new ByteBuffer[columns.size()];
+    ByteBuffer[] values = new ByteBuffer[columns.size()];
+    int[] namesRequiredSize = new int[columns.size()];
+    int[] valuesRequiredSize = new int[columns.size()];
+
+    int[] namesOffset = new int[columns.size()];
+    int[] namesRemaining = new int[columns.size()];
+    int[] valuesOffset = new int[columns.size()];
+    int[] valuesRemaining = new int[columns.size()];
+
+    for(int i = 0 ; i < names.length ; i++) {
+      names[i] = columns.get(i).getName();
+      namesOffset[i] = names[i].position();
+      namesRemaining[i] = names[i].remaining();
+
+      values[i] = columns.get(i).getValue();
+      valuesOffset[i] = values[i].position();
+      valuesRemaining[i] = values[i].remaining();
+    }
+
+
+    Status status = getEntityDirect(nativeHandle_, key, key.position(), key.remaining(),
+            names, namesOffset, namesRemaining, namesRequiredSize,
+            values, valuesOffset, valuesRemaining, valuesRequiredSize);
+
+    if(status != null && status.getCode() == Status.Code.Ok) {
+
+      for (int i = 0; i < namesRequiredSize.length; i++) {
+        columns.get(i).setNameRequiredSize(namesRequiredSize[i]);
+        names[i].position(namesRemaining[i]);  //We save new position to offset array
+
+        columns.get(i).setValueRequiredSize(valuesRequiredSize[i]);
+        values[i].position(valuesRemaining[i]); //We save new position to offset array
+
+      }
+    }
+
+
+    return status;
   }
+
+  private native Status getEntityDirect(long nativeHandle, ByteBuffer key, int keyPosition, int keyRemaining,
+                                        ByteBuffer[] names, int[] namesOffset, int[] namesRemaining, int[] namesRequiredSize,
+                                        ByteBuffer[] values, int[] valuesOffset, int[] valuesRemaining, int[] valuesRequiredSize);
 
   public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values) {
     return getEntity(null, key, values);
