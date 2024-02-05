@@ -785,9 +785,10 @@ void Java_org_rocksdb_RocksDB_putEntity
     env->GetByteArrayRegion(jvalue, 0, jvalue_len, value);
     ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
 
-    ROCKSDB_NAMESPACE::WideColumn wide_entity(name_slice, value_slice);
+    columns.emplace_back(ROCKSDB_NAMESPACE::WideColumn(name_slice, value_slice));
+    //ROCKSDB_NAMESPACE::WideColumn wide_entity(name_slice, value_slice);
 
-    columns.push_back(wide_entity);
+    //columns.push_back(wide_entity);
 
   }
   std::cout << "after for\n";
@@ -807,9 +808,139 @@ void Java_org_rocksdb_RocksDB_putEntity
     delete column.name().data();
     delete column.value().data();
   }
+}
 
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    putEntity
+ * Signature: (JLjava/nio/ByteBuffer;II[Ljava/nio/ByteBuffer;[I[I[Ljava/nio/ByteBuffer;[I[IJ)V
+ */
+void Java_org_rocksdb_RocksDB_putEntityDirect
+    (JNIEnv* env, jclass, jlong jdb_handle, jobject jKey, jint key_offset, jint key_len,
+     jobjectArray jnames, jintArray jnames_offset, jintArray jnames_len,
+     jobjectArray jvalues, jintArray jvalues_offset, jintArray jvalues_len, jlong jcf_handle) {
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto columns_family = (jcf_handle == 0) ? db->DefaultColumnFamily() : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  auto key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jKey)) + key_offset;
+  ROCKSDB_NAMESPACE::Slice key_slice(key, static_cast<size_t>(key_len));
+  std::cout << "directKet to write : " << key << "\n";
+
+  const auto columns_len = static_cast<int>(env->GetArrayLength(jnames));
+
+  ROCKSDB_NAMESPACE::WideColumns columns;
+  columns.reserve(columns_len);
+
+  auto namesOffset = env->GetIntArrayElements(jnames_offset, nullptr);
+  auto namesLength = env->GetIntArrayElements(jnames_len, nullptr);
+
+  auto valuesOffset = env->GetIntArrayElements(jvalues_offset, nullptr);;
+  auto valuesLenght = env->GetIntArrayElements(jvalues_len, nullptr);
+
+
+  for(int i = 0 ; i < columns_len ; i++ ) {
+    auto jname = env->GetObjectArrayElement(jnames, i);
+    auto name = reinterpret_cast<char*>(env->GetDirectBufferAddress(jname)) + namesOffset[i];
+    std::cout << "directName to write : " << name << "\n";
+    ROCKSDB_NAMESPACE::Slice nameSlice(name, namesLength[i]);
+
+    auto jvalue = env->GetObjectArrayElement(jvalues, i);
+    auto value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jvalue)) + valuesOffset[i];
+    ROCKSDB_NAMESPACE::Slice valueSlice(value, valuesLenght[i]);
+
+    std::cout << "directValue to write : " << value << "\n";
+
+    columns.push_back(ROCKSDB_NAMESPACE::WideColumn(nameSlice, valueSlice));
+  }
+
+  std::cout << "columnsLen to write : " << columns.size() << "\n";
+
+  const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
+      ROCKSDB_NAMESPACE::WriteOptions();
+  db->PutEntity(default_write_options, columns_family, key_slice, columns);
+
+
+  env->ReleaseIntArrayElements(jnames_offset, namesOffset, JNI_ABORT);
+  env->ReleaseIntArrayElements(jnames_len, namesLength, JNI_ABORT);
+  env->ReleaseIntArrayElements(jvalues_offset, valuesOffset , JNI_ABORT);
+  env->ReleaseIntArrayElements(jvalues_len, valuesLenght , JNI_ABORT);
+}
+
+
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getEntityDirect
+ * Signature: (JLjava/nio/ByteBuffer;II[Ljava/nio/ByteBuffer;[I[I[I[Ljava/nio/ByteBuffer;[I[I[I)Lorg/rocksdb/Status;
+ */
+jobject Java_org_rocksdb_RocksDB_getEntityDirect
+    (JNIEnv* env, jobject, jlong jdb_handle , jobject jKey, jint key_offset, jint key_len,
+     jobjectArray jnames, jintArray jNamesOffset, jintArray jNamesLen, jintArray jnamesRequiredSize,
+     jobjectArray jvalues, jintArray jValuesOffset, jintArray jValuesLen, jintArray jvaluesRequiredSize) {
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  //auto columns_family = (jcf_handle == 0) ? db->DefaultColumnFamily() : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  auto columns_family = db->DefaultColumnFamily();
+
+  auto key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jKey)) + key_offset;
+  ROCKSDB_NAMESPACE::Slice key_slice(key, static_cast<size_t>(key_len));
+  std::cout << "directKey to read : " << key << "\n";
+
+  const ROCKSDB_NAMESPACE::ReadOptions default_read_options = ROCKSDB_NAMESPACE::ReadOptions();
+  ROCKSDB_NAMESPACE::PinnableWideColumns columns;
+
+  const auto status = db->GetEntity(default_read_options, columns_family, key_slice, &columns);
+
+  if(status.ok() && columns.columns().size() > 0) {
+    auto max_items = std::min(columns.columns().size(), static_cast<size_t>(env->GetArrayLength(jnames)));
+    auto namesOffset = env->GetIntArrayElements(jNamesOffset, nullptr);
+    auto namesLen = env->GetIntArrayElements(jNamesLen, nullptr);
+    auto namesRequiredSize = env->GetIntArrayElements(jnamesRequiredSize, nullptr);
+
+    auto valuesOffset = env->GetIntArrayElements(jValuesOffset, nullptr);
+    auto valuesLen = env->GetIntArrayElements(jValuesLen, nullptr);
+    auto valuesRequiredSize = env->GetIntArrayElements(jvaluesRequiredSize, nullptr);
+
+    for(int i = 0 ; i < max_items ; i++) {
+      auto column = columns.columns()[i];
+      auto jname = env->GetObjectArrayElement(jnames, i);
+      auto name = reinterpret_cast<char*>(env->GetDirectBufferAddress(jname)) + namesOffset[i];
+      auto max_data_len = std::min(static_cast<jint>(column.name().size()), (namesLen[i]));
+      if(max_data_len < column.name().size()) {
+        namesRequiredSize[i] = static_cast<jint>(column.name().size());
+      }
+      namesLen[i] = max_data_len; //Return back to java how many bytes we copied
+      std::memcpy(name, column.name().data(), max_data_len);
+
+
+      auto jvalue = env->GetObjectArrayElement(jvalues, i);
+      auto value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jvalue)) + valuesOffset[i];
+      max_data_len = std::min(static_cast<jint>(column.value().size()), (valuesLen[i]));
+      if(max_data_len < column.value().size()) {
+        valuesRequiredSize[i] = static_cast<jint>(column.value().size());
+      }
+      valuesLen[i] = max_data_len; //Return back to java how many bytes we copied
+      std::memcpy(value, column.value().data(), max_data_len);
+
+    }
+    env->ReleaseIntArrayElements(jNamesOffset, namesOffset, JNI_ABORT);
+    env->ReleaseIntArrayElements(jNamesLen, namesLen, JNI_COMMIT);
+    env->ReleaseIntArrayElements(jnamesRequiredSize, namesRequiredSize, JNI_COMMIT);
+
+    env->ReleaseIntArrayElements(jValuesOffset, valuesOffset, JNI_ABORT);
+    env->ReleaseIntArrayElements(jValuesLen, valuesLen, JNI_COMMIT);
+    env->ReleaseIntArrayElements(jvaluesRequiredSize, valuesRequiredSize, JNI_COMMIT);
+
+  }
+
+
+  return ROCKSDB_NAMESPACE::StatusJni::construct(env, status);
 
 }
+
+
 
 
 /*
