@@ -74,90 +74,159 @@ inline bool IsSectorAligned(const void* ptr, size_t sector_size) {
 #endif
 
 #if defined(ROCKSDB_IOURING_PRESENT)
-struct Posix_IOHandle {
-  Posix_IOHandle(struct io_uring* _iu,
-                 std::function<void(const FSReadRequest&, void*)> _cb,
-                 void* _cb_arg, uint64_t _offset, size_t _len, char* _scratch,
-                 bool _use_direct_io, size_t _alignment)
-      : iu(_iu),
+
+/*
+ * IOSqeBase is a base class.
+ */
+struct IoSqeBase {
+  enum class RequestType {
+    kMultiRead,
+    kReadAsync,
+  };
+
+  IoSqeBase() {}
+  IoSqeBase(size_t _alignment, bool _use_direct_io, std::string& _filename)
+      : alignment(_alignment),
+        use_direct_io(_use_direct_io),
+        filename(_filename) {}
+
+  virtual ~IoSqeBase() = default;
+  virtual IOStatus ProcessRequest(struct io_uring* /*iu*/, int32_t /*res*/) = 0;
+
+  RequestType type;
+  struct iovec iov;
+  size_t alignment;
+  bool use_direct_io;
+  std::string filename;
+};
+
+struct ReadAsyncHandle : public IoSqeBase {
+  ReadAsyncHandle(struct io_uring* _iu,
+                  std::function<void(const FSReadRequest&, void*)> _cb,
+                  void* _cb_arg, uint64_t _offset, size_t _len, char* _scratch,
+                  bool _use_direct_io, size_t _alignment,
+                  std::string& _filename)
+      : IoSqeBase(_alignment, _use_direct_io, _filename),
+        iu(_iu),
         cb(_cb),
         cb_arg(_cb_arg),
         offset(_offset),
         len(_len),
         scratch(_scratch),
-        use_direct_io(_use_direct_io),
-        alignment(_alignment),
         is_finished(false),
-        req_count(0) {}
+        req_count(0) {
+    type = RequestType::kReadAsync;
+  }
 
-  struct iovec iov;
+  virtual IOStatus ProcessRequest(struct io_uring* _iu, int32_t res) override {
+    assert(iu == _iu);
+    if (iu != _iu) {
+      return IOStatus::IOError("");
+    }
+
+    FSReadRequest req;
+    req.scratch = scratch;
+    req.offset = offset;
+    req.len = len;
+
+    req_count++;
+
+    if (res < 0) {
+      req.result = Slice(req.scratch, 0);
+      req.status = IOError("Req failed", filename, res);
+    } else {
+      size_t bytes_read = static_cast<size_t>(res);
+      TEST_SYNC_POINT_CALLBACK("UpdateResults::io_uring_result", &bytes_read);
+      if (bytes_read == iov.iov_len) {
+        req.result = Slice(req.scratch, req.len);
+        req.status = IOStatus::OK();
+      } else if (bytes_read == 0) {
+        // No  bytes read. It can means EOF. In case of partial results, it's
+        // caller responsibility to call read/readasync again.
+        req.result = Slice(req.scratch, 0);
+        req.status = IOStatus::OK();
+      } else if (bytes_read < iov.iov_len) {
+        assert(bytes_read > 0);
+        req.result = Slice(req.scratch, bytes_read);
+        req.status = IOStatus::OK();
+      } else {
+        req.result = Slice(req.scratch, 0);
+        req.status =
+            IOError("Req returned more bytes than requested", filename, res);
+      }
+    }
+
+    is_finished = true;
+    // Callback should be made only once.
+    if (req_count == 1) {
+      cb(req, cb_arg);
+    }
+    return IOStatus::OK();
+  }
+
   struct io_uring* iu;
   std::function<void(const FSReadRequest&, void*)> cb;
   void* cb_arg;
   uint64_t offset;
   size_t len;
   char* scratch;
-  bool use_direct_io;
-  size_t alignment;
   bool is_finished;
-  // req_count is used by AbortIO API to keep track of number of requests.
+  // req_count is used in case of cancelling IO requests.
   uint32_t req_count;
 };
 
-inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
-                         size_t len, size_t iov_len, bool async_read,
-                         bool use_direct_io, size_t alignment,
-                         size_t& finished_len, FSReadRequest* req,
-                         size_t& bytes_read, bool& read_again) {
-  read_again = false;
-  if (cqe->res < 0) {
-    req->result = Slice(req->scratch, 0);
-    req->status = IOError("Req failed", file_name, cqe->res);
-  } else {
-    bytes_read = static_cast<size_t>(cqe->res);
-    TEST_SYNC_POINT_CALLBACK("UpdateResults::io_uring_result", &bytes_read);
-    if (bytes_read == iov_len) {
-      req->result = Slice(req->scratch, req->len);
-      req->status = IOStatus::OK();
-    } else if (bytes_read == 0) {
-      /// cqe->res == 0 can means EOF, or can mean partial results. See
-      // comment
-      // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
-      // Fall back to pread in this case.
-      if (use_direct_io && !IsSectorAligned(finished_len, alignment)) {
-        // Bytes reads don't fill sectors. Should only happen at the end
-        // of the file.
-        req->result = Slice(req->scratch, finished_len);
+struct MultiReadHandle : public IoSqeBase {
+  explicit MultiReadHandle(FSReadRequest* _req, bool _use_direct_io,
+                           size_t _alignment, std::string& _filename)
+      : IoSqeBase(_alignment, _use_direct_io, _filename),
+        req(_req),
+        finished_len(0),
+        read_again(false),
+        bytes_read(0) {
+    type = RequestType::kMultiRead;
+  }
+
+  virtual IOStatus ProcessRequest(struct io_uring* /*iu*/,
+                                  int32_t res) override {
+    if (res < 0) {
+      req->result = Slice(req->scratch, 0);
+      req->status = IOError("Req failed", filename, res);
+    } else {
+      bytes_read = static_cast<size_t>(res);
+      TEST_SYNC_POINT_CALLBACK("UpdateResults::io_uring_result", &bytes_read);
+      if (bytes_read == iov.iov_len) {
+        req->result = Slice(req->scratch, req->len);
         req->status = IOStatus::OK();
-      } else {
-        if (async_read) {
-          // No  bytes read. It can means EOF. In case of partial results, it's
-          // caller responsibility to call read/readasync again.
-          req->result = Slice(req->scratch, 0);
+      } else if (bytes_read == 0) {
+        /// res == 0 can means EOF, or can mean partial results. See comment
+        // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+        // Fall back to pread in this case.
+        if (use_direct_io && !IsSectorAligned(finished_len, alignment)) {
+          // Bytes reads don't fill sectors. Should only happen at the end
+          // of the file.
+          req->result = Slice(req->scratch, finished_len);
           req->status = IOStatus::OK();
         } else {
           read_again = true;
         }
-      }
-    } else if (bytes_read < iov_len) {
-      assert(bytes_read > 0);
-      if (async_read) {
-        req->result = Slice(req->scratch, bytes_read);
-        req->status = IOStatus::OK();
-      } else {
-        assert(bytes_read + finished_len < len);
+      } else if (bytes_read < iov.iov_len) {
+        assert(bytes_read > 0);
+        assert(bytes_read + finished_len < req->len);
         finished_len += bytes_read;
+      } else {
+        req->result = Slice(req->scratch, 0);
+        req->status =
+            IOError("Req returned more bytes than requested", filename, res);
       }
-    } else {
-      req->result = Slice(req->scratch, 0);
-      req->status = IOError("Req returned more bytes than requested", file_name,
-                            cqe->res);
     }
+    return IOStatus::OK();
   }
-#ifdef NDEBUG
-  (void)len;
-#endif
-}
+
+  FSReadRequest* req;
+  size_t finished_len;
+  bool read_again;
+  size_t bytes_read;
+};
 #endif
 
 #ifdef OS_LINUX

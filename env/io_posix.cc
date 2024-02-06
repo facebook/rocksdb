@@ -635,19 +635,13 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
 
   IOStatus ios = IOStatus::OK();
 
-  struct WrappedReadRequest {
-    FSReadRequest* req;
-    struct iovec iov;
-    size_t finished_len;
-    explicit WrappedReadRequest(FSReadRequest* r) : req(r), finished_len(0) {}
-  };
-
-  autovector<WrappedReadRequest, 32> req_wraps;
-  autovector<WrappedReadRequest*, 4> incomplete_rq_list;
-  std::unordered_set<WrappedReadRequest*> wrap_cache;
+  autovector<MultiReadHandle, 32> req_handles;
+  autovector<MultiReadHandle*, 4> incomplete_rq_list;
+  std::unordered_set<MultiReadHandle*> wrap_cache;
 
   for (size_t i = 0; i < num_reqs; i++) {
-    req_wraps.emplace_back(&reqs[i]);
+    req_handles.emplace_back(&reqs[i], use_direct_io(),
+                             GetRequiredBufferAlignment(), filename_);
   }
 
   size_t reqs_off = 0;
@@ -661,11 +655,12 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
 
     assert(incomplete_rq_list.size() <= this_reqs);
     for (size_t i = 0; i < this_reqs; i++) {
-      WrappedReadRequest* rep_to_submit;
+      MultiReadHandle* rep_to_submit;
+
       if (i < incomplete_rq_list.size()) {
         rep_to_submit = incomplete_rq_list[i];
       } else {
-        rep_to_submit = &req_wraps[reqs_off++];
+        rep_to_submit = &req_handles[reqs_off++];
       }
       assert(rep_to_submit->req->len > rep_to_submit->finished_len);
       rep_to_submit->iov.iov_base =
@@ -709,9 +704,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                std::to_string(ret));
     }
 
-    for (size_t i = 0; i < this_reqs; i++) {
+    size_t i = 0;
+    while (i < this_reqs) {
       struct io_uring_cqe* cqe = nullptr;
-      WrappedReadRequest* req_wrap;
 
       // We could use the peek variant here, but this seems safer in terms
       // of our initial wait not reaping all completions
@@ -725,51 +720,63 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
         if (cqe != nullptr) {
           io_uring_cqe_seen(iu, cqe);
         }
+        i++;
         continue;
       }
 
-      req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
+      IoSqeBase* io_sqe = static_cast<IoSqeBase*>(io_uring_cqe_get_data(cqe));
+
+      if (io_sqe->type != IoSqeBase::RequestType::kMultiRead) {
+        // Reset cqe data to catch any stray reuse of it
+        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+
+        io_sqe->ProcessRequest(iu, cqe->res);
+        io_uring_cqe_seen(iu, cqe);
+        continue;
+      }
+
+      MultiReadHandle* req_handle =
+          static_cast<MultiReadHandle*>(io_uring_cqe_get_data(cqe));
       // Reset cqe data to catch any stray reuse of it
       static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
       // Check that we got a valid unique cqe data
-      auto wrap_check = wrap_cache.find(req_wrap);
+      auto wrap_check = wrap_cache.find(req_handle);
       if (wrap_check == wrap_cache.end()) {
         fprintf(stderr,
                 "PosixRandomAccessFile::MultiRead: "
                 "Bad cqe data from IO uring - %p\n",
-                req_wrap);
+                req_handle);
         port::PrintStack();
         ios = IOStatus::IOError("io_uring_cqe_get_data() returned " +
-                                std::to_string((uint64_t)req_wrap));
+                                std::to_string((uint64_t)req_handle));
+        i++;
         continue;
       }
       wrap_cache.erase(wrap_check);
 
-      FSReadRequest* req = req_wrap->req;
-      size_t bytes_read = 0;
-      bool read_again = false;
-      UpdateResult(cqe, filename_, req->len, req_wrap->iov.iov_len,
-                   false /*async_read*/, use_direct_io(),
-                   GetRequiredBufferAlignment(), req_wrap->finished_len, req,
-                   bytes_read, read_again);
+      io_sqe->ProcessRequest(iu, cqe->res);
+
+      FSReadRequest* req = req_handle->req;
       int32_t res = cqe->res;
+
       if (res >= 0) {
-        if (bytes_read == 0) {
-          if (read_again) {
+        if (req_handle->bytes_read == 0) {
+          if (req_handle->read_again) {
             Slice tmp_slice;
             req->status =
-                Read(req->offset + req_wrap->finished_len,
-                     req->len - req_wrap->finished_len, options, &tmp_slice,
-                     req->scratch + req_wrap->finished_len, dbg);
-            req->result =
-                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+                Read(req->offset + req_handle->finished_len,
+                     req->len - req_handle->finished_len, options, &tmp_slice,
+                     req->scratch + req_handle->finished_len, dbg);
+            req->result = Slice(req->scratch,
+                                req_handle->finished_len + tmp_slice.size());
           }
           // else It means EOF so no need to do anything.
-        } else if (bytes_read < req_wrap->iov.iov_len) {
-          incomplete_rq_list.push_back(req_wrap);
+        } else if (req_handle->bytes_read < req_handle->iov.iov_len) {
+          incomplete_rq_list.push_back(req_handle);
         }
       }
       io_uring_cqe_seen(iu, cqe);
+      i++;
     }
     wrap_cache.clear();
   }
@@ -885,29 +892,29 @@ IOStatus PosixRandomAccessFile::ReadAsync(
 
   // Allocate io_handle.
   IOHandleDeleter deletefn = [](void* args) -> void {
-    delete (static_cast<Posix_IOHandle*>(args));
+    delete (static_cast<ReadAsyncHandle*>(args));
     args = nullptr;
   };
 
-  // Initialize Posix_IOHandle.
-  Posix_IOHandle* posix_handle =
-      new Posix_IOHandle(iu, cb, cb_arg, req.offset, req.len, req.scratch,
-                         use_direct_io(), GetRequiredBufferAlignment());
-  posix_handle->iov.iov_base = req.scratch;
-  posix_handle->iov.iov_len = req.len;
+  // Initialize ReadAsyncHandle.
+  ReadAsyncHandle* readasync_handle = new ReadAsyncHandle(
+      iu, cb, cb_arg, req.offset, req.len, req.scratch, use_direct_io(),
+      GetRequiredBufferAlignment(), filename_);
+  readasync_handle->iov.iov_base = req.scratch;
+  readasync_handle->iov.iov_len = req.len;
 
-  *io_handle = static_cast<void*>(posix_handle);
+  *io_handle = static_cast<void*>(readasync_handle);
   *del_fn = deletefn;
 
   // Step 3: io_uring_sqe_set_data
   struct io_uring_sqe* sqe;
   sqe = io_uring_get_sqe(iu);
 
-  io_uring_prep_readv(sqe, fd_, /*sqe->addr=*/&posix_handle->iov,
-                      /*sqe->len=*/1, /*sqe->offset=*/posix_handle->offset);
+  io_uring_prep_readv(sqe, fd_, /*sqe->addr=*/&readasync_handle->iov,
+                      /*sqe->len=*/1, /*sqe->offset=*/readasync_handle->offset);
 
-  // Sets sqe->user_data to posix_handle.
-  io_uring_sqe_set_data(sqe, posix_handle);
+  // Sets sqe->user_data to readasync_handle.
+  io_uring_sqe_set_data(sqe, readasync_handle);
 
   // Step 4: io_uring_submit
   ssize_t ret = io_uring_submit(iu);

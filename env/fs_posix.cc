@@ -1020,11 +1020,12 @@ class PosixFileSystem : public FileSystem {
 
     for (size_t i = 0; i < io_handles.size(); i++) {
       // The request has been completed in earlier runs.
-      if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
+      if ((static_cast<ReadAsyncHandle*>(io_handles[i]))->is_finished) {
         continue;
       }
+
       // Loop until IO for io_handles[i] is completed.
-      while (true) {
+      while (!(static_cast<ReadAsyncHandle*>(io_handles[i]))->is_finished) {
         // io_uring_wait_cqe.
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
@@ -1036,37 +1037,16 @@ class PosixFileSystem : public FileSystem {
 
         // Step 3: Populate the request.
         assert(cqe != nullptr);
-        Posix_IOHandle* posix_handle =
-            static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
-        assert(posix_handle->iu == iu);
-        if (posix_handle->iu != iu) {
-          return IOStatus::IOError("");
-        }
+
+        IoSqeBase* io_sqe = static_cast<IoSqeBase*>(io_uring_cqe_get_data(cqe));
         // Reset cqe data to catch any stray reuse of it
         static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
-
-        FSReadRequest req;
-        req.scratch = posix_handle->scratch;
-        req.offset = posix_handle->offset;
-        req.len = posix_handle->len;
-
-        size_t finished_len = 0;
-        size_t bytes_read = 0;
-        bool read_again = false;
-        UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
-                     true /*async_read*/, posix_handle->use_direct_io,
-                     posix_handle->alignment, finished_len, &req, bytes_read,
-                     read_again);
-        posix_handle->is_finished = true;
         io_uring_cqe_seen(iu, cqe);
-        posix_handle->cb(req, posix_handle->cb_arg);
 
-        (void)finished_len;
-        (void)bytes_read;
-        (void)read_again;
+        IOStatus st = io_sqe->ProcessRequest(iu, cqe->res);
 
-        if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
-          break;
+        if (!st.ok()) {
+          return st;
         }
       }
     }
@@ -1092,26 +1072,31 @@ class PosixFileSystem : public FileSystem {
       return IOStatus::OK();
     }
 
+    autovector<ReadAsyncHandle*, 32> aborted_requests;
+
     for (size_t i = 0; i < io_handles.size(); i++) {
-      Posix_IOHandle* posix_handle =
-          static_cast<Posix_IOHandle*>(io_handles[i]);
-      if (posix_handle->is_finished == true) {
+      ReadAsyncHandle* readasync_handle =
+          static_cast<ReadAsyncHandle*>(io_handles[i]);
+      if (readasync_handle->is_finished == true) {
         continue;
       }
-      assert(posix_handle->iu == iu);
-      if (posix_handle->iu != iu) {
+
+      assert(readasync_handle->iu == iu);
+      if (readasync_handle->iu != iu) {
         return IOStatus::IOError("");
       }
+
+      aborted_requests.emplace_back(readasync_handle);
 
       // Prepare the cancel request.
       struct io_uring_sqe* sqe;
       sqe = io_uring_get_sqe(iu);
 
       // In order to cancel the request, sqe->addr of cancel request should
-      // match with the read request submitted which is posix_handle->iov.
-      io_uring_prep_cancel(sqe, &posix_handle->iov, 0);
-      // Sets sqe->user_data to posix_handle.
-      io_uring_sqe_set_data(sqe, posix_handle);
+      // match with the read request submitted which is readasync_handle->iov.
+      io_uring_prep_cancel(sqe, &readasync_handle->iov, 0);
+      // Sets sqe->user_data to readasync_handle.
+      io_uring_sqe_set_data(sqe, readasync_handle);
 
       // submit the request.
       ssize_t ret = io_uring_submit(iu);
@@ -1123,12 +1108,20 @@ class PosixFileSystem : public FileSystem {
     }
 
     // After submitting the requests, wait for the requests.
-    for (size_t i = 0; i < io_handles.size(); i++) {
-      if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
-        continue;
-      }
+    for (size_t i = 0; i < aborted_requests.size(); i++) {
+      // - If the request is cancelled successfully, the original request is
+      //   completed with -ECANCELED and the cancel request is completed with
+      //   a result of 0.
+      // - If the request was already running, the original may or
+      //   may not complete in error. The cancel request will complete with
+      //  -EALREADY for that case.
+      // - And finally, if the request to cancel wasn't
+      //   found, the cancel request is completed with -ENOENT.
+      //
+      // Every handle has to wait for 2 requests completion: original one and
+      // the cancel request which is tracked by PosixHandle::req_count.
 
-      while (true) {
+      while (aborted_requests[i]->req_count != 2) {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
@@ -1138,38 +1131,14 @@ class PosixFileSystem : public FileSystem {
         }
         assert(cqe != nullptr);
 
-        // Returns cqe->user_data.
-        Posix_IOHandle* posix_handle =
-            static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
-        assert(posix_handle->iu == iu);
-        if (posix_handle->iu != iu) {
-          return IOStatus::IOError("");
-        }
-        posix_handle->req_count++;
-
+        IoSqeBase* io_sqe = static_cast<IoSqeBase*>(io_uring_cqe_get_data(cqe));
         // Reset cqe data to catch any stray reuse of it
         static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
         io_uring_cqe_seen(iu, cqe);
 
-        // - If the request is cancelled successfully, the original request is
-        //   completed with -ECANCELED and the cancel request is completed with
-        //   a result of 0.
-        // - If the request was already running, the original may or
-        //   may not complete in error. The cancel request will complete with
-        //  -EALREADY for that case.
-        // - And finally, if the request to cancel wasn't
-        //   found, the cancel request is completed with -ENOENT.
-        //
-        // Every handle has to wait for 2 requests completion: original one and
-        // the cancel request which is tracked by PosixHandle::req_count.
-        if (posix_handle->req_count == 2 &&
-            static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
-          posix_handle->is_finished = true;
-          FSReadRequest req;
-          req.status = IOStatus::Aborted();
-          posix_handle->cb(req, posix_handle->cb_arg);
-
-          break;
+        IOStatus st = io_sqe->ProcessRequest(iu, cqe->res);
+        if (!st.ok()) {
+          return st;
         }
       }
     }

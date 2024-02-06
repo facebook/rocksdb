@@ -256,17 +256,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     io_status_ = file_->PrepareIOOptions(read_options_, opts);
     // Actual file read
     if (io_status_.ok()) {
-      if (file_->use_direct_io()) {
-        PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(
-            block_read_cpu_time,
-            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
-        io_status_ =
-            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
-                        &slice_, /*scratch=*/nullptr, &direct_io_buf_);
-        PERF_COUNTER_ADD(block_read_count, 1);
-        used_buf_ = const_cast<char*>(slice_.data());
-      } else if (use_fs_scratch_) {
+      if (use_fs_scratch_ || file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
         PERF_CPU_TIMER_GUARD(
             block_read_cpu_time,
@@ -274,8 +264,10 @@ IOStatus BlockFetcher::ReadBlockContents() {
         read_req.offset = handle_.offset();
         read_req.len = block_size_with_trailer_;
         read_req.scratch = nullptr;
-        io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                      /*AlignedBuf* =*/nullptr);
+        io_status_ = file_->MultiRead(
+            opts, &read_req, /*num_reqs=*/1,
+            /*AlignedBuf* =*/
+            (file_->use_direct_io() ? &direct_io_buf_ : nullptr));
         PERF_COUNTER_ADD(block_read_count, 1);
 
         slice_ = Slice(read_req.result.data(), read_req.result.size());
@@ -331,7 +323,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
       return io_status_;
     }
 
-    if (use_fs_scratch_ && !read_req.status.ok()) {
+    if (!read_req.status.ok()) {
       ReleaseFileSystemProvidedBuffer(&read_req);
       return read_req.status;
     }
