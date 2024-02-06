@@ -1137,23 +1137,21 @@ public class RocksDBTest {
   }
 
   @Test
-  public void compactRangeWithNullBoundaries()
-    throws RocksDBException {
-    try (final Options opt = new Options().
-        setCreateIfMissing(true).
-        setDisableAutoCompactions(true).
-        setCompactionStyle(CompactionStyle.LEVEL).
-        setNumLevels(4).
-        setWriteBufferSize(100 << 10).
-        setLevelZeroFileNumCompactionTrigger(3).
-        setTargetFileSizeBase(200 << 10).
-        setTargetFileSizeMultiplier(1).
-        setMaxBytesForLevelBase(500 << 10).
-        setMaxBytesForLevelMultiplier(1).
-        setDisableAutoCompactions(true);
-        final FlushOptions flushOptions = new FlushOptions();
-          final RocksDB db = RocksDB.open(opt,
-              dbFolder.getRoot().getAbsolutePath())) {
+  public void compactRangeWithNullBoundaries() throws RocksDBException {
+    try (final Options opt = new Options()
+                                 .setCreateIfMissing(true)
+                                 .setDisableAutoCompactions(true)
+                                 .setCompactionStyle(CompactionStyle.LEVEL)
+                                 .setNumLevels(4)
+                                 .setWriteBufferSize(100 << 10)
+                                 .setLevelZeroFileNumCompactionTrigger(3)
+                                 .setTargetFileSizeBase(200 << 10)
+                                 .setTargetFileSizeMultiplier(1)
+                                 .setMaxBytesForLevelBase(500 << 10)
+                                 .setMaxBytesForLevelMultiplier(1)
+                                 .setDisableAutoCompactions(true);
+         final FlushOptions flushOptions = new FlushOptions();
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       final byte[] b = new byte[10000];
       // Create an SST containing key4, key5, and key6
       db.put(("key4").getBytes(), b);
@@ -1165,7 +1163,7 @@ public class RocksDBTest {
       db.delete(("key5").getBytes());
       db.delete(("key6").getBytes());
       db.flush(flushOptions);
-      
+
       db.compactRange(("key4").getBytes(), null);
       List<LiveFileMetaData> liveFilesMetaData = db.getLiveFilesMetaData();
       assertThat(liveFilesMetaData.size()).isEqualTo(0);
