@@ -932,11 +932,12 @@ public class RocksDB extends RocksObject {
     public byte[][] values;
   }
 
-
-
-
   public Status getEntity(final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> columns) {
+    return getEntity(null, key, columns);
+  }
 
+  public Status getEntity(final ColumnFamilyHandle columnFamily, final ByteBuffer key,
+      final List<WideColumn.ByteBufferWideColumn> columns) {
     ByteBuffer[] names = new ByteBuffer[columns.size()];
     ByteBuffer[] values = new ByteBuffer[columns.size()];
     int[] namesRequiredSize = new int[columns.size()];
@@ -957,20 +958,27 @@ public class RocksDB extends RocksObject {
       valuesRemaining[i] = values[i].remaining();
     }
 
-
-    Status status = getEntityDirect(nativeHandle_, key, key.position(), key.remaining(),
-            names, namesOffset, namesRemaining, namesRequiredSize,
-            values, valuesOffset, valuesRemaining, valuesRequiredSize);
+    Status status = getEntityDirect(nativeHandle_, key, key.position(), key.remaining(), names,
+        namesOffset, namesRemaining, namesRequiredSize, values, valuesOffset, valuesRemaining,
+        valuesRequiredSize, columnFamily == null ? 0 : columnFamily.nativeHandle_);
 
     if(status != null && status.getCode() == Status.Code.Ok) {
 
       for (int i = 0; i < namesRequiredSize.length; i++) {
         columns.get(i).setNameRequiredSize(namesRequiredSize[i]);
-        names[i].position(namesRemaining[i]);  //We save new position to offset array
+
+        if (namesRequiredSize[i] > names[i].remaining()) {
+          names[i].position(names[i].position() + names[i].remaining()); // Fully filled buffer
+        } else {
+          names[i].position(names[i].position() + namesRequiredSize[i]);
+        }
 
         columns.get(i).setValueRequiredSize(valuesRequiredSize[i]);
-        values[i].position(valuesRemaining[i]); //We save new position to offset array
-
+        if (valuesRequiredSize[i] > values[i].remaining()) {
+          values[i].position(values[i].position() + values[i].remaining());
+        } else {
+          values[i].position(values[i].position() + valuesRequiredSize[i]);
+        }
       }
     }
 
@@ -978,9 +986,10 @@ public class RocksDB extends RocksObject {
     return status;
   }
 
-  private native Status getEntityDirect(long nativeHandle, ByteBuffer key, int keyPosition, int keyRemaining,
-                                        ByteBuffer[] names, int[] namesOffset, int[] namesRemaining, int[] namesRequiredSize,
-                                        ByteBuffer[] values, int[] valuesOffset, int[] valuesRemaining, int[] valuesRequiredSize);
+  private native Status getEntityDirect(long nativeHandle, ByteBuffer key, int keyPosition,
+      int keyLength, ByteBuffer[] names, int[] namesOffset, int[] namesLength,
+      int[] namesRequiredSize, ByteBuffer[] values, int[] valuesOffset, int[] valuesRemaining,
+      int[] valuesRequiredSize, long jcfhandle);
 
   public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values) {
     return getEntity(null, key, values);
