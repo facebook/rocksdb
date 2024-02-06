@@ -824,7 +824,14 @@ void Java_org_rocksdb_RocksDB_putEntityDirect
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto columns_family = (jcf_handle == 0) ? db->DefaultColumnFamily() : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
 
-  auto key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jKey)) + key_offset;
+  auto _key = env->GetDirectBufferAddress(jKey);
+  if (_key == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument (argument is not a valid direct ByteBuffer)");
+    return;
+  }
+  auto key = reinterpret_cast<char*>(_key) + key_offset;
   ROCKSDB_NAMESPACE::Slice key_slice(key, static_cast<size_t>(key_len));
   std::cout << "directKet to write : " << key << "\n";
 
@@ -833,21 +840,59 @@ void Java_org_rocksdb_RocksDB_putEntityDirect
   ROCKSDB_NAMESPACE::WideColumns columns;
   columns.reserve(columns_len);
 
-  auto namesOffset = env->GetIntArrayElements(jnames_offset, nullptr);
-  auto namesLength = env->GetIntArrayElements(jnames_len, nullptr);
+  std::unique_ptr<jint[]> namesOffset(new jint[columns_len]);
+  env->GetIntArrayRegion(jnames_offset, 0, columns_len, namesOffset.get());
+  if (env->ExceptionCheck()) {
+    return;
+  }
+  std::unique_ptr<jint[]> namesLength(new jint[columns_len]);
+  env->GetIntArrayRegion(jnames_len, 0, columns_len, namesLength.get());
+  if (env->ExceptionCheck()) {
+    return;
+  }
 
-  auto valuesOffset = env->GetIntArrayElements(jvalues_offset, nullptr);;
-  auto valuesLenght = env->GetIntArrayElements(jvalues_len, nullptr);
+  std::unique_ptr<jint[]> valuesOffset(new jint[columns_len]);
+  env->GetIntArrayRegion(jvalues_offset, 0, columns_len, valuesOffset.get());
+  if (env->ExceptionCheck()) {
+    return;
+  }
 
+  std::unique_ptr<jint[]> valuesLenght(new jint[columns_len]);
+  env->GetIntArrayRegion(jvalues_len, 0, columns_len, valuesLenght.get());
+  if (env->ExceptionCheck()) {
+    return;
+  }
 
   for(int i = 0 ; i < columns_len ; i++ ) {
     auto jname = env->GetObjectArrayElement(jnames, i);
-    auto name = reinterpret_cast<char*>(env->GetDirectBufferAddress(jname)) + namesOffset[i];
+    if (env->ExceptionCheck()) {
+      return;
+    }
+    auto _name = env->GetDirectBufferAddress(jname);
+    if (_name == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env,
+          "Invalid \"name\" argument (argument is not a valid direct "
+          "ByteBuffer)");
+      return;
+    }
+    auto name = reinterpret_cast<char*>(_name) + namesOffset[i];
     std::cout << "directName to write : " << name << "\n";
     ROCKSDB_NAMESPACE::Slice nameSlice(name, namesLength[i]);
 
     auto jvalue = env->GetObjectArrayElement(jvalues, i);
-    auto value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jvalue)) + valuesOffset[i];
+    if (env->ExceptionCheck()) {
+      return;
+    }
+    auto _value = env->GetDirectBufferAddress(jvalue);
+    if (_value == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env,
+          "Invalid \"value\" argument (argument is not a valid direct "
+          "ByteBuffer)");
+      return;
+    }
+    auto value = reinterpret_cast<char*>(_value) + valuesOffset[i];
     ROCKSDB_NAMESPACE::Slice valueSlice(value, valuesLenght[i]);
 
     std::cout << "directValue to write : " << value << "\n";
@@ -860,12 +905,6 @@ void Java_org_rocksdb_RocksDB_putEntityDirect
   const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
   db->PutEntity(default_write_options, columns_family, key_slice, columns);
-
-
-  env->ReleaseIntArrayElements(jnames_offset, namesOffset, JNI_ABORT);
-  env->ReleaseIntArrayElements(jnames_len, namesLength, JNI_ABORT);
-  env->ReleaseIntArrayElements(jvalues_offset, valuesOffset , JNI_ABORT);
-  env->ReleaseIntArrayElements(jvalues_len, valuesLenght , JNI_ABORT);
 }
 
 
@@ -875,16 +914,28 @@ void Java_org_rocksdb_RocksDB_putEntityDirect
  * Method:    getEntityDirect
  * Signature: (JLjava/nio/ByteBuffer;II[Ljava/nio/ByteBuffer;[I[I[I[Ljava/nio/ByteBuffer;[I[I[I)Lorg/rocksdb/Status;
  */
-jobject Java_org_rocksdb_RocksDB_getEntityDirect
-    (JNIEnv* env, jobject, jlong jdb_handle , jobject jKey, jint key_offset, jint key_len,
-     jobjectArray jnames, jintArray jNamesOffset, jintArray jNamesLen, jintArray jnamesRequiredSize,
-     jobjectArray jvalues, jintArray jValuesOffset, jintArray jValuesLen, jintArray jvaluesRequiredSize) {
-
+jobject Java_org_rocksdb_RocksDB_getEntityDirect(
+    JNIEnv* env, jobject, jlong jdb_handle, jobject jKey, jint key_offset,
+    jint key_len, jobjectArray jnames, jintArray jNamesOffset,
+    jintArray jNamesLen, jintArray jnamesRequiredSize, jobjectArray jvalues,
+    jintArray jValuesOffset, jintArray jValuesLen,
+    jintArray jvaluesRequiredSize, jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  //auto columns_family = (jcf_handle == 0) ? db->DefaultColumnFamily() : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  auto columns_family = db->DefaultColumnFamily();
+  auto columns_family =
+      (jcf_handle == 0)
+          ? db->DefaultColumnFamily()
+          : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+                jcf_handle);
 
-  auto key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jKey)) + key_offset;
+  auto _key = env->GetDirectBufferAddress(jKey);
+  if (_key == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument (argument is not a valid direct ByteBuffer)");
+    return nullptr;
+  }
+  auto key = reinterpret_cast<char*>(_key) + key_offset;
+
   ROCKSDB_NAMESPACE::Slice key_slice(key, static_cast<size_t>(key_len));
   std::cout << "directKey to read : " << key << "\n";
 
@@ -894,54 +945,90 @@ jobject Java_org_rocksdb_RocksDB_getEntityDirect
   const auto status = db->GetEntity(default_read_options, columns_family, key_slice, &columns);
 
   if(status.ok() && columns.columns().size() > 0) {
-    auto max_items = std::min(columns.columns().size(), static_cast<size_t>(env->GetArrayLength(jnames)));
-    auto namesOffset = env->GetIntArrayElements(jNamesOffset, nullptr);
-    auto namesLen = env->GetIntArrayElements(jNamesLen, nullptr);
-    auto namesRequiredSize = env->GetIntArrayElements(jnamesRequiredSize, nullptr);
+    auto max_items = std::min(static_cast<jsize>(columns.columns().size()),
+                              env->GetArrayLength(jnames));
 
-    auto valuesOffset = env->GetIntArrayElements(jValuesOffset, nullptr);
-    auto valuesLen = env->GetIntArrayElements(jValuesLen, nullptr);
-    auto valuesRequiredSize = env->GetIntArrayElements(jvaluesRequiredSize, nullptr);
+    std::unique_ptr<jint[]> namesOffset(new jint[max_items]);
+    env->GetIntArrayRegion(jNamesOffset, 0, max_items, namesOffset.get());
+    if (env->ExceptionCheck() == JNI_TRUE) {
+      return nullptr;
+    }
+
+    std::unique_ptr<jint[]> namesLen(new jint[max_items]);
+    env->GetIntArrayRegion(jNamesLen, 0, max_items, namesLen.get());
+    if (env->ExceptionCheck() == JNI_TRUE) {
+      return nullptr;
+    }
+
+    std::unique_ptr<jint[]> namesRequiredSize(new jint[max_items]);
+
+    std::unique_ptr<jint[]> valuesOffset(new jint[max_items]);
+    env->GetIntArrayRegion(jValuesOffset, 0, max_items, valuesOffset.get());
+    if (env->ExceptionCheck() == JNI_TRUE) {
+      return nullptr;
+    }
+
+    std::unique_ptr<jint[]> valuesLen(new jint[max_items]);
+    env->GetIntArrayRegion(jValuesLen, 0, max_items, valuesLen.get());
+    if (env->ExceptionCheck() == JNI_TRUE) {
+      return nullptr;
+    }
+
+    std::unique_ptr<jint[]> valuesRequiredSize(new jint[max_items]);
 
     for(int i = 0 ; i < max_items ; i++) {
       auto column = columns.columns()[i];
+
       auto jname = env->GetObjectArrayElement(jnames, i);
-      auto name = reinterpret_cast<char*>(env->GetDirectBufferAddress(jname)) + namesOffset[i];
-      auto max_data_len = std::min(static_cast<jint>(column.name().size()), (namesLen[i]));
-      if(max_data_len < column.name().size()) {
-        namesRequiredSize[i] = static_cast<jint>(column.name().size());
+      if (env->ExceptionCheck()) {
+        return nullptr;
       }
-      namesLen[i] = max_data_len; //Return back to java how many bytes we copied
+      auto _name = env->GetDirectBufferAddress(jname);
+      if (_name == nullptr) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env,
+            "Invalid \"name\" argument (argument is not a valid direct "
+            "ByteBuffer)");
+        return nullptr;
+      }
+      auto name = reinterpret_cast<char*>(_name) + namesOffset[i];
+      namesRequiredSize[i] = static_cast<jint>(column.name().size());
+      auto max_data_len = std::min(namesRequiredSize[i], (namesLen[i]));
       std::memcpy(name, column.name().data(), max_data_len);
 
-
       auto jvalue = env->GetObjectArrayElement(jvalues, i);
-      auto value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jvalue)) + valuesOffset[i];
-      max_data_len = std::min(static_cast<jint>(column.value().size()), (valuesLen[i]));
-      if(max_data_len < column.value().size()) {
-        valuesRequiredSize[i] = static_cast<jint>(column.value().size());
+      if (env->ExceptionCheck()) {
+        return nullptr;
       }
-      valuesLen[i] = max_data_len; //Return back to java how many bytes we copied
+      auto _value = env->GetDirectBufferAddress(jvalue);
+      if (_value == nullptr) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env,
+            "Invalid \"value\" argument (argument is not a valid direct "
+            "ByteBuffer)");
+        return nullptr;
+      }
+
+      auto value = reinterpret_cast<char*>(_value) + valuesOffset[i];
+      valuesRequiredSize[i] = static_cast<jint>(column.value().size());
+      max_data_len = std::min(valuesRequiredSize[i], (valuesLen[i]));
       std::memcpy(value, column.value().data(), max_data_len);
-
     }
-    env->ReleaseIntArrayElements(jNamesOffset, namesOffset, JNI_ABORT);
-    env->ReleaseIntArrayElements(jNamesLen, namesLen, JNI_COMMIT);
-    env->ReleaseIntArrayElements(jnamesRequiredSize, namesRequiredSize, JNI_COMMIT);
 
-    env->ReleaseIntArrayElements(jValuesOffset, valuesOffset, JNI_ABORT);
-    env->ReleaseIntArrayElements(jValuesLen, valuesLen, JNI_COMMIT);
-    env->ReleaseIntArrayElements(jvaluesRequiredSize, valuesRequiredSize, JNI_COMMIT);
-
+    env->SetIntArrayRegion(jnamesRequiredSize, 0, max_items,
+                           namesRequiredSize.get());
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    env->SetIntArrayRegion(jvaluesRequiredSize, 0, max_items,
+                           valuesRequiredSize.get());
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
   }
 
-
   return ROCKSDB_NAMESPACE::StatusJni::construct(env, status);
-
 }
-
-
-
 
 /*
  * Class:     org_rocksdb_RocksDB
