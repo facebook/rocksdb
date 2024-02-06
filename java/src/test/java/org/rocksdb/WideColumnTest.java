@@ -92,7 +92,7 @@ public class WideColumnTest {
             assertThat(s).isNotNull();
             assertThat(s.getCode()).isEqualTo(Status.Code.Ok);
             WideColumn.ByteBufferWideColumn column = result.get(0);
-            assertThat(column.getNameRequiredSize()).isEqualTo(0);
+            assertThat(column.getNameRequiredSize()).isEqualTo(10);
             assertThat(column.getValueRequiredSize()).isEqualTo(11);
 
             ByteBuffer valueBuffer = column.getValue();
