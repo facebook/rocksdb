@@ -4918,11 +4918,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     auto [start, limit] = MaybeAddTimestampsToRange(
         ranges[i].start, ranges[i].limit, ts_sz, &keys.emplace_back(),
         &keys.emplace_back(), !include_end);
-    assert(ranges[i].start == nullptr || start.has_value());
-    assert(ranges[i].limit == nullptr || limit.has_value());
-    ukey_ranges.emplace_back(
-        start.has_value() ? &key_slices.emplace_back(start.value()) : nullptr,
-        limit.has_value() ? &key_slices.emplace_back(limit.value()) : nullptr);
+    assert((ranges[i].start != nullptr) == start.has_value());
+    assert((ranges[i].limit != nullptr) == limit.has_value());
+    ukey_ranges.emplace_back(start, limit);
   }
 
   VersionEdit edit;
@@ -4934,7 +4932,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
 
     auto* vstorage = input_version->storage_info();
     for (const auto& range : ukey_ranges) {
-      auto begin = range.start, end = range.limit;
+      auto begin = range.start.has_value() ? &range.start.value() : nullptr;
+      auto end = range.limit.has_value() ? &range.limit.value() : nullptr;
       for (int i = 1; i < cfd->NumberLevels(); i++) {
         if (vstorage->LevelFiles(i).empty() ||
             !vstorage->OverlapInLevel(i, begin, end)) {

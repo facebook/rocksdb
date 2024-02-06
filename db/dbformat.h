@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -85,7 +86,7 @@ struct UserKeyRange {
   Slice start;
   Slice limit;
 
-  UserKeyRange() {}
+  UserKeyRange() = default;
   UserKeyRange(const Slice& s, const Slice& l) : start(s), limit(l) {}
 };
 
@@ -94,11 +95,13 @@ struct UserKeyRange {
 struct UserKeyRangePtr {
   // In case of user_defined timestamp, if enabled, `start` and `limit` should
   // point to key with timestamp part.
-  const Slice* start;
-  const Slice* limit;
+  // An optional range start, if missing, indicating a start before all keys.
+  std::optional<Slice> start;
+  // An optional range end, if missing, indicating an end after all keys.
+  std::optional<Slice> limit;
 
-  UserKeyRangePtr() : start(nullptr), limit(nullptr) {}
-  UserKeyRangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
+  UserKeyRangePtr(const std::optional<Slice> s, const std::optional<Slice> l)
+      : start(s), limit(l) {}
 };
 
 // Checks whether a type is an inline value type
