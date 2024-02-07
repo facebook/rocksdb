@@ -450,14 +450,6 @@ void CompactionJob::ReleaseSubcompactionResources() {
   ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
 }
 
-struct RangeWithSize {
-  Range range;
-  uint64_t size;
-
-  RangeWithSize(const Slice& a, const Slice& b, uint64_t s = 0)
-      : range(a, b), size(s) {}
-};
-
 void CompactionJob::GenSubcompactionBoundaries() {
   // The goal is to find some boundary keys so that we can evenly partition
   // the compaction input data into max_subcompactions ranges.
@@ -760,7 +752,6 @@ Status CompactionJob::Run() {
 
         if (s.ok() && paranoid_file_checks_) {
           OutputValidator validator(cfd->internal_comparator(),
-                                    /*_enable_order_check=*/true,
                                     /*_enable_hash=*/true);
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             s = validator.Add(iter->key(), iter->value());
@@ -1945,8 +1936,6 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     }
 
     outputs.AddOutput(std::move(meta), cfd->internal_comparator(),
-                      sub_compact->compaction->mutable_cf_options()
-                          ->check_flush_compaction_key_order,
                       paranoid_file_checks_);
   }
 
@@ -1969,7 +1958,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       read_options, write_options, cfd->internal_comparator(),
-      cfd->int_tbl_prop_collector_factories(),
+      cfd->internal_tbl_prop_coll_factories(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),

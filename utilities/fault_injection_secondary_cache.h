@@ -27,7 +27,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
     }
   }
 
-  virtual ~FaultInjectionSecondaryCache() override {}
+  ~FaultInjectionSecondaryCache() override {}
 
   const char* Name() const override { return "FaultInjectionSecondaryCache"; }
 

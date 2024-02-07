@@ -3516,35 +3516,6 @@ unsigned char rocksdb_options_get_advise_random_on_open(
   return opt->rep.advise_random_on_open;
 }
 
-void rocksdb_options_set_access_hint_on_compaction_start(rocksdb_options_t* opt,
-                                                         int v) {
-  switch (v) {
-    case 0:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::NONE;
-      break;
-    case 1:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::NORMAL;
-      break;
-    case 2:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::SEQUENTIAL;
-      break;
-    case 3:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::WILLNEED;
-      break;
-    default:
-      assert(0);
-  }
-}
-
-int rocksdb_options_get_access_hint_on_compaction_start(
-    rocksdb_options_t* opt) {
-  return opt->rep.access_hint_on_compaction_start;
-}
-
 void rocksdb_options_set_use_adaptive_mutex(rocksdb_options_t* opt,
                                             unsigned char v) {
   opt->rep.use_adaptive_mutex = v;

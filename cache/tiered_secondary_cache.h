@@ -42,27 +42,25 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
 
   // This is a no-op as we currently don't allow demotion (i.e
   // insertion by the upper layer) of evicted blocks.
-  virtual Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*obj*/,
-                        const Cache::CacheItemHelper* /*helper*/,
-                        bool /*force_insert*/) override {
+  Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*obj*/,
+                const Cache::CacheItemHelper* /*helper*/,
+                bool /*force_insert*/) override {
     return Status::OK();
   }
 
   // Warm up the nvm tier directly
-  virtual Status InsertSaved(
-      const Slice& key, const Slice& saved,
-      CompressionType type = CompressionType::kNoCompression,
-      CacheTier source = CacheTier::kVolatileTier) override {
+  Status InsertSaved(const Slice& key, const Slice& saved,
+                     CompressionType type = CompressionType::kNoCompression,
+                     CacheTier source = CacheTier::kVolatileTier) override {
     return nvm_sec_cache_->InsertSaved(key, saved, type, source);
   }
 
-  virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
+  std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
       Statistics* stats, bool& kept_in_sec_cache) override;
 
-  virtual void WaitAll(
-      std::vector<SecondaryCacheResultHandle*> handles) override;
+  void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) override;
 
  private:
   struct CreateContext : public Cache::CreateContext {

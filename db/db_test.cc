@@ -3103,11 +3103,11 @@ class ModelDB : public DB {
   }
 
   using DB::GetMergeOperands;
-  virtual Status GetMergeOperands(
-      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
-      const Slice& key, PinnableSlice* /*slice*/,
-      GetMergeOperandsOptions* /*merge_operands_options*/,
-      int* /*number_of_operands*/) override {
+  Status GetMergeOperands(const ReadOptions& /*options*/,
+                          ColumnFamilyHandle* /*column_family*/,
+                          const Slice& key, PinnableSlice* /*slice*/,
+                          GetMergeOperandsOptions* /*merge_operands_options*/,
+                          int* /*number_of_operands*/) override {
     return Status::NotSupported(key);
   }
 
@@ -3137,7 +3137,7 @@ class ModelDB : public DB {
   }
 
   using DB::CreateColumnFamilyWithImport;
-  virtual Status CreateColumnFamilyWithImport(
+  Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
@@ -3152,9 +3152,9 @@ class ModelDB : public DB {
   }
 
   using DB::ClipColumnFamily;
-  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
-                                  const Slice& /*begin*/,
-                                  const Slice& /*end*/) override {
+  Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                          const Slice& /*begin*/,
+                          const Slice& /*end*/) override {
     return Status::NotSupported("Not implemented.");
   }
 
@@ -3308,7 +3308,7 @@ class ModelDB : public DB {
 
   void DisableManualCompaction() override {}
 
-  virtual Status WaitForCompact(
+  Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) override {
     return Status::OK();
   }
@@ -3381,8 +3381,7 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
-  virtual Status GetCreationTimeOfOldestFile(
-      uint64_t* /*creation_time*/) override {
+  Status GetCreationTimeOfOldestFile(uint64_t* /*creation_time*/) override {
     return Status::NotSupported();
   }
 
@@ -5814,13 +5813,6 @@ TEST_F(DBTest, DynamicMiscOptions) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
   ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
-  ASSERT_TRUE(mutable_cf_options.check_flush_compaction_key_order);
-
-  ASSERT_OK(dbfull()->SetOptions(
-      handles_[1], {{"check_flush_compaction_key_order", "false"}}));
-  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
-                                                     &mutable_cf_options));
-  ASSERT_FALSE(mutable_cf_options.check_flush_compaction_key_order);
 }
 
 TEST_F(DBTest, L0L1L2AndUpHitCounter) {

@@ -115,7 +115,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractTransactionNotifier.java
   src/main/java/org/rocksdb/AbstractWalFilter.java
   src/main/java/org/rocksdb/AbstractWriteBatch.java
-  src/main/java/org/rocksdb/AccessHint.java
   src/main/java/org/rocksdb/AdvancedColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/AdvancedMutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/BackgroundErrorReason.java

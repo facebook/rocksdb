@@ -169,10 +169,10 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
 
-  virtual uint32_t GetID() const override;
-  virtual const std::string& GetName() const override;
-  virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
-  virtual const Comparator* GetComparator() const override;
+  uint32_t GetID() const override;
+  const std::string& GetName() const override;
+  Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
+  const Comparator* GetComparator() const override;
 
  private:
   ColumnFamilyData* cfd_;
@@ -193,7 +193,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
         internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
-  virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
+  ColumnFamilyData* cfd() const override { return internal_cfd_; }
 
  private:
   ColumnFamilyData* internal_cfd_;
@@ -261,11 +261,11 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
-// into internal ones in int_tbl_prop_collector_factories. Add a system internal
+// into internal ones in internal_tbl_prop_coll_factories. Add a system internal
 // one too.
-void GetIntTblPropCollectorFactory(
+void GetInternalTblPropCollFactory(
     const ImmutableCFOptions& ioptions,
-    IntTblPropCollectorFactories* int_tbl_prop_collector_factories);
+    InternalTblPropCollFactories* internal_tbl_prop_coll_factories);
 
 class ColumnFamilySet;
 
@@ -400,7 +400,7 @@ class ColumnFamilyData {
   //    duration of this function.
   //
   // Thread-safe
-  Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
+  Status RangesOverlapWithMemtables(const autovector<UserKeyRange>& ranges,
                                     SuperVersion* super_version,
                                     bool allow_data_in_errors, bool* overlap);
 
@@ -429,8 +429,8 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
-  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories() const {
-    return &int_tbl_prop_collector_factories_;
+  const InternalTblPropCollFactories* internal_tbl_prop_coll_factories() const {
+    return &internal_tbl_prop_coll_factories_;
   }
 
   SuperVersion* GetSuperVersion() { return super_version_; }
@@ -573,7 +573,7 @@ class ColumnFamilyData {
   std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
-  IntTblPropCollectorFactories int_tbl_prop_collector_factories_;
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories_;
 
   const ColumnFamilyOptions initial_cf_options_;
   const ImmutableOptions ioptions_;
@@ -853,17 +853,17 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   // REQUIRES: Seek() called first
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual MemTable* GetMemTable() const override;
+  MemTable* GetMemTable() const override;
 
   // Returns column family handle for the selected column family
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual ColumnFamilyHandle* GetColumnFamilyHandle() override;
+  ColumnFamilyHandle* GetColumnFamilyHandle() override;
 
   // Cannot be called while another thread is calling Seek().
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual ColumnFamilyData* current() override { return current_; }
+  ColumnFamilyData* current() override { return current_; }
 
  private:
   ColumnFamilySet* column_family_set_;

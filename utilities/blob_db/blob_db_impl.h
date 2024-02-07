@@ -112,10 +112,10 @@ class BlobDBImpl : public BlobDB {
              PinnableSlice* value, uint64_t* expiration) override;
 
   using BlobDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& read_options) override;
+  Iterator* NewIterator(const ReadOptions& read_options) override;
 
   using BlobDB::NewIterators;
-  virtual Status NewIterators(
+  Status NewIterators(
       const ReadOptions& /*read_options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_families*/,
       std::vector<Iterator*>* /*iterators*/) override {
@@ -123,14 +123,14 @@ class BlobDBImpl : public BlobDB {
   }
 
   using BlobDB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& _read_options, const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+  std::vector<Status> MultiGet(const ReadOptions& _read_options,
+                               const std::vector<Slice>& keys,
+                               std::vector<std::string>* values) override;
 
   using BlobDB::Write;
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
-  virtual Status Close() override;
+  Status Close() override;
 
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
@@ -154,14 +154,13 @@ class BlobDBImpl : public BlobDB {
              const DBOptions& db_options,
              const ColumnFamilyOptions& cf_options);
 
-  virtual Status DisableFileDeletions() override;
+  Status DisableFileDeletions() override;
 
-  virtual Status EnableFileDeletions(bool force) override;
+  Status EnableFileDeletions(bool force) override;
 
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size,
-                              bool flush_memtable = true) override;
-  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
+  Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
+                      bool flush_memtable = true) override;
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
 
   ~BlobDBImpl();
 

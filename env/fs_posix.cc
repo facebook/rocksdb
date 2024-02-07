@@ -116,7 +116,7 @@ class PosixFileLock : public FileLock {
     filename.clear();
   }
 
-  virtual ~PosixFileLock() override {
+  ~PosixFileLock() override {
     // Check for destruction without UnlockFile
     assert(fd_ == -1);
   }
@@ -1004,8 +1004,8 @@ class PosixFileSystem : public FileSystem {
   // equal to atleast min_completions.
   // 2. Currently in case of direct_io, Read API is called because of which call
   // to Poll API fails as it expects IOHandle to be populated.
-  virtual IOStatus Poll(std::vector<void*>& io_handles,
-                        size_t /*min_completions*/) override {
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t /*min_completions*/) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
@@ -1077,7 +1077,7 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
-  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;

@@ -104,7 +104,7 @@ class SstPartitionerFixedPrefix : public SstPartitioner {
  public:
   explicit SstPartitionerFixedPrefix(size_t len) : len_(len) {}
 
-  virtual ~SstPartitionerFixedPrefix() override {}
+  ~SstPartitionerFixedPrefix() override {}
 
   const char* Name() const override { return "SstPartitionerFixedPrefix"; }
 

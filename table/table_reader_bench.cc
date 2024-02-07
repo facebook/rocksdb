@@ -95,13 +95,13 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                          FileOptions(env_options), &file_writer,
                                          nullptr));
 
-    IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+    InternalTblPropCollFactories internal_tbl_prop_coll_factories;
 
     int unknown_level = -1;
     const WriteOptions write_options;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, read_options, write_options,
-                            ikc, &int_tbl_prop_collector_factories,
+                            ikc, &internal_tbl_prop_coll_factories,
                             CompressionType::kNoCompression,
                             CompressionOptions(), 0 /* column_family_id */,
                             kDefaultColumnFamilyName, unknown_level),

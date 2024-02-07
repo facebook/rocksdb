@@ -3056,17 +3056,20 @@ void Java_org_rocksdb_RocksDB_compactRange(JNIEnv* env, jclass,
   }
 
   ROCKSDB_NAMESPACE::Status s;
-  if (jbegin_len > 0 || jend_len > 0) {
-    const ROCKSDB_NAMESPACE::Slice begin(str_begin);
-    const ROCKSDB_NAMESPACE::Slice end(str_end);
-    s = db->CompactRange(*compact_range_opts, cf_handle, &begin, &end);
-  } else {
-    s = db->CompactRange(*compact_range_opts, cf_handle, nullptr, nullptr);
-  }
 
+  std::unique_ptr<ROCKSDB_NAMESPACE::Slice> begin;
+  std::unique_ptr<ROCKSDB_NAMESPACE::Slice> end;
+  if (jbegin_len > 0) {
+    begin.reset(new ROCKSDB_NAMESPACE::Slice(str_begin));
+  }
+  if (jend_len > 0) {
+    end.reset(new ROCKSDB_NAMESPACE::Slice(str_end));
+  }
+  s = db->CompactRange(*compact_range_opts, cf_handle, begin.get(), end.get());
   if (jcompact_range_opts_handle == 0) {
     delete compact_range_opts;
   }
+
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }
 

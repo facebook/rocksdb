@@ -340,7 +340,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     return current_ < restarts_;
   }
 
-  virtual void SeekToFirst() override final {
+  void SeekToFirst() override final {
 #ifndef NDEBUG
     if (TEST_Corrupt_Callback("BlockIter::SeekToFirst")) return;
 #endif
@@ -348,33 +348,33 @@ class BlockIter : public InternalIteratorBase<TValue> {
     UpdateKey();
   }
 
-  virtual void SeekToLast() override final {
+  void SeekToLast() override final {
     SeekToLastImpl();
     UpdateKey();
   }
 
-  virtual void Seek(const Slice& target) override final {
+  void Seek(const Slice& target) override final {
     SeekImpl(target);
     UpdateKey();
   }
 
-  virtual void SeekForPrev(const Slice& target) override final {
+  void SeekForPrev(const Slice& target) override final {
     SeekForPrevImpl(target);
     UpdateKey();
   }
 
-  virtual void Next() override final {
+  void Next() override final {
     NextImpl();
     UpdateKey();
   }
 
-  virtual bool NextAndGetResult(IterateResult* result) override final {
+  bool NextAndGetResult(IterateResult* result) override final {
     // This does not need to call `UpdateKey()` as the parent class only has
     // access to the `UpdateKey()`-invoking functions.
     return InternalIteratorBase<TValue>::NextAndGetResult(result);
   }
 
-  virtual void Prev() override final {
+  void Prev() override final {
     PrevImpl();
     UpdateKey();
   }

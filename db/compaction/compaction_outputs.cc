@@ -320,7 +320,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
         being_grandparent_gap_ ? 2 : 3;
     if (compaction_->immutable_options()->compaction_style ==
             kCompactionStyleLevel &&
-        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         num_grandparent_boundaries_crossed >=
             num_skippable_boundaries_crossed &&
         grandparent_overlapped_bytes_ - previous_overlapped_bytes >
@@ -342,7 +341,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // improvement.
     if (compaction_->immutable_options()->compaction_style ==
             kCompactionStyleLevel &&
-        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         current_output_file_size_ >=
             ((compaction_->target_output_file_size() + 99) / 100) *
                 (50 + std::min(grandparent_boundary_switched_num_ * 5,

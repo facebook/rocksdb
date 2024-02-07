@@ -400,7 +400,7 @@ class MyXXH64Checksum : public FileChecksumGenerator {
     XXH64_reset(state_, 0);
   }
 
-  virtual ~MyXXH64Checksum() override { XXH64_freeState(state_); }
+  ~MyXXH64Checksum() override { XXH64_freeState(state_); }
 
   void Update(const char* data, size_t n) override {
     XXH64_update(state_, data, n);

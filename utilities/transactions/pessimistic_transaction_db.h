@@ -36,7 +36,7 @@ class PessimisticTransactionDB : public TransactionDB {
 
   virtual ~PessimisticTransactionDB();
 
-  virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
+  const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
   virtual Status Initialize(
       const std::vector<size_t>& compaction_enabled_cf_indices,
@@ -47,27 +47,24 @@ class PessimisticTransactionDB : public TransactionDB {
                                 Transaction* old_txn) override = 0;
 
   using StackableDB::Put;
-  virtual Status Put(const WriteOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& val) override;
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& val) override;
 
   using StackableDB::Delete;
-  virtual Status Delete(const WriteOptions& wopts,
-                        ColumnFamilyHandle* column_family,
-                        const Slice& key) override;
+  Status Delete(const WriteOptions& wopts, ColumnFamilyHandle* column_family,
+                const Slice& key) override;
 
   using StackableDB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& wopts,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
+  Status SingleDelete(const WriteOptions& wopts,
+                      ColumnFamilyHandle* column_family,
+                      const Slice& key) override;
 
   using StackableDB::Merge;
-  virtual Status Merge(const WriteOptions& options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override;
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& value) override;
 
   using TransactionDB::Write;
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  Status Write(const WriteOptions& opts, WriteBatch* updates) override;
   inline Status WriteWithConcurrencyControl(const WriteOptions& opts,
                                             WriteBatch* updates) {
     Status s;
@@ -96,9 +93,9 @@ class PessimisticTransactionDB : public TransactionDB {
   }
 
   using StackableDB::CreateColumnFamily;
-  virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
-                                    const std::string& column_family_name,
-                                    ColumnFamilyHandle** handle) override;
+  Status CreateColumnFamily(const ColumnFamilyOptions& options,
+                            const std::string& column_family_name,
+                            ColumnFamilyHandle** handle) override;
 
   Status CreateColumnFamilies(
       const ColumnFamilyOptions& options,
@@ -110,7 +107,7 @@ class PessimisticTransactionDB : public TransactionDB {
       std::vector<ColumnFamilyHandle*>* handles) override;
 
   using StackableDB::DropColumnFamily;
-  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
+  Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
 
   Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families) override;
@@ -254,10 +251,10 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   // Optimized version of ::Write that makes use of skip_concurrency_control
   // hint
   using TransactionDB::Write;
-  virtual Status Write(const WriteOptions& opts,
-                       const TransactionDBWriteOptimizations& optimizations,
-                       WriteBatch* updates) override;
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  Status Write(const WriteOptions& opts,
+               const TransactionDBWriteOptimizations& optimizations,
+               WriteBatch* updates) override;
+  Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 };
 
 inline Status PessimisticTransactionDB::FailIfBatchHasTs(

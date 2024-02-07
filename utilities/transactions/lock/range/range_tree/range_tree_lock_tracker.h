@@ -94,7 +94,7 @@ class RangeTreeLockTracker : public LockTracker {
   void Clear() override;
 
   // "If this method is not supported, returns nullptr."
-  virtual LockTracker* GetTrackedLocksSinceSavePoint(
+  LockTracker* GetTrackedLocksSinceSavePoint(
       const LockTracker&) const override {
     return nullptr;
   }

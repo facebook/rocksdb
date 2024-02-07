@@ -133,7 +133,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
     // as each block's size.
     compression_opts.max_dict_bytes = compression_dict_bytes;
     compression_opts.max_dict_buffer_bytes = compression_dict_bytes;
-    IntTblPropCollectorFactories factories;
+    InternalTblPropCollFactories factories;
     const ReadOptions read_options;
     const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(

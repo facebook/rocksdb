@@ -663,7 +663,8 @@ class DB {
   // (*values) will always be resized to be the same size as (keys).
   // Similarly, the number of returned statuses will be the number of keys.
   // Note: keys will not be "de-duplicated". Duplicate keys will return
-  // duplicate values in order.
+  // duplicate values in order, and may return different status values
+  // in case there are errors.
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -1643,11 +1644,6 @@ class DB {
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 
-  // Prevent file deletions. Compactions will continue to occur,
-  // but no obsolete files will be deleted. Calling this multiple
-  // times have the same effect as calling it once.
-  virtual Status DisableFileDeletions() = 0;
-
   // Increase the full_history_ts of column family. The new ts_low value should
   // be newer than current full_history_ts value.
   // If another thread updates full_history_ts_low concurrently to a higher
@@ -1659,9 +1655,14 @@ class DB {
   virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                      std::string* ts_low) = 0;
 
-  // Enable deleting obsolete files.
-  // Usually users should only need to call this if they have previously called
-  // `DisableFileDeletions`.
+  // Suspend deleting obsolete files. Compactions will continue to occur,
+  // but no obsolete files will be deleted. To resume file deletions, each
+  // call to DisableFileDeletions() must be matched by a subsequent call to
+  // EnableFileDeletions(). For more details, see EnableFileDeletions().
+  virtual Status DisableFileDeletions() = 0;
+
+  // Resume deleting obsolete files, following up on `DisableFileDeletions()`.
+  //
   // File deletions disabling and enabling is not controlled by a binary flag,
   // instead it's represented as a counter to allow different callers to
   // independently disable file deletion. Disabling file deletion can be

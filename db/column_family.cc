@@ -96,16 +96,16 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
   return cfd()->user_comparator();
 }
 
-void GetIntTblPropCollectorFactory(
+void GetInternalTblPropCollFactory(
     const ImmutableCFOptions& ioptions,
-    IntTblPropCollectorFactories* int_tbl_prop_collector_factories) {
-  assert(int_tbl_prop_collector_factories);
+    InternalTblPropCollFactories* internal_tbl_prop_coll_factories) {
+  assert(internal_tbl_prop_coll_factories);
 
   auto& collector_factories = ioptions.table_properties_collector_factories;
   for (size_t i = 0; i < ioptions.table_properties_collector_factories.size();
        ++i) {
     assert(collector_factories[i]);
-    int_tbl_prop_collector_factories->emplace_back(
+    internal_tbl_prop_coll_factories->emplace_back(
         new UserKeyTablePropertiesCollectorFactory(collector_factories[i]));
   }
 }
@@ -572,7 +572,7 @@ ColumnFamilyData::ColumnFamilyData(
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
-  GetIntTblPropCollectorFactory(ioptions_, &int_tbl_prop_collector_factories_);
+  GetInternalTblPropCollFactory(ioptions_, &internal_tbl_prop_coll_factories_);
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
@@ -1179,7 +1179,7 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
 }
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
-    const autovector<Range>& ranges, SuperVersion* super_version,
+    const autovector<UserKeyRange>& ranges, SuperVersion* super_version,
     bool allow_data_in_errors, bool* overlap) {
   assert(overlap != nullptr);
   *overlap = false;
@@ -1223,7 +1223,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 
     if (status.ok()) {
       if (memtable_iter->Valid() &&
-          ucmp->Compare(seek_result.user_key, ranges[i].limit) <= 0) {
+          ucmp->CompareWithoutTimestamp(seek_result.user_key,
+                                        ranges[i].limit) <= 0) {
         *overlap = true;
       } else if (range_del_agg.IsRangeOverlapped(ranges[i].start,
                                                  ranges[i].limit)) {

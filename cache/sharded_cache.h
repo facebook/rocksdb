@@ -259,7 +259,7 @@ class ShardedCache : public ShardedCacheBase {
     } while (remaining_work);
   }
 
-  virtual void EraseUnRefEntries() override {
+  void EraseUnRefEntries() override {
     ForEachShard([](CacheShard* cs) { cs->EraseUnRefEntries(); });
   }
 

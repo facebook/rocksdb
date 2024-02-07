@@ -1140,7 +1140,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     // TODO(ajkr): We could also optimize away the flush in certain cases where
     // one/both sides of the interval are unbounded. But it requires more
     // changes to RangesOverlapWithMemtables.
-    Range range(*begin, *end);
+    UserKeyRange range(*begin, *end);
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     s = cfd->RangesOverlapWithMemtables(
         {range}, super_version, immutable_db_options_.allow_data_in_errors,

@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -76,6 +77,32 @@ enum ValueType : unsigned char {
 // Defined in dbformat.cc
 extern const ValueType kValueTypeForSeek;
 extern const ValueType kValueTypeForSeekForPrev;
+
+// A range of user keys used internally by RocksDB. Also see `Range` used by
+// public APIs.
+struct UserKeyRange {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // include user_defined timestamps.
+  Slice start;
+  Slice limit;
+
+  UserKeyRange() = default;
+  UserKeyRange(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
+// A range of user keys used internally by RocksDB. Also see `RangePtr` used by
+// public APIs.
+struct UserKeyRangePtr {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key with timestamp part.
+  // An optional range start, if missing, indicating a start before all keys.
+  std::optional<Slice> start;
+  // An optional range end, if missing, indicating an end after all keys.
+  std::optional<Slice> limit;
+
+  UserKeyRangePtr(const std::optional<Slice>& s, const std::optional<Slice>& l)
+      : start(s), limit(l) {}
+};
 
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
@@ -843,19 +870,19 @@ class InternalKeySliceTransform : public SliceTransform {
   explicit InternalKeySliceTransform(const SliceTransform* transform)
       : transform_(transform) {}
 
-  virtual const char* Name() const override { return transform_->Name(); }
+  const char* Name() const override { return transform_->Name(); }
 
-  virtual Slice Transform(const Slice& src) const override {
+  Slice Transform(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->Transform(user_key);
   }
 
-  virtual bool InDomain(const Slice& src) const override {
+  bool InDomain(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->InDomain(user_key);
   }
 
-  virtual bool InRange(const Slice& dst) const override {
+  bool InRange(const Slice& dst) const override {
     auto user_key = ExtractUserKey(dst);
     return transform_->InRange(user_key);
   }
