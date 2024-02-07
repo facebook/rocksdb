@@ -1259,10 +1259,11 @@ struct DBOptions {
   // file.
   bool manual_wal_flush = false;
 
-  // This feature is WORK IN PROGRESS
-  // If enabled WAL records will be compressed before they are written.
-  // Only zstd is supported. Compressed WAL records will be read in supported
-  // versions regardless of the wal_compression settings.
+  // If enabled WAL records will be compressed before they are written. Only
+  // ZSTD (= kZSTD) is supported (until streaming support is adapted for other
+  // compression types). Compressed WAL records will be read in supported
+  // versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
+  // the WAL is read.
   CompressionType wal_compression = kNoCompression;
 
   // If true, RocksDB supports flushing multiple column families and committing
