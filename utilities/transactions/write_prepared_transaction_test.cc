@@ -1521,7 +1521,7 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
   txn_options.set_snapshot = true;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
   auto snap = txn1->GetSnapshot();
-  auto snap_impl = reinterpret_cast<const SnapshotImpl*>(snap);
+  auto snap_impl = static_cast<const SnapshotImpl*>(snap);
   // If ::Initialize calls the overriden SetSnapshot, min_uncommitted_ must be
   // udpated
   ASSERT_GT(snap_impl->min_uncommitted_, kMinUnCommittedSeq);
@@ -2652,7 +2652,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
 
   int count_value = 0;
   auto callback = [&](void* arg) {
-    auto* ikey = reinterpret_cast<ParsedInternalKey*>(arg);
+    auto* ikey = static_cast<ParsedInternalKey*>(arg);
     if (ikey->user_key == "key1") {
       count_value++;
       if (count_value == 2) {
@@ -3100,8 +3100,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
-        const auto* const ikey =
-            reinterpret_cast<const ParsedInternalKey*>(arg);
+        const auto* const ikey = static_cast<const ParsedInternalKey*>(arg);
         assert(ikey);
         if (ikey->user_key == "b") {
           assert(ikey->type == kTypeValue);
@@ -3174,8 +3173,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
-        const auto* const ikey =
-            reinterpret_cast<const ParsedInternalKey*>(arg);
+        const auto* const ikey = static_cast<const ParsedInternalKey*>(arg);
         assert(ikey);
         if (ikey->user_key == "b") {
           assert(ikey->type == kTypeValue);
@@ -3240,7 +3238,7 @@ TEST_P(WritePreparedTransactionTest, SingleDeleteAfterRollback) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* arg) {
-        const auto* const c = reinterpret_cast<const Compaction*>(arg);
+        const auto* const c = static_cast<const Compaction*>(arg);
         assert(!c);
         // Trigger once only for SingleDelete during flush.
         if (0 == count) {

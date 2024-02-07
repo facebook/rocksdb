@@ -74,8 +74,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     if (table == 3) {
       SyncPoint::GetInstance()->SetCallBack(
           "BlockBasedTableBuilder::WritePropertiesBlock:Meta", [&](void* meta) {
-            *reinterpret_cast<const std::string**>(meta) =
-                &kPropertiesBlockOldName;
+            *static_cast<const std::string**>(meta) = &kPropertiesBlockOldName;
           });
       SyncPoint::GetInstance()->EnableProcessing();
     }
@@ -93,7 +92,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   // Part of strategy to prevent pinning table files
   SyncPoint::GetInstance()->SetCallBack(
       "VersionEditHandler::LoadTables:skip_load_table_files",
-      [&](void* skip_load) { *reinterpret_cast<bool*>(skip_load) = true; });
+      [&](void* skip_load) { *static_cast<bool*>(skip_load) = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // 1. Read table properties directly from file
@@ -178,9 +177,7 @@ TEST_F(DBTablePropertiesTest, InvalidIgnored) {
   // Inject properties block data that Block considers invalid
   SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTableBuilder::WritePropertiesBlock:BlockData",
-      [&](void* block_data) {
-        *reinterpret_cast<Slice*>(block_data) = Slice("X");
-      });
+      [&](void* block_data) { *static_cast<Slice*>(block_data) = Slice("X"); });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Corrupting the table properties corrupts the unique id.

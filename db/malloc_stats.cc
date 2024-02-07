@@ -24,7 +24,7 @@ struct MallocStatus {
 };
 
 static void GetJemallocStatus(void* mstat_arg, const char* status) {
-  MallocStatus* mstat = reinterpret_cast<MallocStatus*>(mstat_arg);
+  MallocStatus* mstat = static_cast<MallocStatus*>(mstat_arg);
   size_t status_len = status ? strlen(status) : 0;
   size_t buf_size = (size_t)(mstat->end - mstat->cur);
   if (!status_len || status_len > buf_size) {

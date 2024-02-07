@@ -1419,10 +1419,9 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
 
   // Perform CompactFiles
   TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile2");
-  TEST_SYNC_POINT_CALLBACK(
-      "TestCompactFiles:PausingManualCompaction:3",
-      reinterpret_cast<void*>(
-          const_cast<std::atomic<int>*>(&manual_compaction_paused_)));
+  TEST_SYNC_POINT_CALLBACK("TestCompactFiles:PausingManualCompaction:3",
+                           static_cast<void*>(const_cast<std::atomic<int>*>(
+                               &manual_compaction_paused_)));
   {
     InstrumentedMutexLock l(&mutex_);
     auto* current = cfd->current();
@@ -3045,8 +3044,8 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
 }
 
 void DBImpl::BGWorkFlush(void* arg) {
-  FlushThreadArg fta = *(reinterpret_cast<FlushThreadArg*>(arg));
-  delete reinterpret_cast<FlushThreadArg*>(arg);
+  FlushThreadArg fta = *(static_cast<FlushThreadArg*>(arg));
+  delete static_cast<FlushThreadArg*>(arg);
 
   IOSTATS_SET_THREAD_POOL_ID(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
@@ -3055,8 +3054,8 @@ void DBImpl::BGWorkFlush(void* arg) {
 }
 
 void DBImpl::BGWorkCompaction(void* arg) {
-  CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
-  delete reinterpret_cast<CompactionArg*>(arg);
+  CompactionArg ca = *(static_cast<CompactionArg*>(arg));
+  delete static_cast<CompactionArg*>(arg);
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
   TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
   auto prepicked_compaction =
@@ -3080,12 +3079,12 @@ void DBImpl::BGWorkBottomCompaction(void* arg) {
 void DBImpl::BGWorkPurge(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   TEST_SYNC_POINT("DBImpl::BGWorkPurge:start");
-  reinterpret_cast<DBImpl*>(db)->BackgroundCallPurge();
+  static_cast<DBImpl*>(db)->BackgroundCallPurge();
   TEST_SYNC_POINT("DBImpl::BGWorkPurge:end");
 }
 
 void DBImpl::UnscheduleCompactionCallback(void* arg) {
-  CompactionArg* ca_ptr = reinterpret_cast<CompactionArg*>(arg);
+  CompactionArg* ca_ptr = static_cast<CompactionArg*>(arg);
   Env::Priority compaction_pri = ca_ptr->compaction_pri_;
   if (Env::Priority::BOTTOM == compaction_pri) {
     // Decrement bg_bottom_compaction_scheduled_ if priority is BOTTOM
@@ -3095,7 +3094,7 @@ void DBImpl::UnscheduleCompactionCallback(void* arg) {
     ca_ptr->db->bg_compaction_scheduled_--;
   }
   CompactionArg ca = *(ca_ptr);
-  delete reinterpret_cast<CompactionArg*>(arg);
+  delete static_cast<CompactionArg*>(arg);
   if (ca.prepicked_compaction != nullptr) {
     // if it's a manual compaction, set status to ManualCompactionPaused
     if (ca.prepicked_compaction->manual_compaction_state) {
@@ -3115,14 +3114,14 @@ void DBImpl::UnscheduleCompactionCallback(void* arg) {
 
 void DBImpl::UnscheduleFlushCallback(void* arg) {
   // Decrement bg_flush_scheduled_ in flush callback
-  reinterpret_cast<FlushThreadArg*>(arg)->db_->bg_flush_scheduled_--;
-  Env::Priority flush_pri = reinterpret_cast<FlushThreadArg*>(arg)->thread_pri_;
+  static_cast<FlushThreadArg*>(arg)->db_->bg_flush_scheduled_--;
+  Env::Priority flush_pri = static_cast<FlushThreadArg*>(arg)->thread_pri_;
   if (Env::Priority::LOW == flush_pri) {
     TEST_SYNC_POINT("DBImpl::UnscheduleLowFlushCallback");
   } else if (Env::Priority::HIGH == flush_pri) {
     TEST_SYNC_POINT("DBImpl::UnscheduleHighFlushCallback");
   }
-  delete reinterpret_cast<FlushThreadArg*>(arg);
+  delete static_cast<FlushThreadArg*>(arg);
   TEST_SYNC_POINT("DBImpl::UnscheduleFlushCallback");
 }
 

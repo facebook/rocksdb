@@ -208,7 +208,7 @@ TEST_P(TransactionTest, DoubleEmptyWrite) {
   ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0a")));
   ASSERT_OK(txn0->Prepare());
   delete txn0;
-  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+  static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
   txn0 = db->GetTransactionByName("xid2");
@@ -270,7 +270,7 @@ TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table", [&](void* arg) {
         // db mutex not held.
-        auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
+        auto* mems = static_cast<autovector<MemTable*>*>(arg);
         assert(mems);
         ASSERT_EQ(1, mems->size());
         auto* ctwb = txn->GetCommitTimeWriteBatch();
@@ -1505,7 +1505,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   ASSERT_OK(db->FlushWAL(false));
   delete txn;
   // kill and reopen
-  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+  static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   s = ReOpenNoDelete();
   ASSERT_OK(s);
   assert(db != nullptr);
@@ -1624,7 +1624,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
-        auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* writer = static_cast<WriteThread::Writer*>(arg);
 
         if (writer->ShouldWriteToWAL()) {
           t_wait_on_prepare.fetch_add(1);
@@ -1706,7 +1706,7 @@ TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
     if (i % 29 == 0) {
       // crash
       fault_fs->SetFilesystemActive(false);
-      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
       ASSERT_OK(ReOpenNoDelete());
     } else if (i % 37 == 0) {
       // close
@@ -1811,7 +1811,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 
   // kill and reopen
   fault_fs->SetFilesystemActive(false);
-  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+  static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
 
   // commit old txn
@@ -2196,7 +2196,7 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
 
   // kill and reopen
   fault_fs->SetFilesystemActive(false);
-  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+  static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
 
@@ -6198,7 +6198,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete txn0;
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
@@ -6222,7 +6222,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
                   ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
@@ -6260,7 +6260,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
                   ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
@@ -6293,7 +6293,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
                   ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
@@ -6320,7 +6320,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
                   ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
@@ -6347,7 +6347,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
                   ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
     ASSERT_TRUE(txn0 != nullptr);
@@ -6463,7 +6463,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
       uint64_t wal_file_id = db_impl->TEST_LogfileNumber();
       std::string fname = LogFileName(dbname, wal_file_id);
-      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      static_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
       delete txn;
       delete cf_handle;
       delete db;

@@ -505,7 +505,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TableCache::FindTable:0", [&](void* arg) {
         assert(arg != nullptr);
-        bool no_io = *(reinterpret_cast<bool*>(arg));
+        bool no_io = *(static_cast<bool*>(arg));
         if (!no_io) {
           // filter out cases for table properties queries.
           num_table_cache_lookup++;
@@ -681,7 +681,7 @@ TEST_F(DBCompactionTest, CompactRangeBottomPri) {
   int bottom_pri_count = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "ThreadPoolImpl::Impl::BGThread:BeforeRun", [&](void* arg) {
-        Env::Priority* pri = reinterpret_cast<Env::Priority*>(arg);
+        Env::Priority* pri = static_cast<Env::Priority*>(arg);
         // First time is low pri pool in the test case.
         if (low_pri_count == 0 && bottom_pri_count == 0) {
           ASSERT_EQ(Env::Priority::LOW, *pri);
@@ -4244,7 +4244,7 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->compaction_reason() ==
                     CompactionReason::kBottommostFiles);
       });
@@ -4300,7 +4300,7 @@ TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
   std::atomic_int compaction_count = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->compaction_reason() ==
                     CompactionReason::kBottommostFiles);
         compaction_count++;
@@ -4431,7 +4431,7 @@ TEST_F(DBCompactionTest, RoundRobinTtlCompactionNormal) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         auto compaction_reason = compaction->compaction_reason();
         if (compaction_reason == CompactionReason::kTtl) {
           ttl_compactions++;
@@ -4581,7 +4581,7 @@ TEST_F(DBCompactionTest, RoundRobinTtlCompactionUnsortedTime) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         auto compaction_reason = compaction->compaction_reason();
         if (compaction_reason == CompactionReason::kTtl) {
           ttl_compactions++;
@@ -4697,7 +4697,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   ASSERT_OK(Flush());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->compaction_reason() == CompactionReason::kTtl);
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -4745,7 +4745,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->compaction_reason() == CompactionReason::kTtl);
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -4872,7 +4872,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       int ttl_compactions = 0;
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-            Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+            Compaction* compaction = static_cast<Compaction*>(arg);
             auto compaction_reason = compaction->compaction_reason();
             if (compaction_reason == CompactionReason::kTtl) {
               ttl_compactions++;
@@ -5020,7 +5020,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       int periodic_compactions = 0;
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-            Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+            Compaction* compaction = static_cast<Compaction*>(arg);
             auto compaction_reason = compaction->compaction_reason();
             if (compaction_reason == CompactionReason::kPeriodicCompaction) {
               periodic_compactions++;
@@ -5204,7 +5204,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   bool set_creation_time_to_zero = true;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         auto compaction_reason = compaction->compaction_reason();
         if (compaction_reason == CompactionReason::kPeriodicCompaction) {
           periodic_compactions++;
@@ -5212,7 +5212,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
-        TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+        TableProperties* props = static_cast<TableProperties*>(arg);
         if (set_file_creation_time_to_zero) {
           props->file_creation_time = 0;
         }
@@ -5276,7 +5276,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   int ttl_compactions = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         auto compaction_reason = compaction->compaction_reason();
         if (compaction_reason == CompactionReason::kPeriodicCompaction) {
           periodic_compactions++;
@@ -5459,7 +5459,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
     int periodic_compactions = 0;
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-          Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+          Compaction* compaction = static_cast<Compaction*>(arg);
           auto compaction_reason = compaction->compaction_reason();
           if (compaction_reason == CompactionReason::kPeriodicCompaction) {
             periodic_compactions++;
@@ -7197,8 +7197,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistency0", [&](void* arg) {
-        auto p =
-            reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
+        auto p = static_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
         // in CheckConsistency funcion
         FileMetaData* temp = *(p->first);
@@ -7235,8 +7234,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest2) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistency1", [&](void* arg) {
-        auto p =
-            reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
+        auto p = static_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
         // in CheckConsistency funcion
         FileMetaData* temp = *(p->first);
@@ -8049,7 +8047,7 @@ TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
   bool has_compaction = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->max_subcompactions() == 10);
         has_compaction = true;
       });
@@ -8073,7 +8071,7 @@ TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->max_subcompactions() == 2);
         has_compaction = true;
       });
@@ -8101,7 +8099,7 @@ TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
   bool has_compaction = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->max_subcompactions() == 10);
         has_compaction = true;
       });
@@ -8124,7 +8122,7 @@ TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(compaction->max_subcompactions() == 2);
         has_compaction = true;
       });
@@ -10250,8 +10248,7 @@ TEST_F(DBCompactionTest, ErrorWhenReadFileHead) {
     SyncPoint::GetInstance()->SetCallBack(
         "RandomAccessFileReader::Read::BeforeReturn",
         [&count, &error_file](void* pair_ptr) {
-          auto p =
-              reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+          auto p = static_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
           int cur = ++count;
           if (cur == error_file) {
             IOStatus* io_s = p->second;

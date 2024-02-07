@@ -1714,9 +1714,8 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
        {"DBImpl::WaitForPendingWrites:BeforeBlock",
         "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::IngestExternalFile:NeedFlush", [&](void* need_flush) {
-        ASSERT_TRUE(*reinterpret_cast<bool*>(need_flush));
-      });
+      "DBImpl::IngestExternalFile:NeedFlush",
+      [&](void* need_flush) { ASSERT_TRUE(*static_cast<bool*>(need_flush)); });
 
   Options options = CurrentOptions();
   options.unordered_write = true;

@@ -325,8 +325,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
   auto check_is_blob = [&](bool is_blob) {
     return [is_blob](Iterator* iterator) {
-      ASSERT_EQ(is_blob,
-                reinterpret_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
+      ASSERT_EQ(is_blob, static_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
     };
   };
 

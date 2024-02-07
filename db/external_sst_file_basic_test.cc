@@ -1095,7 +1095,7 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
   size_t total_fadvised_bytes = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SstFileWriter::Rep::InvalidatePageCache", [&](void* arg) {
-        size_t fadvise_size = *(reinterpret_cast<size_t*>(arg));
+        size_t fadvise_size = *(static_cast<size_t*>(arg));
         total_fadvised_bytes += fadvise_size;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -1632,7 +1632,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
   bool change_checksum_called = false;
   const auto& change_checksum = [&](void* arg) {
     if (!change_checksum_called) {
-      char* buf = reinterpret_cast<char*>(arg);
+      char* buf = static_cast<char*>(arg);
       assert(nullptr != buf);
       buf[0] ^= 0x1;
       change_checksum_called = true;
@@ -1729,10 +1729,10 @@ TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   uint64_t props_block_offset = 0;
   size_t props_block_size = 0;
   const auto& get_props_block_offset = [&](void* arg) {
-    props_block_offset = *reinterpret_cast<uint64_t*>(arg);
+    props_block_offset = *static_cast<uint64_t*>(arg);
   };
   const auto& get_props_block_size = [&](void* arg) {
-    props_block_size = *reinterpret_cast<uint64_t*>(arg);
+    props_block_size = *static_cast<uint64_t*>(arg);
   };
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

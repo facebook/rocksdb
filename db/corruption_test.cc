@@ -1102,7 +1102,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   int count{0};
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::VerifyFullFileChecksum:mismatch", [&](void* arg) {
-        auto* s = reinterpret_cast<Status*>(arg);
+        auto* s = static_cast<Status*>(arg);
         ASSERT_NE(s, nullptr);
         ++count;
         ASSERT_NOK(*s);
@@ -1247,7 +1247,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::GetLogSizeAndMaybeTruncate:0", [&](void* arg) {
-          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          auto* tmp_s = static_cast<Status*>(arg);
           assert(tmp_s);
           *tmp_s = Status::IOError("Injected");
         });
@@ -1429,7 +1429,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::Open::BeforeSyncWAL", [&](void* arg) {
-          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          auto* tmp_s = static_cast<Status*>(arg);
           assert(tmp_s);
           *tmp_s = Status::IOError("Injected");
         });
@@ -1597,7 +1597,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::GetLogSizeAndMaybeTruncate:0", [&](void* arg) {
-          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          auto* tmp_s = static_cast<Status*>(arg);
           assert(tmp_s);
           *tmp_s = Status::IOError("Injected");
         });

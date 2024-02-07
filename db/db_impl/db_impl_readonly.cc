@@ -169,8 +169,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
   SequenceNumber latest_snapshot = versions_->LastSequence();
   SequenceNumber read_seq =
       read_options.snapshot != nullptr
-          ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                ->number_
+          ? static_cast<const SnapshotImpl*>(read_options.snapshot)->number_
           : latest_snapshot;
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   auto db_iter = NewArenaWrappedDbIterator(
@@ -216,8 +215,7 @@ Status DBImplReadOnly::NewIterators(
   SequenceNumber latest_snapshot = versions_->LastSequence();
   SequenceNumber read_seq =
       read_options.snapshot != nullptr
-          ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                ->number_
+          ? static_cast<const SnapshotImpl*>(read_options.snapshot)->number_
           : latest_snapshot;
 
   autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;

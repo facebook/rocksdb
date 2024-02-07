@@ -131,7 +131,7 @@ TEST_F(DBSecondaryTest, FailOpenIfLoggerCreationFail) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "rocksdb::CreateLoggerFromOptions:AfterGetPath", [&](void* arg) {
-        auto* s = reinterpret_cast<Status*>(arg);
+        auto* s = static_cast<Status*>(arg);
         assert(s);
         *s = Status::IOError("Injected");
       });
@@ -1191,7 +1191,7 @@ TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
       "DBImplSecondary::CheckConsistency:AfterFirstAttempt", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
         called = true;
-        auto* s = reinterpret_cast<Status*>(arg);
+        auto* s = static_cast<Status*>(arg);
         ASSERT_NOK(*s);
       });
   SyncPoint::GetInstance()->LoadDependency(
@@ -1229,8 +1229,7 @@ TEST_F(DBSecondaryTest, StartFromInconsistent) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
-        *(reinterpret_cast<Status*>(arg)) =
-            Status::Corruption("Inject corruption");
+        *(static_cast<Status*>(arg)) = Status::Corruption("Inject corruption");
       });
   SyncPoint::GetInstance()->EnableProcessing();
   Options options1;
@@ -1263,8 +1262,7 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
-        *(reinterpret_cast<Status*>(arg)) =
-            Status::Corruption("Inject corruption");
+        *(static_cast<Status*>(arg)) = Status::Corruption("Inject corruption");
       });
   SyncPoint::GetInstance()->EnableProcessing();
   Status s = db_secondary_->TryCatchUpWithPrimary();

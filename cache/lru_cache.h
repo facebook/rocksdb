@@ -47,7 +47,7 @@ namespace lru_cache {
 // LRUCacheShard::Lookup.
 // While refs > 0, public properties like value and deleter must not change.
 
-struct LRUHandle {
+struct LRUHandle : public Cache::Handle {
   Cache::ObjectPtr value;
   const Cache::CacheItemHelper* helper;
   LRUHandle* next_hash;

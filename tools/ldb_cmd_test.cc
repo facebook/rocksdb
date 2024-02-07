@@ -703,7 +703,7 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
-          std::string* out_str = reinterpret_cast<std::string*>(arg);
+          std::string* out_str = static_cast<std::string*>(arg);
 
           // Count number of tombstones printed
           int num_tb = 0;
@@ -736,7 +736,7 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
-          std::string* out_str = reinterpret_cast<std::string*>(arg);
+          std::string* out_str = static_cast<std::string*>(arg);
 
           // Count number of tombstones printed
           int num_tb = 0;
@@ -796,7 +796,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "Version::PrepareAppend:forced_check", [&](void* arg) {
-          bool* forced = reinterpret_cast<bool*>(arg);
+          bool* forced = static_cast<bool*>(arg);
           ASSERT_TRUE(*forced);
         });
     SyncPoint::GetInstance()->EnableProcessing();
@@ -816,7 +816,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "Version::PrepareAppend:forced_check", [&](void* arg) {
-          bool* forced = reinterpret_cast<bool*>(arg);
+          bool* forced = static_cast<bool*>(arg);
           ASSERT_TRUE(*forced);
         });
     SyncPoint::GetInstance()->EnableProcessing();
@@ -837,8 +837,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "ColumnFamilyData::ColumnFamilyData", [&](void* arg) {
-          ColumnFamilyOptions* cfo =
-              reinterpret_cast<ColumnFamilyOptions*>(arg);
+          ColumnFamilyOptions* cfo = static_cast<ColumnFamilyOptions*>(arg);
           ASSERT_FALSE(cfo->force_consistency_checks);
         });
     SyncPoint::GetInstance()->EnableProcessing();
