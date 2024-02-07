@@ -836,16 +836,17 @@ def execute_cmd(cmd, timeout=None):
     return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
 
 
-def print_if_stderr_has_errors(stderr, print_as_stderr=False):
+def exit_if_stderr_has_errors(stderr, print_stderr_separately=False):
     if len(stderr) == 0:
         return
 
-    if print_as_stderr:
+    if print_stderr_separately:
+        print("stderr has error message: \n", file=sys.stderr)
         print(stderr, file=sys.stderr)
     else:
-        print("stderr:")
-        print(stderr)
+        print("stderr has error message: \n" + stderr)
 
+    sys.exit(2)
 
 def cleanup_after_success(dbname):
     shutil.rmtree(dbname, True)
@@ -884,10 +885,10 @@ def blackbox_crash_main(args, unknown_args):
             print("Exit Before Killing")
             print("stdout:")
             print(outs)
-            print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
+            exit_if_stderr_has_errors(errs, args.print_stderr_separately)
             sys.exit(2)
 
-        print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
+        exit_if_stderr_has_errors(errs, args.print_stderr_separately)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -908,7 +909,7 @@ def blackbox_crash_main(args, unknown_args):
     print("stdout:", outs)
 
     # Print stderr of the final run
-    print_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
+    exit_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
@@ -1053,7 +1054,7 @@ def whitebox_crash_main(args, unknown_args):
 
         print(msg)
         print(stdoutdata)
-        print_if_stderr_has_errors(stderrdata, print_as_stderr=args.print_stderr_separately)
+        exit_if_stderr_has_errors(stderrdata, args.print_stderr_separately)
 
         if hit_timeout:
             print("Killing the run for running too long")
@@ -1071,7 +1072,6 @@ def whitebox_crash_main(args, unknown_args):
         if not succeeded:
             print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
-
 
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
