@@ -383,7 +383,7 @@ struct WriteUnpreparedTxnDB::IteratorState {
 
 namespace {
 static void CleanupWriteUnpreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
-  delete reinterpret_cast<WriteUnpreparedTxnDB::IteratorState*>(arg1);
+  delete static_cast<WriteUnpreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
 

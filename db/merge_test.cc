@@ -354,7 +354,7 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
       });
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WakeUpAndDone", [&](void* arg) {
-        auto* mutex = reinterpret_cast<InstrumentedMutex*>(arg);
+        auto* mutex = static_cast<InstrumentedMutex*>(arg);
         mutex->AssertHeld();
         int thread_id = get_thread_id();
         ASSERT_EQ(2, thread_id);
@@ -380,12 +380,12 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread set_options_thread([&]() {
-    ASSERT_OK(reinterpret_cast<DBImpl*>(db)->SetOptions(
+    ASSERT_OK(static_cast<DBImpl*>(db)->SetOptions(
         {{"disable_auto_compactions", "false"}}));
   });
   TEST_SYNC_POINT("testCountersWithCompactionAndFlush:BeforeCompact");
   port::Thread compact_thread([&]() {
-    ASSERT_OK(reinterpret_cast<DBImpl*>(db)->CompactRange(
+    ASSERT_OK(static_cast<DBImpl*>(db)->CompactRange(
         CompactRangeOptions(), db->DefaultColumnFamily(), nullptr, nullptr));
   });
 

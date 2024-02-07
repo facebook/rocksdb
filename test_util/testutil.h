@@ -455,7 +455,7 @@ class SleepingBackgroundTask {
   }
 
   static void DoSleepTask(void* arg) {
-    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+    static_cast<SleepingBackgroundTask*>(arg)->DoSleep();
   }
 
  private:

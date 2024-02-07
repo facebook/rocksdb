@@ -1550,7 +1550,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAhead) {
     SyncPoint::GetInstance()->SetCallBack(
         "BlockPrefetcher::SetReadaheadState", [&](void* arg) {
           readahead_carry_over_count++;
-          size_t readahead_size = *reinterpret_cast<size_t*>(arg);
+          size_t readahead_size = *static_cast<size_t*>(arg);
           if (readahead_carry_over_count) {
             ASSERT_GT(readahead_size, 8 * 1024);
           }
@@ -1558,7 +1558,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAhead) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
-          current_readahead_size = *reinterpret_cast<size_t*>(arg);
+          current_readahead_size = *static_cast<size_t*>(arg);
           ASSERT_GT(current_readahead_size, 0);
         });
 
@@ -1659,7 +1659,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
     SyncPoint::GetInstance()->SetCallBack(
         "BlockPrefetcher::SetReadaheadState", [&](void* arg) {
           readahead_carry_over_count++;
-          size_t readahead_size = *reinterpret_cast<size_t*>(arg);
+          size_t readahead_size = *static_cast<size_t*>(arg);
           if (readahead_carry_over_count) {
             ASSERT_GT(readahead_size, 8 * 1024);
           }
@@ -1667,7 +1667,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
-          current_readahead_size = *reinterpret_cast<size_t*>(arg);
+          current_readahead_size = *static_cast<size_t*>(arg);
           ASSERT_GT(current_readahead_size, 0);
         });
 
@@ -2057,7 +2057,7 @@ TEST_P(PrefetchTest1, NonSequentialReadsWithAdaptiveReadahead) {
       [&](void* /*arg*/) { set_readahead++; });
   SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::TryReadFromCache",
-      [&](void* arg) { readahead_size = *reinterpret_cast<size_t*>(arg); });
+      [&](void* arg) { readahead_size = *static_cast<size_t*>(arg); });
 
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -2152,9 +2152,8 @@ TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
   SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
                                         [&](void*) { buff_prefetch_count++; });
   SyncPoint::GetInstance()->SetCallBack(
-      "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
-        current_readahead_size = *reinterpret_cast<size_t*>(arg);
-      });
+      "FilePrefetchBuffer::TryReadFromCache",
+      [&](void* arg) { current_readahead_size = *static_cast<size_t*>(arg); });
 
   SyncPoint::GetInstance()->EnableProcessing();
   ReadOptions ro;

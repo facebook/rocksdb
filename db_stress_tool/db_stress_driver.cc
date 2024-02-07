@@ -15,7 +15,7 @@
 namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {
   ThreadStatusUtil::RegisterThread(db_stress_env, ThreadStatus::USER);
-  ThreadState* thread = reinterpret_cast<ThreadState*>(v);
+  ThreadState* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
   if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning()) {

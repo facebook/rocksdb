@@ -1279,10 +1279,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
           : nullptr);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
-  TEST_SYNC_POINT_CALLBACK(
-      "CompactionJob::Run():PausingManualCompaction:1",
-      reinterpret_cast<void*>(
-          const_cast<std::atomic<bool>*>(&manual_compaction_canceled_)));
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:1",
+                           static_cast<void*>(const_cast<std::atomic<bool>*>(
+                               &manual_compaction_canceled_)));
 
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
@@ -1330,8 +1329,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   TEST_SYNC_POINT_CALLBACK(
       "CompactionJob::ProcessKeyValueCompaction()::Processing",
-      reinterpret_cast<void*>(
-          const_cast<Compaction*>(sub_compact->compaction)));
+      static_cast<void*>(const_cast<Compaction*>(sub_compact->compaction)));
   uint64_t last_cpu_micros = prev_cpu_micros;
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
@@ -1362,10 +1360,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       break;
     }
 
-    TEST_SYNC_POINT_CALLBACK(
-        "CompactionJob::Run():PausingManualCompaction:2",
-        reinterpret_cast<void*>(
-            const_cast<std::atomic<bool>*>(&manual_compaction_canceled_)));
+    TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:2",
+                             static_cast<void*>(const_cast<std::atomic<bool>*>(
+                                 &manual_compaction_canceled_)));
     c_iter->Next();
     if (c_iter->status().IsManualCompactionPaused()) {
       break;

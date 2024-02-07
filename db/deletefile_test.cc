@@ -125,7 +125,7 @@ class DeleteFileTest : public DBTestBase {
   }
 
   static void DoSleep(void* arg) {
-    auto test = reinterpret_cast<DeleteFileTest*>(arg);
+    auto test = static_cast<DeleteFileTest*>(arg);
     test->env_->SleepForMicroseconds(2 * 1000 * 1000);
   }
 

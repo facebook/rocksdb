@@ -380,7 +380,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
 
   if (FLAGS_enable_compaction_filter) {
     auto* compaction_filter_factory =
-        reinterpret_cast<DbStressCompactionFilterFactory*>(
+        static_cast<DbStressCompactionFilterFactory*>(
             options_.compaction_filter_factory.get());
     assert(compaction_filter_factory);
     // This must be called only after any potential `SharedState::Restore()` has

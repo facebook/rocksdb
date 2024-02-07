@@ -1062,7 +1062,7 @@ bool CacheUsageWithinBounds(size_t val1, size_t val2, size_t error) {
 
 TEST_P(CompressedSecCacheTestWithTiered, CacheReservationManager) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
   // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
   // double explicit casts
@@ -1085,7 +1085,7 @@ TEST_P(CompressedSecCacheTestWithTiered, CacheReservationManager) {
 TEST_P(CompressedSecCacheTestWithTiered,
        CacheReservationManagerMultipleUpdate) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
   EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
                GetPercent(30 << 20, 1));
@@ -1171,7 +1171,7 @@ TEST_P(CompressedSecCacheTestWithTiered, AdmissionPolicy) {
 
 TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdate) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
   std::shared_ptr<Cache> tiered_cache = GetTieredCache();
 
   // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
@@ -1235,7 +1235,7 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdate) {
 
 TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
   std::shared_ptr<Cache> tiered_cache = GetTieredCache();
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
@@ -1329,7 +1329,7 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
 
 TEST_P(CompressedSecCacheTestWithTiered, ReservationOverCapacity) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
   std::shared_ptr<Cache> tiered_cache = GetTieredCache();
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(110 << 20));

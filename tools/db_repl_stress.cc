@@ -54,7 +54,7 @@ struct DataPumpThread {
 };
 
 static void DataPumpThreadBody(void* arg) {
-  DataPumpThread* t = reinterpret_cast<DataPumpThread*>(arg);
+  DataPumpThread* t = static_cast<DataPumpThread*>(arg);
   DB* db = t->db;
   Random rnd(301);
   uint64_t i = 0;

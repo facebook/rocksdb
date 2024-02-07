@@ -298,7 +298,7 @@ class ClockCacheTest;
 
 // ----------------------------------------------------------------------- //
 
-struct ClockHandleBasicData {
+struct ClockHandleBasicData : public Cache::Handle {
   Cache::ObjectPtr value = nullptr;
   const Cache::CacheItemHelper* helper = nullptr;
   // A lossless, reversible hash of the fixed-size (16 byte) cache key. This

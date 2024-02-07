@@ -3605,8 +3605,7 @@ TEST_F(DBRangeDelTest, RangeDelReseekAfterFileReadError) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::Read::BeforeReturn", [&fname](void* pair_ptr) {
-        auto p =
-            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
         if (p->first->find(fname) != std::string::npos) {
           *p->second = IOStatus::IOError();
           p->second->SetRetryable(true);
@@ -3666,8 +3665,7 @@ TEST_F(DBRangeDelTest, RangeDelReseekAfterFileReadError) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::Read::AnyOffset", [&fname](void* pair_ptr) {
-        auto p =
-            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
         if (p->first->find(fname) != std::string::npos) {
           *p->second = IOStatus::IOError();
           p->second->SetRetryable(true);

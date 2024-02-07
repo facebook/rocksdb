@@ -131,7 +131,7 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile::AfterSyncDir", [&](void* arg) {
         dir_synced++;
-        std::string* dir = reinterpret_cast<std::string*>(arg);
+        std::string* dir = static_cast<std::string*>(arg);
         EXPECT_EQ(dummy_files_dirs_[0], *dir);
       });
 

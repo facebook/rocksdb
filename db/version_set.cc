@@ -3098,7 +3098,7 @@ void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
                             bool update_stats) {
   TEST_SYNC_POINT_CALLBACK(
       "Version::PrepareAppend:forced_check",
-      reinterpret_cast<void*>(&storage_info_.force_consistency_checks_));
+      static_cast<void*>(&storage_info_.force_consistency_checks_));
 
   if (update_stats) {
     UpdateAccumulatedStats(read_options);

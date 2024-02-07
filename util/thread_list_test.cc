@@ -79,7 +79,7 @@ class SimulatedBackgroundTask {
   }
 
   static void DoSimulatedTask(void* arg) {
-    reinterpret_cast<SimulatedBackgroundTask*>(arg)->Run();
+    static_cast<SimulatedBackgroundTask*>(arg)->Run();
   }
 
  private:

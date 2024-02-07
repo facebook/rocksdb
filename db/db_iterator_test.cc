@@ -2525,7 +2525,7 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
 TEST_P(DBIteratorTest, CreationFailure) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::NewInternalIterator:StatusCallback", [](void* arg) {
-        *(reinterpret_cast<Status*>(arg)) = Status::Corruption("test status");
+        *(static_cast<Status*>(arg)) = Status::Corruption("test status");
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3448,8 +3448,7 @@ TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::Read::BeforeReturn",
       [&error_file](void* io_s_ptr) {
-        auto p =
-            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(io_s_ptr);
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(io_s_ptr);
         if (p->first->find(error_file) != std::string::npos) {
           *p->second = IOStatus::IOError();
           p->second->SetRetryable(true);
@@ -3529,8 +3528,7 @@ TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::Read::AnyOffset", [&f1](void* pair_ptr) {
-        auto p =
-            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
         if (p->first->find(f1) != std::string::npos) {
           *p->second = IOStatus::IOError();
           p->second->SetRetryable(true);

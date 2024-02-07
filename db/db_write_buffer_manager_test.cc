@@ -119,7 +119,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         InstrumentedMutexLock lock(&mutex);
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         w_set.insert(w);
         // Allow the flush to continue if all writer threads are blocked.
         if (w_set.size() == (unsigned long)num_writers) {
@@ -368,7 +368,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         {
           InstrumentedMutexLock lock(&mutex);
           w_set.insert(w);
@@ -511,7 +511,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         {
           InstrumentedMutexLock lock(&mutex);
-          WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+          WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
           w_slowdown_set.insert(w);
           // Allow the flush continue if all writer threads are blocked.
           if (w_slowdown_set.size() + (unsigned long)w_no_slowdown.load(
@@ -674,7 +674,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         InstrumentedMutexLock lock(&mutex);
         w_slowdown_set.insert(w);
         // Allow the flush continue if all writer threads are blocked.
