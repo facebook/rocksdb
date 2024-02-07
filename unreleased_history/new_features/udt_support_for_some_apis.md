@@ -1,0 +1,1 @@
+Add support for user-defined timestamps in APIs `DeleteFilesInRanges` and `GetPropertiesOfTablesInRange`.

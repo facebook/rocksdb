@@ -1870,13 +1870,60 @@ TEST_F(DBCompactionTest, ManualCompactionWithUnorderedWrite) {
   ASSERT_EQ(Get("foo"), "v2");
 }
 
-TEST_F(DBCompactionTest, DeleteFileRange) {
+// Test params:
+// 1) whether to enable user-defined timestamps.
+class DBDeleteFileRangeTest : public DBTestBase,
+                              public testing::WithParamInterface<bool> {
+ public:
+  DBDeleteFileRangeTest()
+      : DBTestBase("db_delete_file_range_test", /*env_do_fsync=*/true) {}
+
+  void SetUp() override { enable_udt_ = GetParam(); }
+
+ protected:
+  void PutKeyValue(const Slice& key, const Slice& value) {
+    if (enable_udt_) {
+      EXPECT_OK(db_->Put(WriteOptions(), key, min_ts_, value));
+    } else {
+      EXPECT_OK(Put(key, value));
+    }
+  }
+
+  std::string GetValue(const std::string& key) {
+    ReadOptions roptions;
+    std::string result;
+    if (enable_udt_) {
+      roptions.timestamp = &min_ts_;
+    }
+    Status s = db_->Get(roptions, key, &result);
+    EXPECT_TRUE(s.ok());
+    return result;
+  }
+
+  Status MaybeGetValue(const std::string& key, std::string* result) {
+    ReadOptions roptions;
+    if (enable_udt_) {
+      roptions.timestamp = &min_ts_;
+    }
+    Status s = db_->Get(roptions, key, result);
+    EXPECT_TRUE(s.IsNotFound() || s.ok());
+    return s;
+  }
+
+  bool enable_udt_ = false;
+  Slice min_ts_ = MinU64Ts();
+};
+
+TEST_P(DBDeleteFileRangeTest, DeleteFileRange) {
   Options options = CurrentOptions();
   options.write_buffer_size = 10 * 1024 * 1024;
   options.max_bytes_for_level_multiplier = 2;
   options.num_levels = 4;
   options.level0_file_num_compaction_trigger = 3;
   options.max_background_compactions = 3;
+  if (enable_udt_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  }
 
   DestroyAndReopen(options);
   int32_t value_size = 10 * 1024;  // 10 KB
@@ -1888,14 +1935,14 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   // file 1 [0 => 100]
   for (int32_t i = 0; i < 100; i++) {
     values[i] = rnd.RandomString(value_size);
-    ASSERT_OK(Put(Key(i), values[i]));
+    PutKeyValue(Key(i), values[i]);
   }
   ASSERT_OK(Flush());
 
   // file 2 [100 => 300]
   for (int32_t i = 100; i < 300; i++) {
     values[i] = rnd.RandomString(value_size);
-    ASSERT_OK(Put(Key(i), values[i]));
+    PutKeyValue(Key(i), values[i]);
   }
   ASSERT_OK(Flush());
 
@@ -1911,7 +1958,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   // file 3 [ 0 => 200]
   for (int32_t i = 0; i < 200; i++) {
     values[i] = rnd.RandomString(value_size);
-    ASSERT_OK(Put(Key(i), values[i]));
+    PutKeyValue(Key(i), values[i]);
   }
   ASSERT_OK(Flush());
 
@@ -1923,7 +1970,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
         ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       }
       values[j] = rnd.RandomString(value_size);
-      ASSERT_OK(Put(Key(j), values[j]));
+      PutKeyValue(Key(j), values[j]);
     }
   }
   ASSERT_OK(Flush());
@@ -1948,11 +1995,10 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   int32_t deleted_count = 0;
   for (int32_t i = 0; i < 4300; i++) {
     if (i < 1000 || i > 2000) {
-      ASSERT_EQ(Get(Key(i)), values[i]);
+      ASSERT_EQ(GetValue(Key(i)), values[i]);
     } else {
-      ReadOptions roptions;
       std::string result;
-      Status s = db_->Get(roptions, Key(i), &result);
+      Status s = MaybeGetValue(Key(i), &result);
       ASSERT_TRUE(s.IsNotFound() || s.ok());
       if (s.IsNotFound()) {
         deleted_count++;
@@ -1982,7 +2028,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   for (int32_t i = 0; i < 4300; i++) {
     ReadOptions roptions;
     std::string result;
-    ASSERT_TRUE(db_->Get(roptions, Key(i), &result).IsNotFound());
+    ASSERT_TRUE(MaybeGetValue(Key(i), &result).IsNotFound());
     deleted_count2++;
   }
   ASSERT_GT(deleted_count2, deleted_count);
@@ -1990,13 +2036,16 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   ASSERT_GT(old_num_files, new_num_files);
 }
 
-TEST_F(DBCompactionTest, DeleteFilesInRanges) {
+TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
   Options options = CurrentOptions();
   options.write_buffer_size = 10 * 1024 * 1024;
   options.max_bytes_for_level_multiplier = 2;
   options.num_levels = 4;
   options.max_background_compactions = 3;
   options.disable_auto_compactions = true;
+  if (enable_udt_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  }
 
   DestroyAndReopen(options);
   int32_t value_size = 10 * 1024;  // 10 KB
@@ -2009,7 +2058,7 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
     for (auto j = 0; j < 100; j++) {
       auto k = i * 100 + j;
       values[k] = rnd.RandomString(value_size);
-      ASSERT_OK(Put(Key(k), values[k]));
+      PutKeyValue(Key(k), values[k]);
     }
     ASSERT_OK(Flush());
   }
@@ -2024,7 +2073,7 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
   for (auto i = 0; i < 10; i += 2) {
     for (auto j = 0; j < 100; j++) {
       auto k = i * 100 + j;
-      ASSERT_OK(Put(Key(k), values[k]));
+      PutKeyValue(Key(k), values[k]);
     }
     ASSERT_OK(Flush());
   }
@@ -2050,13 +2099,12 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
 
     // Keys [0, 300) should not exist.
     for (auto i = 0; i < 300; i++) {
-      ReadOptions ropts;
       std::string result;
-      auto s = db_->Get(ropts, Key(i), &result);
+      auto s = MaybeGetValue(Key(i), &result);
       ASSERT_TRUE(s.IsNotFound());
     }
     for (auto i = 300; i < 1000; i++) {
-      ASSERT_EQ(Get(Key(i)), values[i]);
+      ASSERT_EQ(GetValue(Key(i)), values[i]);
     }
   }
 
@@ -2078,16 +2126,15 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
 
     // Keys [600, 900) should not exist.
     for (auto i = 600; i < 900; i++) {
-      ReadOptions ropts;
       std::string result;
-      auto s = db_->Get(ropts, Key(i), &result);
+      auto s = MaybeGetValue(Key(i), &result);
       ASSERT_TRUE(s.IsNotFound());
     }
     for (auto i = 300; i < 600; i++) {
-      ASSERT_EQ(Get(Key(i)), values[i]);
+      ASSERT_EQ(GetValue(Key(i)), values[i]);
     }
     for (auto i = 900; i < 1000; i++) {
-      ASSERT_EQ(Get(Key(i)), values[i]);
+      ASSERT_EQ(GetValue(Key(i)), values[i]);
     }
   }
 
@@ -2098,15 +2145,14 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
     ASSERT_EQ("", FilesPerLevel(0));
 
     for (auto i = 0; i < 1000; i++) {
-      ReadOptions ropts;
       std::string result;
-      auto s = db_->Get(ropts, Key(i), &result);
+      auto s = MaybeGetValue(Key(i), &result);
       ASSERT_TRUE(s.IsNotFound());
     }
   }
 }
 
-TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
+TEST_P(DBDeleteFileRangeTest, DeleteFileRangeFileEndpointsOverlapBug) {
   // regression test for #2833: groups of files whose user-keys overlap at the
   // endpoints could be split by `DeleteFilesInRange`. This caused old data to
   // reappear, either because a new version of the key was removed, or a range
@@ -2118,6 +2164,9 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumL0Files;
   options.target_file_size_base = 1 << 10;  // 1KB
+  if (enable_udt_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  }
   DestroyAndReopen(options);
 
   // The snapshot prevents key 1 from having its old version dropped. The low
@@ -2141,8 +2190,8 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   std::string vals[kNumL0Files];
   for (int i = 0; i < kNumL0Files; ++i) {
     vals[i] = rnd.RandomString(kValSize);
-    ASSERT_OK(Put(Key(i), vals[i]));
-    ASSERT_OK(Put(Key(i + 1), vals[i]));
+    PutKeyValue(Key(i), vals[i]);
+    PutKeyValue(Key(i + 1), vals[i]);
     ASSERT_OK(Flush());
     if (i == 0) {
       snapshot = db_->GetSnapshot();
@@ -2155,10 +2204,13 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   std::string begin_str = Key(0), end_str = Key(1);
   Slice begin = begin_str, end = end_str;
   ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
-  ASSERT_EQ(vals[1], Get(Key(1)));
+  ASSERT_EQ(vals[1], GetValue(Key(1)));
 
   db_->ReleaseSnapshot(snapshot);
 }
+
+INSTANTIATE_TEST_CASE_P(DBDeleteFileRangeTest, DBDeleteFileRangeTest,
+                        ::testing::Bool());
 
 TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
   int32_t trivial_move = 0;
