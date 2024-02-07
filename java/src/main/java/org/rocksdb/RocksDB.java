@@ -878,10 +878,15 @@ public class RocksDB extends RocksObject {
   }
 
   public void putEntity(final byte[] key, final List<WideColumn<byte []>> columns) {
-    putEntity(null, key, columns);
+    putEntity(null, key, 0, key.length, columns);
   }
 
   public void putEntity(final ColumnFamilyHandle columnFamily, final byte[] key, final List<WideColumn<byte []>> columns) {
+    putEntity(columnFamily, key, 0, key.length, columns);
+  }
+
+  public void putEntity(final ColumnFamilyHandle columnFamily, final byte[] key, int keyOffset,
+      int keyLength, final List<WideColumn<byte[]>> columns) {
     byte[][] name = new byte[columns.size()][];
     byte[][] value = new byte[columns.size()][];
 
@@ -889,16 +894,10 @@ public class RocksDB extends RocksObject {
       name[i] = columns.get(i).getName();
       value[i] = columns.get(i).getValue();
     }
-    putEntity(nativeHandle_, key, name, value, columnFamily == null ? 0 : columnFamily.nativeHandle_); //TODO Is it ok to pass 0(ZERO) value ?
+    putEntity(nativeHandle_, key, keyOffset, keyLength, name, value,
+        columnFamily == null ? 0
+                             : columnFamily.nativeHandle_); // TODO Is it ok to pass 0(ZERO) value ?
   }
-
-  private static native void putEntity(final long handle, final byte[] key, final byte[][] name, final byte[][] value, final long cfHandle);
-
-
-  private static native void putEntityDirect(final long handle, final ByteBuffer key, int keyOffset, int keyLength,
-                                       final ByteBuffer[] name, int[] nameOffset, int[] nameLength,
-                                       final ByteBuffer[] value, int[] valueOffset, int[] valueLenght,
-                                       final long cfHandle);
   public void putEntity(final ByteBuffer key, final List<WideColumn<ByteBuffer>> columns) {
     ByteBuffer[] names = new ByteBuffer[columns.size()];
     int[] namesOffset = new int[columns.size()];
@@ -981,26 +980,24 @@ public class RocksDB extends RocksObject {
         }
       }
     }
-
-
     return status;
   }
 
-  private native Status getEntityDirect(long nativeHandle, ByteBuffer key, int keyPosition,
-      int keyLength, ByteBuffer[] names, int[] namesOffset, int[] namesLength,
-      int[] namesRequiredSize, ByteBuffer[] values, int[] valuesOffset, int[] valuesRemaining,
-      int[] valuesRequiredSize, long jcfhandle);
-
   public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values) {
-    return getEntity(null, key, values);
+    return getEntity(null, key, 0, key.length, values);
   }
-  public Status multiGetEntity(final byte[][] keys, List<WideColumn<byte[]>>[] multiValues){
-    assert keys.length == multiValues.length;
-    return null;
-  }
+
   public Status getEntity(final ColumnFamilyHandle columnFamily, final byte[] key, final List<WideColumn<byte[]>> values) {
+    return getEntity(columnFamily, key, 0, key.length, values);
+  }
+
+  public Status getEntity(final ColumnFamilyHandle columnFamily, final byte[] key, int keyOffset,
+      int keyLength, final List<WideColumn<byte[]>> values) {
+    CheckBounds(keyOffset, keyLength, key.length);
+
     GetEntityResult result = new GetEntityResult();
-    getEntity(nativeHandle_, key, result, columnFamily == null ? 0 : columnFamily.nativeHandle_);
+    getEntity(nativeHandle_, key, keyOffset, keyLength, result,
+        columnFamily == null ? 0 : columnFamily.nativeHandle_);
 
     if(result.status.getCode() == Status.Code.Ok) {
       for(int i = 0; i < result.names.length ; i++) {
@@ -1011,9 +1008,6 @@ public class RocksDB extends RocksObject {
     }
     return result.status;
   }
-
-
-  private static native void getEntity(final long handle, final byte[] key, final GetEntityResult result, final long cfHandle);
 
   /**
    * Set the database entry for "key" to "value".
@@ -5025,6 +5019,11 @@ public class RocksDB extends RocksObject {
       final int keyLength, final long cfHandle) throws RocksDBException;
   private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyOffset, final int keyLength) throws RocksDBException;
+  private static native void putEntity(final long handle, final byte[] key, int keyOffset,
+      int keyLength, final byte[][] name, final byte[][] value, final long cfHandle);
+  private static native void putEntityDirect(final long handle, final ByteBuffer key, int keyOffset,
+      int keyLength, final ByteBuffer[] name, int[] nameOffset, int[] nameLength,
+      final ByteBuffer[] value, int[] valueOffset, int[] valueLenght, final long cfHandle);
   private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
   private static native void singleDelete(final long handle, final byte[] key, final int keyLen)
@@ -5108,6 +5107,12 @@ public class RocksDB extends RocksObject {
 
   private static native boolean keyExists(final long handle, final long cfHandle,
       final long readOptHandle, final byte[] key, final int keyOffset, final int keyLength);
+  private static native void getEntity(final long handle, final byte[] key, int keyOffset,
+      int keyLength, final GetEntityResult result, final long cfHandle);
+  private native Status getEntityDirect(long nativeHandle, ByteBuffer key, int keyPosition,
+      int keyLength, ByteBuffer[] names, int[] namesOffset, int[] namesLength,
+      int[] namesRequiredSize, ByteBuffer[] values, int[] valuesOffset, int[] valuesLength,
+      int[] valuesRequiredSize, long jcfhandle);
 
   private static native boolean keyExistsDirect(final long handle, final long cfHandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
