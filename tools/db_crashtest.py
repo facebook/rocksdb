@@ -909,7 +909,7 @@ def blackbox_crash_main(args, unknown_args):
     print("stdout:", outs)
 
     # Print stderr of the final run
-    exit_if_stderr_has_errors(errs, print_as_stderr=args.print_stderr_separately)
+    exit_if_stderr_has_errors(errs, args.print_stderr_separately)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
