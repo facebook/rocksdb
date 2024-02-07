@@ -3352,7 +3352,7 @@ void InitializeOptionsFromFlags(
         FLAGS_compression_use_zstd_dict_trainer;
   } else if (!FLAGS_compression_use_zstd_dict_trainer) {
     fprintf(
-        stderr,
+        stdout,
         "WARNING: use_zstd_dict_trainer is false but zstd finalizeDictionary "
         "cannot be used because ZSTD 1.4.5+ is not linked with the binary."
         " zstd dictionary trainer will be used.\n");
