@@ -13,41 +13,60 @@ import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 public class WideColumnTest {
+  @ClassRule
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
-    @ClassRule
-    public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
-            new RocksNativeLibraryResource();
+  @Rule public ExpectedException exceptionRule = ExpectedException.none();
 
-    @Rule
-    public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Test
+  public void simpleWriteArray() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
 
-    @Rule public ExpectedException exceptionRule = ExpectedException.none();
-
-    @Test
-    public void simpleWriteArray() throws RocksDBException {
-        try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-
-            List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
-
-            wideColumns.add(new WideColumn<>("columndName".getBytes(StandardCharsets.UTF_8), "columnValue".getBytes(StandardCharsets.UTF_8)));
-            db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
-
-        }
+      wideColumns.add(new WideColumn<>("columndName".getBytes(StandardCharsets.UTF_8),
+          "columnValue".getBytes(StandardCharsets.UTF_8)));
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
     }
+  }
 
-    @Test
-    public void simpleReadWrite() throws RocksDBException {
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+  @Test
+  public void simpleReadWrite() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+
+      wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
+          "columnValue".getBytes(StandardCharsets.UTF_8)));
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+
+      List<WideColumn<byte[]>> result = new ArrayList<>();
+
+      Status status = db.getEntity("someKey".getBytes(), result);
+
+      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
+
+      assertThat(result).isNotEmpty();
+      assertThat(result.get(0).getValue())
+          .isEqualTo("columnValue".getBytes(StandardCharsets.UTF_8));
+      assertThat(result.get(0).getName()).isEqualTo("columnName".getBytes(StandardCharsets.UTF_8));
+    }
+  }
+
+  @Test
+  public void readWriteWithKeyOffset() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      try (final ColumnFamilyHandle cfHandle = db.getDefaultColumnFamily()) {
         List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
 
         wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
             "columnValue".getBytes(StandardCharsets.UTF_8)));
-        db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+        db.putEntity(cfHandle, "someKey".getBytes(StandardCharsets.UTF_8), 1, 4, wideColumns);
 
         List<WideColumn<byte[]>> result = new ArrayList<>();
 
-        Status status = db.getEntity("someKey".getBytes(), result);
+        Status status = db.getEntity(cfHandle, "asomeKeys".getBytes(), 2, 4, result);
 
         assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
 
@@ -58,56 +77,186 @@ public class WideColumnTest {
             .isEqualTo("columnName".getBytes(StandardCharsets.UTF_8));
       }
     }
+  }
 
-    @Test
-    public void readWriteWithKeyOffset() throws RocksDBException {
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-        try (final ColumnFamilyHandle cfHandle = db.getDefaultColumnFamily()) {
-          List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+  @Test
+  public void putEntityDirectByteBuffer() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<ByteBuffer>> wideColumns = new ArrayList<>();
 
-          wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
-              "columnValue".getBytes(StandardCharsets.UTF_8)));
-          db.putEntity(cfHandle, "someKey".getBytes(StandardCharsets.UTF_8), 1, 4, wideColumns);
+      ByteBuffer key = ByteBuffer.allocateDirect(100);
+      ByteBuffer name = ByteBuffer.allocateDirect(100);
+      ByteBuffer value = ByteBuffer.allocateDirect(100);
 
-          List<WideColumn<byte[]>> result = new ArrayList<>();
+      key.put("someKey".getBytes(StandardCharsets.UTF_8));
+      key.flip();
 
-          Status status = db.getEntity(cfHandle, "asomeKeys".getBytes(), 2, 4, result);
+      name.put("columnName".getBytes(StandardCharsets.UTF_8));
+      name.flip();
 
-          assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
+      value.put("columnValue".getBytes(StandardCharsets.UTF_8));
+      value.flip();
 
-          assertThat(result).isNotEmpty();
-          assertThat(result.get(0).getValue())
-              .isEqualTo("columnValue".getBytes(StandardCharsets.UTF_8));
-          assertThat(result.get(0).getName())
-              .isEqualTo("columnName".getBytes(StandardCharsets.UTF_8));
-        }
-      }
+      wideColumns.add(new WideColumn<>(name, value));
+      db.putEntity(key, wideColumns);
+
+      List<WideColumn<byte[]>> result = new ArrayList<>();
+
+      Status status = db.getEntity("someKey".getBytes(), result);
+
+      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
+
+      assertThat(result).isNotEmpty();
+      assertThat(result.get(0).getValue())
+          .isEqualTo("columnValue".getBytes(StandardCharsets.UTF_8));
+      assertThat(result.get(0).getName()).isEqualTo("columnName".getBytes(StandardCharsets.UTF_8));
     }
+  }
 
-    @Test
-    public void putEntityDirectByteBuffer() throws RocksDBException {
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-        List<WideColumn<ByteBuffer>> wideColumns = new ArrayList<>();
+  @Test
+  public void putEntityNonDirectByteBuffer() throws RocksDBException {
+    exceptionRule.expect(RocksDBException.class);
+    exceptionRule.expectMessage(
+        "Invalid \"value\" argument (argument is not a valid direct ByteBuffer)");
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<ByteBuffer>> wideColumns = new ArrayList<>();
 
-        ByteBuffer key = ByteBuffer.allocateDirect(100);
-        ByteBuffer name = ByteBuffer.allocateDirect(100);
-        ByteBuffer value = ByteBuffer.allocateDirect(100);
+      ByteBuffer key = ByteBuffer.allocateDirect(100);
+      ByteBuffer name = ByteBuffer.allocateDirect(100);
+      ByteBuffer value = ByteBuffer.allocate(100);
 
-        key.put("someKey".getBytes(StandardCharsets.UTF_8));
-        key.flip();
+      key.put("someKey".getBytes(StandardCharsets.UTF_8));
+      key.flip();
 
-        name.put("columnName".getBytes(StandardCharsets.UTF_8));
-        name.flip();
+      name.put("columnName".getBytes(StandardCharsets.UTF_8));
+      name.flip();
 
-        value.put("columnValue".getBytes(StandardCharsets.UTF_8));
-        value.flip();
+      value.put("columnValue".getBytes(StandardCharsets.UTF_8));
+      value.flip();
 
-        wideColumns.add(new WideColumn<>(name, value));
-        db.putEntity(key, wideColumns);
+      wideColumns.add(new WideColumn<>(name, value));
+      db.putEntity(key, wideColumns);
+    }
+  }
+
+  @Test
+  public void getEntityDirect() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+
+      wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
+          "columnValue".getBytes(StandardCharsets.UTF_8)));
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+
+      List<WideColumn.ByteBufferWideColumn> result = new ArrayList<>();
+      result.add(new WideColumn.ByteBufferWideColumn(
+          ByteBuffer.allocateDirect(10), ByteBuffer.allocateDirect(10)));
+      ByteBuffer key = ByteBuffer.allocateDirect(20);
+      key.put("someKey".getBytes(StandardCharsets.UTF_8));
+      key.flip();
+
+      Status s = db.getEntity(key, result);
+
+      assertThat(s).isNotNull();
+      assertThat(s.getCode()).isEqualTo(Status.Code.Ok);
+      WideColumn.ByteBufferWideColumn column = result.get(0);
+      assertThat(column.getNameRequiredSize()).isEqualTo(10);
+      assertThat(column.getValueRequiredSize()).isEqualTo(11);
+
+      ByteBuffer valueBuffer = column.getValue();
+      assertThat(valueBuffer.position()).isEqualTo(valueBuffer.capacity());
+      valueBuffer.flip();
+      byte[] value = new byte[10];
+      valueBuffer.get(value);
+      assertThat(value).isEqualTo("columnValu".getBytes(StandardCharsets.UTF_8));
+    }
+  }
+
+  @Test
+  public void getEntityDirectZeroString() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+
+      byte[] columnName =
+          new byte[] {0, 0, 'c', 'o', 'l', 'u', 'm', 'n', 'N', 'a', 'm', 'e', 0, 0, 0};
+      byte[] columnValue =
+          new byte[] {0, 0, 'c', 'o', 'l', 'u', 'm', 'n', 'V', 'a', 'l', 'u', 'e', 0, 0, 0};
+
+      wideColumns.add(new WideColumn<>(columnName, columnValue));
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+
+      List<WideColumn.ByteBufferWideColumn> result = new ArrayList<>();
+      result.add(new WideColumn.ByteBufferWideColumn(
+          ByteBuffer.allocateDirect(15), ByteBuffer.allocateDirect(15)));
+      ByteBuffer key = ByteBuffer.allocateDirect(20);
+      key.put("someKey".getBytes(StandardCharsets.UTF_8));
+      key.flip();
+
+      Status s = db.getEntity(key, result);
+
+      assertThat(s).isNotNull();
+      assertThat(s.getCode()).isEqualTo(Status.Code.Ok);
+      WideColumn.ByteBufferWideColumn column = result.get(0);
+      assertThat(column.getNameRequiredSize()).isEqualTo(15);
+      assertThat(column.getValueRequiredSize()).isEqualTo(16);
+
+      ByteBuffer nameBuffer = column.getName();
+      assertThat(nameBuffer.position()).isEqualTo(nameBuffer.capacity());
+      nameBuffer.flip();
+      byte[] name = new byte[15];
+      nameBuffer.get(name);
+      assertThat(name).isEqualTo(columnName);
+
+      ByteBuffer valueBuffer = column.getValue();
+      assertThat(valueBuffer.position()).isEqualTo(valueBuffer.capacity());
+      valueBuffer.flip();
+      byte[] value = new byte[15];
+      valueBuffer.get(value);
+      assertThat(value).isEqualTo(
+          new byte[] {0, 0, 'c', 'o', 'l', 'u', 'm', 'n', 'V', 'a', 'l', 'u', 'e', 0, 0});
+    }
+  }
+
+  @Test
+  public void getEntityNonDirectBuffer() throws RocksDBException {
+    exceptionRule.expect(RocksDBException.class);
+    exceptionRule.expectMessage(
+        "Invalid \"name\" argument (argument is not a valid direct ByteBuffer)");
+
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+
+      wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
+          "columnValue".getBytes(StandardCharsets.UTF_8)));
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+
+      List<WideColumn.ByteBufferWideColumn> result = new ArrayList<>();
+      result.add(new WideColumn.ByteBufferWideColumn(
+          ByteBuffer.allocate(10), ByteBuffer.allocateDirect(10)));
+      ByteBuffer key = ByteBuffer.allocateDirect(20);
+      key.put("someKey".getBytes(StandardCharsets.UTF_8));
+      key.flip();
+
+      db.getEntity(key, result);
+    }
+  }
+
+  @Test
+  public void simpleReadWriteWithColumnFamily() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      ColumnFamilyDescriptor cfDescriptor =
+          new ColumnFamilyDescriptor("testColumnFamily".getBytes(StandardCharsets.UTF_8));
+
+      try (ColumnFamilyHandle cfHandle = db.createColumnFamily(cfDescriptor)) {
+        List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+
+        wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
+            "columnValue".getBytes(StandardCharsets.UTF_8)));
+        db.putEntity(cfHandle, "someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
 
         List<WideColumn<byte[]>> result = new ArrayList<>();
 
-        Status status = db.getEntity("someKey".getBytes(), result);
+        Status status = db.getEntity(cfHandle, "someKey".getBytes(), result);
 
         assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
 
@@ -118,194 +267,36 @@ public class WideColumnTest {
             .isEqualTo("columnName".getBytes(StandardCharsets.UTF_8));
       }
     }
+  }
 
-    @Test
-    public void putEntityNonDirectByteBuffer() throws RocksDBException {
-      exceptionRule.expect(RocksDBException.class);
-      exceptionRule.expectMessage(
-          "Invalid \"value\" argument (argument is not a valid direct ByteBuffer)");
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-        List<WideColumn<ByteBuffer>> wideColumns = new ArrayList<>();
+  @Test
+  public void noResult() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> result = new ArrayList<>();
 
-        ByteBuffer key = ByteBuffer.allocateDirect(100);
-        ByteBuffer name = ByteBuffer.allocateDirect(100);
-        ByteBuffer value = ByteBuffer.allocate(100);
+      Status status = db.getEntity("someKey".getBytes(), result);
 
-        key.put("someKey".getBytes(StandardCharsets.UTF_8));
-        key.flip();
+      assertThat(status.getCode()).isEqualTo(Status.Code.NotFound);
 
-        name.put("columnName".getBytes(StandardCharsets.UTF_8));
-        name.flip();
+      assertThat(result).isEmpty();
+    }
+  }
 
-        value.put("columnValue".getBytes(StandardCharsets.UTF_8));
-        value.flip();
+  public void largeReadWrite() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
 
-        wideColumns.add(new WideColumn<>(name, value));
-        db.putEntity(key, wideColumns);
+      for (int i = 100; i < 1000; i++) {
+        wideColumns.add(new WideColumn<>(("columnName" + i).getBytes(StandardCharsets.UTF_8),
+            ("columnValue" + i).getBytes(StandardCharsets.UTF_8)));
       }
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+
+      List<WideColumn<byte[]>> result = new ArrayList<>();
+
+      Status status = db.getEntity("someKey".getBytes(), result);
+
+      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
     }
-
-    @Test
-    public void getEntityDirect() throws RocksDBException {
-        try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-
-            List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
-
-            wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8), "columnValue".getBytes(StandardCharsets.UTF_8)));
-            db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
-
-            List<WideColumn.ByteBufferWideColumn> result = new ArrayList<>();
-            result.add(new WideColumn.ByteBufferWideColumn(ByteBuffer.allocateDirect(10), ByteBuffer.allocateDirect(10)));
-            ByteBuffer key = ByteBuffer.allocateDirect(20);
-            key.put("someKey".getBytes(StandardCharsets.UTF_8));
-            key.flip();
-
-            Status s = db.getEntity(key, result);
-
-            assertThat(s).isNotNull();
-            assertThat(s.getCode()).isEqualTo(Status.Code.Ok);
-            WideColumn.ByteBufferWideColumn column = result.get(0);
-            assertThat(column.getNameRequiredSize()).isEqualTo(10);
-            assertThat(column.getValueRequiredSize()).isEqualTo(11);
-
-            ByteBuffer valueBuffer = column.getValue();
-            assertThat(valueBuffer.position()).isEqualTo(valueBuffer.capacity());
-            valueBuffer.flip();
-            byte[] value = new byte[10];
-            valueBuffer.get(value);
-            assertThat(value).isEqualTo("columnValu".getBytes(StandardCharsets.UTF_8));
-
-
-        }
-    }
-
-    @Test
-    public void getEntityDirectZeroString() throws RocksDBException {
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-        List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
-
-        byte[] columnName =
-            new byte[] {0, 0, 'c', 'o', 'l', 'u', 'm', 'n', 'N', 'a', 'm', 'e', 0, 0, 0};
-        byte[] columnValue =
-            new byte[] {0, 0, 'c', 'o', 'l', 'u', 'm', 'n', 'V', 'a', 'l', 'u', 'e', 0, 0, 0};
-
-        wideColumns.add(new WideColumn<>(columnName, columnValue));
-        db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
-
-        List<WideColumn.ByteBufferWideColumn> result = new ArrayList<>();
-        result.add(new WideColumn.ByteBufferWideColumn(
-            ByteBuffer.allocateDirect(15), ByteBuffer.allocateDirect(15)));
-        ByteBuffer key = ByteBuffer.allocateDirect(20);
-        key.put("someKey".getBytes(StandardCharsets.UTF_8));
-        key.flip();
-
-        Status s = db.getEntity(key, result);
-
-        assertThat(s).isNotNull();
-        assertThat(s.getCode()).isEqualTo(Status.Code.Ok);
-        WideColumn.ByteBufferWideColumn column = result.get(0);
-        assertThat(column.getNameRequiredSize()).isEqualTo(15);
-        assertThat(column.getValueRequiredSize()).isEqualTo(16);
-
-        ByteBuffer nameBuffer = column.getName();
-        assertThat(nameBuffer.position()).isEqualTo(nameBuffer.capacity());
-        nameBuffer.flip();
-        byte[] name = new byte[15];
-        nameBuffer.get(name);
-        assertThat(name).isEqualTo(columnName);
-
-        ByteBuffer valueBuffer = column.getValue();
-        assertThat(valueBuffer.position()).isEqualTo(valueBuffer.capacity());
-        valueBuffer.flip();
-        byte[] value = new byte[15];
-        valueBuffer.get(value);
-        assertThat(value).isEqualTo(
-            new byte[] {0, 0, 'c', 'o', 'l', 'u', 'm', 'n', 'V', 'a', 'l', 'u', 'e', 0, 0});
-      }
-    }
-
-    @Test
-    public void getEntityNonDirectBuffer() throws RocksDBException {
-      exceptionRule.expect(RocksDBException.class);
-      exceptionRule.expectMessage(
-          "Invalid \"name\" argument (argument is not a valid direct ByteBuffer)");
-
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-        List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
-
-        wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
-            "columnValue".getBytes(StandardCharsets.UTF_8)));
-        db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
-
-        List<WideColumn.ByteBufferWideColumn> result = new ArrayList<>();
-        result.add(new WideColumn.ByteBufferWideColumn(
-            ByteBuffer.allocate(10), ByteBuffer.allocateDirect(10)));
-        ByteBuffer key = ByteBuffer.allocateDirect(20);
-        key.put("someKey".getBytes(StandardCharsets.UTF_8));
-        key.flip();
-
-        db.getEntity(key, result);
-      }
-    }
-
-    @Test
-    public void simpleReadWriteWithColumnFamily() throws RocksDBException {
-        try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-
-            ColumnFamilyDescriptor cfDescriptor = new ColumnFamilyDescriptor("testColumnFamily".getBytes(StandardCharsets.UTF_8));
-
-            try(ColumnFamilyHandle cfHandle = db.createColumnFamily(cfDescriptor)) {
-                List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
-
-                wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8), "columnValue".getBytes(StandardCharsets.UTF_8)));
-                db.putEntity(cfHandle, "someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
-
-                List<WideColumn<byte[]>> result = new ArrayList<>();
-
-                Status status = db.getEntity(cfHandle, "someKey".getBytes(), result);
-
-                assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
-
-                assertThat(result).isNotEmpty();
-                assertThat(result.get(0).getValue()).isEqualTo("columnValue".getBytes(StandardCharsets.UTF_8));
-                assertThat(result.get(0).getName()).isEqualTo("columnName".getBytes(StandardCharsets.UTF_8));
-            }
-        }
-    }
-
-    @Test
-    public void noResult() throws RocksDBException {
-        try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-
-            List<WideColumn<byte[]>> result = new ArrayList<>();
-
-            Status status = db.getEntity("someKey".getBytes(), result);
-
-            assertThat(status.getCode()).isEqualTo(Status.Code.NotFound);
-
-            assertThat(result).isEmpty();
-
-        }
-    }
-
-
-
-    public void largeReadWrite() throws RocksDBException {
-        try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-
-            List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
-
-            for(int i = 100 ; i < 1000 ; i++) {
-                wideColumns.add(new WideColumn<>(("columnName" + i).getBytes(StandardCharsets.UTF_8), ("columnValue" + i).getBytes(StandardCharsets.UTF_8)));
-            }
-            db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
-
-            List<WideColumn<byte[]>> result = new ArrayList<>();
-
-            Status status = db.getEntity("someKey".getBytes(), result);
-
-            assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
-
-        }
-    }
+  }
 }
