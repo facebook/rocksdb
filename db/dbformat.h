@@ -100,7 +100,7 @@ struct UserKeyRangePtr {
   // An optional range end, if missing, indicating an end after all keys.
   std::optional<Slice> limit;
 
-  UserKeyRangePtr(const std::optional<Slice> s, const std::optional<Slice> l)
+  UserKeyRangePtr(const std::optional<Slice>& s, const std::optional<Slice>& l)
       : start(s), limit(l) {}
 };
 
