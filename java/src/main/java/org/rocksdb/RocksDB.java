@@ -877,11 +877,12 @@ public class RocksDB extends RocksObject {
     }
   }
 
-  public void putEntity(final byte[] key, final List<WideColumn<byte []>> columns) {
+  public void putEntity(final byte[] key, final List<WideColumn<byte[]>> columns) {
     putEntity(null, key, 0, key.length, columns);
   }
 
-  public void putEntity(final ColumnFamilyHandle columnFamily, final byte[] key, final List<WideColumn<byte []>> columns) {
+  public void putEntity(final ColumnFamilyHandle columnFamily, final byte[] key,
+      final List<WideColumn<byte[]>> columns) {
     putEntity(columnFamily, key, 0, key.length, columns);
   }
 
@@ -890,7 +891,7 @@ public class RocksDB extends RocksObject {
     byte[][] name = new byte[columns.size()][];
     byte[][] value = new byte[columns.size()][];
 
-    for(int i = 0; i < columns.size() ; i++) {
+    for (int i = 0; i < columns.size(); i++) {
       name[i] = columns.get(i).getName();
       value[i] = columns.get(i).getValue();
     }
@@ -907,8 +908,8 @@ public class RocksDB extends RocksObject {
     int[] valuesOffset = new int[columns.size()];
     int[] valuesLength = new int[columns.size()];
 
-    for(int i = 0; i < names.length ; i++) {
-      WideColumn<ByteBuffer> column = columns.get(i); //TODO slow for LinkedList
+    for (int i = 0; i < names.length; i++) {
+      WideColumn<ByteBuffer> column = columns.get(i); // TODO slow for LinkedList
       names[i] = column.getName();
       namesOffset[i] = column.getName().position();
       namesLength[i] = column.getName().remaining();
@@ -918,11 +919,8 @@ public class RocksDB extends RocksObject {
       valuesLength[i] = column.getValue().remaining();
     }
 
-    putEntityDirect(nativeHandle_, key, key.position(), key.remaining(),
-            names, namesOffset, namesLength,
-            values, valuesOffset, valuesLength,
-            0);
-
+    putEntityDirect(nativeHandle_, key, key.position(), key.remaining(), names, namesOffset,
+        namesLength, values, valuesOffset, valuesLength, 0);
   }
 
   private static class GetEntityResult {
@@ -931,7 +929,8 @@ public class RocksDB extends RocksObject {
     public byte[][] values;
   }
 
-  public Status getEntity(final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> columns) {
+  public Status getEntity(
+      final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> columns) {
     return getEntity(null, key, columns);
   }
 
@@ -947,7 +946,7 @@ public class RocksDB extends RocksObject {
     int[] valuesOffset = new int[columns.size()];
     int[] valuesRemaining = new int[columns.size()];
 
-    for(int i = 0 ; i < names.length ; i++) {
+    for (int i = 0; i < names.length; i++) {
       names[i] = columns.get(i).getName();
       namesOffset[i] = names[i].position();
       namesRemaining[i] = names[i].remaining();
@@ -961,8 +960,7 @@ public class RocksDB extends RocksObject {
         namesOffset, namesRemaining, namesRequiredSize, values, valuesOffset, valuesRemaining,
         valuesRequiredSize, columnFamily == null ? 0 : columnFamily.nativeHandle_);
 
-    if(status != null && status.getCode() == Status.Code.Ok) {
-
+    if (status != null && status.getCode() == Status.Code.Ok) {
       for (int i = 0; i < namesRequiredSize.length; i++) {
         columns.get(i).setNameRequiredSize(namesRequiredSize[i]);
 
@@ -987,7 +985,8 @@ public class RocksDB extends RocksObject {
     return getEntity(null, key, 0, key.length, values);
   }
 
-  public Status getEntity(final ColumnFamilyHandle columnFamily, final byte[] key, final List<WideColumn<byte[]>> values) {
+  public Status getEntity(final ColumnFamilyHandle columnFamily, final byte[] key,
+      final List<WideColumn<byte[]>> values) {
     return getEntity(columnFamily, key, 0, key.length, values);
   }
 
@@ -999,11 +998,9 @@ public class RocksDB extends RocksObject {
     getEntity(nativeHandle_, key, keyOffset, keyLength, result,
         columnFamily == null ? 0 : columnFamily.nativeHandle_);
 
-    if(result.status.getCode() == Status.Code.Ok) {
-      for(int i = 0; i < result.names.length ; i++) {
-        values.add(new WideColumn<>(
-                result.names[i], result.values[i]
-        ));
+    if (result.status.getCode() == Status.Code.Ok) {
+      for (int i = 0; i < result.names.length; i++) {
+        values.add(new WideColumn<>(result.names[i], result.values[i]));
       }
     }
     return result.status;
