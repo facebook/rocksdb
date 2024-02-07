@@ -498,7 +498,7 @@ class DBImpl : public DB {
 
   Status DisableFileDeletions() override;
 
-  Status EnableFileDeletions(bool force) override;
+  Status EnableFileDeletions() override;
 
   virtual bool IsFileDeletionsEnabled() const;
 

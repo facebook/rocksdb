@@ -4284,28 +4284,18 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Enable deleting obsolete files.
-   * If force == true, the call to EnableFileDeletions()
-   * will guarantee that file deletions are enabled after
-   * the call, even if DisableFileDeletions() was called
-   * multiple times before.</p>
-   *
-   * <p>If force == false, EnableFileDeletions will only
-   * enable file deletion after it's been called at least
-   * as many times as DisableFileDeletions(), enabling
-   * the two methods to be called by two threads
-   * concurrently without synchronization
+   * <p>EnableFileDeletions will only enable file deletion after
+   * it's been called at least as many times as DisableFileDeletions(),
+   * enabling the two methods to be called by two threads concurrently
+   * without synchronization
    * -- i.e., file deletions will be enabled only after both
    * threads call EnableFileDeletions()</p>
-   *
-   * @param force boolean value described above.
    *
    * @throws RocksDBException thrown if operation was not performed
    *     successfully.
    */
-  public void enableFileDeletions(final boolean force)
-      throws RocksDBException {
-    enableFileDeletions(nativeHandle_, force);
+  public void enableFileDeletions() throws RocksDBException {
+    enableFileDeletions(nativeHandle_);
   }
 
   public static class LiveFiles {
@@ -5041,8 +5031,7 @@ public class RocksDB extends RocksObject {
   private static native void syncWal(final long handle) throws RocksDBException;
   private static native long getLatestSequenceNumber(final long handle);
   private static native void disableFileDeletions(long handle) throws RocksDBException;
-  private static native void enableFileDeletions(long handle, boolean force)
-      throws RocksDBException;
+  private static native void enableFileDeletions(long handle) throws RocksDBException;
   private static native String[] getLiveFiles(final long handle, final boolean flushMemtable)
       throws RocksDBException;
   private static native LogFile[] getSortedWalFiles(final long handle) throws RocksDBException;

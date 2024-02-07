@@ -2517,7 +2517,7 @@ TEST_F(DBTest, SnapshotFiles) {
     }
 
     // release file snapshot
-    ASSERT_OK(dbfull()->EnableFileDeletions(/*force*/ false));
+    ASSERT_OK(dbfull()->EnableFileDeletions());
     // overwrite one key, this key should not appear in the snapshot
     std::vector<std::string> extras;
     for (unsigned int i = 0; i < 1; i++) {
@@ -3354,7 +3354,7 @@ class ModelDB : public DB {
 
   Status DisableFileDeletions() override { return Status::OK(); }
 
-  Status EnableFileDeletions(bool /*force*/) override { return Status::OK(); }
+  Status EnableFileDeletions() override { return Status::OK(); }
 
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* /*size*/,
                       bool /*flush_memtable*/ = true) override {

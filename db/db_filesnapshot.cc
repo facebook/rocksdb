@@ -121,7 +121,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
 
   // DisableFileDeletions / EnableFileDeletions not supported in read-only DB
   if (deletions_disabled.ok()) {
-    Status s2 = EnableFileDeletions(/*force=*/false);
+    Status s2 = EnableFileDeletions();
     assert(s2.ok());
     s2.PermitUncheckedError();
   } else {
