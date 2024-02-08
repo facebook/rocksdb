@@ -282,21 +282,4 @@ public class WideColumnTest {
     }
   }
 
-  public void largeReadWrite() throws RocksDBException {
-    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
-
-      for (int i = 100; i < 1000; i++) {
-        wideColumns.add(new WideColumn<>(("columnName" + i).getBytes(StandardCharsets.UTF_8),
-            ("columnValue" + i).getBytes(StandardCharsets.UTF_8)));
-      }
-      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
-
-      List<WideColumn<byte[]>> result = new ArrayList<>();
-
-      Status status = db.getEntity("someKey".getBytes(), result);
-
-      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
-    }
-  }
 }

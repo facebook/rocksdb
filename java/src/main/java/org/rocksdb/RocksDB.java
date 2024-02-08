@@ -981,17 +981,91 @@ public class RocksDB extends RocksObject {
     return status;
   }
 
-  public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values) {
+  /**
+   * Retrieves the values associated with the specified key within default column family.
+   * If the column family contains an entry for the key, returns it as a wide-column entity.
+   * If the entry is a wide-column entity, it's returned as-is; if it's a plain key-value, it's
+   * returned as an entity with a single anonymous column.
+   *
+   * @param key The key whose associated values are to be retrieved.
+   * key} array after {@code keyOffset}.
+   * @param values A {@link java.util.List} of {@link WideColumn} objects to receive the retrieved
+   *     values.
+   *               Each {@link WideColumn} represents a column containing byte array values.
+   *               Upon successful execution, this list will be populated with the values associated
+   * with the key. The order of values in the list corresponds to the order of columns in the
+   * database. If a value is not found for a particular column, the corresponding {@link WideColumn}
+   * object will contain a null value.
+   * @return The status of the operation.
+   *         Returns OK if the operation was successful.
+   *         Returns NOT_FOUND if the key does not exist in the
+   * database. Other status codes may be returned in case of errors or exceptional conditions.
+   * @throws RocksDBException Thrown if an error occurs while executing the operation in the
+   *     underlying native library.
+   */
+  public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values) throws RocksDBException {
     return getEntity(null, key, 0, key.length, values);
   }
 
+  /**
+   * Retrieves the values associated with the specified key within the given column family.
+   * If the column family contains an entry for the key, returns it as a wide-column entity.
+   * If the entry is a wide-column entity, it's returned as-is; if it's a plain key-value, it's
+   * returned as an entity with a single anonymous column.
+   *
+   * @param columnFamily The {@link org.rocksdb.ColumnFamilyHandle} instance representing the column
+   *     family.
+   * @param key The key whose associated values are to be retrieved.
+   * @param values A {@link java.util.List} of {@link WideColumn} objects to receive the retrieved
+   *     values.
+   *               Each {@link WideColumn} represents a column containing byte array values.
+   *               Upon successful execution, this list will be populated with the values associated
+   * with the key. The order of values in the list corresponds to the order of columns in the
+   * database. If a value is not found for a particular column, the corresponding {@link WideColumn}
+   * object will contain a null value.
+   * @return The status of the operation.
+   *         Returns OK if the operation was successful.
+   *         Returns NOT_FOUND if the key does not exist in the
+   * database. Other status codes may be returned in case of errors or exceptional conditions.
+   * @throws RocksDBException Thrown if an error occurs while executing the operation in the
+   *     underlying native library.
+   */
   public Status getEntity(final ColumnFamilyHandle columnFamily, final byte[] key,
-      final List<WideColumn<byte[]>> values) {
+      final List<WideColumn<byte[]>> values) throws RocksDBException {
     return getEntity(columnFamily, key, 0, key.length, values);
   }
 
+  /**
+   * Retrieves the values associated with the specified key within the given column family.
+   * If the column family contains an entry for the key, returns it as a wide-column entity.
+   * If the entry is a wide-column entity, it's returned as-is; if it's a plain key-value, it's
+   * returned as an entity with a single anonymous column.
+   *
+   * @param columnFamily The {@link org.rocksdb.ColumnFamilyHandle} instance representing the column
+   *     family.
+   * @param key The key whose associated values are to be retrieved.
+   * @param keyOffset The offset within the {@code key} array indicating the start of the key to be
+   *     used.
+   *                  Must be non-negative and no larger than the length of the {@code key} array.
+   * @param keyLength The length of the key to be used, starting from the {@code keyOffset}.
+   *                  Must be non-negative and no larger than the remaining length of the {@code
+   * key} array after {@code keyOffset}.
+   * @param values A {@link java.util.List} of {@link WideColumn} objects to receive the retrieved
+   *     values.
+   *               Each {@link WideColumn} represents a column containing byte array values.
+   *               Upon successful execution, this list will be populated with the values associated
+   * with the key. The order of values in the list corresponds to the order of columns in the
+   * database. If a value is not found for a particular column, the corresponding {@link WideColumn}
+   * object will contain a null value.
+   * @return The status of the operation.
+   *         Returns OK if the operation was successful.
+   *         Returns NOT_FOUND if the key does not exist in the
+   * database. Other status codes may be returned in case of errors or exceptional conditions.
+   * @throws RocksDBException Thrown if an error occurs while executing the operation in the
+   *     underlying native library.
+   */
   public Status getEntity(final ColumnFamilyHandle columnFamily, final byte[] key, int keyOffset,
-      int keyLength, final List<WideColumn<byte[]>> values) {
+      int keyLength, final List<WideColumn<byte[]>> values) throws RocksDBException {
     CheckBounds(keyOffset, keyLength, key.length);
 
     GetEntityResult result = new GetEntityResult();
