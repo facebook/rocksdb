@@ -29,6 +29,8 @@ public class WideColumn<T> {
     public ByteBufferWideColumn(
         ByteBuffer name, ByteBuffer value, int nameRequiredSize, int valueRequiredSize) {
       super(name, value);
+      this.nameRequiredSize = nameRequiredSize;
+      this.valueRequiredSize = valueRequiredSize;
     }
 
     public int getNameRequiredSize() {
