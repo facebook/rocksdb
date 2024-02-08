@@ -281,5 +281,4 @@ public class WideColumnTest {
       assertThat(result).isEmpty();
     }
   }
-
 }
