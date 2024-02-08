@@ -198,7 +198,7 @@ Status ReadAndParseBlockFromFile(
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options,
     MemoryAllocator* memory_allocator, bool for_compaction,
-    const std::shared_ptr<Compressor>& compressor, bool async_read) {
+    Compressor* compressor, bool async_read) {
   assert(result);
 
   BlockContents contents;
@@ -206,7 +206,7 @@ Status ReadAndParseBlockFromFile(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
       /*do_uncompress*/ maybe_compressed, maybe_compressed,
       TBlocklike::kBlockType, uncompression_dict, cache_options,
-      memory_allocator, nullptr, for_compaction, compressor.get());
+      memory_allocator, nullptr, for_compaction, compressor);
   Status s;
   // If prefetch_buffer is not allocated, it will fallback to synchronous
   // reading of block contents.
@@ -1355,7 +1355,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
       rep_->create_context, true /*maybe_compressed*/,
       UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
       GetMemoryAllocator(rep_->table_options), false /* for_compaction */,
-      rep_->compressor, false /* async_read */);
+      rep_->compressor.get(), false /* async_read */);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
@@ -1931,7 +1931,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
         rep_->ioptions, rep_->create_context, maybe_compressed,
         uncompression_dict, rep_->persistent_cache_options,
         GetMemoryAllocator(rep_->table_options), for_compaction,
-        rep_->compressor, async_read);
+        rep_->compressor.get(), async_read);
 
     if (get_context) {
       switch (TBlocklike::kBlockType) {
