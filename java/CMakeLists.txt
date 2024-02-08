@@ -418,6 +418,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/MemoryUtilTest.java
   src/test/java/org/rocksdb/TableFilterTest.java
   src/test/java/org/rocksdb/TtlDBTest.java
+  src/test/java/org/rocksdb/WideColumnTest.java
   src/test/java/org/rocksdb/util/StdErrLoggerTest.java
 )
 
@@ -517,6 +518,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.MemoryUtilTest
   org.rocksdb.TableFilterTest
   org.rocksdb.TtlDBTest
+  org.rocksdb.WideColumnTest
   org.rocksdb.util.StdErrLoggerTest
 )
 
