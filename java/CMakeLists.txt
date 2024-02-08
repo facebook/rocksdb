@@ -426,6 +426,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/util/JNIComparatorTest.java
   src/test/java/org/rocksdb/util/ReverseBytewiseComparatorIntTest.java
   src/test/java/org/rocksdb/util/SizeUnitTest.java
+  src/test/java/org/rocksdb/WideColumnTest.java
   src/test/java/org/rocksdb/util/StdErrLoggerTest.java
   src/test/java/org/rocksdb/util/TestUtil.java
 )
@@ -523,6 +524,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.VerifyChecksumsTest
   org.rocksdb.WALRecoveryModeTest
   org.rocksdb.WalFilterTest
+  org.rocksdb.WideColumnTest
   org.rocksdb.WriteBatchHandlerTest
   org.rocksdb.WriteBatchTest
   org.rocksdb.WriteBatchThreadedTest
