@@ -877,17 +877,70 @@ public class RocksDB extends RocksObject {
     }
   }
 
-  public void putEntity(final byte[] key, final List<WideColumn<byte[]>> columns) {
+  /**
+   * Sets the database entry for the specified key within the given column family to the wide-column
+   * entity defined by the provided columns. If the key already exists in the column family, it will
+   * be overwritten.
+   *
+   * @param key The key for which the database entry is to be set.
+   * @param columns A {@link java.util.List} of {@link WideColumn} objects representing the
+   *     wide-column entity to be set for the key.
+   *                Each {@link WideColumn} represents a column containing byte array values.
+   *                Upon execution, the wide-column entity defined by these columns will be
+   * associated with the key in the database.
+   * @throws RocksDBException Thrown if an error occurs while setting the database entry in the
+   *     underlying native library.
+   */
+  public void putEntity(final byte[] key, final List<WideColumn<byte[]>> columns)
+      throws RocksDBException {
     putEntity(null, key, 0, key.length, columns);
   }
 
+  /**
+   * Sets the database entry for the specified key within the given column family to the wide-column
+   * entity defined by the provided columns. If the key already exists in the column family, it will
+   * be overwritten.
+   *
+   * @param columnFamily The {@link org.rocksdb.ColumnFamilyHandle} instance representing the column
+   *     family.
+   * @param key The key for which the database entry is to be set.
+   * @param columns A {@link java.util.List} of {@link WideColumn} objects representing the
+   *     wide-column entity to be set for the key.
+   *                Each {@link WideColumn} represents a column containing byte array values.
+   *                Upon execution, the wide-column entity defined by these columns will be
+   * associated with the key in the database.
+   * @throws RocksDBException Thrown if an error occurs while setting the database entry in the
+   *     underlying native library.
+   */
   public void putEntity(final ColumnFamilyHandle columnFamily, final byte[] key,
-      final List<WideColumn<byte[]>> columns) {
+      final List<WideColumn<byte[]>> columns) throws RocksDBException {
     putEntity(columnFamily, key, 0, key.length, columns);
   }
 
+  /**
+   * Sets the database entry for the specified key within the given column family to the wide-column
+   * entity defined by the provided columns. If the key already exists in the column family, it will
+   * be overwritten.
+   *
+   * @param columnFamily The {@link org.rocksdb.ColumnFamilyHandle} instance representing the column
+   *     family.
+   * @param key The key for which the database entry is to be set.
+   * @param keyOffset The offset within the {@code key} array indicating the start of the key to be
+   *     used.
+   *                  Must be non-negative and no larger than the length of the {@code key} array.
+   * @param keyLength The length of the key to be used, starting from the {@code keyOffset}.
+   *                  Must be non-negative and no larger than the remaining length of the {@code
+   * key} array after {@code keyOffset}.
+   * @param columns A {@link java.util.List} of {@link WideColumn} objects representing the
+   *     wide-column entity to be set for the key.
+   *                Each {@link WideColumn} represents a column containing byte array values.
+   *                Upon execution, the wide-column entity defined by these columns will be
+   * associated with the key in the database.
+   * @throws RocksDBException Thrown if an error occurs while setting the database entry in the
+   *     underlying native library.
+   */
   public void putEntity(final ColumnFamilyHandle columnFamily, final byte[] key, int keyOffset,
-      int keyLength, final List<WideColumn<byte[]>> columns) {
+      int keyLength, final List<WideColumn<byte[]>> columns) throws RocksDBException {
     byte[][] name = new byte[columns.size()][];
     byte[][] value = new byte[columns.size()][];
 
@@ -896,10 +949,52 @@ public class RocksDB extends RocksObject {
       value[i] = columns.get(i).getValue();
     }
     putEntity(nativeHandle_, key, keyOffset, keyLength, name, value,
-        columnFamily == null ? 0
-                             : columnFamily.nativeHandle_); // TODO Is it ok to pass 0(ZERO) value ?
+        columnFamily == null ? 0 : columnFamily.nativeHandle_);
   }
-  public void putEntity(final ByteBuffer key, final List<WideColumn<ByteBuffer>> columns) {
+
+  /**
+   * Sets the database entry for the specified key within the given column family to the wide-column
+   * entity defined by the provided columns. If the key already exists in the column family, it will
+   * be overwritten.
+   *
+   * <p><strong>Note:</strong> All {@link java.nio.ByteBuffer} instances within the provided {@code
+   * columns} list must be direct.</p>
+   *
+   * @param key The key for which the database entry is to be set.
+   * @param columns A {@link java.util.List} of {@link WideColumn} objects representing the
+   *     wide-column entity to be set for the key.
+   *                Each {@link WideColumn} represents a column containing byte buffer values.
+   *                Upon execution, the wide-column entity defined by these columns will be
+   * associated with the key in the database.
+   * @throws RocksDBException Thrown if an error occurs while setting the database entry in the
+   *     underlying native library.
+   */
+  public void putEntity(final ByteBuffer key, final List<WideColumn<ByteBuffer>> columns)
+      throws RocksDBException {
+    putEntity(null, key, columns);
+  }
+
+  /**
+   * Sets the database entry for the specified key within the given column family to the wide-column
+   * entity defined by the provided columns. If the key already exists in the column family, it will
+   * be overwritten.
+   *
+   * <p><strong>Note:</strong> All {@link java.nio.ByteBuffer} instances within the provided {@code
+   * columns} list must be direct.</p>
+   *
+   * @param columnFamily The {@link org.rocksdb.ColumnFamilyHandle} instance representing the column
+   *     family.
+   * @param key The key for which the database entry is to be set.
+   * @param columns A {@link java.util.List} of {@link WideColumn} objects representing the
+   *     wide-column entity to be set for the key.
+   *                Each {@link WideColumn} represents a column containing byte buffer values.
+   *                Upon execution, the wide-column entity defined by these columns will be
+   * associated with the key in the database.
+   * @throws RocksDBException Thrown if an error occurs while setting the database entry in the
+   *     underlying native library.
+   */
+  public void putEntity(final ColumnFamilyHandle columnFamily, final ByteBuffer key,
+      final List<WideColumn<ByteBuffer>> columns) throws RocksDBException {
     ByteBuffer[] names = new ByteBuffer[columns.size()];
     int[] namesOffset = new int[columns.size()];
     int[] namesLength = new int[columns.size()];
@@ -909,7 +1004,7 @@ public class RocksDB extends RocksObject {
     int[] valuesLength = new int[columns.size()];
 
     for (int i = 0; i < names.length; i++) {
-      WideColumn<ByteBuffer> column = columns.get(i); // TODO slow for LinkedList
+      WideColumn<ByteBuffer> column = columns.get(i);
       names[i] = column.getName();
       namesOffset[i] = column.getName().position();
       namesLength[i] = column.getName().remaining();
@@ -920,7 +1015,8 @@ public class RocksDB extends RocksObject {
     }
 
     putEntityDirect(nativeHandle_, key, key.position(), key.remaining(), names, namesOffset,
-        namesLength, values, valuesOffset, valuesLength, 0);
+        namesLength, values, valuesOffset, valuesLength,
+        columnFamily == null ? 0 : columnFamily.nativeHandle_);
   }
 
   private static class GetEntityResult {
@@ -929,13 +1025,61 @@ public class RocksDB extends RocksObject {
     public byte[][] values;
   }
 
-  public Status getEntity(
-      final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> columns) {
+  /**
+   * Retrieves the values associated with the specified key within the given column family.
+   * If the column family contains an entry for the key, returns it as a wide-column entity.
+   * If the entry is a wide-column entity, it's returned as-is; if it's a plain key-value, it's
+   * returned as an entity with a single anonymous column.
+   *
+   * <p><strong>Note:</strong> The provided {@code columns} list must be preallocated, and all
+   * {@link java.nio.ByteBuffer} instances within it must be direct.</p>
+   *
+   * @param key The key whose associated values are to be retrieved.
+   * @param columns A {@link java.util.List} of {@link WideColumn.ByteBufferWideColumn} objects to
+   *     receive the retrieved values.
+   *                Each {@link WideColumn.ByteBufferWideColumn} represents a column containing byte
+   * buffer values. Upon successful execution, this list will be populated with the values
+   * associated with the key. The order of values in the list corresponds to the order of columns in
+   * the database.
+   * @return The status of the operation.
+   *         Returns OK if the operation was successful.
+   *         Returns NOT_FOUND if the key does not exist in the database.
+   *         Other status codes may be returned in case of errors or exceptional conditions.
+   * @throws RocksDBException Thrown if an error occurs while executing the operation in the
+   *     underlying native library.
+   */
+  public Status getEntity(final ByteBuffer key, final List<WideColumn.ByteBufferWideColumn> columns)
+      throws RocksDBException {
     return getEntity(null, key, columns);
   }
 
+  /**
+   * Retrieves the values associated with the specified key within the given column family.
+   * If the column family contains an entry for the key, returns it as a wide-column entity.
+   * If the entry is a wide-column entity, it's returned as-is; if it's a plain key-value, it's
+   * returned as an entity with a single anonymous column.
+   *
+   * <p><strong>Note:</strong> The provided {@code columns} list must be preallocated, and all
+   * {@link java.nio.ByteBuffer} instances within it must be direct.</p>
+   *
+   * @param columnFamily The {@link org.rocksdb.ColumnFamilyHandle} instance representing the column
+   *     family.
+   * @param key The key whose associated values are to be retrieved.
+   * @param columns A {@link java.util.List} of {@link WideColumn.ByteBufferWideColumn} objects to
+   *     receive the retrieved values.
+   *                Each {@link WideColumn.ByteBufferWideColumn} represents a column containing byte
+   * buffer values. Upon successful execution, this list will be populated with the values
+   * associated with the key. The order of values in the list corresponds to the order of columns in
+   * the database.
+   * @return The status of the operation.
+   *         Returns OK if the operation was successful.
+   *         Returns NOT_FOUND if the key does not exist in the database.
+   *         Other status codes may be returned in case of errors or exceptional conditions.
+   * @throws RocksDBException Thrown if an error occurs while executing the operation in the
+   *     underlying native library.
+   */
   public Status getEntity(final ColumnFamilyHandle columnFamily, final ByteBuffer key,
-      final List<WideColumn.ByteBufferWideColumn> columns) {
+      final List<WideColumn.ByteBufferWideColumn> columns) throws RocksDBException {
     ByteBuffer[] names = new ByteBuffer[columns.size()];
     ByteBuffer[] values = new ByteBuffer[columns.size()];
     int[] namesRequiredSize = new int[columns.size()];
@@ -1003,7 +1147,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException Thrown if an error occurs while executing the operation in the
    *     underlying native library.
    */
-  public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values) throws RocksDBException {
+  public Status getEntity(final byte[] key, final List<WideColumn<byte[]>> values)
+      throws RocksDBException {
     return getEntity(null, key, 0, key.length, values);
   }
 
@@ -5091,10 +5236,12 @@ public class RocksDB extends RocksObject {
   private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyOffset, final int keyLength) throws RocksDBException;
   private static native void putEntity(final long handle, final byte[] key, int keyOffset,
-      int keyLength, final byte[][] name, final byte[][] value, final long cfHandle);
+      int keyLength, final byte[][] name, final byte[][] value, final long cfHandle)
+      throws RocksDBException;
   private static native void putEntityDirect(final long handle, final ByteBuffer key, int keyOffset,
       int keyLength, final ByteBuffer[] name, int[] nameOffset, int[] nameLength,
-      final ByteBuffer[] value, int[] valueOffset, int[] valueLenght, final long cfHandle);
+      final ByteBuffer[] value, int[] valueOffset, int[] valueLenght, final long cfHandle)
+      throws RocksDBException;
   private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
   private static native void singleDelete(final long handle, final byte[] key, final int keyLen)
@@ -5183,7 +5330,7 @@ public class RocksDB extends RocksObject {
   private native Status getEntityDirect(long nativeHandle, ByteBuffer key, int keyPosition,
       int keyLength, ByteBuffer[] names, int[] namesOffset, int[] namesLength,
       int[] namesRequiredSize, ByteBuffer[] values, int[] valuesOffset, int[] valuesLength,
-      int[] valuesRequiredSize, long jcfhandle);
+      int[] valuesRequiredSize, long jcfhandle) throws RocksDBException;
 
   private static native boolean keyExistsDirect(final long handle, final long cfHandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
