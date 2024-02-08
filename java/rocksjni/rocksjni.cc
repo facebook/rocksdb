@@ -792,14 +792,14 @@ void Java_org_rocksdb_RocksDB_putEntity(JNIEnv* env, jclass, jlong jdb_handle,
                                         jname_len);
     names_vec.push_back(std::move(name));
 
-    auto jvalue =
+    auto j_value =
         static_cast<jbyteArray>(env->GetObjectArrayElement(jvalues, i));
     if (env->ExceptionCheck()) {
       return;
     }
-    auto jvalue_len = env->GetArrayLength(jvalue);
+    auto jvalue_len = env->GetArrayLength(j_value);
     auto value = std::make_unique<jbyte[]>(jvalue_len);
-    env->GetByteArrayRegion(jvalue, 0, jvalue_len, value.get());
+    env->GetByteArrayRegion(j_value, 0, jvalue_len, value.get());
     if (env->ExceptionCheck()) {
       return;
     }
@@ -895,11 +895,11 @@ void Java_org_rocksdb_RocksDB_putEntityDirect(
     auto name = reinterpret_cast<char*>(_name) + namesOffset[i];
     ROCKSDB_NAMESPACE::Slice nameSlice(name, namesLength[i]);
 
-    auto jvalue = env->GetObjectArrayElement(jvalues, i);
+    auto j_value = env->GetObjectArrayElement(jvalues, i);
     if (env->ExceptionCheck()) {
       return;
     }
-    auto _value = env->GetDirectBufferAddress(jvalue);
+    auto _value = env->GetDirectBufferAddress(j_value);
     if (_value == nullptr) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
           env,
@@ -1007,11 +1007,11 @@ jobject Java_org_rocksdb_RocksDB_getEntityDirect(
       auto max_data_len = std::min(namesRequiredSize[i], (namesLen[i]));
       std::memcpy(name, column.name().data(), max_data_len);
 
-      auto jvalue = env->GetObjectArrayElement(jvalues, i);
+      auto j_value = env->GetObjectArrayElement(jvalues, i);
       if (env->ExceptionCheck()) {
         return nullptr;
       }
-      auto _value = env->GetDirectBufferAddress(jvalue);
+      auto _value = env->GetDirectBufferAddress(j_value);
       if (_value == nullptr) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env,
@@ -1115,17 +1115,17 @@ void Java_org_rocksdb_RocksDB_getEntity(JNIEnv* env, jclass, jlong jdb_handle,
           reinterpret_cast<const jbyte*>(column.name().data()));
       env->SetObjectArrayElement(jnames, i, jname);
 
-      auto jvalue =
+      auto j_value =
           env->NewByteArray(static_cast<jsize>(column.value().size()));
-      if (jvalue == nullptr) {
+      if (j_value == nullptr) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env, "Unable to allocate byte array for column name");
         return;
       }
       env->SetByteArrayRegion(
-          jvalue, 0, static_cast<jsize>(column.value().size()),
+          j_value, 0, static_cast<jsize>(column.value().size()),
           reinterpret_cast<const jbyte*>(column.value().data()));
-      env->SetObjectArrayElement(jvalues, i, jvalue);
+      env->SetObjectArrayElement(jvalues, i, j_value);
     }
     env->SetObjectField(jresult, namesFieldId, jnames);
     env->SetObjectField(jresult, valuesFieldId, jvalues);
