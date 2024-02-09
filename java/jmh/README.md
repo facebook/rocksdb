@@ -6,10 +6,10 @@ These are micro-benchmarks for RocksJava functionality, using [JMH (Java Microbe
 
 **Note**: This uses a specific build of RocksDB that is set in the `<version>` element of the `dependencies` section of the `pom.xml` file. If you are testing local changes you should build and install a SNAPSHOT version of rocksdbjni, and update the `pom.xml` of rocksdbjni-jmh file to test with this.
 
-For instance, this is how to install the OSX jar you just built for 6.26.0
+For instance, this is how to install the OSX jar you just built for 8.11.0
 
 ```bash
-$ mvn install:install-file -Dfile=./java/target/rocksdbjni-6.26.0-SNAPSHOT-osx.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=6.26.0-SNAPSHOT -Dpackaging=jar
+$ mvn install:install-file -Dfile=./java/target/rocksdbjni-8.11.0-SNAPSHOT-osx.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=8.11.0-SNAPSHOT -Dpackaging=jar
 ```
 
 ```bash

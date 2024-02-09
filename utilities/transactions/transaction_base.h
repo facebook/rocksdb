@@ -84,6 +84,13 @@ class TransactionBaseImpl : public Transaction {
                         exclusive, do_validate);
   }
 
+  Status GetForUpdate(const ReadOptions& options, const Slice& key,
+                      PinnableSlice* pinnable_val, bool exclusive,
+                      const bool do_validate) override {
+    return GetForUpdate(options, db_->DefaultColumnFamily(), key, pinnable_val,
+                        exclusive, do_validate);
+  }
+
   using Transaction::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& _read_options,
