@@ -1678,7 +1678,7 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
  * Signature: (J[[B[I[I)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jobjectArray jkeys,
+    JNIEnv* env, jclass, jlong jdb_handle, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens) {
   ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
   if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) {
@@ -1702,7 +1702,7 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I(
  * Signature: (J[[B[I[I[J)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I_3J(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jobjectArray jkeys,
+    JNIEnv* env, jclass, jlong jdb_handle, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens,
     jlongArray jcolumn_family_handles) {
   ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
@@ -1730,7 +1730,7 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I_3J(
  * Signature: (JJ[[B[I[I)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jlong jropt_handle,
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle,
     jobjectArray jkeys, jintArray jkey_offs, jintArray jkey_lens) {
   ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
   if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) {
@@ -1754,7 +1754,7 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I(
  * Signature: (JJ[[B[I[I[J)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I_3J(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jlong jropt_handle,
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle,
     jobjectArray jkeys, jintArray jkey_offs, jintArray jkey_lens,
     jlongArray jcolumn_family_handles) {
   ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
