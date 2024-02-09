@@ -1556,30 +1556,6 @@ jlong Java_org_rocksdb_Options_dbWriteBufferSize(JNIEnv*, jclass,
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setAccessHintOnCompactionStart
- * Signature: (JB)V
- */
-void Java_org_rocksdb_Options_setAccessHintOnCompactionStart(
-    JNIEnv*, jclass, jlong jhandle, jbyte jaccess_hint_value) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->access_hint_on_compaction_start =
-      ROCKSDB_NAMESPACE::AccessHintJni::toCppAccessHint(jaccess_hint_value);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    accessHintOnCompactionStart
- * Signature: (J)B
- */
-jbyte Java_org_rocksdb_Options_accessHintOnCompactionStart(JNIEnv*, jclass,
-                                                           jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  return ROCKSDB_NAMESPACE::AccessHintJni::toJavaAccessHint(
-      opt->access_hint_on_compaction_start);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setCompactionReadaheadSize
  * Signature: (JJ)V
  */
@@ -7082,30 +7058,6 @@ jlong Java_org_rocksdb_DBOptions_dbWriteBufferSize(JNIEnv*, jclass,
                                                    jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jlong>(opt->db_write_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setAccessHintOnCompactionStart
- * Signature: (JB)V
- */
-void Java_org_rocksdb_DBOptions_setAccessHintOnCompactionStart(
-    JNIEnv*, jclass, jlong jhandle, jbyte jaccess_hint_value) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->access_hint_on_compaction_start =
-      ROCKSDB_NAMESPACE::AccessHintJni::toCppAccessHint(jaccess_hint_value);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    accessHintOnCompactionStart
- * Signature: (J)B
- */
-jbyte Java_org_rocksdb_DBOptions_accessHintOnCompactionStart(JNIEnv*, jclass,
-                                                             jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  return ROCKSDB_NAMESPACE::AccessHintJni::toJavaAccessHint(
-      opt->access_hint_on_compaction_start);
 }
 
 /*

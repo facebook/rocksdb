@@ -2876,6 +2876,8 @@ void GetCommand::DoCommand() {
   if (st.ok()) {
     fprintf(stdout, "%s\n",
             (is_value_hex_ ? StringToHex(value) : value).c_str());
+  } else if (st.IsNotFound()) {
+    fprintf(stdout, "Key not found\n");
   } else {
     std::stringstream oss;
     oss << "Get failed: " << st.ToString();
@@ -2906,7 +2908,6 @@ void MultiGetCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(MultiGetCommand::Name());
   ret.append(" <key_1> <key_2> <key_3> ...");
-  ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
 
@@ -2928,8 +2929,12 @@ void MultiGetCommand::DoCommand() {
   bool failed = false;
   for (size_t i = 0; i < num_keys; ++i) {
     if (statuses[i].ok()) {
-      fprintf(stdout, is_value_hex_ ? "0x%s\n" : "%s\n",
+      fprintf(stdout, is_value_hex_ ? "%s%s0x%s\n" : "%s%s%s\n",
+              (is_key_hex_ ? StringToHex(keys_[i]) : keys_[i]).c_str(), DELIM,
               values[i].ToString(is_value_hex_).c_str());
+    } else if (statuses[i].IsNotFound()) {
+      fprintf(stdout, "Key not found: %s\n",
+              (is_key_hex_ ? StringToHex(keys_[i]) : keys_[i]).c_str());
     } else {
       fprintf(stderr, "Status for key %s: %s\n",
               (is_key_hex_ ? StringToHex(keys_[i]) : keys_[i]).c_str(),

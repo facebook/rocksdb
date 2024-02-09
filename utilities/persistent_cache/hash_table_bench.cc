@@ -163,15 +163,15 @@ class HashTableBenchmark {
   //  Wrapper functions for thread entry
   //
   static void WriteMain(void* args) {
-    reinterpret_cast<HashTableBenchmark*>(args)->RunWrite();
+    static_cast<HashTableBenchmark*>(args)->RunWrite();
   }
 
   static void ReadMain(void* args) {
-    reinterpret_cast<HashTableBenchmark*>(args)->RunRead();
+    static_cast<HashTableBenchmark*>(args)->RunRead();
   }
 
   static void EraseMain(void* args) {
-    reinterpret_cast<HashTableBenchmark*>(args)->RunErase();
+    static_cast<HashTableBenchmark*>(args)->RunErase();
   }
 
   HashTableImpl<size_t, std::string>* impl_;         // Implementation to test

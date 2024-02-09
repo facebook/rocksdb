@@ -17,7 +17,7 @@ struct CustomDeleter {
 
   void operator()(char* ptr) const {
     if (allocator) {
-      allocator->Deallocate(reinterpret_cast<void*>(ptr));
+      allocator->Deallocate(ptr);
     } else {
       delete[] ptr;
     }

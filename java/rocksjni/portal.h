@@ -4730,48 +4730,6 @@ class CompactionPriorityJni {
   }
 };
 
-// The portal class for org.rocksdb.AccessHint
-class AccessHintJni {
- public:
-  // Returns the equivalent org.rocksdb.AccessHint for the provided
-  // C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
-  static jbyte toJavaAccessHint(
-      const ROCKSDB_NAMESPACE::DBOptions::AccessHint& access_hint) {
-    switch (access_hint) {
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE:
-        return 0x0;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL:
-        return 0x1;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL:
-        return 0x2;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED:
-        return 0x3;
-      default:
-        // undefined/default
-        return 0x1;
-    }
-  }
-
-  // Returns the equivalent C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
-  // for the provided Java org.rocksdb.AccessHint
-  static ROCKSDB_NAMESPACE::DBOptions::AccessHint toCppAccessHint(
-      jbyte jaccess_hint) {
-    switch (jaccess_hint) {
-      case 0x0:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE;
-      case 0x1:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
-      case 0x2:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL;
-      case 0x3:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED;
-      default:
-        // undefined/default
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
-    }
-  }
-};
-
 // The portal class for org.rocksdb.WALRecoveryMode
 class WALRecoveryModeJni {
  public:

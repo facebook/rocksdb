@@ -36,7 +36,7 @@ class SeqnoTimeTest : public DBTestBase {
         "DBImpl::StartPeriodicTaskScheduler:Init",
         [mock_clock = mock_clock_](void* arg) {
           auto periodic_task_scheduler_ptr =
-              reinterpret_cast<PeriodicTaskScheduler*>(arg);
+              static_cast<PeriodicTaskScheduler*>(arg);
           periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock.get());
         });
     mock_clock_->SetCurrentTime(kMockStartTime);

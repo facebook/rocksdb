@@ -2451,7 +2451,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
         "DBImpl::DeleteObsoleteFileImpl::BeforeDeletion"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "PosixWritableFile::Close",
-      [](void* arg) { *(reinterpret_cast<size_t*>(arg)) = 0; });
+      [](void* arg) { *(static_cast<size_t*>(arg)) = 0; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   // Preallocate space for the empty log file. This could happen if WAL data
   // was buffered in memory and the process crashed.
@@ -2495,7 +2495,7 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
   SyncPoint::GetInstance()->SetCallBack(
       "PosixWritableFile::Close", [&](void* arg) {
         if (!enable_truncate) {
-          *(reinterpret_cast<size_t*>(arg)) = 0;
+          *(static_cast<size_t*>(arg)) = 0;
         }
       });
   SyncPoint::GetInstance()->EnableProcessing();

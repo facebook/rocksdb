@@ -92,7 +92,7 @@ int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
 
 void PoolSizeChangeThread(void* v) {
   assert(FLAGS_compaction_thread_pool_adjust_interval > 0);
-  ThreadState* thread = reinterpret_cast<ThreadState*>(v);
+  ThreadState* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
   while (true) {
@@ -127,7 +127,7 @@ void PoolSizeChangeThread(void* v) {
 
 void DbVerificationThread(void* v) {
   assert(FLAGS_continuous_verification_interval > 0);
-  auto* thread = reinterpret_cast<ThreadState*>(v);
+  auto* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
   StressTest* stress_test = shared->GetStressTest();
   assert(stress_test != nullptr);
@@ -154,7 +154,7 @@ void DbVerificationThread(void* v) {
 void CompressedCacheSetCapacityThread(void* v) {
   assert(FLAGS_compressed_secondary_cache_size > 0 ||
          FLAGS_compressed_secondary_cache_ratio > 0.0);
-  auto* thread = reinterpret_cast<ThreadState*>(v);
+  auto* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
   while (true) {
     {

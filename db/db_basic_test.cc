@@ -3342,8 +3342,7 @@ TEST_F(DBBasicTest, BestEffortsRecoveryWithVersionBuildingFailure) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
-        *(reinterpret_cast<Status*>(arg)) =
-            Status::Corruption("Inject corruption");
+        *(static_cast<Status*>(arg)) = Status::Corruption("Inject corruption");
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -4644,7 +4643,7 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
-        auto* s = reinterpret_cast<Status*>(arg);
+        auto* s = static_cast<Status*>(arg);
         ASSERT_OK(*s);
         // Manually overwrite return status
         *s = Status::IOError();
@@ -4699,7 +4698,7 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "rocksdb::CreateLoggerFromOptions:AfterGetPath", [&](void* arg) {
-        auto* s = reinterpret_cast<Status*>(arg);
+        auto* s = static_cast<Status*>(arg);
         assert(s);
         *s = Status::IOError("Injected");
       });

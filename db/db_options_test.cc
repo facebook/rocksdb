@@ -1390,7 +1390,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   bool compacted = false;
   SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* c = reinterpret_cast<Compaction*>(arg);
+        Compaction* c = static_cast<Compaction*>(arg);
         compression_used = c->output_compression();
         compression_opt_used = c->output_compression_opts();
         compacted = true;

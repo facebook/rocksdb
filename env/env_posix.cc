@@ -465,7 +465,7 @@ struct StartThreadState {
 };
 
 static void* StartThreadWrapper(void* arg) {
-  StartThreadState* state = reinterpret_cast<StartThreadState*>(arg);
+  StartThreadState* state = static_cast<StartThreadState*>(arg);
   state->user_function(state->arg);
   delete state;
   return nullptr;

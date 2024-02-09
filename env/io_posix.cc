@@ -968,7 +968,7 @@ IOStatus PosixMmapReadableFile::Read(uint64_t offset, size_t n,
   } else if (offset + n > length_) {
     n = static_cast<size_t>(length_ - offset);
   }
-  *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
+  *result = Slice(static_cast<char*>(mmapped_region_) + offset, n);
   return s;
 }
 
@@ -1067,7 +1067,7 @@ IOStatus PosixMmapFile::MapNewRegion() {
   }
   TEST_KILL_RANDOM("PosixMmapFile::Append:2");
 
-  base_ = reinterpret_cast<char*>(ptr);
+  base_ = static_cast<char*>(ptr);
   limit_ = base_ + map_size_;
   dst_ = base_;
   last_sync_ = base_;

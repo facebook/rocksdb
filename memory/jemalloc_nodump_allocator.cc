@@ -221,7 +221,7 @@ int JemallocNodumpAllocator::GetThreadSpecificCache(size_t size) {
                                      size > options_.tcache_size_upper_bound)) {
     return MALLOCX_TCACHE_NONE;
   }
-  unsigned* tcache_index = reinterpret_cast<unsigned*>(tcache_.Get());
+  unsigned* tcache_index = static_cast<unsigned*>(tcache_.Get());
   if (UNLIKELY(tcache_index == nullptr)) {
     // Instantiate tcache.
     tcache_index = new unsigned(0);

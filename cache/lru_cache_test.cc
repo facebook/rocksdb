@@ -47,7 +47,7 @@ class LRUCacheTest : public testing::Test {
                 double low_pri_pool_ratio = 1.0,
                 bool use_adaptive_mutex = kDefaultToAdaptiveMutex) {
     DeleteCache();
-    cache_ = reinterpret_cast<LRUCacheShard*>(
+    cache_ = static_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
     new (cache_) LRUCacheShard(capacity, /*strict_capacity_limit=*/false,
                                high_pri_pool_ratio, low_pri_pool_ratio,
@@ -392,8 +392,7 @@ class ClockCacheTest : public testing::Test {
   void NewShard(size_t capacity, bool strict_capacity_limit = true,
                 int eviction_effort_cap = 30) {
     DeleteShard();
-    shard_ =
-        reinterpret_cast<Shard*>(port::cacheline_aligned_alloc(sizeof(Shard)));
+    shard_ = static_cast<Shard*>(port::cacheline_aligned_alloc(sizeof(Shard)));
 
     TableOpts opts{1 /*value_size*/, eviction_effort_cap};
     new (shard_)

@@ -239,13 +239,11 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
   std::atomic<CpuPriority> from_priority(CpuPriority::kNormal);
   std::atomic<CpuPriority> to_priority(CpuPriority::kNormal);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "ThreadPoolImpl::BGThread::BeforeSetCpuPriority", [&](void* pri) {
-        from_priority.store(*reinterpret_cast<CpuPriority*>(pri));
-      });
+      "ThreadPoolImpl::BGThread::BeforeSetCpuPriority",
+      [&](void* pri) { from_priority.store(*static_cast<CpuPriority*>(pri)); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "ThreadPoolImpl::BGThread::AfterSetCpuPriority", [&](void* pri) {
-        to_priority.store(*reinterpret_cast<CpuPriority*>(pri));
-      });
+      "ThreadPoolImpl::BGThread::AfterSetCpuPriority",
+      [&](void* pri) { to_priority.store(*static_cast<CpuPriority*>(pri)); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   env_->SetBackgroundThreads(1, Env::BOTTOM);
@@ -447,7 +445,7 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
     CB(std::atomic<int>* p, int i) : last_id_ptr(p), id(i) {}
 
     static void Run(void* v) {
-      CB* cb = reinterpret_cast<CB*>(v);
+      CB* cb = static_cast<CB*>(v);
       int cur = cb->last_id_ptr->load();
       ASSERT_EQ(cb->id - 1, cur);
       cb->last_id_ptr->store(cb->id);
@@ -484,7 +482,7 @@ struct State {
 };
 
 static void ThreadBody(void* arg) {
-  State* s = reinterpret_cast<State*>(arg);
+  State* s = static_cast<State*>(arg);
   s->mu.Lock();
   s->val += 1;
   s->num_running -= 1;
@@ -531,7 +529,7 @@ TEST_P(EnvPosixTestWithParam, TwoPools) {
           should_start_(_should_start) {}
 
     static void Run(void* v) {
-      CB* cb = reinterpret_cast<CB*>(v);
+      CB* cb = static_cast<CB*>(v);
       cb->Run();
     }
 

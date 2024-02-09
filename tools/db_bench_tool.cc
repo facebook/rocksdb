@@ -1592,11 +1592,6 @@ DEFINE_bool(advise_random_on_open,
             ROCKSDB_NAMESPACE::Options().advise_random_on_open,
             "Advise random access on table file open");
 
-DEFINE_string(compaction_fadvice, "NORMAL",
-              "Access pattern advice when a file is compacted");
-static auto FLAGS_compaction_fadvice_e =
-    ROCKSDB_NAMESPACE::Options().access_hint_on_compaction_start;
-
 DEFINE_bool(use_tailing_iterator, false,
             "Use tailing iterator to access a series of keys instead of get");
 
@@ -3913,7 +3908,7 @@ class Benchmark {
   };
 
   static void ThreadBody(void* v) {
-    ThreadArg* arg = reinterpret_cast<ThreadArg*>(v);
+    ThreadArg* arg = static_cast<ThreadArg*>(v);
     SharedState* shared = arg->shared;
     ThreadState* thread = arg->thread;
     {
@@ -4616,7 +4611,6 @@ class Benchmark {
     options.ttl = FLAGS_ttl_seconds;
     // fill storage options
     options.advise_random_on_open = FLAGS_advise_random_on_open;
-    options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
     options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;
     options.bytes_per_sync = FLAGS_bytes_per_sync;
     options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
@@ -7918,7 +7912,7 @@ class Benchmark {
       if (FLAGS_optimistic_transaction_db) {
         success = inserter.OptimisticTransactionDBInsert(db_.opt_txn_db);
       } else if (FLAGS_transaction_db) {
-        TransactionDB* txn_db = reinterpret_cast<TransactionDB*>(db_.db);
+        TransactionDB* txn_db = static_cast<TransactionDB*>(db_.db);
         success = inserter.TransactionDBInsert(txn_db, txn_options);
       } else {
         success = inserter.DBInsert(db_.db);
@@ -8651,20 +8645,6 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
             "settable\n");
-    exit(1);
-  }
-
-  if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE")) {
-    FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NONE;
-  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NORMAL")) {
-    FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NORMAL;
-  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "SEQUENTIAL")) {
-    FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::SEQUENTIAL;
-  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "WILLNEED")) {
-    FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::WILLNEED;
-  } else {
-    fprintf(stdout, "Unknown compaction fadvice:%s\n",
-            FLAGS_compaction_fadvice.c_str());
     exit(1);
   }
 

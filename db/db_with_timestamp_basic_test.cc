@@ -3490,7 +3490,7 @@ TEST_F(UpdateFullHistoryTsLowTest, ConcurrentUpdate) {
   VersionEdit* version_edit;
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
-      [&](void* arg) { version_edit = reinterpret_cast<VersionEdit*>(arg); });
+      [&](void* arg) { version_edit = static_cast<VersionEdit*>(arg); });
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:BeforeWriterWaiting",
       [&](void* /*arg*/) { version_edit->SetFullHistoryTsLow(higher_ts_low); });

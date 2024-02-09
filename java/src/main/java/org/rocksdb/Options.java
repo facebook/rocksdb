@@ -835,21 +835,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  @Deprecated
-  public Options setAccessHintOnCompactionStart(final AccessHint accessHint) {
-    assert(isOwningHandle());
-    setAccessHintOnCompactionStart(nativeHandle_, accessHint.getValue());
-    return this;
-  }
-
-  @Override
-  @Deprecated
-  public AccessHint accessHintOnCompactionStart() {
-    assert(isOwningHandle());
-    return AccessHint.getAccessHint(accessHintOnCompactionStart(nativeHandle_));
-  }
-
-  @Override
   public Options setCompactionReadaheadSize(final long compactionReadaheadSize) {
     assert(isOwningHandle());
     setCompactionReadaheadSize(nativeHandle_, compactionReadaheadSize);
@@ -2268,9 +2253,6 @@ public class Options extends RocksObject
   private static native void setWriteBufferManager(
       final long handle, final long writeBufferManagerHandle);
   private static native long dbWriteBufferSize(final long handle);
-  private static native void setAccessHintOnCompactionStart(
-      final long handle, final byte accessHintOnCompactionStart);
-  private static native byte accessHintOnCompactionStart(final long handle);
   private static native void setCompactionReadaheadSize(
       final long handle, final long compactionReadaheadSize);
   private static native long compactionReadaheadSize(final long handle);

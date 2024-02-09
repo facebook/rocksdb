@@ -1761,7 +1761,7 @@ TEST_F(BackupEngineTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
       "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
       [&](void* data) {
         if (data != nullptr) {
-          Slice* d = reinterpret_cast<Slice*>(data);
+          Slice* d = static_cast<Slice*>(data);
           if (!d->empty()) {
             d->remove_suffix(1);
             corrupted = true;
@@ -1803,7 +1803,7 @@ TEST_F(BackupEngineTest, TableFileWithDbChecksumCorruptedDuringBackup) {
         "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
         [&](void* data) {
           if (data != nullptr) {
-            Slice* d = reinterpret_cast<Slice*>(data);
+            Slice* d = static_cast<Slice*>(data);
             if (!d->empty()) {
               d->remove_suffix(1);
             }
@@ -3999,7 +3999,7 @@ TEST_F(BackupEngineTest, BackgroundThreadCpuPriority) {
   std::atomic<CpuPriority> priority(CpuPriority::kNormal);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackupEngineImpl::Initialize:SetCpuPriority", [&](void* new_priority) {
-        priority.store(*reinterpret_cast<CpuPriority*>(new_priority));
+        priority.store(*static_cast<CpuPriority*>(new_priority));
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 

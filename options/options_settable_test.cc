@@ -344,7 +344,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "enable_write_thread_adaptive_yield=true;"
                              "write_thread_slow_yield_usec=5;"
                              "write_thread_max_yield_usec=1000;"
-                             "access_hint_on_compaction_start=NONE;"
                              "info_log_level=DEBUG_LEVEL;"
                              "dump_malloc_stats=false;"
                              "allow_2pc=false;"

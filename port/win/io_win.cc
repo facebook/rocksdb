@@ -230,7 +230,7 @@ IOStatus WinMmapReadableFile::Read(uint64_t offset, size_t n,
   } else if (offset + n > length_) {
     n = length_ - static_cast<size_t>(offset);
   }
-  *result = Slice(reinterpret_cast<const char*>(mapped_region_) + offset, n);
+  *result = Slice(static_cast<const char*>(mapped_region_) + offset, n);
   return s;
 }
 
@@ -327,9 +327,9 @@ IOStatus WinMmapFile::MapNewRegion(const IOOptions& options,
   offset.QuadPart = file_offset_;
 
   // View must begin at the granularity aligned offset
-  mapped_begin_ = reinterpret_cast<char*>(
-      MapViewOfFileEx(hMap_, FILE_MAP_WRITE, offset.HighPart, offset.LowPart,
-                      view_size_, NULL));
+  mapped_begin_ =
+      static_cast<char*>(MapViewOfFileEx(hMap_, FILE_MAP_WRITE, offset.HighPart,
+                                         offset.LowPart, view_size_, NULL));
 
   if (!mapped_begin_) {
     status = IOErrorFromWindowsError(

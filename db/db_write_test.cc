@@ -286,7 +286,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
         ready_count++;
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           leader_count++;
           while (ready_count < kNumThreads) {
@@ -384,7 +384,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
           second_write_in_progress = true;
           return;
         }
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           active_writers++;
           if (leader.load() == nullptr) {
@@ -404,7 +404,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:Start", [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader && !finished_WAL_write) {
           finished_WAL_write = true;
           while (active_writers.load() < 3) {
@@ -416,7 +416,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
       [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader) {
           while (!second_write_in_progress.load()) {
             // wait for the old follower thread to start the next write

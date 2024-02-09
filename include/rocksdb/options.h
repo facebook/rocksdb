@@ -954,15 +954,6 @@ struct DBOptions {
   // Default: null
   std::shared_ptr<WriteBufferManager> write_buffer_manager = nullptr;
 
-  // DEPRECATED
-  // This flag has no effect on the behavior of compaction and we plan to delete
-  // it in the future.
-  // Specify the file access pattern once a compaction is started.
-  // It will be applied to all input files of a compaction.
-  // Default: NORMAL
-  enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
-  AccessHint access_hint_on_compaction_start = NORMAL;
-
   // If non-zero, we perform bigger reads when doing compaction. If you're
   // running RocksDB on spinning disks, you should set this to at least 2MB.
   // That way RocksDB's compaction is doing sequential instead of random reads.
@@ -1268,10 +1259,11 @@ struct DBOptions {
   // file.
   bool manual_wal_flush = false;
 
-  // This feature is WORK IN PROGRESS
-  // If enabled WAL records will be compressed before they are written.
-  // Only zstd is supported. Compressed WAL records will be read in supported
-  // versions regardless of the wal_compression settings.
+  // If enabled WAL records will be compressed before they are written. Only
+  // ZSTD (= kZSTD) is supported (until streaming support is adapted for other
+  // compression types). Compressed WAL records will be read in supported
+  // versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
+  // the WAL is read.
   CompressionType wal_compression = kNoCompression;
 
   // If true, RocksDB supports flushing multiple column families and committing
