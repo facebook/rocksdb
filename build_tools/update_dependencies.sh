@@ -76,7 +76,7 @@ echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
 GCC_BASE=`readlink -f $TP2_LATEST/gcc/11.x/centos7-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/12/platform010/*/`
+CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/15/platform010/*/`
 
 log_header
 log_variable GCC_BASE
