@@ -3572,14 +3572,12 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   using KeyCategorySet = KeySegmentsExtractor::KeyCategorySet;
 
   struct MySegmentExtractor : public KeySegmentsExtractor {
-    const char* const name;
     char min_first_char;
     char max_first_char;
     char delim_char;
-    MySegmentExtractor(const char* _name, char _min_first_char,
-                       char _max_first_char, char _delim_char)
-        : name(_name),
-          min_first_char(_min_first_char),
+    MySegmentExtractor(char _min_first_char, char _max_first_char,
+                       char _delim_char)
+        : min_first_char(_min_first_char),
           max_first_char(_max_first_char),
           delim_char(_delim_char) {}
 
@@ -3611,12 +3609,9 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   };
 
   // Use '_' as delimiter, but different spans for default category
-  auto extractor_to_c =
-      std::make_shared<MySegmentExtractor>("ExC", 'a', 'c', '_');
-  auto extractor_to_z =
-      std::make_shared<MySegmentExtractor>("ExZ", 'a', 'z', '_');
-  auto extractor_alt =
-      std::make_shared<MySegmentExtractor>("ExAlt", '0', '9', '_');
+  auto extractor_to_c = std::make_shared<MySegmentExtractor>('a', 'c', '_');
+  auto extractor_to_z = std::make_shared<MySegmentExtractor>('a', 'z', '_');
+  auto extractor_alt = std::make_shared<MySegmentExtractor>('0', '9', '_');
 
   // Filter on 2nd field, only for default category
   auto filter1_def = MakeSharedBytewiseMinMaxSQFC(
@@ -3701,7 +3696,10 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   MoveFilesToLevel(1);
 
   ASSERT_EQ(factory->GetFilteringVersion(), 42U);
-  factory->SetFilteringVersion(43);
+  ASSERT_NOK(factory->SetFilteringVersion(41));
+  ASSERT_NOK(factory->SetFilteringVersion(44));
+  ASSERT_EQ(factory->GetFilteringVersion(), 42U);
+  ASSERT_OK(factory->SetFilteringVersion(43));
   ASSERT_EQ(factory->GetFilteringVersion(), 43U);
 
   // For higher level file
@@ -3816,7 +3814,7 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Only modifies how filters are written
-  factory->SetFilteringVersion(0);
+  ASSERT_OK(factory->SetFilteringVersion(0));
   ASSERT_EQ(factory->GetFilteringVersion(), 0U);
   ASSERT_EQ(factory->GetConfigs().IsEmptyNotFound(), true);
 

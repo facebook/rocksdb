@@ -1061,7 +1061,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
         const std::string& _configs_name)
         : parent(std::move(_parent)),
           ver_map(parent->GetVerMap(_configs_name)),
-          configs_name(std::move(_configs_name)) {}
+          configs_name(_configs_name) {}
 
     TablePropertiesCollector* CreateTablePropertiesCollector(
         TablePropertiesCollectorFactory::Context /*context*/) override {
