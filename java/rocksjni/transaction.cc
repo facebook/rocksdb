@@ -268,31 +268,6 @@ jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jclass, jlong jhandle,
   }
 }
 
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-// used by txn_multi_get_helper below
-std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> txn_column_families_helper(
-    JNIEnv* env, jlongArray jcolumn_family_handles, bool* has_exception) {
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
-  if (jcolumn_family_handles != nullptr) {
-    const jsize len_cols = env->GetArrayLength(jcolumn_family_handles);
-    if (len_cols > 0) {
-      jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
-      if (jcfh == nullptr) {
-        // exception thrown: OutOfMemoryError
-        *has_exception = JNI_TRUE;
-        return std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>();
-      }
-      for (int i = 0; i < len_cols; i++) {
-        auto* cf_handle =
-            reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcfh[i]);
-        cf_handles.push_back(cf_handle);
-      }
-      env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
-    }
-  }
-  return cf_handles;
-}
-
 typedef std::function<std::vector<ROCKSDB_NAMESPACE::Status>(
     const ROCKSDB_NAMESPACE::ReadOptions&,
     const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>
