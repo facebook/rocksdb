@@ -3279,7 +3279,7 @@ TEST_F(ExternalSSTFileWithTimestampTest, Basic) {
 
     // In UDT mode, any external file that can be successfully ingested also
     // should not overlap with the db. As a result, they can always get the
-    // seq 0 assigned as long as the file does not contain any range deletions.
+    // seq 0 assigned.
     ASSERT_EQ(db_->GetLatestSequenceNumber(), seq_num_before_ingestion);
 
     DestroyAndRecreateExternalSSTFilesDir();
