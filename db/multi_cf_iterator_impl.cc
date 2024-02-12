@@ -39,7 +39,6 @@ void MultiCfIteratorImpl::Next() {
            comparator_->Compare(top.iterator->key(), current->key()) == 0) {
       assert(current->status().ok());
       current->Next();
-
       if (current->Valid()) {
         min_heap_.replace_top(min_heap_.top());
       } else {
@@ -53,7 +52,10 @@ void MultiCfIteratorImpl::Next() {
   }
   top.iterator->Next();
   if (top.iterator->Valid()) {
+    assert(top.iterator->status().ok());
     min_heap_.push(top);
+  } else {
+    considerStatus(top.iterator->status());
   }
 }
 
