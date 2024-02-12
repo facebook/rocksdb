@@ -28,23 +28,32 @@ void MultiCfIteratorImpl::SeekToFirst() {
 
 void MultiCfIteratorImpl::Next() {
   assert(Valid());
-
-  auto* current = min_heap_.top().iterator;
-  std::string current_key_copy =
-      std::string(current->key().data(), current->key().size());
-  while (!min_heap_.empty() &&
-         comparator_->Compare(current->key(), current_key_copy) == 0) {
-    current->Next();
-    if (current->Valid()) {
+  // 1. Keep the top iterator (by popping it from the heap)
+  // 2. Make sure all others have iterated past the top iterator key slice
+  // 3. Advance the top iterator, and add it back to the heap if valid
+  auto top = min_heap_.top();
+  min_heap_.pop();
+  if (!min_heap_.empty()) {
+    auto* current = min_heap_.top().iterator;
+    while (current->Valid() &&
+           comparator_->Compare(top.iterator->key(), current->key()) == 0) {
       assert(current->status().ok());
-      min_heap_.replace_top(min_heap_.top());
-    } else {
-      considerStatus(current->status());
-      min_heap_.pop();
+      current->Next();
+
+      if (current->Valid()) {
+        min_heap_.replace_top(min_heap_.top());
+      } else {
+        considerStatus(current->status());
+        min_heap_.pop();
+      }
+      if (!min_heap_.empty()) {
+        current = min_heap_.top().iterator;
+      }
     }
-    if (!min_heap_.empty()) {
-      current = min_heap_.top().iterator;
-    }
+  }
+  top.iterator->Next();
+  if (top.iterator->Valid()) {
+    min_heap_.push(top);
   }
 }
 
