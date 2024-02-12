@@ -34,15 +34,15 @@ class MultiCfIterator : public Iterator {
 
   virtual const AttributeGroups& attribute_groups() const = 0;
 };
-extern MultiCfIterator* NewMultiColumnFamilyIterator(
+MultiCfIterator* NewMultiColumnFamilyIterator(
     const Comparator* comparator,
     const std::vector<ColumnFamilyHandle*>& column_families,
     const std::vector<Iterator*>& child_iterators);
 
 // Return an empty MultiCfIterator (yields nothing)
-extern MultiCfIterator* NewEmptyMultiColumnFamilyIterator();
+MultiCfIterator* NewEmptyMultiColumnFamilyIterator();
 
 // Return an empty MultiCfIterator with the specified status.
-extern MultiCfIterator* NewErrorMultiColumnFamilyIterator(const Status& status);
+MultiCfIterator* NewErrorMultiColumnFamilyIterator(const Status& status);
 
 }  // namespace ROCKSDB_NAMESPACE

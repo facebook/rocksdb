@@ -45,6 +45,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/multi_cf_iterator_impl.h"
 #include "db/periodic_task_scheduler.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
@@ -3745,10 +3746,11 @@ MultiCfIterator* DBImpl::NewMultiCfIterator(
   std::vector<Iterator*> child_iterators;
   Status s = NewIterators(_read_options, column_families, &child_iterators);
   if (s.ok()) {
-    return NewMultiColumnFamilyIterator(comparator, column_families,
-                                        child_iterators);
+    MultiCfIterator* iterator =
+        new MultiCfIteratorImpl(comparator, column_families, child_iterators);
+    return iterator;
   }
-  return NewErrorMultiColumnFamilyIterator(s);
+  return new EmptyMultiCfIterator(s);
 }
 
 Status DBImpl::NewIterators(

@@ -50,21 +50,4 @@ void MultiCfIteratorImpl::Next() {
 
 const AttributeGroups kNoAttributeGroups;
 
-MultiCfIterator* NewEmptyMultiColumnFamilyIterator() {
-  return new EmptyMultiCfIterator(Status::OK());
-}
-
-MultiCfIterator* NewErrorMultiColumnFamilyIterator(const Status& status) {
-  return new EmptyMultiCfIterator(status);
-}
-
-MultiCfIterator* NewMultiColumnFamilyIterator(
-    const Comparator* comparator,
-    const std::vector<ColumnFamilyHandle*>& column_families,
-    const std::vector<Iterator*>& child_iterators) {
-  MultiCfIterator* iterator =
-      new MultiCfIteratorImpl(comparator, column_families, child_iterators);
-  return iterator;
-}
-
 }  // namespace ROCKSDB_NAMESPACE
