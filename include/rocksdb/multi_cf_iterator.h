@@ -19,9 +19,10 @@ struct ReadOptions;
 
 // UNDER CONSTRUCTION - DO NOT USE
 // A cross-column-family iterator from a consistent database state.
-// When the same key exists in more than one column families, the iterator
+// When the same key is present in multiple column families, the iterator
 // selects the value from the first column family containing the key, in the
-// order provided in the `column_families` parameter.
+// order specified by the `column_families` parameter. For wide column values,
+// the iterator combines the columns into a single wide column value.
 class MultiCfIterator : public Iterator {
  public:
   MultiCfIterator() {}

@@ -959,9 +959,10 @@ class DB {
 
   // DO NOT USE, UNDER CONSTRUCTION
   // Return a cross-column-family iterator from a consistent database state.
-  // When the same key exists in more than one column families, the iterator
+  // When the same key is present in multiple column families, the iterator
   // selects the value from the first column family containing the key, in the
-  // order provided in the `column_families` parameter.
+  // order specified by the `column_families` parameter. For wide column values,
+  // the iterator combines the columns into a single wide column value.
   virtual MultiCfIterator* NewMultiCfIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,

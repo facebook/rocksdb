@@ -353,9 +353,7 @@ class DBImpl : public DB {
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
   // DO NOT USE, UNDER CONSTRUCTION
-  // Returns a cross-column-family iterator from a consistent database state.
-  // When the same key exists in more than one column families, this iterates in
-  // the order that column family is provided in column_families
+  // Return a cross-column-family iterator from a consistent database state.
   MultiCfIterator* NewMultiCfIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
