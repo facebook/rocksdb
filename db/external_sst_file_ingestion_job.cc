@@ -337,9 +337,18 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
   }
   Status status = cfd_->RangesOverlapWithMemtables(
       ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
-  if (status.ok() && *flush_needed &&
-      !ingestion_options_.allow_blocking_flush) {
-    status = Status::InvalidArgument("External file requires flush");
+  if (status.ok() && *flush_needed) {
+    if (!ingestion_options_.allow_blocking_flush) {
+      status = Status::InvalidArgument("External file requires flush");
+    }
+    auto ucmp = cfd_->user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      status = Status::InvalidArgument(
+          "Column family enables user-defined timestamps, please make "
+          "sure the key range (without timestamp) of external file does not "
+          "overlap with key range in the memtables.");
+    }
   }
   return status;
 }
