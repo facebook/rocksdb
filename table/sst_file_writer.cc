@@ -82,20 +82,22 @@ struct SstFileWriter::Rep {
       return builder->status();
     }
 
-    std::string user_key_buf;
-    Slice effective_user_key = user_key;
+    assert(user_key.size() >= ts_sz);
     if (strip_timestamp) {
-      // Logically remove the timestamp while the table builder will later
-      // remove it physically when data block is being built.
-      AppendUserKeyWithMinTimestamp(&user_key_buf, user_key, ts_sz);
-      effective_user_key = user_key_buf;
+      // In this mode, we expect users to always provide a min timestamp.
+      if (internal_comparator.user_comparator()->CompareTimestamp(
+              Slice(user_key.data() + user_key.size() - ts_sz, ts_sz),
+              MinU64Ts()) != 0) {
+        return Status::InvalidArgument(
+            "persist_user_defined_timestamps flag is set to false, only "
+            "minimum timestamp is accepted.");
+      }
     }
     if (file_info.num_entries == 0) {
-      file_info.smallest_key.assign(effective_user_key.data(),
-                                    effective_user_key.size());
+      file_info.smallest_key.assign(user_key.data(), user_key.size());
     } else {
       if (internal_comparator.user_comparator()->Compare(
-              effective_user_key, file_info.largest_key) <= 0) {
+              user_key, file_info.largest_key) <= 0) {
         // Make sure that keys are added in order
         return Status::InvalidArgument(
             "Keys must be added in strict ascending order.");
@@ -109,14 +111,13 @@ struct SstFileWriter::Rep {
 
     constexpr SequenceNumber sequence_number = 0;
 
-    ikey.Set(effective_user_key, sequence_number, value_type);
+    ikey.Set(user_key, sequence_number, value_type);
 
     builder->Add(ikey.Encode(), value);
 
     // update file info
     file_info.num_entries++;
-    file_info.largest_key.assign(effective_user_key.data(),
-                                 effective_user_key.size());
+    file_info.largest_key.assign(user_key.data(), user_key.size());
     file_info.file_size = builder->FileSize();
 
     InvalidatePageCache(false /* closing */).PermitUncheckedError();
@@ -183,6 +184,23 @@ struct SstFileWriter::Rep {
     } else if (cmp == 0) {
       // It's an empty range. Don't bother applying it to the DB.
       return Status::OK();
+    }
+
+    assert(begin_key.size() >= ts_sz);
+    assert(end_key.size() >= ts_sz);
+    Slice begin_key_ts =
+        Slice(begin_key.data() + begin_key.size() - ts_sz, ts_sz);
+    [[maybe_unused]] Slice end_key_ts =
+        Slice(end_key.data() + end_key.size() - ts_sz, ts_sz);
+    assert(begin_key_ts.compare(end_key_ts) == 0);
+    if (strip_timestamp) {
+      // In this mode, we expect users to always provide a min timestamp.
+      if (internal_comparator.user_comparator()->CompareTimestamp(
+              begin_key_ts, MinU64Ts()) != 0) {
+        return Status::InvalidArgument(
+            "persist_user_defined_timestamps flag is set to false, only "
+            "minimum timestamp is accepted.");
+      }
     }
 
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
@@ -478,6 +496,10 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     *file_info = r->file_info;
     // Remove user-defined timestamps from external file metadata too when they
     // should not be persisted.
+    assert(r->file_info.smallest_key.empty() ==
+           r->file_info.largest_key.empty());
+    assert(r->file_info.smallest_range_del_key.empty() ==
+           r->file_info.largest_range_del_key.empty());
     if (r->strip_timestamp) {
       if (!r->file_info.smallest_key.empty()) {
         Slice smallest_key = r->file_info.smallest_key;

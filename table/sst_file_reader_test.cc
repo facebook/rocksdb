@@ -480,44 +480,16 @@ TEST_F(SstFileReaderTimestampNotPersistedTest, Basic) {
   ASSERT_EQ(external_sst_file_info.largest_range_del_key, "");
 }
 
-TEST_F(SstFileReaderTimestampNotPersistedTest,
-       OriginalTimestampReplacedWithMinTimestamp) {
-  std::vector<InputKeyValueDesc> input_descs;
-
-  for (uint64_t k = 0; k < kNumKeys; k++) {
-    input_descs.emplace_back(
-        /* key */ EncodeAsString(k), /* timestamp */ EncodeAsUint64(k),
-        /* value */ EncodeAsString(k), /* is_delete */ false,
-        /* use_contiguous_buffer */ (k % 2) == 0);
-  }
-
-  ExternalSstFileInfo external_sst_file_info;
-
-  CreateFile(input_descs, &external_sst_file_info);
-  std::vector<OutputKeyValueDesc> output_descs;
-
-  for (uint64_t k = 0; k < kNumKeys; k++) {
-    output_descs.emplace_back(/* key */ EncodeAsString(k),
-                              /* timestamp */ EncodeAsUint64(0),
-                              /* value */ EncodeAsString(k));
-  }
-  CheckFile(EncodeAsUint64(0), output_descs);
-  ASSERT_EQ(external_sst_file_info.smallest_key, EncodeAsString(0));
-  ASSERT_EQ(external_sst_file_info.largest_key, EncodeAsString(kNumKeys - 1));
-  ASSERT_EQ(external_sst_file_info.smallest_range_del_key, "");
-  ASSERT_EQ(external_sst_file_info.largest_range_del_key, "");
-}
-
-TEST_F(SstFileReaderTimestampNotPersistedTest, MultipleVersionsNotAllowed) {
+TEST_F(SstFileReaderTimestampNotPersistedTest, NonMinTimestampNotAllowed) {
   SstFileWriter writer(soptions_, options_);
 
   ASSERT_OK(writer.Open(sst_name_));
 
-  ASSERT_OK(writer.Delete("baz", EncodeAsUint64(2)));
-  ASSERT_NOK(writer.Put("baz", EncodeAsUint64(1), "foo_val"));
+  ASSERT_NOK(writer.Delete("baz", EncodeAsUint64(2)));
+  ASSERT_OK(writer.Put("baz", EncodeAsUint64(0), "foo_val"));
 
-  ASSERT_OK(writer.Put("key", EncodeAsUint64(2), "value1"));
-  ASSERT_NOK(writer.Put("key", EncodeAsUint64(1), "value2"));
+  ASSERT_NOK(writer.Put("key", EncodeAsUint64(2), "value1"));
+  ASSERT_OK(writer.Put("key", EncodeAsUint64(0), "value2"));
 
   // The `SstFileWriter::DeleteRange` API documentation specifies that
   // a range deletion tombstone added in the file does NOT delete point
@@ -530,7 +502,8 @@ TEST_F(SstFileReaderTimestampNotPersistedTest, MultipleVersionsNotAllowed) {
   // After the file is ingested, the range deletion will effectively get
   // over-written by the point data since they will have the same sequence
   // number and the same user-defined timestamps.
-  ASSERT_OK(writer.DeleteRange("bar", "foo", EncodeAsUint64(2)));
+  ASSERT_NOK(writer.DeleteRange("bar", "foo", EncodeAsUint64(2)));
+  ASSERT_OK(writer.DeleteRange("bar", "foo", EncodeAsUint64(0)));
 
   ExternalSstFileInfo external_sst_file_info;
 
@@ -546,8 +519,8 @@ TEST_F(SstFileReaderTimestampNotPersistedTest, KeyWithoutTimestampOutOfOrder) {
 
   ASSERT_OK(writer.Open(sst_name_));
 
-  ASSERT_OK(writer.Put("foo", EncodeAsUint64(1), "value1"));
-  ASSERT_NOK(writer.Put("bar", EncodeAsUint64(2), "value2"));
+  ASSERT_OK(writer.Put("foo", EncodeAsUint64(0), "value1"));
+  ASSERT_NOK(writer.Put("bar", EncodeAsUint64(0), "value2"));
 }
 
 TEST_F(SstFileReaderTimestampNotPersistedTest, IncompatibleTimestampFormat) {
