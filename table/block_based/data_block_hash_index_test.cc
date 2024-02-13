@@ -551,12 +551,14 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   file_writer.reset(
       new WritableFileWriter(std::move(f), "" /* don't care */, FileOptions()));
   std::unique_ptr<TableBuilder> builder;
-  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
   std::string column_family_name;
+  const ReadOptions read_options;
+  const WriteOptions write_options;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(
-          ioptions, moptions, internal_comparator,
-          &int_tbl_prop_collector_factories, options.compression,
+          ioptions, moptions, read_options, write_options, internal_comparator,
+          &internal_tbl_prop_coll_factories, options.compression,
           CompressionOptions(),
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
           column_family_name, level_),
@@ -567,7 +569,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   EXPECT_TRUE(builder->status().ok());
 
   Status s = builder->Finish();
-  ASSERT_OK(file_writer->Flush());
+  ASSERT_OK(file_writer->Flush(IOOptions()));
   EXPECT_TRUE(s.ok()) << s.ToString();
 
   EXPECT_EQ(sink->contents().size(), builder->FileSize());

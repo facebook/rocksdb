@@ -32,9 +32,10 @@ using InternalIterator = InternalIteratorBase<Slice>;
 // key is present in K child iterators, it will be yielded K times.
 //
 // REQUIRES: n >= 0
-extern InternalIterator* NewMergingIterator(
-    const InternalKeyComparator* comparator, InternalIterator** children, int n,
-    Arena* arena = nullptr, bool prefix_seek_mode = false);
+InternalIterator* NewMergingIterator(const InternalKeyComparator* comparator,
+                                     InternalIterator** children, int n,
+                                     Arena* arena = nullptr,
+                                     bool prefix_seek_mode = false);
 
 // The iterator returned by NewMergingIterator() and
 // MergeIteratorBuilder::Finish(). MergingIterator handles the merging of data

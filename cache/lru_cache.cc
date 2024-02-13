@@ -339,8 +339,7 @@ void LRUCacheShard::NotifyEvicted(
   MemoryAllocator* alloc = table_.GetAllocator();
   for (LRUHandle* entry : evicted_handles) {
     if (eviction_callback_ &&
-        eviction_callback_(entry->key(),
-                           reinterpret_cast<Cache::Handle*>(entry),
+        eviction_callback_(entry->key(), static_cast<Cache::Handle*>(entry),
                            entry->HasHit())) {
       // Callback took ownership of obj; just free handle
       free(entry);
@@ -506,7 +505,7 @@ bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
     // Only call eviction callback if we're sure no one requested erasure
     // FIXME: disabled because of test churn
     if (false && was_in_cache && !erase_if_last_ref && eviction_callback_ &&
-        eviction_callback_(e->key(), reinterpret_cast<Cache::Handle*>(e),
+        eviction_callback_(e->key(), static_cast<Cache::Handle*>(e),
                            e->HasHit())) {
       // Callback took ownership of obj; just free handle
       free(e);
@@ -661,18 +660,18 @@ LRUCache::LRUCache(const LRUCacheOptions& opts) : ShardedCache(opts) {
 }
 
 Cache::ObjectPtr LRUCache::Value(Handle* handle) {
-  auto h = reinterpret_cast<const LRUHandle*>(handle);
+  auto h = static_cast<const LRUHandle*>(handle);
   return h->value;
 }
 
 size_t LRUCache::GetCharge(Handle* handle) const {
-  return reinterpret_cast<const LRUHandle*>(handle)->GetCharge(
+  return static_cast<const LRUHandle*>(handle)->GetCharge(
       GetShard(0).metadata_charge_policy_);
 }
 
 const Cache::CacheItemHelper* LRUCache::GetCacheItemHelper(
     Handle* handle) const {
-  auto h = reinterpret_cast<const LRUHandle*>(handle);
+  auto h = static_cast<const LRUHandle*>(handle);
   return h->helper;
 }
 

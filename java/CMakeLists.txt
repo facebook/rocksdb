@@ -74,9 +74,11 @@ set(JNI_NATIVE_SOURCES
         rocksjni/sst_partitioner.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
+        rocksjni/stderr_logger.cc
         rocksjni/table.cc
         rocksjni/table_filter.cc
         rocksjni/table_filter_jnicallback.cc
+        rocksjni/table_properties_collector_factory.cc
         rocksjni/testable_event_listener.cc
         rocksjni/thread_status.cc
         rocksjni/trace_writer.cc
@@ -113,7 +115,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractTransactionNotifier.java
   src/main/java/org/rocksdb/AbstractWalFilter.java
   src/main/java/org/rocksdb/AbstractWriteBatch.java
-  src/main/java/org/rocksdb/AccessHint.java
   src/main/java/org/rocksdb/AdvancedColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/AdvancedMutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/BackgroundErrorReason.java
@@ -168,6 +169,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/FlushJobInfo.java
   src/main/java/org/rocksdb/FlushReason.java
   src/main/java/org/rocksdb/FlushOptions.java
+  src/main/java/org/rocksdb/GetStatus.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
   src/main/java/org/rocksdb/HistogramData.java
@@ -186,6 +188,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java
+  src/main/java/org/rocksdb/LoggerInterface.java
+  src/main/java/org/rocksdb/LoggerType.java
   src/main/java/org/rocksdb/LRUCache.java
   src/main/java/org/rocksdb/MemoryUsageType.java
   src/main/java/org/rocksdb/MemoryUtil.java
@@ -256,6 +260,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/TableFileDeletionInfo.java
   src/main/java/org/rocksdb/TableFilter.java
   src/main/java/org/rocksdb/TableProperties.java
+  src/main/java/org/rocksdb/TablePropertiesCollectorFactory.java
   src/main/java/org/rocksdb/TableFormatConfig.java
   src/main/java/org/rocksdb/ThreadType.java
   src/main/java/org/rocksdb/ThreadStatus.java
@@ -285,6 +290,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBufferManager.java
   src/main/java/org/rocksdb/WriteStallCondition.java
   src/main/java/org/rocksdb/WriteStallInfo.java
+  src/main/java/org/rocksdb/util/BufferUtil.java
   src/main/java/org/rocksdb/util/ByteUtil.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
@@ -298,6 +304,7 @@ set(JAVA_MAIN_CLASSES
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/RocksNativeLibraryResource.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/main/java/org/rocksdb/util/StdErrLogger.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
 )
 
@@ -409,6 +416,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/MemoryUtilTest.java
   src/test/java/org/rocksdb/TableFilterTest.java
   src/test/java/org/rocksdb/TtlDBTest.java
+  src/test/java/org/rocksdb/util/StdErrLoggerTest.java
 )
 
 set(JAVA_TEST_RUNNING_CLASSES
@@ -507,6 +515,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.MemoryUtilTest
   org.rocksdb.TableFilterTest
   org.rocksdb.TtlDBTest
+  org.rocksdb.util.StdErrLoggerTest
 )
 
 include(FindJava)
@@ -785,13 +794,74 @@ if(NOT MINGW)
   )
 endif()
 
+set(ROCKSDB_JAVADOC_JAR rocksdb-${CMAKE_PROJECT_VERSION}-javadoc.jar)
+add_custom_target(rocksdbjava_javadocs_jar ALL
+        COMMAND ${Java_JAVADOC_EXECUTABLE} -d ${CMAKE_CURRENT_BINARY_DIR}/javadoc -sourcepath ${PROJECT_SOURCE_DIR}/java/src/main/java/ -subpackages org
+        COMMAND ${Java_JAR_EXECUTABLE} -v -c -f ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR} -C ${CMAKE_CURRENT_BINARY_DIR}/javadoc .
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+set(ROCKSDB_SOURCES_JAR rocksdb-${CMAKE_PROJECT_VERSION}-sources.jar)
+add_custom_target(rocksdbjava_sources_jar
+        ${Java_JAR_EXECUTABLE} -v -c -f ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR} -C ${PROJECT_SOURCE_DIR}/java/src/main/java/ .
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+
+set(bitness 32)
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(bitness 64)
+endif()
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    set_target_properties(
+            ${ROCKSDBJNI_STATIC_LIB}
+            PROPERTIES
+            OUTPUT_NAME librocksdbjni-win${bitness}
+    )
+    set(ROCKSDB_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-win${bitness}.jar)
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+    set_target_properties(
+            ${ROCKSDBJNI_STATIC_LIB}
+            PROPERTIES
+            OUTPUT_NAME "rocksdbjni-linux${bitness}"
+    )
+    set(ROCKSDB_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-linux${bitness}.jar)
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    set_target_properties(
+            ${ROCKSDBJNI_STATIC_LIB}
+            PROPERTIES
+            OUTPUT_NAME rocksdbjni-osx-${CMAKE_SYSTEM_PROCESSOR}
+    )
+    set_target_properties(
+            ${ROCKSDBJNI_STATIC_LIB}
+            PROPERTIES
+            SUFFIX ".jnilib"
+    )
+    set(ROCKSDB_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-osx.jar)
+else()
+    set(ROCKSDB_JAR rocksdb-${CMAKE_PROJECT_VERSION}.jar)
+endif()
+
+get_target_property(ROCKS_JAR_FILE rocksdbjni_classes JAR_FILE)
+
+add_custom_target(rocksdbjava ALL
+        COMMAND ${CMAKE_COMMAND} -E copy ${ROCKS_JAR_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}
+        COMMAND ${Java_JAR_EXECUTABLE} -uf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} -C $<TARGET_FILE_DIR:${ROCKSDBJNI_STATIC_LIB}> $<TARGET_FILE_NAME:${ROCKSDBJNI_STATIC_LIB}>
+        COMMAND ${Java_JAR_EXECUTABLE} -uf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} -C ${CMAKE_CURRENT_SOURCE_DIR} HISTORY-JAVA.md
+        DEPENDS ${ROCKSDBJNI_STATIC_LIB} rocksdbjni_classes
+        BYPRODUCTS ${ROCKSDB_JAR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+
 enable_testing()
 get_target_property(ROCKSDBJNI_CLASSES_TEST_JAR_FILE rocksdbjni_test_classes JAR_FILE)
 foreach (CLAZZ ${JAVA_TEST_RUNNING_CLASSES})
   if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     add_test(
       NAME jtest_${CLAZZ}
-      COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Djava.library.path=${PROJECT_BINARY_DIR}/java/${CMAKE_BUILD_TYPE} -classpath ${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${ROCKSDBJNI_CLASSES_TEST_JAR_FILE} org.rocksdb.test.RocksJunitRunner ${CLAZZ}
+            COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Djava.library.path=${PROJECT_BINARY_DIR}/java/${CMAKE_BUILD_TYPE} -classpath ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}$<SEMICOLON>${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${ROCKSDBJNI_CLASSES_TEST_JAR_FILE} org.rocksdb.test.RocksJunitRunner ${CLAZZ}
     )
   else()
     add_test(

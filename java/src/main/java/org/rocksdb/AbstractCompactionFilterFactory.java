@@ -74,5 +74,5 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
   }
 
   private native long createNewCompactionFilterFactory0();
-  private native void disposeInternal(final long handle);
+  private static native void disposeInternal(final long handle);
 }

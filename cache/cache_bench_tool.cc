@@ -48,6 +48,10 @@ DEFINE_uint64(cache_size, 1 * GiB,
               "Number of bytes to use as a cache of uncompressed data.");
 DEFINE_int32(num_shard_bits, -1,
              "ShardedCacheOptions::shard_bits. Default = auto");
+DEFINE_int32(
+    eviction_effort_cap,
+    ROCKSDB_NAMESPACE::HyperClockCacheOptions(1, 1).eviction_effort_cap,
+    "HyperClockCacheOptions::eviction_effort_cap");
 
 DEFINE_double(resident_ratio, 0.25,
               "Ratio of keys fitting in cache to keyspace.");
@@ -391,6 +395,7 @@ class CacheBench {
           FLAGS_cache_size, /*estimated_entry_charge=*/0, FLAGS_num_shard_bits);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
       opts.memory_allocator = allocator;
+      opts.eviction_effort_cap = FLAGS_eviction_effort_cap;
       if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
           FLAGS_cache_type == "hyper_clock_cache") {
         opts.estimated_entry_charge = FLAGS_value_bytes_estimate > 0

@@ -18,14 +18,14 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
-extern std::vector<std::string> StringSplit(const std::string& arg, char delim);
+std::vector<std::string> StringSplit(const std::string& arg, char delim);
 
 // Append a human-readable printout of "num" to *str
-extern void AppendNumberTo(std::string* str, uint64_t num);
+void AppendNumberTo(std::string* str, uint64_t num);
 
 // Append a human-readable printout of "value" to *str.
 // Escapes any non-printable characters found in "value".
-extern void AppendEscapedStringTo(std::string* str, const Slice& value);
+void AppendEscapedStringTo(std::string* str, const Slice& value);
 
 // Put n digits from v in base kBase to (*buf)[0] to (*buf)[n-1] and
 // advance *buf to the position after what was written.
@@ -73,15 +73,15 @@ inline bool ParseBaseChars(const char** buf, size_t n, uint64_t* v) {
 // for num >= 10.000, prints "xxK"
 // for num >= 10.000.000, prints "xxM"
 // for num >= 10.000.000.000, prints "xxG"
-extern std::string NumberToHumanString(int64_t num);
+std::string NumberToHumanString(int64_t num);
 
 // Return a human-readable version of bytes
 // ex: 1048576 -> 1.00 GB
-extern std::string BytesToHumanString(uint64_t bytes);
+std::string BytesToHumanString(uint64_t bytes);
 
 // Return a human-readable version of unix time
 // ex: 1562116015 -> "Tue Jul  2 18:06:55 2019"
-extern std::string TimeToHumanString(int unixtime);
+std::string TimeToHumanString(int unixtime);
 
 // Append a human-readable time in micros.
 int AppendHumanMicros(uint64_t micros, char* output, int len,
@@ -92,13 +92,13 @@ int AppendHumanBytes(uint64_t bytes, char* output, int len);
 
 // Return a human-readable version of "value".
 // Escapes any non-printable characters found in "value".
-extern std::string EscapeString(const Slice& value);
+std::string EscapeString(const Slice& value);
 
 // Parse a human-readable number from "*in" into *value.  On success,
 // advances "*in" past the consumed number and sets "*val" to the
 // numeric value.  Otherwise, returns false and leaves *in in an
 // unspecified state.
-extern bool ConsumeDecimalNumber(Slice* in, uint64_t* val);
+bool ConsumeDecimalNumber(Slice* in, uint64_t* val);
 
 // Returns true if the input char "c" is considered as a special character
 // that will be escaped when EscapeOptionString() is called.
@@ -180,6 +180,6 @@ extern const std::string kNullptrString;
 
 // errnoStr() function returns a string that describes the error code passed in
 // the argument err
-extern std::string errnoStr(int err);
+std::string errnoStr(int err);
 
 }  // namespace ROCKSDB_NAMESPACE

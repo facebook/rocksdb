@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -84,7 +85,10 @@ public class TtlDB extends RocksDB {
    */
   public static TtlDB open(final Options options, final String db_path,
       final int ttl, final boolean readOnly) throws RocksDBException {
-    return new TtlDB(open(options.nativeHandle_, db_path, ttl, readOnly));
+    final TtlDB db = new TtlDB(open(options.nativeHandle_, db_path, ttl, readOnly));
+    db.storeOptionsInstance(options);
+    db.storeDefaultColumnFamilyHandle(db.makeDefaultColumnFamilyHandle());
+    return db;
   }
 
   /**
@@ -116,6 +120,7 @@ public class TtlDB extends RocksDB {
           + " family handle.");
     }
 
+    int defaultColumnFamilyIndex = -1;
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
@@ -123,6 +128,13 @@ public class TtlDB extends RocksDB {
           columnFamilyDescriptors.get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final int[] ttlVals = new int[ttlValues.size()];
@@ -136,6 +148,10 @@ public class TtlDB extends RocksDB {
     for (int i = 1; i < handles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, handles[i]));
     }
+    ttlDB.storeOptionsInstance(options);
+    ttlDB.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
+    ttlDB.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
+
     return ttlDB;
   }
 
@@ -230,15 +246,19 @@ public class TtlDB extends RocksDB {
     super(nativeHandle);
   }
 
-  @Override protected native void disposeInternal(final long handle);
+  @Override
+  protected void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   private static native long open(final long optionsHandle, final String db_path, final int ttl,
       final boolean readOnly) throws RocksDBException;
   private static native long[] openCF(final long optionsHandle, final String db_path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions, final int[] ttlValues,
       final boolean readOnly) throws RocksDBException;
-  private native long createColumnFamilyWithTtl(final long handle,
-      final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
+  private static native long createColumnFamilyWithTtl(
+      final long handle, final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
       throws RocksDBException;
   private static native void closeDatabase(final long handle) throws RocksDBException;
 }

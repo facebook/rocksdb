@@ -25,8 +25,8 @@ TEST(SliceTest, StringView) {
 
 // Use this to keep track of the cleanups that were actually performed
 void Multiplier(void* arg1, void* arg2) {
-  int* res = reinterpret_cast<int*>(arg1);
-  int* num = reinterpret_cast<int*>(arg2);
+  int* res = static_cast<int*>(arg1);
+  int* num = static_cast<int*>(arg2);
   *res *= *num;
 }
 

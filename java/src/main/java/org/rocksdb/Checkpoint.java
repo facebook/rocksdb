@@ -61,9 +61,13 @@ public class Checkpoint extends RocksObject {
   }
 
   private static native long newCheckpoint(long dbHandle);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native void createCheckpoint(long handle, String checkpointPath)
+  private static native void createCheckpoint(long handle, String checkpointPath)
       throws RocksDBException;
 
   private native long exportColumnFamily(long handle, long columnFamilyHandle, String exportPath)

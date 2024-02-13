@@ -78,11 +78,11 @@ class PinnedIteratorsManager : public Cleanable {
 
  private:
   static void ReleaseInternalIterator(void* ptr) {
-    delete reinterpret_cast<InternalIterator*>(ptr);
+    delete static_cast<InternalIterator*>(ptr);
   }
 
   static void ReleaseArenaInternalIterator(void* ptr) {
-    reinterpret_cast<InternalIterator*>(ptr)->~InternalIterator();
+    static_cast<InternalIterator*>(ptr)->~InternalIterator();
   }
 
   bool pinning_enabled;

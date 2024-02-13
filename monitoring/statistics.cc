@@ -179,16 +179,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {FILES_DELETED_FROM_TRASH_QUEUE, "rocksdb.files.marked.trash.deleted"},
     {FILES_DELETED_IMMEDIATELY, "rocksdb.files.deleted.immediately"},
     {ERROR_HANDLER_BG_ERROR_COUNT, "rocksdb.error.handler.bg.error.count"},
-    {ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED,
-     "rocksdb.error.handler.bg.errro.count"},
     {ERROR_HANDLER_BG_IO_ERROR_COUNT,
      "rocksdb.error.handler.bg.io.error.count"},
-    {ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED,
-     "rocksdb.error.handler.bg.io.errro.count"},
     {ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
      "rocksdb.error.handler.bg.retryable.io.error.count"},
-    {ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED,
-     "rocksdb.error.handler.bg.retryable.io.errro.count"},
     {ERROR_HANDLER_AUTORESUME_COUNT, "rocksdb.error.handler.autoresume.count"},
     {ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
      "rocksdb.error.handler.autoresume.retry.total.count"},
@@ -264,6 +258,14 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {PREFETCH_BYTES, "rocksdb.prefetch.bytes"},
     {PREFETCH_BYTES_USEFUL, "rocksdb.prefetch.bytes.useful"},
     {PREFETCH_HITS, "rocksdb.prefetch.hits"},
+    {COMPRESSED_SECONDARY_CACHE_DUMMY_HITS,
+     "rocksdb.compressed.secondary.cache.dummy.hits"},
+    {COMPRESSED_SECONDARY_CACHE_HITS,
+     "rocksdb.compressed.secondary.cache.hits"},
+    {COMPRESSED_SECONDARY_CACHE_PROMOTIONS,
+     "rocksdb.compressed.secondary.cache.promotions"},
+    {COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS,
+     "rocksdb.compressed.secondary.cache.promotion.skips"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -295,6 +297,10 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.file.read.verify.db.checksum.micros"},
     {FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS,
      "rocksdb.file.read.verify.file.checksums.micros"},
+    {SST_WRITE_MICROS, "rocksdb.sst.write.micros"},
+    {FILE_WRITE_FLUSH_MICROS, "rocksdb.file.write.flush.micros"},
+    {FILE_WRITE_COMPACTION_MICROS, "rocksdb.file.write.compaction.micros"},
+    {FILE_WRITE_DB_OPEN_MICROS, "rocksdb.file.write.db.open.micros"},
     {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
     {BYTES_PER_READ, "rocksdb.bytes.per.read"},
     {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},
@@ -379,7 +385,7 @@ StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)
   RegisterOptions("StatisticsOptions", &stats_, &stats_type_info);
 }
 
-StatisticsImpl::~StatisticsImpl() {}
+StatisticsImpl::~StatisticsImpl() = default;
 
 uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
   MutexLock lock(&aggregate_lock_);
@@ -538,7 +544,9 @@ std::string StatisticsImpl::ToString() const {
 bool StatisticsImpl::getTickerMap(
     std::map<std::string, uint64_t>* stats_map) const {
   assert(stats_map);
-  if (!stats_map) return false;
+  if (!stats_map) {
+    return false;
+  }
   stats_map->clear();
   MutexLock lock(&aggregate_lock_);
   for (const auto& t : TickersNameMap) {

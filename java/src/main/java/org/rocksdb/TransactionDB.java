@@ -50,6 +50,7 @@ public class TransactionDB extends RocksDB
     // the currently-created RocksDB.
     tdb.storeOptionsInstance(options);
     tdb.storeTransactionDbOptions(transactionDbOptions);
+    tdb.storeDefaultColumnFamilyHandle(tdb.makeDefaultColumnFamilyHandle());
 
     return tdb;
   }
@@ -94,6 +95,7 @@ public class TransactionDB extends RocksDB
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     tdb.storeOptionsInstance(dbOptions);
+    tdb.storeDefaultColumnFamilyHandle(tdb.makeDefaultColumnFamilyHandle());
     tdb.storeTransactionDbOptions(transactionDbOptions);
 
     for (int i = 1; i < handles.length; i++) {
@@ -377,7 +379,11 @@ public class TransactionDB extends RocksDB
     this.transactionDbOptions_ = transactionDbOptions;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   private static native long open(final long optionsHandle,
       final long transactionDbOptionsHandle, final String path)
@@ -386,21 +392,17 @@ public class TransactionDB extends RocksDB
       final long transactionDbOptionsHandle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
   private static native void closeDatabase(final long handle) throws RocksDBException;
-  private native long beginTransaction(final long handle,
-      final long writeOptionsHandle);
-  private native long beginTransaction(final long handle,
-      final long writeOptionsHandle, final long transactionOptionsHandle);
-  private native long beginTransaction_withOld(final long handle,
-      final long writeOptionsHandle, final long oldTransactionHandle);
-  private native long beginTransaction_withOld(final long handle,
+  private static native long beginTransaction(final long handle, final long writeOptionsHandle);
+  private static native long beginTransaction(
+      final long handle, final long writeOptionsHandle, final long transactionOptionsHandle);
+  private static native long beginTransaction_withOld(
+      final long handle, final long writeOptionsHandle, final long oldTransactionHandle);
+  private static native long beginTransaction_withOld(final long handle,
       final long writeOptionsHandle, final long transactionOptionsHandle,
       final long oldTransactionHandle);
-  private native long getTransactionByName(final long handle,
-      final String name);
-  private native long[] getAllPreparedTransactions(final long handle);
-  private native Map<Long, KeyLockInfo> getLockStatusData(
-      final long handle);
-  private native DeadlockPath[] getDeadlockInfoBuffer(final long handle);
-  private native void setDeadlockInfoBufferSize(final long handle,
-      final int targetSize);
+  private static native long getTransactionByName(final long handle, final String name);
+  private static native long[] getAllPreparedTransactions(final long handle);
+  private static native Map<Long, KeyLockInfo> getLockStatusData(final long handle);
+  private static native DeadlockPath[] getDeadlockInfoBuffer(final long handle);
+  private static native void setDeadlockInfoBufferSize(final long handle, final int targetSize);
 }

@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 class Footer;
 
 // Release the cached entry and decrement its ref count.
-extern void ForceReleaseCachedEntry(void* arg, void* h);
+void ForceReleaseCachedEntry(void* arg, void* h);
 
 inline MemoryAllocator* GetMemoryAllocator(
     const BlockBasedTableOptions& table_options) {
@@ -30,8 +30,7 @@ inline MemoryAllocator* GetMemoryAllocator(
 //
 // Returns Status::OK() on checksum match, or Status::Corruption() on checksum
 // mismatch.
-extern Status VerifyBlockChecksum(const Footer& footer, const char* data,
-                                  size_t block_size,
-                                  const std::string& file_name,
-                                  uint64_t offset);
+Status VerifyBlockChecksum(const Footer& footer, const char* data,
+                           size_t block_size, const std::string& file_name,
+                           uint64_t offset);
 }  // namespace ROCKSDB_NAMESPACE

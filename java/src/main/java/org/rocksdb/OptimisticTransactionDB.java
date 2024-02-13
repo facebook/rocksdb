@@ -86,6 +86,7 @@ public class OptimisticTransactionDB extends RocksDB
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     otdb.storeOptionsInstance(dbOptions);
+    otdb.storeDefaultColumnFamilyHandle(otdb.makeDefaultColumnFamilyHandle());
 
     for (int i = 1; i < handles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(otdb, handles[i]));
@@ -204,23 +205,24 @@ public class OptimisticTransactionDB extends RocksDB
     return db;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   protected static native long open(final long optionsHandle,
       final String path) throws RocksDBException;
   protected static native long[] open(final long handle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
   private static native void closeDatabase(final long handle) throws RocksDBException;
-  private native long beginTransaction(final long handle,
-      final long writeOptionsHandle);
-  private native long beginTransaction(final long handle,
-      final long writeOptionsHandle,
+  private static native long beginTransaction(final long handle, final long writeOptionsHandle);
+  private static native long beginTransaction(final long handle, final long writeOptionsHandle,
       final long optimisticTransactionOptionsHandle);
-  private native long beginTransaction_withOld(final long handle,
-      final long writeOptionsHandle, final long oldTransactionHandle);
-  private native long beginTransaction_withOld(final long handle,
-      final long writeOptionsHandle,
-      final long optimisticTransactionOptionsHandle,
+  private static native long beginTransaction_withOld(
+      final long handle, final long writeOptionsHandle, final long oldTransactionHandle);
+  private static native long beginTransaction_withOld(final long handle,
+      final long writeOptionsHandle, final long optimisticTransactionOptionsHandle,
       final long oldTransactionHandle);
-  private native long getBaseDB(final long handle);
+  private static native long getBaseDB(final long handle);
 }

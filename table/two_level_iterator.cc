@@ -70,7 +70,9 @@ class TwoLevelIndexIterator : public InternalIteratorBase<IndexValue> {
 
  private:
   void SaveError(const Status& s) {
-    if (status_.ok() && !s.ok()) status_ = s;
+    if (status_.ok() && !s.ok()) {
+      status_ = s;
+    }
   }
   void SkipEmptyDataBlocksForward();
   void SkipEmptyDataBlocksBackward();

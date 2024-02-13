@@ -289,7 +289,7 @@ struct SVCleanupParams {
 
 // Used in PinnedIteratorsManager to release pinned SuperVersion
 void ForwardIterator::DeferredSVCleanup(void* arg) {
-  auto d = reinterpret_cast<SVCleanupParams*>(arg);
+  auto d = static_cast<SVCleanupParams*>(arg);
   ForwardIterator::SVCleanup(d->db, d->sv,
                              d->background_purge_on_iterator_cleanup);
   delete d;
@@ -648,7 +648,7 @@ Status ForwardIterator::GetProperty(std::string prop_name, std::string* prop) {
     *prop = std::to_string(sv_->version_number);
     return Status::OK();
   }
-  return Status::InvalidArgument();
+  return Status::InvalidArgument("Unrecognized property: " + prop_name);
 }
 
 void ForwardIterator::SetPinnedItersMgr(

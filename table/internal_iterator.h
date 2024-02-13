@@ -220,16 +220,15 @@ using InternalIterator = InternalIteratorBase<Slice>;
 
 // Return an empty iterator (yields nothing).
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewEmptyInternalIterator();
+InternalIteratorBase<TValue>* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
-    const Status& status);
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status);
 
 // Return an empty iterator with the specified status, allocated arena.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
-    const Status& status, Arena* arena);
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
+                                                       Arena* arena);
 
 }  // namespace ROCKSDB_NAMESPACE

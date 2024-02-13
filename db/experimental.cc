@@ -38,8 +38,9 @@ Status UpdateManifestForFilesState(
     const DBOptions& db_opts, const std::string& db_name,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     const UpdateManifestForFilesStateOptions& opts) {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+  const WriteOptions write_options;
   OfflineManifestWriter w(db_opts, db_name);
   Status s = w.Recover(column_families);
 
@@ -117,7 +118,8 @@ Status UpdateManifestForFilesState(
       std::unique_ptr<FSDirectory> db_dir;
       s = fs->NewDirectory(db_name, IOOptions(), &db_dir, nullptr);
       if (s.ok()) {
-        s = w.LogAndApply(read_options, cfd, &edit, db_dir.get());
+        s = w.LogAndApply(read_options, write_options, cfd, &edit,
+                          db_dir.get());
       }
       if (s.ok()) {
         ++cfs_updated;

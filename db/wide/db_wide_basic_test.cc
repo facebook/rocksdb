@@ -94,7 +94,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
       std::array<Status, num_keys> statuses;
 
       db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
-                    &keys[0], &values[0], &statuses[0]);
+                    keys.data(), values.data(), statuses.data());
 
       ASSERT_OK(statuses[0]);
       ASSERT_EQ(values[0], first_value_of_default_column);
@@ -114,7 +114,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
       std::array<Status, num_keys> statuses;
 
       db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
-                          &keys[0], &results[0], &statuses[0]);
+                          keys.data(), results.data(), statuses.data());
 
       ASSERT_OK(statuses[0]);
       ASSERT_EQ(results[0].columns(), first_columns);
@@ -398,8 +398,8 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntity) {
   std::array<PinnableWideColumns, num_keys> results;
   std::array<Status, num_keys> statuses;
 
-  db_->MultiGetEntity(ReadOptions(), num_keys, &column_families[0], &keys[0],
-                      &results[0], &statuses[0]);
+  db_->MultiGetEntity(ReadOptions(), num_keys, column_families.data(),
+                      keys.data(), results.data(), statuses.data());
 
   ASSERT_OK(statuses[0]);
   ASSERT_EQ(results[0].columns(), first_columns);
@@ -642,7 +642,7 @@ TEST_F(DBWideBasicTest, MergePlainKeyValue) {
       std::array<Status, num_keys> statuses;
 
       db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
-                          &keys[0], &results[0], &statuses[0]);
+                          keys.data(), results.data(), statuses.data());
 
       ASSERT_OK(statuses[0]);
       ASSERT_EQ(results[0].columns(), expected_first_columns);
@@ -822,7 +822,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       std::array<Status, num_keys> statuses;
 
       db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
-                    &keys[0], &values[0], &statuses[0]);
+                    keys.data(), values.data(), statuses.data());
 
       ASSERT_EQ(values[0], first_expected_default);
       ASSERT_OK(statuses[0]);
@@ -839,7 +839,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       std::array<Status, num_keys> statuses;
 
       db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
-                          &keys[0], &results[0], &statuses[0]);
+                          keys.data(), results.data(), statuses.data());
 
       ASSERT_OK(statuses[0]);
       ASSERT_EQ(results[0].columns(), first_expected_columns);
@@ -900,7 +900,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       int number_of_operands = 0;
 
       ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
-                                      first_key, &merge_operands[0],
+                                      first_key, merge_operands.data(),
                                       &get_merge_opts, &number_of_operands));
 
       ASSERT_EQ(number_of_operands, num_merge_operands);
@@ -913,7 +913,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       int number_of_operands = 0;
 
       ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
-                                      second_key, &merge_operands[0],
+                                      second_key, merge_operands.data(),
                                       &get_merge_opts, &number_of_operands));
 
       ASSERT_EQ(number_of_operands, num_merge_operands);
@@ -933,7 +933,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       int number_of_operands = 0;
 
       ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
-                                      first_key, &merge_operands[0],
+                                      first_key, merge_operands.data(),
                                       &get_merge_opts, &number_of_operands));
 
       ASSERT_EQ(number_of_operands, num_merge_operands);
@@ -945,7 +945,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       int number_of_operands = 0;
 
       ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
-                                      second_key, &merge_operands[0],
+                                      second_key, merge_operands.data(),
                                       &get_merge_opts, &number_of_operands));
 
       ASSERT_EQ(number_of_operands, num_merge_operands);

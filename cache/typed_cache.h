@@ -155,7 +155,7 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   using BaseCacheInterface<CachePtr>::BaseCacheInterface;
   struct TypedAsyncLookupHandle : public Cache::AsyncLookupHandle {
     TypedHandle* Result() {
-      return reinterpret_cast<TypedHandle*>(Cache::AsyncLookupHandle::Result());
+      return static_cast<TypedHandle*>(Cache::AsyncLookupHandle::Result());
     }
   };
 
@@ -169,8 +169,7 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   }
 
   inline TypedHandle* Lookup(const Slice& key, Statistics* stats = nullptr) {
-    return reinterpret_cast<TypedHandle*>(
-        this->cache_->BasicLookup(key, stats));
+    return static_cast<TypedHandle*>(this->cache_->BasicLookup(key, stats));
   }
 
   inline void StartAsyncLookup(TypedAsyncLookupHandle& async_handle) {
@@ -347,7 +346,7 @@ class FullTypedCacheInterface
       Priority priority = Priority::LOW, Statistics* stats = nullptr,
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
     if (lowest_used_cache_tier > CacheTier::kVolatileTier) {
-      return reinterpret_cast<TypedHandle*>(this->cache_->Lookup(
+      return static_cast<TypedHandle*>(this->cache_->Lookup(
           key, GetFullHelper(), create_context, priority, stats));
     } else {
       return BasicTypedCacheInterface<TValue, kRole, CachePtr>::Lookup(key,

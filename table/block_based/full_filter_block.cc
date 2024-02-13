@@ -259,7 +259,7 @@ void FullFilterBlockReader::MayMatch(MultiGetRange* range, bool no_io,
     }
   }
 
-  filter_bits_reader->MayMatch(num_keys, &keys[0], &may_match[0]);
+  filter_bits_reader->MayMatch(num_keys, keys.data(), may_match.data());
 
   int i = 0;
   for (auto iter = filter_range.begin(); iter != filter_range.end(); ++iter) {

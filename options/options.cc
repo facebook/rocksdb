@@ -71,8 +71,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
       max_compaction_bytes(options.max_compaction_bytes),
-      ignore_max_compaction_bytes_for_input(
-          options.ignore_max_compaction_bytes_for_input),
       soft_pending_compaction_bytes_limit(
           options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
@@ -127,7 +125,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
-DBOptions::DBOptions() {}
+DBOptions::DBOptions() = default;
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
 
@@ -290,8 +288,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                   Options.max_compaction_bytes: %" PRIu64,
         max_compaction_bytes);
-    ROCKS_LOG_HEADER(log, "  Options.ignore_max_compaction_bytes_for_input: %s",
-                     ignore_max_compaction_bytes_for_input ? "true" : "false");
     ROCKS_LOG_HEADER(
         log,
         "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
@@ -533,7 +529,6 @@ Options* Options::DisableExtraChecks() {
   // See https://github.com/facebook/rocksdb/issues/9354
   force_consistency_checks = false;
   // Considered but no clear performance impact seen:
-  // * check_flush_compaction_key_order
   // * paranoid_checks
   // * flush_verify_memtable_count
   // By current API contract, not including
@@ -703,4 +698,11 @@ ReadOptions::ReadOptions(bool _verify_checksums, bool _fill_cache)
 ReadOptions::ReadOptions(Env::IOActivity _io_activity)
     : io_activity(_io_activity) {}
 
+WriteOptions::WriteOptions(Env::IOActivity _io_activity)
+    : io_activity(_io_activity) {}
+
+WriteOptions::WriteOptions(Env::IOPriority _rate_limiter_priority,
+                           Env::IOActivity _io_activity)
+    : rate_limiter_priority(_rate_limiter_priority),
+      io_activity(_io_activity) {}
 }  // namespace ROCKSDB_NAMESPACE

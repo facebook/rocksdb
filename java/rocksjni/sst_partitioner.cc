@@ -35,8 +35,8 @@ jlong Java_org_rocksdb_SstPartitionerFixedPrefixFactory_newSstPartitionerFixedPr
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstPartitionerFixedPrefixFactory_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
+void Java_org_rocksdb_SstPartitionerFixedPrefixFactory_disposeInternalJni(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* ptr = reinterpret_cast<
       std::shared_ptr<ROCKSDB_NAMESPACE::SstPartitionerFactory>*>(jhandle);
   delete ptr;  // delete std::shared_ptr

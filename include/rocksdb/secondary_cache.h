@@ -114,7 +114,7 @@ class SecondaryCache : public Customizable {
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
-      bool& kept_in_sec_cache) = 0;
+      Statistics* stats, bool& kept_in_sec_cache) = 0;
 
   // Indicate whether a handle can be erased in this secondary cache.
   [[nodiscard]] virtual bool SupportForceErase() const = 0;
@@ -160,51 +160,49 @@ class SecondaryCacheWrapper : public SecondaryCache {
   explicit SecondaryCacheWrapper(std::shared_ptr<SecondaryCache> target)
       : target_(std::move(target)) {}
 
-  virtual Status Insert(const Slice& key, Cache::ObjectPtr obj,
-                        const Cache::CacheItemHelper* helper,
-                        bool force_insert) override {
+  Status Insert(const Slice& key, Cache::ObjectPtr obj,
+                const Cache::CacheItemHelper* helper,
+                bool force_insert) override {
     return target()->Insert(key, obj, helper, force_insert);
   }
 
-  virtual Status InsertSaved(
-      const Slice& key, const Slice& saved,
-      CompressionType type = CompressionType::kNoCompression,
-      CacheTier source = CacheTier::kVolatileTier) override {
+  Status InsertSaved(const Slice& key, const Slice& saved,
+                     CompressionType type = CompressionType::kNoCompression,
+                     CacheTier source = CacheTier::kVolatileTier) override {
     return target()->InsertSaved(key, saved, type, source);
   }
 
-  virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
+  std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
-      bool& kept_in_sec_cache) override {
+      Statistics* stats, bool& kept_in_sec_cache) override {
     return target()->Lookup(key, helper, create_context, wait, advise_erase,
-                            kept_in_sec_cache);
+                            stats, kept_in_sec_cache);
   }
 
-  virtual bool SupportForceErase() const override {
+  bool SupportForceErase() const override {
     return target()->SupportForceErase();
   }
 
-  virtual void Erase(const Slice& key) override { target()->Erase(key); }
+  void Erase(const Slice& key) override { target()->Erase(key); }
 
-  virtual void WaitAll(
-      std::vector<SecondaryCacheResultHandle*> handles) override {
+  void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) override {
     target()->WaitAll(handles);
   }
 
-  virtual Status SetCapacity(size_t capacity) override {
+  Status SetCapacity(size_t capacity) override {
     return target()->SetCapacity(capacity);
   }
 
-  virtual Status GetCapacity(size_t& capacity) override {
+  Status GetCapacity(size_t& capacity) override {
     return target()->GetCapacity(capacity);
   }
 
-  virtual Status Deflate(size_t decrease) override {
+  Status Deflate(size_t decrease) override {
     return target()->Deflate(decrease);
   }
 
-  virtual Status Inflate(size_t increase) override {
+  Status Inflate(size_t increase) override {
     return target()->Inflate(increase);
   }
 

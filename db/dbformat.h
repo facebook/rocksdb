@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -76,6 +77,32 @@ enum ValueType : unsigned char {
 // Defined in dbformat.cc
 extern const ValueType kValueTypeForSeek;
 extern const ValueType kValueTypeForSeekForPrev;
+
+// A range of user keys used internally by RocksDB. Also see `Range` used by
+// public APIs.
+struct UserKeyRange {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // include user_defined timestamps.
+  Slice start;
+  Slice limit;
+
+  UserKeyRange() = default;
+  UserKeyRange(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
+// A range of user keys used internally by RocksDB. Also see `RangePtr` used by
+// public APIs.
+struct UserKeyRangePtr {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key with timestamp part.
+  // An optional range start, if missing, indicating a start before all keys.
+  std::optional<Slice> start;
+  // An optional range end, if missing, indicating an end after all keys.
+  std::optional<Slice> limit;
+
+  UserKeyRangePtr(const std::optional<Slice>& s, const std::optional<Slice>& l)
+      : start(s), limit(l) {}
+};
 
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
@@ -165,6 +192,9 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
   // assert(IsExtendedValueType(*t));
 }
 
+const uint64_t kRangeTombstoneSentinel =
+    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
+
 EntryType GetEntryType(ValueType value_type);
 
 // Append the serialization of "key" to *result.
@@ -183,6 +213,15 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 void AppendInternalKeyWithDifferentTimestamp(std::string* result,
                                              const ParsedInternalKey& key,
                                              const Slice& ts);
+
+// Append the user key to *result, replacing the original timestamp with
+// argument ts.
+//
+// input [user key]:       <user_provided_key | original_ts>
+// output before: empty
+// output after:           <user_provided_key | ts>
+void AppendUserKeyWithDifferentTimestamp(std::string* result, const Slice& key,
+                                         const Slice& ts);
 
 // Serialized internal key consists of user key followed by footer.
 // This function appends the footer to *result, assuming that *result already
@@ -235,6 +274,16 @@ void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
 // output before: empty
 // output after:           <user_provided_key | min_ts | seqno + type>
 void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz);
+
+// `key` is an internal key containing a user key without timestamp. Create a
+// new key in *result by padding a max timestamp of size `ts_sz` to the user key
+// and copying the remaining internal key bytes.
+//
+// input [internal key]:   <user_provided_key | seqno + type>
+// output before: empty
+// output after:           <user_provided_key | max_ts | seqno + type>
+void PadInternalKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                     size_t ts_sz);
 
 // `key` is an internal key containing a user key with timestamp of size
@@ -355,6 +404,7 @@ class InternalKeyComparator
 
   // Same as Compare except that it excludes the value type from comparison
   int CompareKeySeq(const Slice& a, const Slice& b) const;
+  int CompareKeySeq(const ParsedInternalKey& a, const Slice& b) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -422,7 +472,7 @@ class InternalKey {
 
   void Set(const Slice& _user_key_with_ts, SequenceNumber s, ValueType t,
            const Slice& ts) {
-    ParsedInternalKey pik = ParsedInternalKey(_user_key_with_ts, s, t);
+    ParsedInternalKey pik(_user_key_with_ts, s, t);
     // Should not call pik.SetTimestamp() directly as it overwrites the buffer
     // containing _user_key.
     SetFrom(pik, ts);
@@ -820,19 +870,19 @@ class InternalKeySliceTransform : public SliceTransform {
   explicit InternalKeySliceTransform(const SliceTransform* transform)
       : transform_(transform) {}
 
-  virtual const char* Name() const override { return transform_->Name(); }
+  const char* Name() const override { return transform_->Name(); }
 
-  virtual Slice Transform(const Slice& src) const override {
+  Slice Transform(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->Transform(user_key);
   }
 
-  virtual bool InDomain(const Slice& src) const override {
+  bool InDomain(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->InDomain(user_key);
   }
 
-  virtual bool InRange(const Slice& dst) const override {
+  bool InRange(const Slice& dst) const override {
     auto user_key = ExtractUserKey(dst);
     return transform_->InRange(user_key);
   }
@@ -882,17 +932,25 @@ struct RangeTombstone {
   // User-defined timestamp is enabled, `sk` and `ek` should be user key
   // with timestamp, `ts` will replace the timestamps in `sk` and
   // `ek`.
-  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts)
-      : seq_(sn), ts_(ts) {
-    assert(!ts.empty());
+  // When `logical_strip_timestamp` is true, the timestamps in `sk` and `ek`
+  // will be replaced with min timestamp.
+  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts,
+                 bool logical_strip_timestamp)
+      : seq_(sn) {
+    const size_t ts_sz = ts.size();
+    assert(ts_sz > 0);
     pinned_start_key_.reserve(sk.size());
-    pinned_start_key_.append(sk.data(), sk.size() - ts.size());
-    pinned_start_key_.append(ts.data(), ts.size());
     pinned_end_key_.reserve(ek.size());
-    pinned_end_key_.append(ek.data(), ek.size() - ts.size());
-    pinned_end_key_.append(ts.data(), ts.size());
+    if (logical_strip_timestamp) {
+      AppendUserKeyWithMinTimestamp(&pinned_start_key_, sk, ts_sz);
+      AppendUserKeyWithMinTimestamp(&pinned_end_key_, ek, ts_sz);
+    } else {
+      AppendUserKeyWithDifferentTimestamp(&pinned_start_key_, sk, ts);
+      AppendUserKeyWithDifferentTimestamp(&pinned_end_key_, ek, ts);
+    }
     start_key_ = pinned_start_key_;
     end_key_ = pinned_end_key_;
+    ts_ = Slice(pinned_start_key_.data() + sk.size() - ts_sz, ts_sz);
   }
 
   RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
@@ -967,6 +1025,26 @@ inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
         DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes) >> 8;
     const uint64_t bnum =
         DecodeFixed64(bkey.data() + bkey.size() - kNumInternalBytes) >> 8;
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+inline int InternalKeyComparator::CompareKeySeq(const ParsedInternalKey& a,
+                                                const Slice& b) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  int r = user_comparator_.Compare(a.user_key, ExtractUserKey(b));
+  if (r == 0) {
+    // Shift the number to exclude the last byte which contains the value type
+    const uint64_t anum = a.sequence;
+    const uint64_t bnum =
+        DecodeFixed64(b.data() + b.size() - kNumInternalBytes) >> 8;
     if (anum > bnum) {
       r = -1;
     } else if (anum < bnum) {

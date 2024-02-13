@@ -15,5 +15,9 @@ public class UInt64AddOperator extends MergeOperator {
     }
 
     private static native long newSharedUInt64AddOperator();
-    @Override protected final native void disposeInternal(final long handle);
+    @Override
+    protected final void disposeInternal(final long handle) {
+      disposeInternalJni(handle);
+    }
+    private static native void disposeInternalJni(final long handle);
 }

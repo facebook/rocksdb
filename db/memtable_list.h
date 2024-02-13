@@ -498,7 +498,7 @@ class MemTableList {
 // installs flush results for external immutable memtable lists other than the
 // cfds' own immutable memtable lists, e.g. MemTableLIstTest. In this case,
 // imm_lists parameter is not nullptr.
-extern Status InstallMemtableAtomicFlushResults(
+Status InstallMemtableAtomicFlushResults(
     const autovector<MemTableList*>* imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,

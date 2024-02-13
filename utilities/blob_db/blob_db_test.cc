@@ -118,9 +118,7 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  BlobDBImpl *blob_db_impl() {
-    return reinterpret_cast<BlobDBImpl *>(blob_db_);
-  }
+  BlobDBImpl *blob_db_impl() { return static_cast<BlobDBImpl *>(blob_db_); }
 
   Status Put(const Slice &key, const Slice &value,
              std::map<std::string, std::string> *data = nullptr) {

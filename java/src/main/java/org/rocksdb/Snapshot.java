@@ -37,5 +37,5 @@ public class Snapshot extends RocksObject {
      */
   }
 
-  private native long getSequenceNumber(long handle);
+  private static native long getSequenceNumber(long handle);
 }

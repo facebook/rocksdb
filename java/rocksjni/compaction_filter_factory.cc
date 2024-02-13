@@ -34,7 +34,7 @@ jlong Java_org_rocksdb_AbstractCompactionFilterFactory_createNewCompactionFilter
  * Signature: (J)V
  */
 void Java_org_rocksdb_AbstractCompactionFilterFactory_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
+    JNIEnv*, jclass, jlong jhandle) {
   auto* ptr_sptr_cff = reinterpret_cast<
       std::shared_ptr<ROCKSDB_NAMESPACE::CompactionFilterFactoryJniCallback>*>(
       jhandle);

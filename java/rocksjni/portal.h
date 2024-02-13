@@ -2140,8 +2140,8 @@ class JniUtil {
       std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice,
                                               ROCKSDB_NAMESPACE::Slice)>
           op,
-      JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len,
-      jbyteArray jvalue, jint jvalue_len) {
+      JNIEnv* env, jbyteArray jkey, jint jkey_len, jbyteArray jvalue,
+      jint jvalue_len) {
     jbyte* key = env->GetByteArrayElements(jkey, nullptr);
     if (env->ExceptionCheck()) {
       // exception thrown: OutOfMemoryError
@@ -2182,7 +2182,7 @@ class JniUtil {
    */
   static std::unique_ptr<ROCKSDB_NAMESPACE::Status> k_op(
       std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)> op,
-      JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
+      JNIEnv* env, jbyteArray jkey, jint jkey_len) {
     jbyte* key = env->GetByteArrayElements(jkey, nullptr);
     if (env->ExceptionCheck()) {
       // exception thrown: OutOfMemoryError
@@ -4730,48 +4730,6 @@ class CompactionPriorityJni {
   }
 };
 
-// The portal class for org.rocksdb.AccessHint
-class AccessHintJni {
- public:
-  // Returns the equivalent org.rocksdb.AccessHint for the provided
-  // C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
-  static jbyte toJavaAccessHint(
-      const ROCKSDB_NAMESPACE::DBOptions::AccessHint& access_hint) {
-    switch (access_hint) {
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE:
-        return 0x0;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL:
-        return 0x1;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL:
-        return 0x2;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED:
-        return 0x3;
-      default:
-        // undefined/default
-        return 0x1;
-    }
-  }
-
-  // Returns the equivalent C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
-  // for the provided Java org.rocksdb.AccessHint
-  static ROCKSDB_NAMESPACE::DBOptions::AccessHint toCppAccessHint(
-      jbyte jaccess_hint) {
-    switch (jaccess_hint) {
-      case 0x0:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE;
-      case 0x1:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
-      case 0x2:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL;
-      case 0x3:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED;
-      default:
-        // undefined/default
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
-    }
-  }
-};
-
 // The portal class for org.rocksdb.WALRecoveryMode
 class WALRecoveryModeJni {
  public:
@@ -5175,6 +5133,15 @@ class TickerTypeJni {
         return -0x41;
       case ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS:
         return -0x42;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_DUMMY_HITS:
+        return -0x43;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_HITS:
+        return -0x44;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_PROMOTIONS:
+        return -0x45;
+      case ROCKSDB_NAMESPACE::Tickers::
+          COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS:
+        return -0x46;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5550,6 +5517,17 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL;
       case -0x42:
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
+      case -0x43:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_DUMMY_HITS;
+      case -0x44:
+        return ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_HITS;
+      case -0x45:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_PROMOTIONS;
+      case -0x46:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5696,10 +5674,17 @@ class HistogramTypeJni {
       case ROCKSDB_NAMESPACE::Histograms::
           FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS:
         return 0x41;
+      case ROCKSDB_NAMESPACE::Histograms::SST_WRITE_MICROS:
+        return 0x42;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_FLUSH_MICROS:
+        return 0x43;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_COMPACTION_MICROS:
+        return 0x44;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_DB_OPEN_MICROS:
+        return 0x45;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
-
       default:
         // undefined/default
         return 0x0;
@@ -5833,6 +5818,14 @@ class HistogramTypeJni {
       case 0x41:
         return ROCKSDB_NAMESPACE::Histograms::
             FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
+      case 0x42:
+        return ROCKSDB_NAMESPACE::Histograms::SST_WRITE_MICROS;
+      case 0x43:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_FLUSH_MICROS;
+      case 0x44:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_COMPACTION_MICROS;
+      case 0x45:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_DB_OPEN_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -7427,7 +7420,7 @@ class LiveFileMetaDataJni : public JavaClass {
 
     jmethodID mid = env->GetMethodID(
         jclazz, "<init>",
-        "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+        "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ[B)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -7478,6 +7471,18 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
+    jbyteArray jfile_checksum = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
+        env, live_file_meta_data->file_checksum);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfile_name);
+      env->DeleteLocalRef(jpath);
+      env->DeleteLocalRef(jsmallest_key);
+      env->DeleteLocalRef(jlargest_key);
+      return nullptr;
+    }
+
     jobject jlive_file_meta_data = env->NewObject(
         jclazz, mid, jcolumn_family_name,
         static_cast<jint>(live_file_meta_data->level), jfile_name, jpath,
@@ -7488,7 +7493,7 @@ class LiveFileMetaDataJni : public JavaClass {
         static_cast<jlong>(live_file_meta_data->num_reads_sampled),
         static_cast<jboolean>(live_file_meta_data->being_compacted),
         static_cast<jlong>(live_file_meta_data->num_entries),
-        static_cast<jlong>(live_file_meta_data->num_deletions));
+        static_cast<jlong>(live_file_meta_data->num_deletions), jfile_checksum);
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jcolumn_family_name);
@@ -7496,6 +7501,7 @@ class LiveFileMetaDataJni : public JavaClass {
       env->DeleteLocalRef(jpath);
       env->DeleteLocalRef(jsmallest_key);
       env->DeleteLocalRef(jlargest_key);
+      env->DeleteLocalRef(jfile_checksum);
       return nullptr;
     }
 
@@ -7505,6 +7511,7 @@ class LiveFileMetaDataJni : public JavaClass {
     env->DeleteLocalRef(jpath);
     env->DeleteLocalRef(jsmallest_key);
     env->DeleteLocalRef(jlargest_key);
+    env->DeleteLocalRef(jfile_checksum);
 
     return jlive_file_meta_data;
   }

@@ -92,7 +92,7 @@ class ExternalSSTFileTest
     : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileTest() {}
+  ExternalSSTFileTest() = default;
 
   Status GenerateOneExternalFile(
       const Options& options, ColumnFamilyHandle* cfh,
@@ -832,7 +832,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     TablePropertiesCollection props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
     ASSERT_EQ(props.size(), 2);
-    for (auto file_props : props) {
+    for (const auto& file_props : props) {
       auto user_props = file_props.second->user_collected_properties;
       ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
       ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
@@ -855,7 +855,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
 
     ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
     ASSERT_EQ(props.size(), 3);
-    for (auto file_props : props) {
+    for (const auto& file_props : props) {
       auto user_props = file_props.second->user_collected_properties;
       ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
       ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
@@ -1714,9 +1714,8 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
        {"DBImpl::WaitForPendingWrites:BeforeBlock",
         "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::IngestExternalFile:NeedFlush", [&](void* need_flush) {
-        ASSERT_TRUE(*reinterpret_cast<bool*>(need_flush));
-      });
+      "DBImpl::IngestExternalFile:NeedFlush",
+      [&](void* need_flush) { ASSERT_TRUE(*static_cast<bool*>(need_flush)); });
 
   Options options = CurrentOptions();
   options.unordered_write = true;
@@ -1846,6 +1845,92 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
 
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
+}
+
+TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedUniversal) {
+  bool write_global_seqno = std::get<0>(GetParam());
+  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  Options options = CurrentOptions();
+  options.num_levels = 5;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  std::vector<std::pair<std::string, std::string>> file_data;
+  std::map<std::string, std::string> true_data;
+
+  // Write 200 -> 250 into the bottommost level
+  for (int i = 200; i <= 250; i++) {
+    ASSERT_OK(Put(Key(i), "bottommost"));
+    true_data[Key(i)] = "bottommost";
+  }
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,1", FilesPerLevel());
+
+  // Take a snapshot to enforce global sequence number.
+  const Snapshot* snap = db_->GetSnapshot();
+
+  // Insert 100 -> 200 into the memtable
+  for (int i = 100; i <= 200; i++) {
+    ASSERT_OK(Put(Key(i), "memtable"));
+    true_data[Key(i)] = "memtable";
+  }
+
+  // Insert 0 -> 20 using AddFile
+  file_data.clear();
+  for (int i = 0; i <= 20; i++) {
+    file_data.emplace_back(Key(i), "L4");
+  }
+
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file don't overlap with anything in the DB, will go to L4
+  ASSERT_EQ("0,0,0,0,2", FilesPerLevel());
+
+  // Insert 80 -> 130 using AddFile
+  file_data.clear();
+  for (int i = 80; i <= 130; i++) {
+    file_data.emplace_back(Key(i), "L0");
+  }
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file overlap with the memtable, so it will flush it and add
+  // it self to L0
+  ASSERT_EQ("2,0,0,0,2", FilesPerLevel());
+
+  // Insert 30 -> 50 using AddFile
+  file_data.clear();
+  for (int i = 30; i <= 50; i++) {
+    file_data.emplace_back(Key(i), "L4");
+  }
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file don't overlap with anything in the DB and fit in L4 as well
+  ASSERT_EQ("2,0,0,0,3", FilesPerLevel());
+
+  // Insert 10 -> 40 using AddFile
+  file_data.clear();
+  for (int i = 10; i <= 40; i++) {
+    file_data.emplace_back(Key(i), "L3");
+  }
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file overlap with files in L4, we will ingest it into the last
+  // non-overlapping and non-empty level, in this case, it's L0.
+  ASSERT_EQ("3,0,0,0,3", FilesPerLevel());
+
+  size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
+  db_->ReleaseSnapshot(snap);
 }
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
@@ -2878,7 +2963,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
   // currently at the front of the 2nd writer queue. We must make
   // sure that it won't enter the 2nd writer queue for the second time.
   std::vector<std::pair<std::string, std::string>> data;
-  data.push_back(std::make_pair("1001", "v2"));
+  data.emplace_back("1001", "v2");
   ASSERT_OK(GenerateAndAddExternalFile(options, data, -1, true));
 }
 

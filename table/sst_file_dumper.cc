@@ -58,6 +58,7 @@ SstFileDumper::SstFileDumper(const Options& options,
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       read_options_(verify_checksum, false),
       internal_comparator_(BytewiseComparator()) {
   read_options_.readahead_size = readahead_size;
@@ -66,11 +67,6 @@ SstFileDumper::SstFileDumper(const Options& options,
   }
   init_result_ = GetTableReader(file_name_);
 }
-
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
-extern const uint64_t kLegacyPlainTableMagicNumber;
 
 const char* testFileName = "test_file_name";
 
@@ -90,20 +86,21 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   fopts.temperature = file_temp_;
   Status s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   if (s.ok()) {
+    // check empty file
+    // if true, skip further processing of this file
     s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
-  }
-
-  // check empty file
-  // if true, skip further processing of this file
-  if (file_size == 0) {
-    return Status::Aborted(file_path, "Empty file");
+    if (s.ok()) {
+      if (file_size == 0) {
+        return Status::Aborted(file_path, "Empty file");
+      }
+    }
   }
 
   file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
-  FilePrefetchBuffer prefetch_buffer(
-      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
-      false /* track_min_offset */);
+  FilePrefetchBuffer prefetch_buffer(ReadaheadParams(),
+                                     !fopts.use_mmap_reads /* enable */,
+                                     false /* track_min_offset */);
   if (s.ok()) {
     const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
     uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)
@@ -123,8 +120,15 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 
   if (s.ok()) {
     if (magic_number == kPlainTableMagicNumber ||
-        magic_number == kLegacyPlainTableMagicNumber) {
+        magic_number == kLegacyPlainTableMagicNumber ||
+        magic_number == kCuckooTableMagicNumber) {
       soptions_.use_mmap_reads = true;
+      fopts.use_mmap_reads = soptions_.use_mmap_reads;
+
+      if (magic_number == kCuckooTableMagicNumber) {
+        fopts = soptions_;
+        fopts.temperature = file_temp_;
+      }
 
       fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
@@ -296,14 +300,18 @@ Status SstFileDumper::ShowCompressionSize(
   const ImmutableOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
+  // TODO: plumb Env::IOActivity, Env::IOPriority
+  const ReadOptions read_options;
+  const WriteOptions write_options;
   ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
-  IntTblPropCollectorFactories block_based_table_factories;
+  InternalTblPropCollFactories block_based_table_factories;
 
   std::string column_family_name;
   int unknown_level = -1;
+
   TableBuilderOptions tb_opts(
-      imoptions, moptions, ikc, &block_based_table_factories, compress_type,
-      compress_opt,
+      imoptions, moptions, read_options, write_options, ikc,
+      &block_based_table_factories, compress_type, compress_opt,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
@@ -368,10 +376,8 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
-  // TODO: plumb Env::IOActivity
-  const ReadOptions read_options;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, read_options,
+      file, file_size, table_magic_number, ioptions_, read_options_,
       &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
   if (!s.ok()) {
@@ -426,6 +432,13 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
     if (!silent_) {
       fprintf(stdout, "Sst file format: plain table\n");
     }
+  } else if (table_magic_number == kCuckooTableMagicNumber) {
+    ioptions_.allow_mmap_reads = true;
+
+    options_.table_factory.reset(NewCuckooTableFactory());
+    if (!silent_) {
+      fprintf(stdout, "Sst file format: cuckoo table\n");
+    }
   } else {
     char error_msg_buffer[80];
     snprintf(error_msg_buffer, sizeof(error_msg_buffer) - 1,
@@ -447,7 +460,7 @@ Status SstFileDumper::SetOldTableOptions() {
   return Status::OK();
 }
 
-Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
+Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
                                      bool has_from, const std::string& from_key,
                                      bool has_to, const std::string& to_key,
                                      bool use_from_as_prefix) {
@@ -481,7 +494,9 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     Slice key = iter->key();
     Slice value = iter->value();
     ++i;
-    if (read_num > 0 && i > read_num) break;
+    if (read_num_limit > 0 && i > read_num_limit) {
+      break;
+    }
 
     ParsedInternalKey ikey;
     Status pik_status = ParseInternalKey(key, &ikey, true /* log_err_key */);
@@ -539,6 +554,28 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   read_num_ += i;
 
   Status ret = iter->status();
+
+  bool verify_num_entries =
+      (read_num_limit == 0 ||
+       read_num_limit == std::numeric_limits<uint64_t>::max()) &&
+      !has_from && !has_to;
+  if (verify_num_entries && ret.ok()) {
+    // Compare the number of entries
+    if (!table_properties_) {
+      fprintf(stderr, "Table properties not available.");
+    } else {
+      // TODO: verify num_range_deletions
+      if (i != table_properties_->num_entries -
+                   table_properties_->num_range_deletions) {
+        ret =
+            Status::Corruption("Table property has num_entries = " +
+                               std::to_string(table_properties_->num_entries) +
+                               " but scanning the table returns " +
+                               std::to_string(i) + " records.");
+      }
+    }
+  }
+
   delete iter;
   return ret;
 }

@@ -96,9 +96,8 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
         bucketCount_, height_, branchingFactor_);
   }
 
-  private native long newMemTableFactoryHandle(
-      long bucketCount, int height, int branchingFactor)
-      throws IllegalArgumentException;
+  private static native long newMemTableFactoryHandle(
+      long bucketCount, int height, int branchingFactor) throws IllegalArgumentException;
 
   private long bucketCount_;
   private int branchingFactor_;

@@ -373,7 +373,7 @@ struct WritePreparedTxnDB::IteratorState {
 
 namespace {
 static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
-  delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
+  delete static_cast<WritePreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
 
@@ -636,7 +636,7 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
                                         const size_t batch_cnt) {
   TEST_SYNC_POINT_CALLBACK(
       "RemovePrepared:Start",
-      const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+      const_cast<void*>(static_cast<const void*>(&prepare_seq)));
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:pause");
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:resume");
   ROCKS_LOG_DETAILS(info_log_,
@@ -813,6 +813,7 @@ void WritePreparedTxnDB::AdvanceSeqByOne() {
   // Inserting an empty value will i) let the max evicted entry to be
   // published, i.e., max == last_published, increase the last published to
   // be one beyond max, i.e., max < last_published.
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   WriteOptions woptions;
   TransactionOptions txn_options;
   Transaction* txn0 = BeginTransaction(woptions, txn_options, nullptr);

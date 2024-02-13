@@ -6,6 +6,14 @@
 
 #include "db/seqno_to_time_mapping.h"
 
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <deque>
+#include <functional>
+#include <queue>
+#include <vector>
+
 #include "db/version_edit.h"
 #include "util/string_util.h"
 
@@ -13,25 +21,28 @@ namespace ROCKSDB_NAMESPACE {
 
 SeqnoToTimeMapping::pair_const_iterator SeqnoToTimeMapping::FindGreaterTime(
     uint64_t time) const {
+  assert(enforced_);
   return std::upper_bound(pairs_.cbegin(), pairs_.cend(),
                           SeqnoTimePair{0, time}, SeqnoTimePair::TimeLess);
 }
 
 SeqnoToTimeMapping::pair_const_iterator SeqnoToTimeMapping::FindGreaterEqSeqno(
     SequenceNumber seqno) const {
+  assert(enforced_);
   return std::lower_bound(pairs_.cbegin(), pairs_.cend(),
                           SeqnoTimePair{seqno, 0}, SeqnoTimePair::SeqnoLess);
 }
 
 SeqnoToTimeMapping::pair_const_iterator SeqnoToTimeMapping::FindGreaterSeqno(
     SequenceNumber seqno) const {
+  assert(enforced_);
   return std::upper_bound(pairs_.cbegin(), pairs_.cend(),
                           SeqnoTimePair{seqno, 0}, SeqnoTimePair::SeqnoLess);
 }
 
 uint64_t SeqnoToTimeMapping::GetProximalTimeBeforeSeqno(
     SequenceNumber seqno) const {
-  assert(is_sorted_);
+  assert(enforced_);
   // Find the last entry with a seqno strictly less than the given seqno.
   // First, find the first entry >= the given seqno (or end)
   auto it = FindGreaterEqSeqno(seqno);
@@ -43,43 +54,9 @@ uint64_t SeqnoToTimeMapping::GetProximalTimeBeforeSeqno(
   return it->time;
 }
 
-void SeqnoToTimeMapping::Add(SequenceNumber seqno, uint64_t time) {
-  if (seqno == 0) {
-    return;
-  }
-  is_sorted_ = false;
-  pairs_.emplace_back(seqno, time);
-}
-
-void SeqnoToTimeMapping::TruncateOldEntries(const uint64_t now) {
-  assert(is_sorted_);
-
-  if (max_time_duration_ == 0) {
-    // No cutoff time
-    return;
-  }
-
-  if (now < max_time_duration_) {
-    // Would under-flow
-    return;
-  }
-
-  const uint64_t cut_off_time = now - max_time_duration_;
-  assert(cut_off_time <= now);  // no under/overflow
-
-  auto it = FindGreaterTime(cut_off_time);
-  if (it == pairs_.cbegin()) {
-    return;
-  }
-  // Move back one, to the entry that would be used to return a good seqno from
-  // GetProximalSeqnoBeforeTime(cut_off_time)
-  --it;
-  // Remove everything strictly before that entry
-  pairs_.erase(pairs_.cbegin(), std::move(it));
-}
-
-SequenceNumber SeqnoToTimeMapping::GetProximalSeqnoBeforeTime(uint64_t time) {
-  assert(is_sorted_);
+SequenceNumber SeqnoToTimeMapping::GetProximalSeqnoBeforeTime(
+    uint64_t time) const {
+  assert(enforced_);
 
   // Find the last entry with a time <= the given time.
   // First, find the first entry > the given time (or end).
@@ -92,129 +69,311 @@ SequenceNumber SeqnoToTimeMapping::GetProximalSeqnoBeforeTime(uint64_t time) {
   return it->seqno;
 }
 
+void SeqnoToTimeMapping::EnforceMaxTimeSpan(uint64_t now) {
+  assert(enforced_);  // at least sorted
+  uint64_t cutoff_time;
+  if (pairs_.size() <= 1) {
+    return;
+  }
+  if (now > 0) {
+    if (now < max_time_span_) {
+      // Nothing eligible to prune / avoid underflow
+      return;
+    }
+    cutoff_time = now - max_time_span_;
+  } else {
+    const auto& last = pairs_.back();
+    if (last.time < max_time_span_) {
+      // Nothing eligible to prune / avoid underflow
+      return;
+    }
+    cutoff_time = last.time - max_time_span_;
+  }
+  // Keep one entry <= cutoff_time
+  while (pairs_.size() >= 2 && pairs_[0].time <= cutoff_time &&
+         pairs_[1].time <= cutoff_time) {
+    pairs_.pop_front();
+  }
+}
+
+void SeqnoToTimeMapping::EnforceCapacity(bool strict) {
+  assert(enforced_);  // at least sorted
+  uint64_t strict_cap = capacity_;
+  if (strict_cap == 0) {
+    pairs_.clear();
+    return;
+  }
+  // Treat cap of 1 as 2 to work with the below algorithm (etc.)
+  if (strict_cap == 1) {
+    strict_cap = 2;
+  }
+  // When !strict, allow being over nominal capacity by a modest fraction.
+  uint64_t effective_cap = strict_cap + (strict ? 0 : strict_cap / 8);
+  if (effective_cap < strict_cap) {
+    // Correct overflow
+    effective_cap = UINT64_MAX;
+  }
+  if (pairs_.size() <= effective_cap) {
+    return;
+  }
+  // The below algorithm expects at least one removal candidate between first
+  // and last.
+  assert(pairs_.size() >= 3);
+  size_t to_remove_count = pairs_.size() - strict_cap;
+
+  struct RemovalCandidate {
+    uint64_t new_time_gap;
+    std::deque<SeqnoTimePair>::iterator it;
+    RemovalCandidate(uint64_t _new_time_gap,
+                     std::deque<SeqnoTimePair>::iterator _it)
+        : new_time_gap(_new_time_gap), it(_it) {}
+    bool operator>(const RemovalCandidate& other) const {
+      if (new_time_gap == other.new_time_gap) {
+        // If same gap, treat the newer entry as less attractive
+        // for removal (like larger gap)
+        return it->seqno > other.it->seqno;
+      }
+      return new_time_gap > other.new_time_gap;
+    }
+  };
+
+  // A priority queue of best removal candidates (smallest time gap remaining
+  // after removal)
+  using RC = RemovalCandidate;
+  using PQ = std::priority_queue<RC, std::vector<RC>, std::greater<RC>>;
+  PQ pq;
+
+  // Add all the candidates (not including first and last)
+  {
+    auto it = pairs_.begin();
+    assert(it->time != kUnknownTimeBeforeAll);
+    uint64_t prev_prev_time = it->time;
+    ++it;
+    assert(it->time != kUnknownTimeBeforeAll);
+    auto prev_it = it;
+    ++it;
+    while (it != pairs_.end()) {
+      assert(it->time != kUnknownTimeBeforeAll);
+      uint64_t gap = it->time - prev_prev_time;
+      pq.emplace(gap, prev_it);
+      prev_prev_time = prev_it->time;
+      prev_it = it;
+      ++it;
+    }
+  }
+
+  // Greedily remove the best candidate, iteratively
+  while (to_remove_count > 0) {
+    assert(!pq.empty());
+    // Remove the candidate with smallest gap
+    auto rc = pq.top();
+    pq.pop();
+
+    // NOTE: priority_queue does not support updating an existing element,
+    // but we can work around that because the gap tracked in pq is only
+    // going to be better than actuality, and we can detect and adjust
+    // when a better-than-actual gap is found.
+
+    // Determine actual time gap if this entry is removed (zero entries are
+    // marked for deletion)
+    auto it = rc.it + 1;
+    uint64_t after_time = it->time;
+    while (after_time == kUnknownTimeBeforeAll) {
+      assert(it != pairs_.end());
+      ++it;
+      after_time = it->time;
+    }
+    it = rc.it - 1;
+    uint64_t before_time = it->time;
+    while (before_time == kUnknownTimeBeforeAll) {
+      assert(it != pairs_.begin());
+      --it;
+      before_time = it->time;
+    }
+    // Check whether the gap is still valid (or needs to be recomputed)
+    if (rc.new_time_gap == after_time - before_time) {
+      // Mark the entry as removed
+      rc.it->time = kUnknownTimeBeforeAll;
+      --to_remove_count;
+    } else {
+      // Insert a replacement up-to-date removal candidate
+      pq.emplace(after_time - before_time, rc.it);
+    }
+  }
+
+  // Collapse away entries marked for deletion
+  auto from_it = pairs_.begin();
+  auto to_it = from_it;
+
+  for (; from_it != pairs_.end(); ++from_it) {
+    if (from_it->time != kUnknownTimeBeforeAll) {
+      if (from_it != to_it) {
+        *to_it = *from_it;
+      }
+      ++to_it;
+    }
+  }
+
+  // Erase slots freed up
+  pairs_.erase(to_it, pairs_.end());
+  assert(pairs_.size() == strict_cap);
+}
+
+bool SeqnoToTimeMapping::SeqnoTimePair::Merge(const SeqnoTimePair& other) {
+  assert(seqno <= other.seqno);
+  if (seqno == other.seqno) {
+    // Favoring GetProximalSeqnoBeforeTime over GetProximalTimeBeforeSeqno
+    // by keeping the older time. For example, consider nothing has been
+    // written to the DB in some time.
+    time = std::min(time, other.time);
+    return true;
+  } else if (time == other.time) {
+    // Favoring GetProximalSeqnoBeforeTime over GetProximalTimeBeforeSeqno
+    // by keeping the newer seqno. For example, when a burst of writes ages
+    // out, we want the cutoff to be the newest seqno from that burst.
+    seqno = std::max(seqno, other.seqno);
+    return true;
+  } else if (time > other.time) {
+    assert(seqno < other.seqno);
+    // Need to resolve an inconsistency (clock drift? very rough time?).
+    // Given the direction that entries are supposed to err, trust the earlier
+    // time entry as more reliable, and this choice ensures we don't
+    // accidentally throw out an entry within our time span.
+    *this = other;
+    return true;
+  } else {
+    // Not merged
+    return false;
+  }
+}
+
+void SeqnoToTimeMapping::SortAndMerge() {
+  assert(!enforced_);
+  if (!pairs_.empty()) {
+    std::sort(pairs_.begin(), pairs_.end());
+
+    auto from_it = pairs_.begin();
+    auto to_it = from_it;
+    for (++from_it; from_it != pairs_.end(); ++from_it) {
+      if (to_it->Merge(*from_it)) {
+        // Merged with last entry
+      } else {
+        // Copy into next entry
+        *++to_it = *from_it;
+      }
+    }
+    // Erase slots freed up from merging
+    pairs_.erase(to_it + 1, pairs_.end());
+  }
+  // Mark as "at least sorted"
+  enforced_ = true;
+}
+
+SeqnoToTimeMapping& SeqnoToTimeMapping::SetMaxTimeSpan(uint64_t max_time_span) {
+  max_time_span_ = max_time_span;
+  if (enforced_) {
+    EnforceMaxTimeSpan();
+  }
+  return *this;
+}
+
+SeqnoToTimeMapping& SeqnoToTimeMapping::SetCapacity(uint64_t capacity) {
+  capacity_ = capacity;
+  if (enforced_) {
+    EnforceCapacity(/*strict=*/true);
+  }
+  return *this;
+}
+
+SeqnoToTimeMapping& SeqnoToTimeMapping::Enforce(uint64_t now) {
+  if (!enforced_) {
+    SortAndMerge();
+    assert(enforced_);
+    EnforceMaxTimeSpan(now);
+  } else if (now > 0) {
+    EnforceMaxTimeSpan(now);
+  }
+  EnforceCapacity(/*strict=*/true);
+  return *this;
+}
+
+void SeqnoToTimeMapping::AddUnenforced(SequenceNumber seqno, uint64_t time) {
+  if (seqno == 0) {
+    return;
+  }
+  enforced_ = false;
+  pairs_.emplace_back(seqno, time);
+}
+
 // The encoded format is:
 //  [num_of_entries][[seqno][time],[seqno][time],...]
 //      ^                                 ^
 //    var_int                      delta_encoded (var_int)
-void SeqnoToTimeMapping::Encode(std::string& dest, const SequenceNumber start,
-                                const SequenceNumber end, const uint64_t now,
-                                const uint64_t output_size) const {
-  assert(is_sorted_);
-  if (start > end) {
-    // It could happen when the SST file is empty, the initial value of min
-    // sequence number is kMaxSequenceNumber and max is 0.
-    // The empty output file will be removed in the final step of compaction.
+// Except empty string is used for empty mapping. This means the encoding
+// doesn't fully form a prefix code, but that is OK for applications like
+// TableProperties.
+void SeqnoToTimeMapping::EncodeTo(std::string& dest) const {
+  assert(enforced_);
+  // Can use empty string for empty mapping
+  if (pairs_.empty()) {
     return;
   }
-
-  auto start_it = FindGreaterSeqno(start);
-  if (start_it != pairs_.begin()) {
-    start_it--;
-  }
-
-  auto end_it = FindGreaterSeqno(end);
-  if (end_it == pairs_.begin()) {
-    return;
-  }
-  if (start_it >= end_it) {
-    return;
-  }
-
-  // truncate old entries that are not needed
-  if (max_time_duration_ > 0) {
-    const uint64_t cut_off_time =
-        now > max_time_duration_ ? now - max_time_duration_ : 0;
-    while (start_it < end_it && start_it->time < cut_off_time) {
-      start_it++;
-    }
-  }
-  // to include the first element
-  if (start_it != pairs_.begin()) {
-    start_it--;
-  }
-
-  // If there are more data than needed, pick the entries for encoding.
-  // It's not the most optimized algorithm for selecting the best representative
-  // entries over the time.
-  // It starts from the beginning and makes sure the distance is larger than
-  // `(end - start) / size` before selecting the number. For example, for the
-  // following list, pick 3 entries (it will pick seqno #1, #6, #8):
-  //    1 -> 10
-  //    5 -> 17
-  //    6 -> 25
-  //    8 -> 30
-  // first, it always picks the first one, then there are 2 num_entries_to_fill
-  // and the time difference between current one vs. the last one is
-  // (30 - 10) = 20. 20/2 = 10. So it will skip until 10+10 = 20. => it skips
-  // #5 and pick #6.
-  // But the most optimized solution is picking #1 #5 #8, as it will be more
-  // evenly distributed for time. Anyway the following algorithm is simple and
-  // may over-select new data, which is good. We do want more accurate time
-  // information for recent data.
-  std::deque<SeqnoTimePair> output_copy;
-  if (std::distance(start_it, end_it) > static_cast<int64_t>(output_size)) {
-    int64_t num_entries_to_fill = static_cast<int64_t>(output_size);
-    auto last_it = end_it;
-    last_it--;
-    uint64_t end_time = last_it->time;
-    uint64_t skip_until_time = 0;
-    for (auto it = start_it; it < end_it; it++) {
-      // skip if it's not reach the skip_until_time yet
-      if (std::distance(it, end_it) > num_entries_to_fill &&
-          it->time < skip_until_time) {
-        continue;
-      }
-      output_copy.push_back(*it);
-      num_entries_to_fill--;
-      if (std::distance(it, end_it) > num_entries_to_fill &&
-          num_entries_to_fill > 0) {
-        // If there are more entries than we need, re-calculate the
-        // skip_until_time, which means skip until that time
-        skip_until_time =
-            it->time + ((end_time - it->time) / num_entries_to_fill);
-      }
-    }
-
-    // Make sure all entries are filled
-    assert(num_entries_to_fill == 0);
-    start_it = output_copy.begin();
-    end_it = output_copy.end();
-  }
-
-  // Delta encode the data
-  uint64_t size = std::distance(start_it, end_it);
-  PutVarint64(&dest, size);
+  // Encode number of entries
+  PutVarint64(&dest, pairs_.size());
   SeqnoTimePair base;
-  for (auto it = start_it; it < end_it; it++) {
-    assert(base < *it);
-    SeqnoTimePair val = it->ComputeDelta(base);
-    base = *it;
+  for (auto& cur : pairs_) {
+    assert(base < cur);
+    // Delta encode each entry
+    SeqnoTimePair val = cur.ComputeDelta(base);
+    base = cur;
     val.Encode(dest);
   }
 }
 
-Status SeqnoToTimeMapping::Add(const std::string& pairs_str) {
-  Slice input(pairs_str);
+namespace {
+Status DecodeImpl(Slice& input,
+                  std::deque<SeqnoToTimeMapping::SeqnoTimePair>& pairs) {
   if (input.empty()) {
     return Status::OK();
   }
-  uint64_t size;
-  if (!GetVarint64(&input, &size)) {
+  uint64_t count;
+  if (!GetVarint64(&input, &count)) {
     return Status::Corruption("Invalid sequence number time size");
   }
-  is_sorted_ = false;
-  SeqnoTimePair base;
-  for (uint64_t i = 0; i < size; i++) {
-    SeqnoTimePair val;
+
+  SeqnoToTimeMapping::SeqnoTimePair base;
+  for (uint64_t i = 0; i < count; i++) {
+    SeqnoToTimeMapping::SeqnoTimePair val;
     Status s = val.Decode(input);
     if (!s.ok()) {
       return s;
     }
     val.ApplyDelta(base);
-    pairs_.emplace_back(val);
+    pairs.emplace_back(val);
     base = val;
   }
+
+  if (!input.empty()) {
+    return Status::Corruption(
+        "Extra bytes at end of sequence number time mapping");
+  }
   return Status::OK();
+}
+}  // namespace
+
+Status SeqnoToTimeMapping::DecodeFrom(const std::string& pairs_str) {
+  size_t orig_size = pairs_.size();
+
+  Slice input(pairs_str);
+  Status s = DecodeImpl(input, pairs_);
+  if (!s.ok()) {
+    // Roll back in case of corrupted data
+    pairs_.resize(orig_size);
+  } else if (orig_size > 0 || max_time_span_ < UINT64_MAX ||
+             capacity_ < UINT64_MAX) {
+    enforced_ = false;
+  }
+  return s;
 }
 
 void SeqnoToTimeMapping::SeqnoTimePair::Encode(std::string& dest) const {
@@ -231,38 +390,74 @@ Status SeqnoToTimeMapping::SeqnoTimePair::Decode(Slice& input) {
   return Status::OK();
 }
 
-bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
-  assert(is_sorted_);
+void SeqnoToTimeMapping::CopyFromSeqnoRange(const SeqnoToTimeMapping& src,
+                                            SequenceNumber from_seqno,
+                                            SequenceNumber to_seqno) {
+  bool orig_empty = Empty();
+  auto src_it = src.FindGreaterEqSeqno(from_seqno);
+  // Allow nonsensical ranges like [1000, 0] which might show up e.g. for
+  // an SST file with no entries.
+  auto src_it_end =
+      to_seqno < from_seqno ? src_it : src.FindGreaterSeqno(to_seqno);
+  // To best answer GetProximalTimeBeforeSeqno(from_seqno) we need an entry
+  // with a seqno before that (if available)
+  if (src_it != src.pairs_.begin()) {
+    --src_it;
+  }
+  assert(src_it <= src_it_end);
+  std::copy(src_it, src_it_end, std::back_inserter(pairs_));
 
-  // skip seq number 0, which may have special meaning, like zeroed out data
-  if (seqno == 0) {
+  if (!orig_empty || max_time_span_ < UINT64_MAX || capacity_ < UINT64_MAX) {
+    enforced_ = false;
+  }
+}
+
+bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
+  if (capacity_ == 0) {
     return false;
   }
-  if (!Empty()) {
-    if (seqno < Last().seqno || time < Last().time) {
-      return false;
-    }
-    if (seqno == Last().seqno) {
-      // Updating Last() would hurt GetProximalSeqnoBeforeTime() queries, so
-      // NOT doing it (for now)
-      return false;
-    }
-    if (time == Last().time) {
-      // Updating Last() here helps GetProximalSeqnoBeforeTime() queries, so
-      // doing it (for now)
-      Last().seqno = seqno;
-      return true;
+  bool added = false;
+  if (seqno == 0) {
+    // skip seq number 0, which may have special meaning, like zeroed out data
+    // TODO: consider changing?
+  } else if (pairs_.empty()) {
+    enforced_ = true;
+    pairs_.push_back({seqno, time});
+    // skip normal enforced check below
+    return true;
+  } else {
+    auto& last = pairs_.back();
+    // We can attempt to merge with the last entry if the new entry sorts with
+    // it.
+    if (last.seqno <= seqno) {
+      bool merged = last.Merge({seqno, time});
+      if (!merged) {
+        if (enforced_ && (seqno <= last.seqno || time <= last.time)) {
+          // Out of order append should not happen, except in case of clock
+          // reset
+          assert(false);
+        } else {
+          pairs_.push_back({seqno, time});
+          added = true;
+        }
+      }
+    } else if (!enforced_) {
+      // Treat like AddUnenforced and fix up below
+      pairs_.push_back({seqno, time});
+      added = true;
+    } else {
+      // Out of order append attempted
+      assert(false);
     }
   }
-
-  pairs_.emplace_back(seqno, time);
-
-  if (pairs_.size() > max_capacity_) {
-    // FIXME: be smarter about how we erase to avoid data falling off the
-    // front prematurely.
-    pairs_.pop_front();
+  // Similar to Enforce() but not quite
+  if (!enforced_) {
+    SortAndMerge();
+    assert(enforced_);
   }
-  return true;
+  EnforceMaxTimeSpan();
+  EnforceCapacity(/*strict=*/false);
+  return added;
 }
 
 bool SeqnoToTimeMapping::PrePopulate(SequenceNumber from_seqno,
@@ -284,64 +479,6 @@ bool SeqnoToTimeMapping::PrePopulate(SequenceNumber from_seqno,
   return /*success*/ true;
 }
 
-bool SeqnoToTimeMapping::Resize(uint64_t min_time_duration,
-                                uint64_t max_time_duration) {
-  uint64_t new_max_capacity =
-      CalculateMaxCapacity(min_time_duration, max_time_duration);
-  if (new_max_capacity == max_capacity_) {
-    return false;
-  } else if (new_max_capacity < pairs_.size()) {
-    uint64_t delta = pairs_.size() - new_max_capacity;
-    // FIXME: be smarter about how we erase to avoid data falling off the
-    // front prematurely.
-    pairs_.erase(pairs_.begin(), pairs_.begin() + delta);
-  }
-  max_capacity_ = new_max_capacity;
-  return true;
-}
-
-Status SeqnoToTimeMapping::Sort() {
-  if (is_sorted_) {
-    return Status::OK();
-  }
-  if (pairs_.empty()) {
-    is_sorted_ = true;
-    return Status::OK();
-  }
-
-  std::deque<SeqnoTimePair> copy = std::move(pairs_);
-
-  std::sort(copy.begin(), copy.end());
-
-  pairs_.clear();
-
-  // remove seqno = 0, which may have special meaning, like zeroed out data
-  while (copy.front().seqno == 0) {
-    copy.pop_front();
-  }
-
-  SeqnoTimePair prev = copy.front();
-  for (const auto& it : copy) {
-    // If sequence number is the same, pick the one with larger time, which is
-    // more accurate than the older time.
-    if (it.seqno == prev.seqno) {
-      assert(it.time >= prev.time);
-      prev.time = it.time;
-    } else {
-      assert(it.seqno > prev.seqno);
-      // If a larger sequence number has an older time which is not useful, skip
-      if (it.time > prev.time) {
-        pairs_.push_back(prev);
-        prev = it;
-      }
-    }
-  }
-  pairs_.emplace_back(prev);
-
-  is_sorted_ = true;
-  return Status::OK();
-}
-
 std::string SeqnoToTimeMapping::ToHumanString() const {
   std::string ret;
   for (const auto& seq_time : pairs_) {
@@ -351,27 +488,6 @@ std::string SeqnoToTimeMapping::ToHumanString() const {
     ret.append(",");
   }
   return ret;
-}
-
-SeqnoToTimeMapping SeqnoToTimeMapping::Copy(
-    SequenceNumber smallest_seqno) const {
-  SeqnoToTimeMapping ret;
-  auto it = FindGreaterSeqno(smallest_seqno);
-  if (it != pairs_.begin()) {
-    it--;
-  }
-  std::copy(it, pairs_.end(), std::back_inserter(ret.pairs_));
-  return ret;
-}
-
-uint64_t SeqnoToTimeMapping::CalculateMaxCapacity(uint64_t min_time_duration,
-                                                  uint64_t max_time_duration) {
-  if (min_time_duration == 0) {
-    return 0;
-  }
-  return std::min(
-      kMaxSeqnoToTimeEntries,
-      max_time_duration * kMaxSeqnoTimePairsPerCF / min_time_duration);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

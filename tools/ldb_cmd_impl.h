@@ -208,9 +208,9 @@ class UpdateManifestCommand : public LDBCommand {
                         const std::vector<std::string>& flags);
 
   static void Help(std::string& ret);
-  virtual void DoCommand() override;
+  void DoCommand() override;
 
-  virtual bool NoDBOpen() override { return true; }
+  bool NoDBOpen() override { return true; }
 
  private:
   bool verbose_;
@@ -401,6 +401,22 @@ class GetCommand : public LDBCommand {
 
  private:
   std::string key_;
+};
+
+class MultiGetCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "multi_get"; }
+
+  MultiGetCommand(const std::vector<std::string>& params,
+                  const std::map<std::string, std::string>& options,
+                  const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::vector<std::string> keys_;
 };
 
 class GetEntityCommand : public LDBCommand {

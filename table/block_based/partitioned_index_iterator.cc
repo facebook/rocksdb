@@ -92,7 +92,7 @@ void PartitionedIndexIterator::InitPartitionedIndexBlock() {
     block_prefetcher_.PrefetchIfNeeded(
         rep, partitioned_index_handle, read_options_.readahead_size,
         is_for_compaction, /*no_sequential_checking=*/false, read_options_,
-        /*readaheadsize_cb=*/nullptr);
+        /*readaheadsize_cb=*/nullptr, /*is_async_io_prefetch=*/false);
     Status s;
     table_->NewDataBlockIterator<IndexBlockIter>(
         read_options_, partitioned_index_handle, &block_iter_,

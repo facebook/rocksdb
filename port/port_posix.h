@@ -179,11 +179,11 @@ static inline void AsmVolatilePause() {
 }
 
 // Returns -1 if not available on this platform
-extern int PhysicalCoreID();
+int PhysicalCoreID();
 
 using OnceType = pthread_once_t;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
-extern void InitOnce(OnceType* once, void (*initializer)());
+void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
 // To test behavior with non-native cache line size, e.g. for
@@ -211,9 +211,9 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 static_assert((CACHE_LINE_SIZE & (CACHE_LINE_SIZE - 1)) == 0,
               "Cache line size must be a power of 2 number of bytes");
 
-extern void* cacheline_aligned_alloc(size_t size);
+void* cacheline_aligned_alloc(size_t size);
 
-extern void cacheline_aligned_free(void* memblock);
+void cacheline_aligned_free(void* memblock);
 
 #if defined(__aarch64__)
 //  __builtin_prefetch(..., 1) turns into a prefetch into prfm pldl3keep. On
@@ -226,15 +226,15 @@ extern void cacheline_aligned_free(void* memblock);
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 #endif
 
-extern void Crash(const std::string& srcfile, int srcline);
+void Crash(const std::string& srcfile, int srcline);
 
-extern int GetMaxOpenFiles();
+int GetMaxOpenFiles();
 
 extern const size_t kPageSize;
 
 using ThreadId = pid_t;
 
-extern void SetCpuPriority(ThreadId id, CpuPriority priority);
+void SetCpuPriority(ThreadId id, CpuPriority priority);
 
 int64_t GetProcessID();
 

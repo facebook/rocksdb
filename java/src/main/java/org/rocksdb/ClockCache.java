@@ -65,5 +65,9 @@ public class ClockCache extends Cache {
 
   private static native long newClockCache(
       final long capacity, final int numShardBits, final boolean strictCapacityLimit);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

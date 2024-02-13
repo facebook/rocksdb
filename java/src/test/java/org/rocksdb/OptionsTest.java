@@ -699,16 +699,6 @@ public class OptionsTest {
     }
   }
 
-  @SuppressWarnings("deprecated")
-  @Test
-  public void accessHintOnCompactionStart() {
-    try (final Options opt = new Options()) {
-      final AccessHint accessHint = AccessHint.SEQUENTIAL;
-      opt.setAccessHintOnCompactionStart(accessHint);
-      assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
-    }
-  }
-
   @Test
   public void compactionReadaheadSize() {
     try (final Options opt = new Options()) {
@@ -1494,6 +1484,22 @@ public class OptionsTest {
       final List<AbstractEventListener> listeners2 = options.listeners();
       assertNotNull(listeners2);
       assertEquals(0, listeners2.size());
+    }
+  }
+  @Test
+  public void tablePropertiesCollectorFactory() {
+    try (final Options options = new Options()) {
+      try (TablePropertiesCollectorFactory collectorFactory =
+               TablePropertiesCollectorFactory.NewCompactOnDeletionCollectorFactory(10, 10, 1.0)) {
+        List<TablePropertiesCollectorFactory> factories = Arrays.asList(collectorFactory);
+        options.setTablePropertiesCollectorFactory(factories);
+      }
+      List<TablePropertiesCollectorFactory> factories = options.tablePropertiesCollectorFactory();
+      try {
+        assertThat(factories).hasSize(1);
+      } finally {
+        factories.stream().forEach(TablePropertiesCollectorFactory::close);
+      }
     }
   }
 }

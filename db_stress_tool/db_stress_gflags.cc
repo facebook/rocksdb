@@ -1025,6 +1025,10 @@ DEFINE_uint64(user_timestamp_size, 0,
               "Number of bytes for a user-defined timestamp. Currently, only "
               "8-byte is supported");
 
+DEFINE_bool(persist_user_defined_timestamps, true,
+            "Flag to indicate whether user-defined timestamps will be persisted"
+            " during Flush");
+
 DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "
              "during DB reopen.");
@@ -1125,11 +1129,9 @@ DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
-DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
-
 DEFINE_bool(verification_only, false,
             "If true, tests will only execute verification step");
-extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
+extern "C" bool RocksDbIOUringEnable() { return true; }
 
 DEFINE_uint32(memtable_max_range_deletions, 0,
               "If nonzero, RocksDB will try to flush the current memtable"

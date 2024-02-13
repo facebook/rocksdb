@@ -76,11 +76,6 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
 endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-if ($ENV{CIRCLECI})
-  message(STATUS "Build for CircieCI env, a few tests may be disabled")
-  add_definitions(-DCIRCLECI)
-endif()
-
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -171,7 +166,7 @@ else()
   if(WITH_ZSTD)
     find_package(zstd REQUIRED)
     add_definitions(-DZSTD)
-    include_directories(${ZSTD_INCLUDE_DIR})
+    include_directories(${ZSTD_INCLUDE_DIRS})
     list(APPEND THIRDPARTY_LIBS zstd::zstd)
   endif()
 endif()
@@ -376,7 +371,7 @@ option(WITH_NUMA "build with NUMA policy support" OFF)
 if(WITH_NUMA)
   find_package(NUMA REQUIRED)
   add_definitions(-DNUMA)
-  include_directories(${NUMA_INCLUDE_DIR})
+  include_directories(${NUMA_INCLUDE_DIRS})
   list(APPEND THIRDPARTY_LIBS NUMA::NUMA)
 endif()
 
@@ -1428,6 +1423,7 @@ if(WITH_TESTS)
         util/ribbon_test.cc
         util/slice_test.cc
         util/slice_transform_test.cc
+        util/string_util_test.cc
         util/timer_queue_test.cc
         util/timer_test.cc
         util/thread_list_test.cc
@@ -1477,7 +1473,7 @@ if(WITH_TESTS)
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+  add_custom_target(rocksdb_check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
   target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB} ${FOLLY_LIBS})
@@ -1502,7 +1498,7 @@ if(WITH_TESTS)
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
-        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(rocksdb_check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
 
@@ -1522,7 +1518,7 @@ if(WITH_TESTS)
     add_executable(c_test db/c_test.c)
     target_link_libraries(c_test ${ROCKSDB_LIB_FOR_C} testharness)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
-    add_dependencies(check c_test)
+    add_dependencies(rocksdb_check c_test)
   endif()
 endif()
 

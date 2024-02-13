@@ -1194,24 +1194,47 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
 
   ASSERT_OK(second_builder.Apply(&second_edit));
 
-  VersionStorageInfo newer_vstorage(
+  VersionStorageInfo new_vstorage_2(
       &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &new_vstorage,
       force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
       0, OffpeakTimeOption(options_.daily_offpeak_time_utc));
 
-  ASSERT_OK(second_builder.SaveTo(&newer_vstorage));
+  ASSERT_OK(second_builder.SaveTo(&new_vstorage_2));
 
-  UpdateVersionStorageInfo(&newer_vstorage);
+  UpdateVersionStorageInfo(&new_vstorage_2);
 
-  const auto& newer_blob_files = newer_vstorage.GetBlobFiles();
+  const auto& newer_blob_files = new_vstorage_2.GetBlobFiles();
   ASSERT_EQ(newer_blob_files.size(), 2);
 
   const auto newer_meta3 =
-      newer_vstorage.GetBlobFileMetaData(/* blob_file_number */ 3);
+      new_vstorage_2.GetBlobFileMetaData(/* blob_file_number */ 3);
 
   ASSERT_EQ(newer_meta3, nullptr);
 
-  UnrefFilesInVersion(&newer_vstorage);
+  // Blob file #5 is referenced by table file #4, and blob file #9 is
+  // unreferenced. After deleting table file #4, all blob files will become
+  // unreferenced and will therefore be obsolete.
+  VersionBuilder third_builder(env_options, &ioptions_, table_cache,
+                               &new_vstorage_2, version_set);
+  VersionEdit third_edit;
+  third_edit.DeleteFile(/* level */ 0, /* file_number */ 4);
+
+  ASSERT_OK(third_builder.Apply(&third_edit));
+
+  VersionStorageInfo new_vstorage_3(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
+      &new_vstorage_2, force_consistency_checks,
+      EpochNumberRequirement::kMightMissing, nullptr, 0,
+      OffpeakTimeOption(options_.daily_offpeak_time_utc));
+
+  ASSERT_OK(third_builder.SaveTo(&new_vstorage_3));
+
+  UpdateVersionStorageInfo(&new_vstorage_3);
+
+  ASSERT_TRUE(new_vstorage_3.GetBlobFiles().empty());
+
+  UnrefFilesInVersion(&new_vstorage_3);
+  UnrefFilesInVersion(&new_vstorage_2);
   UnrefFilesInVersion(&new_vstorage);
 }
 

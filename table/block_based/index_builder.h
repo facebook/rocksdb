@@ -35,7 +35,7 @@ class IndexBuilder {
  public:
   static IndexBuilder* CreateIndexBuilder(
       BlockBasedTableOptions::IndexType index_type,
-      const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
+      const InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
       bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
       size_t ts_sz, bool persist_user_defined_timestamps);
@@ -106,6 +106,25 @@ class IndexBuilder {
   virtual bool seperator_is_key_plus_seq() { return true; }
 
  protected:
+  // Given the last key in current block and the first key in the next block,
+  // return true if internal key should be used as separator, false if user key
+  // can be used as separator.
+  inline bool ShouldUseKeyPlusSeqAsSeparator(
+      const Slice& last_key_in_current_block,
+      const Slice& first_key_in_next_block) {
+    Slice l_user_key = ExtractUserKey(last_key_in_current_block);
+    Slice r_user_key = ExtractUserKey(first_key_in_next_block);
+    // If user defined timestamps are not persisted. All the user keys will
+    // act like they have minimal timestamp. Only having user key is not
+    // sufficient, even if they are different user keys for now, they have to be
+    // different user keys without the timestamp part.
+    return persist_user_defined_timestamps_
+               ? comparator_->user_comparator()->Compare(l_user_key,
+                                                         r_user_key) == 0
+               : comparator_->user_comparator()->CompareWithoutTimestamp(
+                     l_user_key, r_user_key) == 0;
+  }
+
   const InternalKeyComparator* comparator_;
   // Size of user-defined timestamp in bytes.
   size_t ts_sz_;
@@ -173,9 +192,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
                                          *first_key_in_next_block);
       }
       if (!seperator_is_key_plus_seq_ &&
-          comparator_->user_comparator()->Compare(
-              ExtractUserKey(*last_key_in_current_block),
-              ExtractUserKey(*first_key_in_next_block)) == 0) {
+          ShouldUseKeyPlusSeqAsSeparator(*last_key_in_current_block,
+                                         *first_key_in_next_block)) {
         seperator_is_key_plus_seq_ = true;
       }
     } else {
@@ -414,9 +432,9 @@ class HashIndexBuilder : public IndexBuilder {
 class PartitionedIndexBuilder : public IndexBuilder {
  public:
   static PartitionedIndexBuilder* CreateIndexBuilder(
-      const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
-      bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
-      size_t ts_sz, bool persist_user_defined_timestamps);
+      const InternalKeyComparator* comparator, bool use_value_delta_encoding,
+      const BlockBasedTableOptions& table_opt, size_t ts_sz,
+      bool persist_user_defined_timestamps);
 
   PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                           const BlockBasedTableOptions& table_opt,

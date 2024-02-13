@@ -23,9 +23,9 @@
  * Signature: (IIDIIBZZ)J
  */
 jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
-    JNIEnv * /*env*/, jobject /*jobj*/, jint jkey_size,
-    jint jbloom_bits_per_key, jdouble jhash_table_ratio, jint jindex_sparseness,
-    jint jhuge_page_tlb_size, jbyte jencoding_type, jboolean jfull_scan_mode,
+    JNIEnv * /*env*/, jclass /*jcls*/, jint jkey_size, jint jbloom_bits_per_key,
+    jdouble jhash_table_ratio, jint jindex_sparseness, jint jhuge_page_tlb_size,
+    jbyte jencoding_type, jboolean jfull_scan_mode,
     jboolean jstore_index_in_file) {
   ROCKSDB_NAMESPACE::PlainTableOptions options =
       ROCKSDB_NAMESPACE::PlainTableOptions();
@@ -48,7 +48,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
  * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBJIJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
-    JNIEnv *, jobject, jboolean jcache_index_and_filter_blocks,
+    JNIEnv *, jclass, jboolean jcache_index_and_filter_blocks,
     jboolean jcache_index_and_filter_blocks_with_high_priority,
     jboolean jpin_l0_filter_and_index_blocks_in_cache,
     jboolean jpin_top_level_index_and_filter, jbyte jindex_type_value,

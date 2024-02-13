@@ -22,5 +22,9 @@ public class PersistentCache extends RocksObject {
       final long size, final long loggerHandle, final boolean optimizedForNvm)
       throws RocksDBException;
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

@@ -78,7 +78,8 @@ void BlobFile::MarkObsolete(SequenceNumber sequence) {
   obsolete_.store(true);
 }
 
-Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
+Status BlobFile::WriteFooterAndCloseLocked(const WriteOptions& write_options,
+                                           SequenceNumber sequence) {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
   if (HasTTL()) {
@@ -86,7 +87,8 @@ Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   }
 
   // this will close the file and reset the Writable File Pointer.
-  Status s = log_writer_->AppendFooter(footer, /* checksum_method */ nullptr,
+  Status s = log_writer_->AppendFooter(write_options, footer,
+                                       /* checksum_method */ nullptr,
                                        /* checksum_value */ nullptr);
   if (s.ok()) {
     closed_ = true;
@@ -137,10 +139,10 @@ Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
   return Status::OK();
 }
 
-Status BlobFile::Fsync() {
+Status BlobFile::Fsync(const WriteOptions& write_options) {
   Status s;
   if (log_writer_.get()) {
-    s = log_writer_->Sync();
+    s = log_writer_->Sync(write_options);
   }
   return s;
 }

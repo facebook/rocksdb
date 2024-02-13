@@ -79,6 +79,8 @@ std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
         PrepareDelete(cf, key, &prepared);
     if (prepared) {
       pending_expected_values.push_back(pending_expected_value);
+    } else {
+      pending_expected_value.PermitUnclosedPendingState();
     }
   }
   return pending_expected_values;
@@ -185,7 +187,7 @@ ExpectedStateManager::ExpectedStateManager(size_t max_key,
       num_column_families_(num_column_families),
       latest_(nullptr) {}
 
-ExpectedStateManager::~ExpectedStateManager() {}
+ExpectedStateManager::~ExpectedStateManager() = default;
 
 const std::string FileExpectedStateManager::kLatestBasename = "LATEST";
 const std::string FileExpectedStateManager::kStateFilenameSuffix = ".state";
@@ -658,26 +660,26 @@ Status FileExpectedStateManager::Restore(DB* db) {
     if (s.ok()) {
       s = replayer->Prepare();
     }
-    for (;;) {
+    for (; s.ok();) {
       std::unique_ptr<TraceRecord> record;
       s = replayer->Next(&record);
       if (!s.ok()) {
+        if (s.IsCorruption() && handler->IsDone()) {
+          // There could be a corruption reading the tail record of the trace
+          // due to `db_stress` crashing while writing it. It shouldn't matter
+          // as long as we already found all the write ops we need to catch up
+          // the expected state.
+          s = Status::OK();
+        }
+        if (s.IsIncomplete()) {
+          // OK because `Status::Incomplete` is expected upon finishing all the
+          // trace records.
+          s = Status::OK();
+        }
         break;
       }
       std::unique_ptr<TraceRecordResult> res;
-      record->Accept(handler.get(), &res);
-    }
-    if (s.IsCorruption() && handler->IsDone()) {
-      // There could be a corruption reading the tail record of the trace due to
-      // `db_stress` crashing while writing it. It shouldn't matter as long as
-      // we already found all the write ops we need to catch up the expected
-      // state.
-      s = Status::OK();
-    }
-    if (s.IsIncomplete()) {
-      // OK because `Status::Incomplete` is expected upon finishing all the
-      // trace records.
-      s = Status::OK();
+      s = record->Accept(handler.get(), &res);
     }
   }
 

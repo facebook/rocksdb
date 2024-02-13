@@ -282,8 +282,7 @@ Status ReplayerImpl::ReadTrace(Trace* trace) {
 }
 
 void ReplayerImpl::BackgroundWork(void* arg) {
-  std::unique_ptr<ReplayerWorkerArg> ra(
-      reinterpret_cast<ReplayerWorkerArg*>(arg));
+  std::unique_ptr<ReplayerWorkerArg> ra(static_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
 
   std::unique_ptr<TraceRecord> record;

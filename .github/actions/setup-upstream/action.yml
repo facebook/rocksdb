@@ -1,0 +1,20 @@
+name: build-folly
+runs:
+  using: composite
+  steps:
+  - name: Fix repo ownership
+    # Needed in some cases, as safe.directory setting doesn't take effect
+    # under env -i
+    run: chown `whoami` . || true
+    shell: bash
+  - name: Set upstream
+    run: git remote add upstream https://github.com/facebook/rocksdb.git
+    shell: bash
+  - name: Fetch upstream
+    run: git fetch upstream
+    shell: bash
+  - name: Git status
+    # NOTE: some old branch builds under check_format_compatible.sh invoke
+    # git under env -i
+    run: git status && git remote -v && env -i git branch
+    shell: bash

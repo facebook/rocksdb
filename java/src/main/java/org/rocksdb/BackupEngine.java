@@ -229,31 +229,35 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
   private static native long open(final long env, final long backupEngineOptions)
       throws RocksDBException;
 
-  private native void createNewBackup(final long handle, final long dbHandle,
+  private static native void createNewBackup(final long handle, final long dbHandle,
       final boolean flushBeforeBackup) throws RocksDBException;
 
-  private native void createNewBackupWithMetadata(final long handle, final long dbHandle,
+  private static native void createNewBackupWithMetadata(final long handle, final long dbHandle,
       final String metadata, final boolean flushBeforeBackup) throws RocksDBException;
 
-  private native List<BackupInfo> getBackupInfo(final long handle);
+  private static native List<BackupInfo> getBackupInfo(final long handle);
 
-  private native int[] getCorruptedBackups(final long handle);
+  private static native int[] getCorruptedBackups(final long handle);
 
-  private native void garbageCollect(final long handle) throws RocksDBException;
+  private static native void garbageCollect(final long handle) throws RocksDBException;
 
-  private native void purgeOldBackups(final long handle,
-      final int numBackupsToKeep) throws RocksDBException;
-
-  private native void deleteBackup(final long handle, final int backupId)
+  private static native void purgeOldBackups(final long handle, final int numBackupsToKeep)
       throws RocksDBException;
 
-  private native void restoreDbFromBackup(final long handle, final int backupId,
+  private static native void deleteBackup(final long handle, final int backupId)
+      throws RocksDBException;
+
+  private static native void restoreDbFromBackup(final long handle, final int backupId,
       final String dbDir, final String walDir, final long restoreOptionsHandle)
       throws RocksDBException;
 
-  private native void restoreDbFromLatestBackup(final long handle,
-      final String dbDir, final String walDir, final long restoreOptionsHandle)
-      throws RocksDBException;
+  private static native void restoreDbFromLatestBackup(final long handle, final String dbDir,
+      final String walDir, final long restoreOptionsHandle) throws RocksDBException;
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+
+  private static native void disposeInternalJni(final long handle);
 }

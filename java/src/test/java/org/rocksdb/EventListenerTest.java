@@ -13,12 +13,14 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.assertj.core.api.AbstractObjectAssert;
 import org.assertj.core.api.ObjectAssert;
+import org.junit.Assume;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.AbstractEventListener.EnabledEventCallback;
 import org.rocksdb.test.TestableEventListener;
+import org.rocksdb.util.Environment;
 
 public class EventListenerTest {
   @ClassRule
@@ -264,7 +266,7 @@ public class EventListenerTest {
     final MemTableInfo memTableInfoTestData = new MemTableInfo(
         "columnFamilyName", TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL);
     final FileOperationInfo fileOperationInfoTestData = new FileOperationInfo("/file/path",
-        TEST_LONG_VAL, TEST_LONG_VAL, 1_600_699_420_000_000_000L, 5_000_000_000L, statusTestData);
+        TEST_LONG_VAL, 4096, 1_600_699_420_000_000_000L, 5_000_000_000L, statusTestData);
     final WriteStallInfo writeStallInfoTestData =
         new WriteStallInfo("columnFamilyName", (byte) 0x0, (byte) 0x1);
     final ExternalFileIngestionInfo externalFileIngestionInfoTestData =

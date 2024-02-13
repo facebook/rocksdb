@@ -362,16 +362,11 @@ enum Tickers : uint32_t {
   // scheduler.
   FILES_DELETED_IMMEDIATELY,
 
-  // The counters for error handler, not that, bg_io_error is the subset of
+  // The counters for error handler, note that, bg_io_error is the subset of
   // bg_error and bg_retryable_io_error is the subset of bg_io_error.
-  // The misspelled versions are deprecated and only kept for compatibility.
-  // TODO: remove the misspelled tickers in the next major release.
   ERROR_HANDLER_BG_ERROR_COUNT,
-  ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_BG_IO_ERROR_COUNT,
-  ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
-  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_AUTORESUME_COUNT,
   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
@@ -531,6 +526,12 @@ enum Tickers : uint32_t {
   // Number of FS reads avoided due to scan prefetching
   PREFETCH_HITS,
 
+  // Compressed secondary cache related stats
+  COMPRESSED_SECONDARY_CACHE_DUMMY_HITS,
+  COMPRESSED_SECONDARY_CACHE_HITS,
+  COMPRESSED_SECONDARY_CACHE_PROMOTIONS,
+  COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS,
+
   TICKER_ENUM_MAX
 };
 
@@ -582,6 +583,14 @@ enum Histograms : uint32_t {
   FILE_READ_DB_ITERATOR_MICROS,
   FILE_READ_VERIFY_DB_CHECKSUM_MICROS,
   FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS,
+
+  // Time spent in writing SST files
+  SST_WRITE_MICROS,
+  // Time spent in writing SST table (currently only block-based table) or blob
+  // file for flush, compaction or db open
+  FILE_WRITE_FLUSH_MICROS,
+  FILE_WRITE_COMPACTION_MICROS,
+  FILE_WRITE_DB_OPEN_MICROS,
 
   // The number of subcompactions actually scheduled during a compaction
   NUM_SUBCOMPACTIONS_SCHEDULED,

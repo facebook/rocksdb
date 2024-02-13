@@ -13,16 +13,17 @@
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
 #endif
-#include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
@@ -30,9 +31,9 @@
 #include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <time.h>
 
 #include <algorithm>
+#include <ctime>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
 #elif defined(__MACH__)
@@ -115,7 +116,7 @@ class PosixFileLock : public FileLock {
     filename.clear();
   }
 
-  virtual ~PosixFileLock() override {
+  ~PosixFileLock() override {
     // Check for destruction without UnlockFile
     assert(fd_ == -1);
   }
@@ -143,7 +144,7 @@ class PosixFileSystem : public FileSystem {
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kDefaultName(); }
 
-  ~PosixFileSystem() override {}
+  ~PosixFileSystem() override = default;
   bool IsInstanceOf(const std::string& name) const override {
     if (name == "posix") {
       return true;
@@ -805,7 +806,7 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus UnlockFile(FileLock* lock, const IOOptions& /*opts*/,
                       IODebugContext* /*dbg*/) override {
-    PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
+    PosixFileLock* my_lock = static_cast<PosixFileLock*>(lock);
     IOStatus result;
     mutex_locked_files.Lock();
     // If we are unlocking, then verify that we had locked it earlier,
@@ -997,16 +998,14 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
-  // EXPERIMENTAL
-  //
-  // TODO akankshamahajan:
+  // TODO:
   // 1. Update Poll API to take into account min_completions
   // and returns if number of handles in io_handles (any order) completed is
   // equal to atleast min_completions.
   // 2. Currently in case of direct_io, Read API is called because of which call
   // to Poll API fails as it expects IOHandle to be populated.
-  virtual IOStatus Poll(std::vector<void*>& io_handles,
-                        size_t /*min_completions*/) override {
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t /*min_completions*/) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
@@ -1078,7 +1077,7 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
-  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;

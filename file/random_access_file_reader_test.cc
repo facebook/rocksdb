@@ -425,7 +425,9 @@ TEST(FSReadRequest, TryMerge) {
       src.scratch = nullptr;
       ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
@@ -448,7 +450,9 @@ TEST(FSReadRequest, TryMerge) {
       src.scratch = nullptr;
       ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
@@ -471,7 +475,9 @@ TEST(FSReadRequest, TryMerge) {
       src.scratch = nullptr;
       ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
