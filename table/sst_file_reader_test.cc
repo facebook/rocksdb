@@ -308,25 +308,6 @@ class SstFileReaderTimestampTest : public testing::Test {
     ASSERT_OK(iter->status());
   }
 
-  void CheckFile(const std::string& timestamp, const OutputKeyValueDesc& desc) {
-    SstFileReader reader(options_);
-
-    ASSERT_OK(reader.Open(sst_name_));
-    ASSERT_OK(reader.VerifyChecksum());
-
-    Slice ts_slice(timestamp);
-
-    ReadOptions read_options;
-    read_options.timestamp = &ts_slice;
-
-    std::unique_ptr<Iterator> iter(reader.NewIterator(read_options));
-    iter->Seek(desc.key);
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key(), desc.key);
-    ASSERT_EQ(iter->timestamp(), desc.timestamp);
-    ASSERT_EQ(iter->value(), desc.value);
-  }
-
  protected:
   std::shared_ptr<Env> env_guard_;
   Options options_;
@@ -450,7 +431,7 @@ class SstFileReaderTimestampNotPersistedTest
     sst_name_ = test::PerThreadDBPath("sst_file_ts_not_persisted");
   }
 
-  ~SstFileReaderTimestampNotPersistedTest(){};
+  ~SstFileReaderTimestampNotPersistedTest() {}
 };
 
 TEST_F(SstFileReaderTimestampNotPersistedTest, Basic) {
