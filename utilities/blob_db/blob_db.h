@@ -150,39 +150,6 @@ class BlobDB : public StackableDB {
     return Get(options, DefaultColumnFamily(), key, value, expiration);
   }
 
-  using ROCKSDB_NAMESPACE::StackableDB::MultiGet;
-  std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Slice>& keys, std::vector<std::string>* values,
-      std::vector<std::string>* timestamps) override {
-    for (auto column_family : column_families) {
-      if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
-        return std::vector<Status>(
-            column_families.size(),
-            Status::NotSupported(
-                "Blob DB doesn't support non-default column family."));
-      }
-    }
-    if (timestamps) {
-      return std::vector<Status>(
-          column_families.size(),
-          Status::NotSupported("Blob DB doesn't support timestamps"));
-    }
-    return MultiGet(options, keys, values);
-  }
-  void MultiGet(const ReadOptions& /*options*/,
-                ColumnFamilyHandle* /*column_family*/,
-                const size_t num_keys, const Slice* /*keys*/,
-                PinnableSlice* /*values*/, std::string* /*timestamps*/,
-                Status* statuses,
-                const bool /*sorted_input*/ = false) override {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] =
-          Status::NotSupported("Blob DB doesn't support batched MultiGet");
-    }
-  }
-
   using ROCKSDB_NAMESPACE::StackableDB::SingleDelete;
   Status SingleDelete(const WriteOptions& /*wopts*/,
                       ColumnFamilyHandle* /*column_family*/,

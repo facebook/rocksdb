@@ -34,11 +34,10 @@ class CompactedDBImpl : public DBImpl {
   // Note that CompactedDBImpl::MultiGet is not the optimized version of
   // MultiGet to use.
   // TODO: optimize CompactedDBImpl::MultiGet, see DBImpl::MultiGet for details.
-  std::vector<Status> MultiGet(const ReadOptions& options,
-                               const std::vector<ColumnFamilyHandle*>&,
-                               const std::vector<Slice>& keys,
-                               std::vector<std::string>* values,
-                               std::vector<std::string>* timestamps) override;
+  void MultiGet(const ReadOptions& options, size_t num_keys,
+                ColumnFamilyHandle** column_families, const Slice* keys,
+                PinnableSlice* values, std::string* timestamps,
+                Status* statuses, const bool sorted_input) override;
 
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,

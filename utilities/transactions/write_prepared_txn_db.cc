@@ -330,33 +330,34 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   handle_map_.reset(handle_map);
 }
 
-std::vector<Status> WritePreparedTxnDB::MultiGet(
-    const ReadOptions& _read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values,
-    std::vector<std::string>* timestamps) {
+void WritePreparedTxnDB::MultiGet(const ReadOptions& _read_options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle** column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  std::string* timestamps, Status* statuses,
+                                  const bool /*sorted_input*/) {
   assert(values);
-  size_t num_keys = keys.size();
-  std::vector<Status> stat_list(num_keys);
 
-  {
-    Status s;
-    if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-        _read_options.io_activity != Env::IOActivity::kMultiGet) {
-      s = Status::InvalidArgument(
-          "Can only call MultiGet with `ReadOptions::io_activity` is "
-          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
-    } else if (timestamps) {
+  Status s;
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+  }
+
+  if (s.ok()) {
+    if (timestamps) {
       s = Status::NotSupported(
-          "MultiGet() returning timestamps is not implemented");
+          "MultiGet() returning timestamps not implemented.");
     }
+  }
 
-    if (!s.ok()) {
-      for (size_t i = 0; i < num_keys; ++i) {
-        stat_list[i] = s;
-      }
-      return stat_list;
+  if (!s.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
     }
+    return;
   }
 
   ReadOptions read_options(_read_options);
@@ -364,13 +365,11 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 
-  values->resize(num_keys);
-
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] =
-        this->GetImpl(read_options, column_family[i], keys[i], &(*values)[i]);
+    statuses[i] =
+        this->GetImpl(read_options, column_families[i], keys[i], &values[i]);
   }
-  return stat_list;
+  return;
 }
 
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.

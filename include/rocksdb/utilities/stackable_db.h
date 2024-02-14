@@ -121,19 +121,11 @@ class StackableDB : public DB {
   }
 
   using DB::MultiGet;
-  std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, std::vector<std::string>* values,
-      std::vector<std::string>* timestamps) override {
-    return db_->MultiGet(options, column_family, keys, values, timestamps);
-  }
-
-  void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                const size_t num_keys, const Slice* keys, PinnableSlice* values,
-                std::string* timestamps, Status* statuses,
-                const bool sorted_input = false) override {
-    return db_->MultiGet(options, column_family, num_keys, keys, values,
+  void MultiGet(const ReadOptions& options, const size_t num_keys,
+                ColumnFamilyHandle** column_families, const Slice* keys,
+                PinnableSlice* values, std::string* timestamps,
+                Status* statuses, const bool sorted_input = false) override {
+    return db_->MultiGet(options, num_keys, column_families, keys, values,
                          timestamps, statuses, sorted_input);
   }
 

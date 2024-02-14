@@ -509,28 +509,35 @@ Status DBWithTTLImpl::Get(const ReadOptions& options,
   return StripTS(value);
 }
 
-std::vector<Status> DBWithTTLImpl::MultiGet(
-    const ReadOptions& options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values,
-    std::vector<std::string>* timestamps) {
+void DBWithTTLImpl::MultiGet(const ReadOptions& options, const size_t num_keys,
+                             ColumnFamilyHandle** column_families,
+                             const Slice* keys, PinnableSlice* values,
+                             std::string* timestamps, Status* statuses,
+                             const bool /*sorted_input*/) {
   if (timestamps) {
-    return std::vector<Status>(
-        keys.size(), Status::NotSupported(
-                         "MultiGet() returning timestamps is not implemented"));
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported(
+          "MultiGet() returning timestamps not implemented.");
+    }
+    return;
   }
-  auto statuses = db_->MultiGet(options, column_family, keys, values);
-  for (size_t i = 0; i < keys.size(); ++i) {
+
+  db_->MultiGet(options, num_keys, column_families, keys, values, timestamps,
+                statuses);
+  for (size_t i = 0; i < num_keys; ++i) {
     if (!statuses[i].ok()) {
       continue;
     }
-    statuses[i] = SanityCheckTimestamp((*values)[i]);
+    PinnableSlice tmp_val = std::move(values[i]);
+    values[i].PinSelf(tmp_val);
+    assert(!values[i].IsPinned());
+    statuses[i] = SanityCheckTimestamp(values[i]);
     if (!statuses[i].ok()) {
       continue;
     }
-    statuses[i] = StripTS(&(*values)[i]);
+    statuses[i] = StripTS(&values[i]);
   }
-  return statuses;
+  return;
 }
 
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,

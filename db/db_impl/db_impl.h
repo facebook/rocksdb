@@ -259,12 +259,6 @@ class DBImpl : public DB {
   }
 
   using DB::MultiGet;
-  std::vector<Status> MultiGet(
-      const ReadOptions& _read_options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, std::vector<std::string>* values,
-      std::vector<std::string>* timestamps) override;
-
   // This MultiGet is a batched version, which may be faster than calling Get
   // multiple times, especially if the keys have some spatial locality that
   // enables them to be queried in the same SST files/set of files. The larger
@@ -272,11 +266,6 @@ class DBImpl : public DB {
   // The values and statuses parameters are arrays with number of elements
   // equal to keys.size(). This allows the storage for those to be alloacted
   // by the caller on the stack for small batches
-  void MultiGet(const ReadOptions& _read_options,
-                ColumnFamilyHandle* column_family, const size_t num_keys,
-                const Slice* keys, PinnableSlice* values,
-                std::string* timestamps, Status* statuses,
-                const bool sorted_input = false) override;
   void MultiGet(const ReadOptions& _read_options, const size_t num_keys,
                 ColumnFamilyHandle** column_families, const Slice* keys,
                 PinnableSlice* values, std::string* timestamps,

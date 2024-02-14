@@ -3113,14 +3113,13 @@ class ModelDB : public DB {
   }
 
   using DB::MultiGet;
-  std::vector<Status> MultiGet(
-      const ReadOptions& /*options*/,
-      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
-      const std::vector<Slice>& keys, std::vector<std::string>* /*values*/,
-      std::vector<std::string>* /*timestamps*/) override {
-    std::vector<Status> s(keys.size(),
-                          Status::NotSupported("Not implemented."));
-    return s;
+  void MultiGet(const ReadOptions& /*options*/, const size_t num_keys,
+                ColumnFamilyHandle** /*column_families*/, const Slice* /*keys*/,
+                PinnableSlice* /*values*/, std::string* /*timestamps*/,
+                Status* statuses, const bool /*sorted_input*/) override {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("Not implemented.");
+    }
   }
 
   using DB::IngestExternalFile;
