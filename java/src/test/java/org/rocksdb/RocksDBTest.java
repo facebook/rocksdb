@@ -1244,9 +1244,7 @@ public class RocksDBTest {
              dbFolder.getRoot().getAbsolutePath())
     ) {
       db.disableFileDeletions();
-      db.enableFileDeletions(false);
-      db.disableFileDeletions();
-      db.enableFileDeletions(true);
+      db.enableFileDeletions();
     }
   }
 

@@ -156,7 +156,7 @@ class BlobDBImpl : public BlobDB {
 
   Status DisableFileDeletions() override;
 
-  Status EnableFileDeletions(bool force) override;
+  Status EnableFileDeletions() override;
 
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
                       bool flush_memtable = true) override;

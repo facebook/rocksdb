@@ -271,7 +271,7 @@ class FileChecksumTestHelper {
         break;
       }
     }
-    EXPECT_OK(db_->EnableFileDeletions(/*force=*/false));
+    EXPECT_OK(db_->EnableFileDeletions());
     return cs;
   }
 };

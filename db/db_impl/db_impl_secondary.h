@@ -189,7 +189,7 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
-  Status EnableFileDeletions(bool /*force*/) override {
+  Status EnableFileDeletions() override {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 

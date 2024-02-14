@@ -400,9 +400,7 @@ class StackableDB : public DB {
 
   Status DisableFileDeletions() override { return db_->DisableFileDeletions(); }
 
-  Status EnableFileDeletions(bool force) override {
-    return db_->EnableFileDeletions(force);
-  }
+  Status EnableFileDeletions() override { return db_->EnableFileDeletions(); }
 
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) override {
     db_->GetLiveFilesMetaData(metadata);

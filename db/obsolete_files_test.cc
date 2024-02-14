@@ -163,7 +163,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
                                      {{"paranoid_file_checks", "true"}}));
     }
   }
-  ASSERT_OK(dbfull()->EnableFileDeletions(/*force=*/false));
+  ASSERT_OK(dbfull()->EnableFileDeletions());
 
   Close();
 

@@ -1669,17 +1669,10 @@ class DB {
   // critical for operations like making a backup. So the counter implementation
   // makes the file deletion disabled as long as there is one caller requesting
   // so, and only when every caller agrees to re-enable file deletion, it will
-  // be enabled. So be careful when calling this function with force = true as
-  // explained below.
-  // If force == true, the call to EnableFileDeletions() will guarantee that
-  // file deletions are enabled after the call, even if DisableFileDeletions()
-  // was called multiple times before.
-  // If force == false, EnableFileDeletions will only enable file deletion
-  // after it's been called at least as many times as DisableFileDeletions(),
-  // enabling the two methods to be called by two threads concurrently without
+  // be enabled. Two threads can call this method concurrently without
   // synchronization -- i.e., file deletions will be enabled only after both
   // threads call EnableFileDeletions()
-  virtual Status EnableFileDeletions(bool force) = 0;
+  virtual Status EnableFileDeletions() = 0;
 
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then
