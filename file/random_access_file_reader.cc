@@ -10,7 +10,9 @@
 #include "file/random_access_file_reader.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <mutex>
+#include <utility>
 
 #include "file/file_util.h"
 #include "monitoring/histogram.h"
@@ -599,4 +601,103 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   RecordIOStats(stats_, file_temperature_, is_last_level_, req.result.size());
   delete read_async_info;
 }
+
+// RocksDB-Cloud contribution begin
+
+// Callback data for non-direct IO version of MultiReadAsync.
+struct MultiReadAsyncCbInfo {
+  MultiReadAsyncCbInfo(
+      std::function<void(const FSReadRequest*, size_t, void*)> cb, void* cb_arg,
+      uint64_t start_time)
+      : cb_(cb), cb_arg_(cb_arg), start_time_(start_time) {}
+
+  std::function<void(const FSReadRequest*, size_t, void*)> cb_;
+  void* cb_arg_;
+  uint64_t start_time_;
+  FileOperationInfo::StartTimePoint fs_start_ts_;
+};
+
+IOStatus RandomAccessFileReader::MultiReadAsync(
+    FSReadRequest* reqs, size_t num_reqs, const IOOptions& opts,
+    std::function<void(const FSReadRequest*, size_t, void*)> cb, void* cb_arg,
+    void** io_handles, size_t* num_io_handles, IOHandleDeleter* del_fns,
+    AlignedBuf* /* aligned_buf */) {
+  IOStatus s;
+  uint64_t elapsed = 0;
+
+  if (use_direct_io()) {
+    return IOStatus::InvalidArgument(
+        "DirectIO support not implemented for MultiReadAsync");
+  }
+
+  // Create a callback and populate info.
+  auto read_async_callback =
+      std::bind_front(&RandomAccessFileReader::MultiReadAsyncCallback, this);
+
+  auto cb_info =
+      new MultiReadAsyncCbInfo(std::move(cb), cb_arg, clock_->NowMicros());
+  if (ShouldNotifyListeners()) {
+    cb_info->fs_start_ts_ = FileOperationInfo::StartNow();
+  }
+
+  StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
+               true /*overwrite*/, true /*delay_enabled*/);
+  s = file_->MultiReadAsync(reqs, num_reqs, opts, read_async_callback, cb_info,
+                            io_handles, num_io_handles, del_fns, nullptr);
+
+  RecordTick(stats_, READ_ASYNC_MICROS, elapsed);
+
+// Suppress false positive clang analyzer warnings.
+// Memory is not released if file_->ReadAsync returns !s.ok(), because
+// ReadAsyncCallback is never called in that case. If ReadAsyncCallback is
+// called then ReadAsync should always return IOStatus::OK().
+#ifndef __clang_analyzer__
+  if (!s.ok()) {
+    delete cb_info;
+  }
+#endif  // __clang_analyzer__
+
+  return s;
+}
+
+void RandomAccessFileReader::MultiReadAsyncCallback(const FSReadRequest* reqs,
+                                                    size_t n_reqs,
+                                                    void* cb_arg) {
+  auto cb_info = static_cast<MultiReadAsyncCbInfo*>(cb_arg);
+  assert(cb_info);
+  assert(cb_info->cb_);
+
+  cb_info->cb_(reqs, n_reqs, cb_info->cb_arg_);
+
+  // Update stats and notify listeners.
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    // elapsed doesn't take into account delay and overwrite as StopWatch does
+    // in Read.
+    uint64_t elapsed = clock_->NowMicros() - cb_info->start_time_;
+    file_read_hist_->Add(elapsed);
+  }
+
+  for (size_t idx = 0; idx < n_reqs; idx++) {
+    auto& req = reqs[idx];
+    if (req.status.ok()) {
+      RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+    } else if (!req.status.IsAborted()) {
+      RecordTick(stats_, ASYNC_READ_ERROR_COUNT, 1);
+    }
+    if (ShouldNotifyListeners()) {
+      auto finish_ts = FileOperationInfo::FinishNow();
+      NotifyOnFileReadFinish(req.offset, req.result.size(),
+                             cb_info->fs_start_ts_, finish_ts, req.status);
+    }
+    if (!req.status.ok()) {
+      NotifyOnIOError(req.status, FileOperationType::kRead, file_name(),
+                      req.result.size(), req.offset);
+    }
+    RecordIOStats(stats_, file_temperature_, is_last_level_, req.result.size());
+  }
+  delete cb_info;
+}
+
+// RocksDB-Cloud contribution end
+
 }  // namespace ROCKSDB_NAMESPACE

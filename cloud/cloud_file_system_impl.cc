@@ -1,6 +1,7 @@
 // Copyright (c) 2017 Rockset.
-#include "rocksdb/utilities/options_type.h"
 #ifndef ROCKSDB_LITE
+
+#include "rocksdb/cloud/cloud_file_system_impl.h"
 
 #include <cinttypes>
 
@@ -14,7 +15,6 @@
 #include "file/writable_file_writer.h"
 #include "port/port_posix.h"
 #include "rocksdb/cloud/cloud_file_deletion_scheduler.h"
-#include "rocksdb/cloud/cloud_file_system_impl.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/db.h"
@@ -22,6 +22,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/options_type.h"
 #include "test_util/sync_point.h"
 #include "util/xxhash.h"
 
@@ -850,22 +851,8 @@ IOStatus CloudFileSystemImpl::LoadLocalCloudManifest(
   if (cloud_manifest_) {
     cloud_manifest_.reset();
   }
-  return CloudFileSystemImpl::LoadLocalCloudManifest(
-      dbname, GetBaseFileSystem(), cookie, &cloud_manifest_);
-}
-
-IOStatus CloudFileSystemImpl::LoadLocalCloudManifest(
-    const std::string& dbname, const std::shared_ptr<FileSystem>& base_fs,
-    const std::string& cookie, std::unique_ptr<CloudManifest>* cloud_manifest) {
-  std::unique_ptr<SequentialFileReader> reader;
-  auto cloud_manifest_file_name = MakeCloudManifestFile(dbname, cookie);
-  auto s = SequentialFileReader::Create(base_fs, cloud_manifest_file_name,
-                                        FileOptions(), &reader, nullptr /*dbg*/,
-                                        nullptr /* rate_limiter */);
-  if (s.ok()) {
-    s = CloudManifest::LoadFromLog(std::move(reader), cloud_manifest);
-  }
-  return s;
+  return CloudFileSystemEnv::LoadCloudManifest(dbname, GetBaseFileSystem(),
+                                               cookie, &cloud_manifest_);
 }
 
 std::string RemapFilenameWithCloudManifest(const std::string& logical_path,
@@ -1349,7 +1336,7 @@ IOStatus CloudFileSystemImpl::NeedsReinitialization(
     // If the local MANIFEST is not compatible with local CLOUDMANIFEST, we will
     // need to reinitialize the entire directory.
     std::unique_ptr<CloudManifest> cloud_manifest;
-    auto load_status = LoadLocalCloudManifest(
+    auto load_status = CloudFileSystemEnv::LoadCloudManifest(
         local_dir, base_fs, cloud_fs_options.cookie_on_open, &cloud_manifest);
     if (load_status.ok()) {
       std::string current_epoch = cloud_manifest->GetCurrentEpoch();
@@ -1616,9 +1603,8 @@ IOStatus CloudFileSystemImpl::LoadCloudManifest(const std::string& local_dbname,
 //
 // Create appropriate files in the clone dir
 //
-IOStatus CloudFileSystemImpl::SanitizeDirectory(const DBOptions& options,
-                                                const std::string& local_name,
-                                                bool read_only) {
+IOStatus CloudFileSystemImpl::SanitizeLocalDirectory(
+    const DBOptions& options, const std::string& local_name, bool read_only) {
   const auto& local_fs = GetBaseFileSystem();
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
@@ -1911,11 +1897,6 @@ IOStatus CloudFileSystemImpl::FetchManifest(const std::string& local_dbname,
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "[cloud_fs_impl] FetchManifest: not manifest");
   return IOStatus::NotFound();
-}
-
-IOStatus CloudFileSystemImpl::CreateCloudManifest(
-    const std::string& local_dbname) {
-  return CreateCloudManifest(local_dbname, cloud_fs_options.cookie_on_open);
 }
 
 IOStatus CloudFileSystemImpl::CreateCloudManifest(

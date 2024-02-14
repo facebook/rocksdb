@@ -5,7 +5,6 @@
 
 #include <cinttypes>
 
-#include "rocksdb/cloud/cloud_file_system_impl.h"
 #include "cloud/cloud_manifest.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
@@ -13,6 +12,7 @@
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/auto_roll_logger.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -45,8 +45,8 @@ class ConstantSizeSstFileManager : public SstFileManagerImpl {
   }
 
   Status OnAddFile(const std::string& file_path) override {
-    return SstFileManagerImpl::OnAddFile(
-        file_path, uint64_t(constant_file_size_));
+    return SstFileManagerImpl::OnAddFile(file_path,
+                                         uint64_t(constant_file_size_));
   }
 
  private:
@@ -97,10 +97,10 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   auto* cfs =
-      dynamic_cast<CloudFileSystemImpl*>(options.env->GetFileSystem().get());
+      dynamic_cast<CloudFileSystem*>(options.env->GetFileSystem().get());
   assert(cfs);
-  if (!cfs->info_log_) {
-    cfs->info_log_ = options.info_log;
+  if (!cfs->GetLogger()) {
+    cfs->SetLogger(options.info_log);
   }
   // Use a constant sized SST File Manager if necesary.
   // NOTE: if user already passes in an SST File Manager, we will respect user's
@@ -131,7 +131,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   // If cloud manifest is already loaded, this means the directory has been
   // sanitized (possibly by the call to ListColumnFamilies())
   if (cfs->GetCloudManifest() == nullptr) {
-    st = cfs->SanitizeDirectory(options, local_dbname, read_only);
+    st = cfs->SanitizeLocalDirectory(options, local_dbname, read_only);
 
     if (st.ok()) {
       st = cfs->LoadCloudManifest(local_dbname, read_only);
@@ -324,8 +324,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
     const BucketOptions& destination, const CheckpointToCloudOptions& options) {
   std::vector<std::string> live_files;
   uint64_t manifest_file_size{0};
-  auto* cfs =
-      dynamic_cast<CloudFileSystemImpl*>(GetEnv()->GetFileSystem().get());
+  auto* cfs = dynamic_cast<CloudFileSystem*>(GetEnv()->GetFileSystem().get());
   assert(cfs);
   const auto& local_fs = cfs->GetBaseFileSystem();
 
@@ -334,7 +333,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
   if (!st.ok()) {
     return st;
   }
-  
+
   // Create a temp MANIFEST file first as this captures all the files we need
   auto current_epoch = cfs->GetCloudManifest()->GetCurrentEpoch();
   auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
@@ -345,7 +344,6 @@ Status DBCloudImpl::DoCheckpointToCloud(
   if (!st.ok()) {
     return st;
   }
-
 
   std::vector<std::pair<std::string, std::string>> files_to_copy;
   for (auto& f : live_files) {
@@ -453,13 +451,13 @@ Status DBCloud::ListColumnFamilies(const DBOptions& db_options,
                                    const std::string& name,
                                    std::vector<std::string>* column_families) {
   auto* cfs =
-      dynamic_cast<CloudFileSystemImpl*>(db_options.env->GetFileSystem().get());
+      dynamic_cast<CloudFileSystem*>(db_options.env->GetFileSystem().get());
   assert(cfs);
 
   cfs->GetBaseFileSystem()->CreateDirIfMissing(name, IOOptions(),
                                                nullptr /*dbg*/);
 
-  auto st = cfs->SanitizeDirectory(db_options, name, false);
+  auto st = cfs->SanitizeLocalDirectory(db_options, name, false);
   if (st.ok()) {
     st = cfs->LoadCloudManifest(name, false);
   }

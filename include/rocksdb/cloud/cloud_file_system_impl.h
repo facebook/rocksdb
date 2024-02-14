@@ -141,9 +141,11 @@ class CloudFileSystemImpl : public CloudFileSystem {
   IOStatus DeleteDbid(const std::string& bucket,
                       const std::string& dbid) override;
 
-  IOStatus SanitizeDirectory(const DBOptions& options,
-                             const std::string& clone_name, bool read_only);
-  IOStatus LoadCloudManifest(const std::string& local_dbname, bool read_only);
+  IOStatus SanitizeLocalDirectory(const DBOptions& options,
+                                  const std::string& local_name,
+                                  bool read_only) override;
+  IOStatus LoadCloudManifest(const std::string& local_dbname,
+                             bool read_only) override;
   // The separator used to separate dbids while creating the dbid of a clone
   static constexpr const char* DBID_SEPARATOR = "rockset";
 
@@ -180,17 +182,10 @@ class CloudFileSystemImpl : public CloudFileSystem {
   IOStatus LoadLocalCloudManifest(const std::string& dbname,
                                   const std::string& cookie);
 
-  // Local CLOUDMANIFEST from `base_env` into `cloud_manifest`.
-  static IOStatus LoadLocalCloudManifest(
-      const std::string& dbname, const std::shared_ptr<FileSystem>& base_fs,
-      const std::string& cookie,
-      std::unique_ptr<CloudManifest>* cloud_manifest);
-
-  IOStatus CreateCloudManifest(const std::string& local_dbname);
   // TODO(wei): this function is used to temporarily support open db and switch
-  // cookie. Remove it once that's not needed
+  // cookie. Change it to use the cookie from options once migration complete.
   IOStatus CreateCloudManifest(const std::string& local_dbname,
-                               const std::string& cookie);
+                               const std::string& cookie) override;
 
   // Transfers the filename from RocksDB's domain to the physical domain, based
   // on information stored in CLOUDMANIFEST.
@@ -243,7 +238,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
         "CloudFileSystemImpl::IsDirectory() not supported.");
   }
 
-  CloudManifest* GetCloudManifest() { return cloud_manifest_.get(); }
+  CloudManifest* GetCloudManifest() override { return cloud_manifest_.get(); }
 
   IOStatus DeleteCloudFileFromDest(const std::string& fname) override;
   IOStatus CopyLocalFileToDest(const std::string& local_name,
@@ -253,7 +248,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
   Status ValidateOptions(const DBOptions& /*db_opts*/,
                          const ColumnFamilyOptions& /*cf_opts*/) const override;
 
-  std::string CloudManifestFile(const std::string& dbname);
+  std::string CloudManifestFile(const std::string& dbname) override;
 
   // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
   // on-disk state.
@@ -275,7 +270,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
   // Upload local CLOUDMANIFEST-cookie file only.
   // REQURIES: the file exists locally
   IOStatus UploadCloudManifest(const std::string& local_dbname,
-                               const std::string& cookie) const;
+                               const std::string& cookie) const override;
 
   // Delete invisible files in cloud.
   //
@@ -418,6 +413,9 @@ class CloudFileSystemImpl : public CloudFileSystem {
   }
 
   Logger* GetLogger() const override { return info_log_.get(); }
+  void SetLogger(std::shared_ptr<Logger> l) override {
+    info_log_ = std::move(l);
+  }
 
  private:
   // Files are invisibile if:

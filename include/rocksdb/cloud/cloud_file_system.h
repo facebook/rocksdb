@@ -29,6 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class CloudFileSystem;
 class CloudLogController;
+class CloudManifest;
 class CloudStorageProvider;
 
 enum CloudType : unsigned char {
@@ -530,6 +531,27 @@ class CloudFileSystem : public FileSystem {
   virtual IOStatus CopyLocalFileToDest(const std::string& local_name,
                                        const std::string& cloud_name) = 0;
 
+  // Returns CloudManifest file name for a given db.
+  virtual std::string CloudManifestFile(const std::string& dbname) = 0;
+
+  virtual CloudManifest* GetCloudManifest() = 0;
+
+  // TODO(wei): this function is used to temporarily support open db and switch
+  // cookie. Change it to use the cookie from options once migration complete.
+  virtual IOStatus CreateCloudManifest(const std::string& local_dbname,
+                                       const std::string& cookie) = 0;
+
+  virtual IOStatus LoadCloudManifest(const std::string& local_dbname,
+                                     bool read_only) = 0;
+
+  virtual IOStatus UploadCloudManifest(const std::string& local_dbname,
+                               const std::string& cookie) const = 0;
+
+  // Prepare a local directory for use as a clone of the cloud storage
+  virtual IOStatus SanitizeLocalDirectory(const DBOptions& options,
+                                          const std::string& local_name,
+                                          bool read_only) = 0;
+
   // Transfers the filename from RocksDB's domain to the physical domain, based
   // on information stored in CLOUDMANIFEST.
   // For example, it will map 00010.sst to 00010.sst-[epoch] where [epoch] is
@@ -617,6 +639,7 @@ class CloudFileSystem : public FileSystem {
       const = 0;
 
   virtual Logger* GetLogger() const = 0;
+  virtual void SetLogger(std::shared_ptr<Logger>) = 0;
 };
 
 //
@@ -671,6 +694,12 @@ class CloudFileSystemEnv {
   // calls to env, and all file operations to fs
   static std::unique_ptr<Env> NewCompositeEnv(
       Env* env, const std::shared_ptr<FileSystem>& fs);
+
+  // Load CloudManifest from agiven fs/db.
+  static IOStatus LoadCloudManifest(
+      const std::string& dbname, const std::shared_ptr<FileSystem>& fs,
+      const std::string& cookie,
+      std::unique_ptr<CloudManifest>* cloud_manifest);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

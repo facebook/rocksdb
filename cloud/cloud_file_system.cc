@@ -11,6 +11,7 @@
 
 #include "cloud/aws/aws_file_system.h"
 #include "cloud/cloud_log_controller_impl.h"
+#include "cloud/cloud_manifest.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "env/composite_env_wrapper.h"
@@ -495,7 +496,7 @@ Status CloudFileSystemEnv::CreateFromString(
   std::string id;
   std::unordered_map<std::string, std::string> options;
   Status s;
-  if (value.find("=") == std::string::npos) {
+  if (value.find('=') == std::string::npos) {
     id = value;
   } else {
     s = StringToMap(value, &options);
@@ -631,6 +632,20 @@ Status CloudFileSystemEnv::NewAwsFileSystem(
 std::unique_ptr<Env> CloudFileSystemEnv::NewCompositeEnv(
     Env* env, const std::shared_ptr<FileSystem>& fs) {
   return std::make_unique<CompositeEnvWrapper>(env, fs);
+}
+
+IOStatus CloudFileSystemEnv::LoadCloudManifest(
+    const std::string& dbname, const std::shared_ptr<FileSystem>& fs,
+    const std::string& cookie, std::unique_ptr<CloudManifest>* cloud_manifest) {
+  std::unique_ptr<SequentialFileReader> reader;
+  auto cloud_manifest_file_name = MakeCloudManifestFile(dbname, cookie);
+  auto s = SequentialFileReader::Create(fs, cloud_manifest_file_name,
+                                        FileOptions(), &reader, nullptr /*dbg*/,
+                                        nullptr /* rate_limiter */);
+  if (s.ok()) {
+    s = CloudManifest::LoadFromLog(std::move(reader), cloud_manifest);
+  }
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

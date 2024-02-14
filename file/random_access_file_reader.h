@@ -9,6 +9,7 @@
 
 #pragma once
 #include <atomic>
+#include <cstddef>
 #include <sstream>
 #include <string>
 
@@ -211,7 +212,18 @@ class RandomAccessFileReader {
                      std::function<void(const FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      AlignedBuf* aligned_buf);
-
+  
   void ReadAsyncCallback(const FSReadRequest& req, void* cb_arg);
+
+// RocksDB-Cloud contribution begin 
+  IOStatus MultiReadAsync(
+      FSReadRequest* reqs, size_t num_reqs, const IOOptions& opts,
+      std::function<void(const FSReadRequest*, size_t, void*)> cb, void* cb_arg,
+      void** io_handles, size_t* num_io_handles, IOHandleDeleter* del_fns,
+      AlignedBuf* aligned_buf);
+
+  // Callback for non-directIO MultiReadAsync.
+  void MultiReadAsyncCallback(const FSReadRequest*, size_t, void*);
+// RocksDB-Cloud contribution end
 };
 }  // namespace ROCKSDB_NAMESPACE

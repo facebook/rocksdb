@@ -20,6 +20,7 @@
 
 #include <chrono>
 #include <cstdarg>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -672,7 +673,7 @@ class FileSystem : public Customizable {
   //
   // Default implementation is to return IOStatus::OK.
 
-  virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t /*min_completions*/) {
     return IOStatus::OK();
   }
@@ -891,7 +892,7 @@ class FSRandomAccessFile {
   //
   // When the read request is completed, callback function specified in cb
   // should be called with arguments cb_arg and the result populated in
-  // FSReadRequest with result and status fileds updated by FileSystem.
+  // FSReadRequest with result and status fields updated by FileSystem.
   // cb_arg should be used by the callback to track the original request
   // submitted.
   //
@@ -917,6 +918,58 @@ class FSRandomAccessFile {
     cb(req, cb_arg);
     return IOStatus::OK();
   }
+
+  // RocksDB-Cloud contribution begin
+
+  // This API reads the requested data in a set of FSReadRequest asynchronously.
+  // This is an asynchronous call, i.e it should return after submitting the
+  // request.
+  //
+  // When the read request is completed, callback function specified in cb
+  // should be called with arguments cb_arg and the result populated in
+  // FSReadRequest with result and status fields updated by FileSystem.
+  // cb_arg should be used by the callback to track the original request
+  // submitted.
+  //
+  // This API should also populate io_handles which should be used by
+  // underlying FileSystem to store the context in order to distinguish the read
+  // requests at their side and provide the custom deletion functions in
+  // del_fns. RocksDB guarantees that the del_fn for io_handle will be called
+  // after receiving the callback. Furthermore, RocksDB guarantees that if it
+  // calls the Poll API for this io_handle, del_fn will be called after the Poll
+  // returns. RocksDB is responsible for managing the lifetime of io_handles.
+  //
+  // The caller preallocates io_handles and del_fns arrays to be be the same
+  // size as the number of requests (num_reqs). num_io_handles parameter is
+  // used to pass out the information about how many io_handles (and
+  // corresponding del_funs) were populated during the call. num_io_handles
+  // must be pre-initiailized to the maximum size of io_handles/del_funs arrays
+  // (num_reqs) on the function call.
+  //
+  // reqs contains the request offset and size passed as input parameter of read
+  // request and result and status fields are output parameter set by underlying
+  // FileSystem. The data should always be read into scratch field.
+  //
+  // Default implementation is syncrhonous and delegates to MultiRead.
+  virtual IOStatus MultiReadAsync(
+      FSReadRequest* reqs, size_t num_reqs, const IOOptions& opts,
+      std::function<void(const FSReadRequest*, size_t, void*)> cb, void* cb_arg,
+      void** /*io_handles*/, size_t* num_io_handles,
+      IOHandleDeleter* /*del_fns*/, IODebugContext* dbg) {
+    assert(*num_io_handles == num_reqs);
+    *num_io_handles = 0;
+
+    auto status = MultiRead(reqs, num_reqs, opts, dbg);
+    if (!status.ok()) {
+      return status;
+    }
+
+    // the operation has completed successfully, execute callbacks
+    cb(reqs, num_reqs, cb_arg);
+    return IOStatus::OK();
+  }
+
+  // RocksDB-Cloud contribution end
 
   // EXPERIMENTAL
   // When available, returns the actual temperature for the file. This is
@@ -1616,6 +1669,16 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
                      IODebugContext* dbg) override {
     return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
   }
+  // RocksDB-Cloud contribution begin
+  IOStatus MultiReadAsync(
+      FSReadRequest* reqs, size_t num_reqs, const IOOptions& opts,
+      std::function<void(const FSReadRequest*, size_t, void*)> cb, void* cb_arg,
+      void** io_handles, size_t* num_io_handles, IOHandleDeleter* del_fns,
+      IODebugContext* dbg) override {
+    return target()->MultiReadAsync(reqs, num_reqs, opts, cb, cb_arg,
+                                    io_handles, num_io_handles, del_fns, dbg);
+  }
+  // RocksDB-Cloud contribution end
   Temperature GetTemperature() const override {
     return target_->GetTemperature();
   }

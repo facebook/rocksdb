@@ -82,8 +82,8 @@ class AsyncFileReader {
     const IOOptions& opts_;
     FSReadRequest* read_reqs_;
     size_t num_reqs_;
-    autovector<void*, 32> io_handle_;
-    autovector<IOHandleDeleter, 32> del_fn_;
+    std::vector<void*> io_handle_;
+    std::vector<IOHandleDeleter> del_fn_;
     folly::coro::impl::coroutine_handle<> awaiting_coro_;
     // Use this to link to the next ReadAwaiter in the suspended coroutine
     // list. The head and tail of the list are tracked by AsyncFileReader.
