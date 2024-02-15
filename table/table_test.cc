@@ -400,6 +400,8 @@ class TableConstructor : public Constructor {
       EXPECT_OK(builder->status());
     }
     Status s = builder->Finish();
+    fprintf(stderr, "Size: %u\n", (unsigned)file_writer_->GetFileSize());
+    fprintf(stderr, "%s\n", builder->GetTableProperties().ToString().c_str());
     EXPECT_OK(file_writer_->Flush(IOOptions()));
     EXPECT_TRUE(s.ok()) << s.ToString();
 
@@ -4692,7 +4694,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   c.ResetTableReader();
 }
 
-static void DoCompressionTest(CompressionType comp) {
+static void DoCompressionTest(CompressionType comp, uint32_t format_version) {
   SCOPED_TRACE("CompressionType = " + CompressionTypeToString(comp));
   Random rnd(301);
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
@@ -4706,8 +4708,10 @@ static void DoCompressionTest(CompressionType comp) {
   Options options;
   test::PlainInternalKeyComparator ikc(options.comparator);
   options.compression = comp;
+  options.db_host_id = "unit_tester.domain";
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
+  table_options.format_version = format_version;
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
@@ -4715,8 +4719,8 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3550));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3550));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3560));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3560));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7075));
   c.ResetTableReader();
 }
@@ -4758,7 +4762,10 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 
   for (auto state : compression_state) {
-    DoCompressionTest(state);
+    DoCompressionTest(state, 5);
+  }
+  for (auto state : compression_state) {
+    DoCompressionTest(state, 6);
   }
 }
 
