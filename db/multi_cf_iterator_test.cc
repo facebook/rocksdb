@@ -87,6 +87,113 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
   }
 }
 
+TEST_F(MultiCfIteratorTest, DifferentComparatorsinMultiCFs) {
+  // This test creates two column families with two different comparators.
+  // Attempting to create the MultiCFIterator should fail.
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  options.comparator = BytewiseComparator();
+  CreateColumnFamilies({"cf_forward"}, options);
+  options.comparator = ReverseBytewiseComparator();
+  CreateColumnFamilies({"cf_reverse"}, options);
+
+  ASSERT_OK(Put(0, "key_1", "value_1"));
+  ASSERT_OK(Put(0, "key_2", "value_2"));
+  ASSERT_OK(Put(0, "key_3", "value_3"));
+  ASSERT_OK(Put(1, "key_1", "value_1"));
+  ASSERT_OK(Put(1, "key_2", "value_2"));
+  ASSERT_OK(Put(1, "key_3", "value_3"));
+
+  auto verify = [&](ColumnFamilyHandle* cfh,
+                    const std::vector<Slice>& expected_keys) {
+    int i = 0;
+    Iterator* iter = db_->NewIterator(ReadOptions(), cfh);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(expected_keys[i], iter->key());
+      ++i;
+    }
+    ASSERT_EQ(expected_keys.size(), i);
+    delete iter;
+  };
+  verify(handles_[0], {"key_1", "key_2", "key_3"});
+  verify(handles_[1], {"key_3", "key_2", "key_1"});
+
+  std::unique_ptr<MultiCfIterator> iter =
+      db_->NewMultiCfIterator(ReadOptions(), handles_);
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsInvalidArgument());
+}
+
+TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
+  // This test creates two column families with the same custom test
+  // comparators (but instantiated differently). Attempting to create the
+  // MultiCFIterator should not fail.
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  Comparator* comparator_1 = new test::SimpleSuffixReverseComparator();
+  Comparator* comparator_2 = new test::SimpleSuffixReverseComparator();
+  ASSERT_NE(comparator_1, comparator_2);
+
+  options.comparator = comparator_1;
+  CreateColumnFamilies({"cf_1"}, options);
+  options.comparator = comparator_2;
+  CreateColumnFamilies({"cf_2"}, options);
+
+  ASSERT_OK(Put(0, "key_001_001", "value_0_3"));
+  ASSERT_OK(Put(0, "key_001_002", "value_0_2"));
+  ASSERT_OK(Put(0, "key_001_003", "value_0_1"));
+  ASSERT_OK(Put(0, "key_002_001", "value_0_6"));
+  ASSERT_OK(Put(0, "key_002_002", "value_0_5"));
+  ASSERT_OK(Put(0, "key_002_003", "value_0_4"));
+  ASSERT_OK(Put(1, "key_001_001", "value_1_3"));
+  ASSERT_OK(Put(1, "key_001_002", "value_1_2"));
+  ASSERT_OK(Put(1, "key_001_003", "value_1_1"));
+  ASSERT_OK(Put(1, "key_003_004", "value_1_6"));
+  ASSERT_OK(Put(1, "key_003_005", "value_1_5"));
+  ASSERT_OK(Put(1, "key_003_006", "value_1_4"));
+
+  auto verify = [&](ColumnFamilyHandle* cfh,
+                    const std::vector<Slice>& expected_keys) {
+    int i = 0;
+    Iterator* iter = db_->NewIterator(ReadOptions(), cfh);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(expected_keys[i], iter->key());
+      ++i;
+    }
+    ASSERT_EQ(expected_keys.size(), i);
+    delete iter;
+  };
+  verify(handles_[0], {"key_001_003", "key_001_002", "key_001_001",
+                       "key_002_003", "key_002_002", "key_002_001"});
+  verify(handles_[1], {"key_001_003", "key_001_002", "key_001_001",
+                       "key_003_006", "key_003_005", "key_003_004"});
+
+  std::vector<Slice> expected_keys = {
+      "key_001_003", "key_001_002", "key_001_001", "key_002_003", "key_002_002",
+      "key_002_001", "key_003_006", "key_003_005", "key_003_004"};
+  std::vector<Slice> expected_values = {"value_0_1", "value_0_2", "value_0_3",
+                                        "value_0_4", "value_0_5", "value_0_6",
+                                        "value_1_4", "value_1_5", "value_1_6"};
+  int i = 0;
+  std::unique_ptr<MultiCfIterator> iter =
+      db_->NewMultiCfIterator(ReadOptions(), handles_);
+  ASSERT_OK(iter->status());
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_EQ(expected_keys[i], iter->key());
+    ASSERT_EQ(expected_values[i], iter->value());
+    ++i;
+  }
+
+  if (comparator_1) {
+    delete comparator_1;
+  }
+  if (comparator_2) {
+    delete comparator_2;
+  }
+}
+
 TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
   // Set up the DB and Column Families
   Options options = GetDefaultOptions();

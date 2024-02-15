@@ -965,8 +965,7 @@ class DB {
   // the iterator combines the columns into a single wide column value.
   virtual std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const Comparator* comparator = BytewiseComparator()) = 0;
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB

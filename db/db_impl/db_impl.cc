@@ -3742,15 +3742,22 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
 
 std::unique_ptr<MultiCfIterator> DBImpl::NewMultiCfIterator(
     const ReadOptions& _read_options,
-    const std::vector<ColumnFamilyHandle*>& column_families,
-    const Comparator* comparator) {
+    const std::vector<ColumnFamilyHandle*>& column_families) {
   assert(column_families.size() > 0);
+  const Comparator* first_comparator = column_families[0]->GetComparator();
 
+  for (size_t i = 1; i < column_families.size(); ++i) {
+    if (first_comparator->GetId().compare(
+            column_families[i]->GetComparator()->GetId()) != 0) {
+      return std::make_unique<EmptyMultiCfIterator>(Status::InvalidArgument(
+          "Different comparators are being used across CFs"));
+    }
+  }
   std::vector<Iterator*> child_iterators;
   Status s = NewIterators(_read_options, column_families, &child_iterators);
   if (s.ok()) {
-    return std::make_unique<MultiCfIteratorImpl>(comparator, column_families,
-                                                 child_iterators);
+    return std::make_unique<MultiCfIteratorImpl>(
+        first_comparator, column_families, std::move(child_iterators));
   }
   return std::make_unique<EmptyMultiCfIterator>(s);
 }

@@ -356,8 +356,7 @@ class DBImpl : public DB {
   // Return a cross-column-family iterator from a consistent database state.
   std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const Comparator* comparator = BytewiseComparator()) override;
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
 
   // Create a timestamped snapshot. This snapshot can be shared by multiple
   // readers. If any of them uses it for write conflict checking, then
