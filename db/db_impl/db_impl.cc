@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <stdint.h>
 
-#include <memory>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif

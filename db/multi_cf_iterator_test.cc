@@ -87,6 +87,97 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
   }
 }
 
+TEST_F(MultiCfIteratorTest, WideColumns) {
+  // Set up the DB and Column Families
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+  constexpr char key_1[] = "key_1";
+  WideColumns key_1_columns_in_cf_2{
+      {kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_1"}};
+  WideColumns key_1_columns_in_cf_3{
+      {"cf_3_col_name_1", "cf_3_col_val_1_key_1"},
+      {"cf_3_col_name_2", "cf_3_col_val_2_key_1"},
+      {"cf_3_col_name_3", "cf_3_col_val_3_key_1"}};
+
+  constexpr char key_2[] = "key_2";
+  WideColumns key_2_columns_in_cf_1{
+      {"cf_1_col_name_1", "cf_1_col_val_1_key_2"}};
+  WideColumns key_2_columns_in_cf_2{
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_2"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_2"}};
+
+  constexpr char key_3[] = "key_3";
+  WideColumns key_3_columns_in_cf_1{
+      {"cf_1_col_name_1", "cf_1_col_val_1_key_3"}};
+  WideColumns key_3_columns_in_cf_3{
+      {"cf_3_col_name_1", "cf_3_col_val_1_key_3"}};
+
+  constexpr char key_4[] = "key_4";
+  WideColumns key_4_columns_in_cf_0{
+      {"cf_0_col_name_1", "cf_0_col_val_1_key_4"}};
+  WideColumns key_4_columns_in_cf_2{
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_4"}};
+
+  // Use AttributeGroup PutEntity API to insert them together
+  AttributeGroups key_1_attribute_groups{
+      AttributeGroup(handles_[2], key_1_columns_in_cf_2),
+      AttributeGroup(handles_[3], key_1_columns_in_cf_3)};
+  AttributeGroups key_2_attribute_groups{
+      AttributeGroup(handles_[1], key_2_columns_in_cf_1),
+      AttributeGroup(handles_[2], key_2_columns_in_cf_2)};
+  AttributeGroups key_3_attribute_groups{
+      AttributeGroup(handles_[1], key_3_columns_in_cf_1),
+      AttributeGroup(handles_[3], key_3_columns_in_cf_3)};
+  AttributeGroups key_4_attribute_groups{
+      AttributeGroup(handles_[0], key_4_columns_in_cf_0),
+      AttributeGroup(handles_[2], key_4_columns_in_cf_2)};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_1, key_1_attribute_groups));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_2, key_2_attribute_groups));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_3, key_3_attribute_groups));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_4, key_4_attribute_groups));
+
+  auto verify = [&](const std::vector<ColumnFamilyHandle*>& cfhs,
+                    const std::vector<Slice>& expected_keys,
+                    const std::vector<Slice>& expected_values,
+                    const std::vector<WideColumns>& expected_wide_columns) {
+    int i = 0;
+    std::unique_ptr<MultiCfIterator> iter =
+        db_->NewMultiCfIterator(ReadOptions(), cfhs);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(expected_keys[i], iter->key());
+      ASSERT_EQ(expected_values[i], iter->value());
+      ASSERT_EQ(expected_wide_columns[i], iter->columns());
+      ++i;
+    }
+    ASSERT_EQ(expected_keys.size(), i);
+  };
+
+  // Test for iteration over CF default->1->2->3
+  std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
+      handles_[0], handles_[1], handles_[2], handles_[3]};
+  std::vector<Slice> expected_keys = {key_1, key_2, key_3, key_4};
+  // Pick what DBIter would return for value() in the first CF that key exists
+  // Since value for kDefaultWideColumnName only exists for key_1, rest will
+  // return empty value
+  std::vector<Slice> expected_values = {"cf_2_col_val_0_key_1", "", "", ""};
+
+  // Pick columns from the first CF that the key exists and value is stored as
+  // wide column
+  std::vector<WideColumns> expected_wide_columns = {
+      {{kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
+       {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
+       {"cf_2_col_name_2", "cf_2_col_val_2_key_1"}},
+      {{"cf_1_col_name_1", "cf_1_col_val_1_key_2"}},
+      {{"cf_1_col_name_1", "cf_1_col_val_1_key_3"}},
+      {{"cf_0_col_name_1", "cf_0_col_val_1_key_4"}}};
+  verify(cfhs_order_0_1_2_3, expected_keys, expected_values,
+         expected_wide_columns);
+}
+
 TEST_F(MultiCfIteratorTest, DifferentComparatorsinMultiCFs) {
   // This test creates two column families with two different comparators.
   // Attempting to create the MultiCFIterator should fail.
@@ -249,16 +340,12 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
   auto verify =
       [&](const std::vector<ColumnFamilyHandle*>& cfhs,
           const std::vector<Slice>& expected_keys,
-          const std::vector<Slice>& expected_values,
-          const std::vector<WideColumns>& expected_wide_columns,
           const std::vector<AttributeGroups>& expected_attribute_groups) {
         int i = 0;
         std::unique_ptr<MultiCfIterator> iter =
             db_->NewMultiCfIterator(ReadOptions(), cfhs);
         for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
           ASSERT_EQ(expected_keys[i], iter->key());
-          ASSERT_EQ(expected_values[i], iter->value());
-          ASSERT_EQ(expected_wide_columns[i], iter->columns());
           ASSERT_EQ(expected_attribute_groups[i], iter->attribute_groups());
           ++i;
         }
@@ -270,32 +357,10 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
   std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
       handles_[0], handles_[1], handles_[2], handles_[3]};
   std::vector<Slice> expected_keys = {key_1, key_2, key_3, key_4};
-  // Pick what DBIter would return for value() in the first CF that key exists
-  // Since value for kDefaultWideColumnName only exists for key_1, rest will
-  // return empty value
-  std::vector<Slice> expected_values = {"cf_2_col_val_0_key_1", "", "", ""};
-
-  // Merge columns from all CFs that key exists and value is stored as wide
-  // column
-  std::vector<WideColumns> expected_wide_columns = {
-      {{kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
-       {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
-       {"cf_2_col_name_2", "cf_2_col_val_2_key_1"},
-       {"cf_3_col_name_1", "cf_3_col_val_1_key_1"},
-       {"cf_3_col_name_2", "cf_3_col_val_2_key_1"},
-       {"cf_3_col_name_3", "cf_3_col_val_3_key_1"}},
-      {{"cf_1_col_name_1", "cf_1_col_val_1_key_2"},
-       {"cf_2_col_name_1", "cf_2_col_val_1_key_2"},
-       {"cf_2_col_name_2", "cf_2_col_val_2_key_2"}},
-      {{"cf_1_col_name_1", "cf_1_col_val_1_key_3"},
-       {"cf_3_col_name_1", "cf_3_col_val_1_key_3"}},
-      {{"cf_0_col_name_1", "cf_0_col_val_1_key_4"},
-       {"cf_2_col_name_1", "cf_2_col_val_1_key_4"}}};
   std::vector<AttributeGroups> expected_attribute_groups = {
       key_1_attribute_groups, key_2_attribute_groups, key_3_attribute_groups,
       key_4_attribute_groups};
-  verify(cfhs_order_0_1_2_3, expected_keys, expected_values,
-         expected_wide_columns, expected_attribute_groups);
+  verify(cfhs_order_0_1_2_3, expected_keys, expected_attribute_groups);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

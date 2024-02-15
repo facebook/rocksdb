@@ -44,26 +44,12 @@ class MultiCfIteratorImpl : public MultiCfIterator {
   MultiCfIteratorImpl(const MultiCfIteratorImpl&) = delete;
   MultiCfIteratorImpl& operator=(const MultiCfIteratorImpl&) = delete;
 
-  std::unique_ptr<MultiCfIterator> NewMultiColumnFamilyIterator(
-      const Comparator* comparator,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Iterator*>& child_iterators);
-
-  // Return an empty MultiCfIterator (yields nothing)
-  std::unique_ptr<MultiCfIterator> NewEmptyMultiColumnFamilyIterator();
-
-  // Return an empty MultiCfIterator with the specified status.
-  std::unique_ptr<MultiCfIterator> NewErrorMultiColumnFamilyIterator(
-      const Status& status);
-
  private:
   std::vector<ColumnFamilyHandle*> cfhs_;
   std::vector<Iterator*> iterators_;
   ReadOptions read_options_;
   Status status_;
 
-  Slice value_;
-  WideColumns wide_columns_;
   AttributeGroups attribute_groups_;
 
   struct MultiCfIteratorInfo {
@@ -128,9 +114,8 @@ class MultiCfIteratorImpl : public MultiCfIterator {
     return min_heap_.top().iterator->value();
   }
   const WideColumns& columns() const override {
-    assert(false);
-    // TODO - Lazily merge columns from child iterators
-    return wide_columns_;
+    assert(Valid());
+    return min_heap_.top().iterator->columns();
   }
   const AttributeGroups& attribute_groups() const override {
     assert(false);
