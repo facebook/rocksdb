@@ -1687,6 +1687,11 @@ void rocksdb_release_snapshot(rocksdb_t* db,
   delete snapshot;
 }
 
+uint64_t rocksdb_snapshot_get_sequence_number(
+    const rocksdb_snapshot_t* snapshot) {
+  return snapshot->rep->GetSequenceNumber();
+}
+
 char* rocksdb_property_value(rocksdb_t* db, const char* propname) {
   std::string tmp;
   if (db->rep->GetProperty(Slice(propname), &tmp)) {
