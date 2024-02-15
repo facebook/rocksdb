@@ -4706,8 +4706,10 @@ static void DoCompressionTest(CompressionType comp) {
   Options options;
   test::PlainInternalKeyComparator ikc(options.comparator);
   options.compression = comp;
+  options.db_host_id = "";
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
