@@ -439,8 +439,8 @@ class SstQueryFilterConfigsManager
   using Data =
       std::vector<std::pair<FilteringVersion, std::vector<NamedConfigs>>>;
 
-  static Status MakeShared(std::shared_ptr<SstQueryFilterConfigsManager>* out,
-                           const Data& data);
+  static Status MakeShared(const Data& data,
+                           std::shared_ptr<SstQueryFilterConfigsManager>* out);
 
   virtual ~SstQueryFilterConfigsManager() {}
 
@@ -478,9 +478,9 @@ class SstQueryFilterConfigsManager
   // config_name is not found under that version, then
   // factory->GetConfigs().IsEmptyNotFound() will be true. Such a factory can
   // read filters but will not write any filters.
-  virtual Status MakeSharedFactory(std::shared_ptr<Factory>* out,
-                                   const std::string& configs_name,
-                                   FilteringVersion ver) const = 0;
+  virtual Status MakeSharedFactory(const std::string& configs_name,
+                                   FilteringVersion ver,
+                                   std::shared_ptr<Factory>* out) const = 0;
 };
 
 }  // namespace experimental

@@ -367,6 +367,8 @@ enum BuiltinSstQueryFilters : char {
   // TODO: unit test more subtleties
   kCategoryScopeFilterWrapper = 0x2,
 
+  // ... (reserve some values for more wrappers)
+
   // A filter representing the bytewise min and max values of a numbered
   // segment or composite (range of segments). The empty value is tracked
   // and filtered independently because it might be a special case that is
@@ -430,8 +432,8 @@ class CategoryScopeFilterWrapperBuilder : public SstQueryFilterBuilder {
       return 0;
     } else {
       // For now in the code, wraps only 1 filter, but schema supports multiple
-      return 1 + VarintLength(CategorySetToUint(categories_)) + 1 +
-             wrapped_length;
+      return 1 + VarintLength(CategorySetToUint(categories_)) +
+             VarintLength(1) + wrapped_length;
     }
   }
 
@@ -522,7 +524,9 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
       // May match on 0-length segment
       return true;
     }
-    // TODO: potentially fix upper bound to actually be exclusive
+    // TODO: potentially fix upper bound to actually be exclusive, but it's not
+    // as simple as changing >= to > below, because it's upper_bound_excl that's
+    // exclusive, and the upper_bound_input part extracted from it might not be.
 
     // May match if both the upper bound and lower bound indicate there could
     // be overlap
@@ -797,12 +801,13 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
         // outer layer will have just 1 filter in its count (added here)
         // and this filter wrapper will have filters_to_finish.size()
         // (added above).
-        total_size += 1;
+        total_size += VarintLength(1);
       }
 
       std::string filters;
       filters.reserve(total_size);
 
+      // Leave room for drastic changes in the future.
       filters.push_back(kSchemaVersion);
 
       if (extractor) {
@@ -912,6 +917,8 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
       assert(!wrapper.empty() && wrapper[0] == kExtrAndCatFilterWrapper);
       if (wrapper.size() <= 4) {
         // Missing some data
+        // (1 byte marker, >= 1 byte name length, >= 1 byte name, >= 1 byte
+        // categories, ...)
         return true;
       }
       const char* p = wrapper.data() + 1;
@@ -1143,9 +1150,9 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
     RelaxedAtomic<FilteringVersion> version;
   };
 
-  Status MakeSharedFactory(std::shared_ptr<Factory>* out,
-                           const std::string& configs_name,
-                           FilteringVersion ver) const override {
+  Status MakeSharedFactory(const std::string& configs_name,
+                           FilteringVersion ver,
+                           std::shared_ptr<Factory>* out) const override {
     auto obj = std::make_shared<MyFactory>(
         static_cast_with_check<const SstQueryFilterConfigsManagerImpl>(
             shared_from_this()),
@@ -1194,7 +1201,7 @@ std::shared_ptr<SstQueryFilterConfig> MakeSharedBytewiseMinMaxSQFC(
 }
 
 Status SstQueryFilterConfigsManager::MakeShared(
-    std::shared_ptr<SstQueryFilterConfigsManager>* out, const Data& data) {
+    const Data& data, std::shared_ptr<SstQueryFilterConfigsManager>* out) {
   auto obj = std::make_shared<SstQueryFilterConfigsManagerImpl>();
   Status s = obj->Populate(data);
   if (s.ok()) {

@@ -3630,7 +3630,7 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
       {42, {{"foo", configs1}}}, {43, {{"foo", configs2}, {"bar", configs3}}}};
 
   std::shared_ptr<SstQueryFilterConfigsManager> configs_manager;
-  ASSERT_OK(SstQueryFilterConfigsManager::MakeShared(&configs_manager, data));
+  ASSERT_OK(SstQueryFilterConfigsManager::MakeShared(data, &configs_manager));
 
   // Test manager behaviors
   auto MakeFactory = [configs_manager](
@@ -3638,7 +3638,7 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
                          SstQueryFilterConfigsManager::FilteringVersion ver)
       -> std::shared_ptr<SstQueryFilterConfigsManager::Factory> {
     std::shared_ptr<SstQueryFilterConfigsManager::Factory> factory;
-    Status s = configs_manager->MakeSharedFactory(&factory, configs_name, ver);
+    Status s = configs_manager->MakeSharedFactory(configs_name, ver, &factory);
     assert(s.ok());
     return factory;
   };
@@ -3651,13 +3651,13 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
 
   // We can't be sure about the proper configuration for versions outside the
   // known range (and reserved version 0).
-  ASSERT_TRUE(configs_manager->MakeSharedFactory(&factory, "foo", 1)
+  ASSERT_TRUE(configs_manager->MakeSharedFactory("foo", 1, &factory)
                   .IsInvalidArgument());
-  ASSERT_TRUE(configs_manager->MakeSharedFactory(&factory, "foo", 41)
+  ASSERT_TRUE(configs_manager->MakeSharedFactory("foo", 41, &factory)
                   .IsInvalidArgument());
-  ASSERT_TRUE(configs_manager->MakeSharedFactory(&factory, "foo", 44)
+  ASSERT_TRUE(configs_manager->MakeSharedFactory("foo", 44, &factory)
                   .IsInvalidArgument());
-  ASSERT_TRUE(configs_manager->MakeSharedFactory(&factory, "foo", 500)
+  ASSERT_TRUE(configs_manager->MakeSharedFactory("foo", 500, &factory)
                   .IsInvalidArgument());
 
   ASSERT_TRUE(MakeFactory("blah", 42)->GetConfigs().IsEmptyNotFound());
@@ -3667,7 +3667,7 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   ASSERT_TRUE(MakeFactory("bar", 42)->GetConfigs().IsEmptyNotFound());
   ASSERT_FALSE(MakeFactory("bar", 43)->GetConfigs().IsEmptyNotFound());
 
-  ASSERT_OK(configs_manager->MakeSharedFactory(&factory, "foo", 42));
+  ASSERT_OK(configs_manager->MakeSharedFactory("foo", 42, &factory));
   ASSERT_EQ(factory->GetConfigsName(), "foo");
   ASSERT_EQ(factory->GetConfigs().IsEmptyNotFound(), false);
 
@@ -3742,29 +3742,31 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
         return ret;
       };
 
-  // Control 1: range is not filterable, common prefix
+  // Control 1: range is not filtered but min/max filter is checked
+  // because of common prefix leading up to 2nd segment
+  // TODO/future: statistics for when filter is checked vs. not applicable
   EXPECT_EQ(RangeQueryKeys("abc_150", "abc_249"),
             Keys({"abc_156_987", "abc_234", "abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
-  // Test 1: range is filterable to just lowest level, fully containing the
+  // Test 1: range is filtered to just lowest level, fully containing the
   // segments in that category
   EXPECT_EQ(RangeQueryKeys("abc_100", "abc_179"),
             Keys({"abc_123", "abc_13", "abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
-  // Test 2: range is filterable to just lowest level, partial overlap
+  // Test 2: range is filtered to just lowest level, partial overlap
   EXPECT_EQ(RangeQueryKeys("abc_1500_x_y", "abc_16QQ"), Keys({"abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
-  // Test 3: range is filterable to just highest level, fully containing the
+  // Test 3: range is filtered to just highest level, fully containing the
   // segments in that category but would be overlapping the range for the other
   // file if the filter included all categories
   EXPECT_EQ(RangeQueryKeys("abc_200", "abc_300"),
             Keys({"abc_234", "abc_245_567", "abc_25"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
-  // Test 4: range is filterable to just highest level, partial overlap (etc.)
+  // Test 4: range is filtered to just highest level, partial overlap (etc.)
   EXPECT_EQ(RangeQueryKeys("abc_200", "abc_249"),
             Keys({"abc_234", "abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
@@ -3778,12 +3780,13 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   EXPECT_EQ(RangeQueryKeys("abc_170", "abc_190"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
-  // Control 3: range is not filtered because prefixes not represented
+  // Control 3: range is not filtered because there's no (bloom) filter on
+  // 1st segment (like prefix filtering)
   EXPECT_EQ(RangeQueryKeys("baa_170", "baa_190"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
-  // Control 4: range is not filtered because different prefix, prefixes not
-  // represented
+  // Control 4: range is not filtered because difference in segments leading
+  // up to 2nd segment
   EXPECT_EQ(RangeQueryKeys("abc_500", "abd_501"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
