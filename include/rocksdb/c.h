@@ -691,8 +691,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flush_wal(rocksdb_t* db,
 extern ROCKSDB_LIBRARY_API void rocksdb_disable_file_deletions(rocksdb_t* db,
                                                                char** errptr);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_enable_file_deletions(
-    rocksdb_t* db, unsigned char force, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_enable_file_deletions(rocksdb_t* db,
+                                                              char** errptr);
 
 /* Management operations */
 

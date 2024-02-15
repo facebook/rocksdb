@@ -1583,7 +1583,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
 
   // we copied all the files, enable file deletions
   if (disabled.ok()) {  // If we successfully disabled file deletions
-    db->EnableFileDeletions(/*force=*/false).PermitUncheckedError();
+    db->EnableFileDeletions().PermitUncheckedError();
   }
   auto backup_time = backup_env_->NowMicros() - start_backup;
 

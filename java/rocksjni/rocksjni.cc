@@ -3550,10 +3550,9 @@ void Java_org_rocksdb_RocksDB_disableFileDeletions(JNIEnv* env, jclass,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_RocksDB_enableFileDeletions(JNIEnv* env, jclass,
-                                                  jlong jdb_handle,
-                                                  jboolean jforce) {
+                                                  jlong jdb_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::Status s = db->EnableFileDeletions(jforce);
+  ROCKSDB_NAMESPACE::Status s = db->EnableFileDeletions();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }

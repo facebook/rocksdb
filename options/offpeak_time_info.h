@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"

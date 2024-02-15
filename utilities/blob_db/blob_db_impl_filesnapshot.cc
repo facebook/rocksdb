@@ -35,9 +35,9 @@ Status BlobDBImpl::DisableFileDeletions() {
   return Status::OK();
 }
 
-Status BlobDBImpl::EnableFileDeletions(bool force) {
+Status BlobDBImpl::EnableFileDeletions() {
   // Enable base DB file deletions.
-  Status s = db_impl_->EnableFileDeletions(force);
+  Status s = db_impl_->EnableFileDeletions();
   if (!s.ok()) {
     return s;
   }
@@ -45,9 +45,7 @@ Status BlobDBImpl::EnableFileDeletions(bool force) {
   int count = 0;
   {
     MutexLock l(&delete_file_mutex_);
-    if (force) {
-      disable_file_deletions_ = 0;
-    } else if (disable_file_deletions_ > 0) {
+    if (disable_file_deletions_ > 0) {
       count = --disable_file_deletions_;
     }
     assert(count >= 0);

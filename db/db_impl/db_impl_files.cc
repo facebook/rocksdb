@@ -67,17 +67,14 @@ Status DBImpl::DisableFileDeletionsWithLock() {
   return Status::OK();
 }
 
-Status DBImpl::EnableFileDeletions(bool force) {
+Status DBImpl::EnableFileDeletions() {
   // Job id == 0 means that this is not our background process, but rather
   // user thread
   JobContext job_context(0);
   int saved_counter;  // initialize on all paths
   {
     InstrumentedMutexLock l(&mutex_);
-    if (force) {
-      // if force, we need to enable file deletions right away
-      disable_delete_obsolete_files_ = 0;
-    } else if (disable_delete_obsolete_files_ > 0) {
+    if (disable_delete_obsolete_files_ > 0) {
       --disable_delete_obsolete_files_;
     }
     saved_counter = disable_delete_obsolete_files_;

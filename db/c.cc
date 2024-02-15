@@ -1874,9 +1874,8 @@ void rocksdb_disable_file_deletions(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->DisableFileDeletions());
 }
 
-void rocksdb_enable_file_deletions(rocksdb_t* db, unsigned char force,
-                                   char** errptr) {
-  SaveError(errptr, db->rep->EnableFileDeletions(force));
+void rocksdb_enable_file_deletions(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->EnableFileDeletions());
 }
 
 void rocksdb_destroy_db(const rocksdb_options_t* options, const char* name,
