@@ -222,6 +222,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // beyond the payload size.
         s = VerifyBlockChecksum(footer, data + req_offset, handle.size(),
                                 rep_->file->file_name(), handle.offset());
+        RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     } else if (!use_shared_buffer) {
