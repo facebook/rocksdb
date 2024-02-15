@@ -96,9 +96,9 @@ class StackableDB : public DB {
   }
 
   using DB::Get;
-  Status Get(const ReadOptions& options,
-             ColumnFamilyHandle* column_family, const Slice& key,
-             PinnableSlice* value, std::string* timestamp) override {
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override {
     return db_->Get(options, column_family, key, value, timestamp);
   }
 

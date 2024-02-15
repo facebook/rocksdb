@@ -604,7 +604,7 @@ class DB {
 
   // Gets a key in the default column family, returns the value as a string,
   // and no timestamp returned
-  // DEPRECATED: This function might be removed in a future release
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) final {
     return Get(options, DefaultColumnFamily(), key, value);
@@ -612,7 +612,7 @@ class DB {
 
   // Gets a key in the default column family, returns the value as a string,
   // and timestamp of the key is returned if timestamp parameter is non-null
-  // DEPRECATED: This function might be removed in a future release
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value, std::string* timestamp) final {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
@@ -726,7 +726,7 @@ class DB {
   }
 
   // MultiGet for default column family, no timestamps returned
-  // DEPRECATED: This function might be removed in a future release
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(const ReadOptions& options,
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) final {
@@ -738,7 +738,7 @@ class DB {
   }
 
   // MultiGet for default column family
-  // DEPRECATED: This function might be removed in a future release
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options, const std::vector<Slice>& keys,
       std::vector<std::string>* values,

@@ -52,9 +52,9 @@ class DBWithTTLImpl : public DBWithTTL {
              const Slice& key, const Slice& val) override;
 
   using StackableDB::Get;
-  Status Get(const ReadOptions& options,
-             ColumnFamilyHandle* column_family, const Slice& key,
-             PinnableSlice* value, std::string* timestamp) override;
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
 
   using StackableDB::MultiGet;
   void MultiGet(const ReadOptions& options, const size_t num_keys,

@@ -137,9 +137,9 @@ class BlobDB : public StackableDB {
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::Get;
-  Status Get(const ReadOptions& options,
-             ColumnFamilyHandle* column_family, const Slice& key,
-             PinnableSlice* value, std::string* timestamp) override = 0;
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override = 0;
 
   // Get value and expiration.
   virtual Status Get(const ReadOptions& options,
