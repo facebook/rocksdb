@@ -3201,7 +3201,7 @@ class ModelDB : public DB {
   }
 
   // DO NOT USE, UNDER CONSTRUCTION
-  MultiCfIterator* NewMultiCfIterator(
+  std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
       const ReadOptions& /*options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_families*/,
       const Comparator* /*comparator*/) override {

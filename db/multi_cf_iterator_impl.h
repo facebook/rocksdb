@@ -44,6 +44,18 @@ class MultiCfIteratorImpl : public MultiCfIterator {
   MultiCfIteratorImpl(const MultiCfIteratorImpl&) = delete;
   MultiCfIteratorImpl& operator=(const MultiCfIteratorImpl&) = delete;
 
+  std::unique_ptr<MultiCfIterator> NewMultiColumnFamilyIterator(
+      const Comparator* comparator,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Iterator*>& child_iterators);
+
+  // Return an empty MultiCfIterator (yields nothing)
+  std::unique_ptr<MultiCfIterator> NewEmptyMultiColumnFamilyIterator();
+
+  // Return an empty MultiCfIterator with the specified status.
+  std::unique_ptr<MultiCfIterator> NewErrorMultiColumnFamilyIterator(
+      const Status& status);
+
  private:
   std::vector<ColumnFamilyHandle*> cfhs_;
   std::vector<Iterator*> iterators_;

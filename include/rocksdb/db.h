@@ -963,7 +963,7 @@ class DB {
   // selects the value from the first column family containing the key, in the
   // order specified by the `column_families` parameter. For wide column values,
   // the iterator combines the columns into a single wide column value.
-  virtual MultiCfIterator* NewMultiCfIterator(
+  virtual std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const Comparator* comparator = BytewiseComparator()) = 0;

@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <memory>
+
 #include "db/db_test_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,13 +21,13 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
                     const std::vector<Slice>& expected_keys,
                     const std::vector<Slice>& expected_values) {
     int i = 0;
-    MultiCfIterator* iter = db_->NewMultiCfIterator(ReadOptions(), cfhs);
+    std::unique_ptr<MultiCfIterator> iter =
+        db_->NewMultiCfIterator(ReadOptions(), cfhs);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(expected_keys[i], iter->key());
       ASSERT_EQ(expected_values[i], iter->value());
       ++i;
     }
-    delete iter;
     ASSERT_EQ(expected_keys.size(), i);
   };
 
@@ -144,7 +146,8 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
           const std::vector<WideColumns>& expected_wide_columns,
           const std::vector<AttributeGroups>& expected_attribute_groups) {
         int i = 0;
-        MultiCfIterator* iter = db_->NewMultiCfIterator(ReadOptions(), cfhs);
+        std::unique_ptr<MultiCfIterator> iter =
+            db_->NewMultiCfIterator(ReadOptions(), cfhs);
         for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
           ASSERT_EQ(expected_keys[i], iter->key());
           ASSERT_EQ(expected_values[i], iter->value());
@@ -152,7 +155,6 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
           ASSERT_EQ(expected_attribute_groups[i], iter->attribute_groups());
           ++i;
         }
-        delete iter;
         // TODO - Check when implementation is done
         // ASSERT_EQ(expected_keys.size(), i);
       };

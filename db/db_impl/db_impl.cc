@@ -9,6 +9,9 @@
 #include "db/db_impl/db_impl.h"
 
 #include <cstdint>
+#include <stdint.h>
+
+#include <memory>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -3737,7 +3740,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   return db_iter;
 }
 
-MultiCfIterator* DBImpl::NewMultiCfIterator(
+std::unique_ptr<MultiCfIterator> DBImpl::NewMultiCfIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     const Comparator* comparator) {
@@ -3746,11 +3749,10 @@ MultiCfIterator* DBImpl::NewMultiCfIterator(
   std::vector<Iterator*> child_iterators;
   Status s = NewIterators(_read_options, column_families, &child_iterators);
   if (s.ok()) {
-    MultiCfIterator* iterator =
-        new MultiCfIteratorImpl(comparator, column_families, child_iterators);
-    return iterator;
+    return std::make_unique<MultiCfIteratorImpl>(comparator, column_families,
+                                                 child_iterators);
   }
-  return new EmptyMultiCfIterator(s);
+  return std::make_unique<EmptyMultiCfIterator>(s);
 }
 
 Status DBImpl::NewIterators(

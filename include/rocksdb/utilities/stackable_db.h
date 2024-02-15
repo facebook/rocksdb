@@ -260,7 +260,7 @@ class StackableDB : public DB {
   }
 
   using DB::NewMultiCfIterator;
-  MultiCfIterator* NewMultiCfIterator(
+  std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const Comparator* comparator = BytewiseComparator()) override {
