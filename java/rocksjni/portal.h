@@ -5938,7 +5938,7 @@ class HistogramTypeJni {
       case 0x32:
         return ROCKSDB_NAMESPACE::Histograms::FLUSH_TIME;
       case 0x33:
-        return ROCKSDB_NAMESPACE::Histograms::SST_IO_BATCH_SIZE;
+        return ROCKSDB_NAMESPACE::Histograms::SST_BATCH_SIZE;
       case 0x34:
         return ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE;
       case 0x35:
