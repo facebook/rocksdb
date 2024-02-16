@@ -3447,7 +3447,7 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
 class ReadAsyncFS;
 
 struct MockIOHandle {
-  std::function<void(const FSReadRequest&, void*)> cb;
+  std::function<void(FSReadRequest&, void*)> cb;
   void* cb_arg;
   bool create_io_error;
 };
@@ -3462,7 +3462,7 @@ class ReadAsyncRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
       : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
+                     std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override;
 
@@ -3514,7 +3514,7 @@ class ReadAsyncFS : public FileSystemWrapper {
 
 IOStatus ReadAsyncRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
   IOHandleDeleter deletefn = [](void* args) -> void {
     delete (static_cast<MockIOHandle*>(args));
@@ -3602,8 +3602,8 @@ TEST_F(TestAsyncRead, ReadAsync) {
     }
 
     // callback function passed to async read.
-    std::function<void(const FSReadRequest&, void*)> callback =
-        [&](const FSReadRequest& req, void* cb_arg) {
+    std::function<void(FSReadRequest&, void*)> callback =
+        [&](FSReadRequest& req, void* cb_arg) {
           assert(cb_arg != nullptr);
           size_t i = *(reinterpret_cast<size_t*>(cb_arg));
           reqs[i].offset = req.offset;

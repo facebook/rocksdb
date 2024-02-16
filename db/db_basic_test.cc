@@ -4277,7 +4277,7 @@ class DeadlineRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
                      const IOOptions& options, IODebugContext* dbg) override;
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
+                     std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override;
 
@@ -4423,7 +4423,7 @@ IOStatus DeadlineRandomAccessFile::Read(uint64_t offset, size_t len,
 
 IOStatus DeadlineRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
   const std::chrono::microseconds deadline = fs_.GetDeadline();
   const std::chrono::microseconds io_timeout = fs_.GetIOTimeout();

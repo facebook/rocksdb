@@ -376,7 +376,7 @@ class FilePrefetchBuffer {
   }
 
   // Callback function passed to underlying FS in case of asynchronous reads.
-  void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
+  void PrefetchAsyncCallback(FSReadRequest& req, void* cb_arg);
 
   void TEST_GetBufferOffsetandSize(
       std::vector<std::pair<uint64_t, size_t>>& buffer_info) {

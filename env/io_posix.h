@@ -76,8 +76,8 @@ inline bool IsSectorAligned(const void* ptr, size_t sector_size) {
 #if defined(ROCKSDB_IOURING_PRESENT)
 struct Posix_IOHandle {
   Posix_IOHandle(struct io_uring* _iu,
-                 std::function<void(const FSReadRequest&, void*)> _cb,
-                 void* _cb_arg, uint64_t _offset, size_t _len, char* _scratch,
+                 std::function<void(FSReadRequest&, void*)> _cb, void* _cb_arg,
+                 uint64_t _offset, size_t _len, char* _scratch,
                  bool _use_direct_io, size_t _alignment)
       : iu(_iu),
         cb(_cb),
@@ -92,7 +92,7 @@ struct Posix_IOHandle {
 
   struct iovec iov;
   struct io_uring* iu;
-  std::function<void(const FSReadRequest&, void*)> cb;
+  std::function<void(FSReadRequest&, void*)> cb;
   void* cb_arg;
   uint64_t offset;
   size_t len;
@@ -317,11 +317,12 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
-  // EXPERIMENTAL
-  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
-                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     IODebugContext* dbg) override;
+
+  virtual IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                             std::function<void(FSReadRequest&, void*)> cb,
+                             void* cb_arg, void** io_handle,
+                             IOHandleDeleter* del_fn,
+                             IODebugContext* dbg) override;
 };
 
 class PosixWritableFile : public FSWritableFile {
