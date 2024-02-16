@@ -105,7 +105,7 @@ class BlobDBImpl : public BlobDB {
   using BlobDB::Get;
   Status Get(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
-             PinnableSlice* value) override;
+             PinnableSlice* value, std::string* timestamp) override;
 
   Status Get(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
@@ -123,9 +123,10 @@ class BlobDBImpl : public BlobDB {
   }
 
   using BlobDB::MultiGet;
-  std::vector<Status> MultiGet(const ReadOptions& _read_options,
-                               const std::vector<Slice>& keys,
-                               std::vector<std::string>* values) override;
+  void MultiGet(const ReadOptions& _read_options, size_t num_keys,
+                ColumnFamilyHandle** column_families, const Slice* keys,
+                PinnableSlice* values, std::string* timestamps,
+                Status* statuses, const bool sorted_input) override;
 
   using BlobDB::Write;
   Status Write(const WriteOptions& opts, WriteBatch* updates) override;
