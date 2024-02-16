@@ -537,7 +537,6 @@ void DBWithTTLImpl::MultiGet(const ReadOptions& options, const size_t num_keys,
     }
     statuses[i] = StripTS(&values[i]);
   }
-  return;
 }
 
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,

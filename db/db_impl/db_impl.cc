@@ -2865,29 +2865,23 @@ void DBImpl::PrepareMultiGetKeys(
             CompareKeyContext());
 }
 
-void DB::MultiGet(const ReadOptions& _read_options,
-                  ColumnFamilyHandle* column_family, const size_t num_keys,
-                  const Slice* keys, PinnableSlice* values,
-                  std::string* timestamps, Status* statuses,
-                  const bool sorted_input) {
-  // Use an autovector, if possible, to avoid memory allocation overhead
-  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE> cf_autovec;
-  std::vector<ColumnFamilyHandle*> cf_vec;
-  ColumnFamilyHandle** column_families;
-
+void DB::MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                  const size_t num_keys, const Slice* keys,
+                  PinnableSlice* values, std::string* timestamps,
+                  Status* statuses, const bool sorted_input) {
+  // Use std::array, if possible, to avoid memory allocation overhead
   if (num_keys > MultiGetContext::MAX_BATCH_SIZE) {
-    cf_vec.resize(num_keys);
-    column_families = cf_vec.data();
+    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
+    MultiGet(options, num_keys, column_families.data(), keys, values,
+             timestamps, statuses, sorted_input);
   } else {
-    cf_autovec.resize(num_keys);
-    column_families = &cf_autovec[0];
+    std::array<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        column_families;
+    std::fill(column_families.begin(), column_families.begin() + num_keys,
+              column_family);
+    MultiGet(options, num_keys, column_families.data(), keys, values,
+             timestamps, statuses, sorted_input);
   }
-
-  for (size_t i = 0; i < num_keys; ++i) {
-    column_families[i] = column_family;
-  }
-  MultiGet(_read_options, num_keys, column_families, keys, values, timestamps,
-           statuses, sorted_input);
 }
 
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,

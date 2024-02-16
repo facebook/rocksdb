@@ -551,14 +551,11 @@ class DB {
   // If timestamp is enabled and a non-null timestamp pointer is passed in,
   // timestamp is returned. If the underlying DB implementation doesn't
   // support returning timestamp and the timestamp argument is non-null,
-  // an error will be returned.
+  // a Status::NotSupported() error will be returned.
   //
   // Returns OK on success. Returns NotFound and an empty value in "*value" if
   // there is no entry for "key". Returns some other non-OK status on error.
-
-  // NOTE: Pure virtual => was virtual before.If concrete implementation
-  //       doesn't support returning timestamp, it should return
-  //       Status::NotSupported() if timestamp parameter is non-null
+  // NOTE: Pure virtual => was virtual before
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value, std::string* timestamp) = 0;
@@ -687,7 +684,6 @@ class DB {
   // Note: keys will not be "de-duplicated". Duplicate keys will return
   // duplicate values in order, and may return different status values
   // in case there are errors.
-
   // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
