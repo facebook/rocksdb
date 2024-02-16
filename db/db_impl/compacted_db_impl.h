@@ -90,7 +90,7 @@ class CompactedDBImpl : public DBImpl {
   Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
-  Status EnableFileDeletions(bool /*force*/) override {
+  Status EnableFileDeletions() override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
   Status GetLiveFiles(std::vector<std::string>& ret,

@@ -86,7 +86,7 @@ class DummyDB : public StackableDB {
 
   DBOptions GetDBOptions() const override { return DBOptions(options_); }
 
-  Status EnableFileDeletions(bool /*force*/) override {
+  Status EnableFileDeletions() override {
     EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
     return Status::OK();

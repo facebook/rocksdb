@@ -41,7 +41,10 @@ struct SstFileWriter::Rep {
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
         skip_filters(_skip_filters),
-        db_session_id(_db_session_id) {
+        db_session_id(_db_session_id),
+        ts_sz(_user_comparator->timestamp_size()),
+        strip_timestamp(ts_sz > 0 &&
+                        !ioptions.persist_user_defined_timestamps) {
     // TODO (hx235): pass in `WriteOptions` instead of `rate_limiter_priority`
     // during construction
     write_options.rate_limiter_priority = io_priority;
@@ -68,6 +71,8 @@ struct SstFileWriter::Rep {
   bool skip_filters;
   std::string db_session_id;
   uint64_t next_file_number = 1;
+  size_t ts_sz;
+  bool strip_timestamp;
 
   Status AddImpl(const Slice& user_key, const Slice& value,
                  ValueType value_type) {
@@ -78,6 +83,17 @@ struct SstFileWriter::Rep {
       return builder->status();
     }
 
+    assert(user_key.size() >= ts_sz);
+    if (strip_timestamp) {
+      // In this mode, we expect users to always provide a min timestamp.
+      if (internal_comparator.user_comparator()->CompareTimestamp(
+              Slice(user_key.data() + user_key.size() - ts_sz, ts_sz),
+              MinU64Ts()) != 0) {
+        return Status::InvalidArgument(
+            "persist_user_defined_timestamps flag is set to false, only "
+            "minimum timestamp is accepted.");
+      }
+    }
     if (file_info.num_entries == 0) {
       file_info.smallest_key.assign(user_key.data(), user_key.size());
     } else {
@@ -169,6 +185,28 @@ struct SstFileWriter::Rep {
     } else if (cmp == 0) {
       // It's an empty range. Don't bother applying it to the DB.
       return Status::OK();
+    }
+
+    assert(begin_key.size() >= ts_sz);
+    assert(end_key.size() >= ts_sz);
+    Slice begin_key_ts =
+        Slice(begin_key.data() + begin_key.size() - ts_sz, ts_sz);
+    Slice end_key_ts = Slice(end_key.data() + end_key.size() - ts_sz, ts_sz);
+    assert(begin_key_ts.compare(end_key_ts) == 0);
+    if (strip_timestamp) {
+      // In this mode, we expect users to always provide a min timestamp.
+      if (internal_comparator.user_comparator()->CompareTimestamp(
+              begin_key_ts, MinU64Ts()) != 0) {
+        return Status::InvalidArgument(
+            "persist_user_defined_timestamps flag is set to false, only "
+            "minimum timestamp is accepted for start key.");
+      }
+      if (internal_comparator.user_comparator()->CompareTimestamp(
+              end_key_ts, MinU64Ts()) != 0) {
+        return Status::InvalidArgument(
+            "persist_user_defined_timestamps flag is set to false, only "
+            "minimum timestamp is accepted for end key.");
+      }
     }
 
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
@@ -462,6 +500,30 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   if (file_info != nullptr) {
     *file_info = r->file_info;
+    Slice smallest_key = r->file_info.smallest_key;
+    Slice largest_key = r->file_info.largest_key;
+    Slice smallest_range_del_key = r->file_info.smallest_range_del_key;
+    Slice largest_range_del_key = r->file_info.largest_range_del_key;
+    assert(smallest_key.empty() == largest_key.empty());
+    assert(smallest_range_del_key.empty() == largest_range_del_key.empty());
+    // Remove user-defined timestamps from external file metadata too when they
+    // should not be persisted.
+    if (r->strip_timestamp) {
+      if (!smallest_key.empty()) {
+        assert(smallest_key.size() >= r->ts_sz);
+        assert(largest_key.size() >= r->ts_sz);
+        file_info->smallest_key.resize(smallest_key.size() - r->ts_sz);
+        file_info->largest_key.resize(largest_key.size() - r->ts_sz);
+      }
+      if (!smallest_range_del_key.empty()) {
+        assert(smallest_range_del_key.size() >= r->ts_sz);
+        assert(largest_range_del_key.size() >= r->ts_sz);
+        file_info->smallest_range_del_key.resize(smallest_range_del_key.size() -
+                                                 r->ts_sz);
+        file_info->largest_range_del_key.resize(largest_range_del_key.size() -
+                                                r->ts_sz);
+      }
+    }
   }
 
   r->builder.reset();

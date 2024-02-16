@@ -1,0 +1,1 @@
+Remove the force mode for `EnableFileDeletions` API because it is unsafe with no known legitimate use.

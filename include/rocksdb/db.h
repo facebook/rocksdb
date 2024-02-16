@@ -1669,17 +1669,10 @@ class DB {
   // critical for operations like making a backup. So the counter implementation
   // makes the file deletion disabled as long as there is one caller requesting
   // so, and only when every caller agrees to re-enable file deletion, it will
-  // be enabled. So be careful when calling this function with force = true as
-  // explained below.
-  // If force == true, the call to EnableFileDeletions() will guarantee that
-  // file deletions are enabled after the call, even if DisableFileDeletions()
-  // was called multiple times before.
-  // If force == false, EnableFileDeletions will only enable file deletion
-  // after it's been called at least as many times as DisableFileDeletions(),
-  // enabling the two methods to be called by two threads concurrently without
+  // be enabled. Two threads can call this method concurrently without
   // synchronization -- i.e., file deletions will be enabled only after both
   // threads call EnableFileDeletions()
-  virtual Status EnableFileDeletions(bool force) = 0;
+  virtual Status EnableFileDeletions() = 0;
 
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then
@@ -1805,6 +1798,14 @@ class DB {
   // to Flush the memtable first before ingesting the file.
   // In the second mode we will always ingest in the bottom most level (see
   // docs to IngestExternalFileOptions::ingest_behind).
+  // For a column family that enables user-defined timestamps, ingesting
+  // external SST files are supported with these limitations: 1) Ingested file's
+  // user key (without timestamp) range should not overlap with the db's key
+  // range. 2) When ingesting multiple external SST files, their key ranges
+  // should not overlap with each other either. 3) Ingestion behind mode is not
+  // supported. 4) When an ingested file contains point data and range deletion
+  // for the same key, the point data currently overrides the range deletion
+  // regardless which one has the higher user-defined timestamps.
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level

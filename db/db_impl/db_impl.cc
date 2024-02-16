@@ -5551,16 +5551,23 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
       }
     }
   }
+
   if (s.ok()) {
-    InstrumentedMutexLock l(&mutex_);
-    versions_->options_file_number_ = options_file_number;
-    versions_->options_file_size_ = options_file_size;
+    int my_disable_delete_obsolete_files;
+
+    {
+      InstrumentedMutexLock l(&mutex_);
+      versions_->options_file_number_ = options_file_number;
+      versions_->options_file_size_ = options_file_size;
+      my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
+    }
+
+    if (!my_disable_delete_obsolete_files) {
+      // TODO: Should we check for errors here?
+      DeleteObsoleteOptionsFiles().PermitUncheckedError();
+    }
   }
 
-  if (0 == disable_delete_obsolete_files_) {
-    // TODO: Should we check for errors here?
-    DeleteObsoleteOptionsFiles().PermitUncheckedError();
-  }
   return s;
 }
 
@@ -5817,10 +5824,18 @@ Status DBImpl::IngestExternalFiles(
   }
   for (const auto& arg : args) {
     const IngestExternalFileOptions& ingest_opts = arg.options;
-    if (ingest_opts.ingest_behind &&
-        !immutable_db_options_.allow_ingest_behind) {
-      return Status::InvalidArgument(
-          "can't ingest_behind file in DB with allow_ingest_behind=false");
+    if (ingest_opts.ingest_behind) {
+      if (!immutable_db_options_.allow_ingest_behind) {
+        return Status::InvalidArgument(
+            "can't ingest_behind file in DB with allow_ingest_behind=false");
+      }
+      auto ucmp = arg.column_family->GetComparator();
+      assert(ucmp);
+      if (ucmp->timestamp_size() > 0) {
+        return Status::NotSupported(
+            "Column family with user-defined "
+            "timestamps enabled doesn't support ingest behind.");
+      }
     }
   }
 

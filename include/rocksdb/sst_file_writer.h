@@ -128,6 +128,8 @@ class SstFileWriter {
   // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
   //           key according to the comparator.
   // REQUIRES: timestamp's size is equal to what is expected by the comparator.
+  // When Options.persist_user_defined_timestamps is set to false, only the
+  // minimum timestamp is accepted, and it will not be persisted.
   Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
 
   // Add a PutEntity (key with the wide-column entity defined by "columns") to
@@ -150,6 +152,8 @@ class SstFileWriter {
   // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
   //           key according to the comparator.
   // REQUIRES: timestamp's size is equal to what is expected by the comparator.
+  // When Options.persist_user_defined_timestamps is set to false, only the
+  // minimum timestamp is accepted, and it will not be persisted.
   Status Delete(const Slice& user_key, const Slice& timestamp);
 
   // Add a range deletion tombstone to currently opened file. Such a range
@@ -175,6 +179,8 @@ class SstFileWriter {
   // REQUIRES: begin_key and end_key are user keys without timestamp.
   // REQUIRES: The comparator orders `begin_key` at or before `end_key`
   // REQUIRES: timestamp's size is equal to what is expected by the comparator.
+  // When Options.persist_user_defined_timestamps is set to false, only the
+  // minimum timestamp is accepted, and it will not be persisted.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key,
                      const Slice& timestamp);
 
