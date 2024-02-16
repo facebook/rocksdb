@@ -10,7 +10,6 @@
 
 #include <cstdint>
 #include <stdint.h>
-
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -46,7 +45,6 @@
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
-#include "db/merge_helper.h"
 #include "db/multi_cf_iterator_impl.h"
 #include "db/periodic_task_scheduler.h"
 #include "db/range_tombstone_fragmenter.h"

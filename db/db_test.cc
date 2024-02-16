@@ -3200,7 +3200,7 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported yet");
   }
 
-  // DO NOT USE, UNDER CONSTRUCTION
+  // UNDER CONSTRUCTION - DO NOT USE
   std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
       const ReadOptions& /*options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
