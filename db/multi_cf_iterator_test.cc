@@ -28,6 +28,7 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
       ASSERT_EQ(expected_values[i], iter->value());
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(expected_keys.size(), i);
   };
 
@@ -153,6 +154,7 @@ TEST_F(MultiCfIteratorTest, WideColumns) {
       ASSERT_EQ(expected_wide_columns[i], iter->columns());
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(expected_keys.size(), i);
   };
 
@@ -205,6 +207,7 @@ TEST_F(MultiCfIteratorTest, DifferentComparatorsinMultiCFs) {
       ++i;
     }
     ASSERT_EQ(expected_keys.size(), i);
+    ASSERT_OK(iter->status());
     delete iter;
   };
   verify(handles_[0], {"key_1", "key_2", "key_3"});
@@ -253,6 +256,7 @@ TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
       ASSERT_EQ(expected_keys[i], iter->key());
       ++i;
     }
+    ASSERT_TRUE(iter->status().ok());
     ASSERT_EQ(expected_keys.size(), i);
     delete iter;
   };
@@ -270,13 +274,12 @@ TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
   int i = 0;
   std::unique_ptr<MultiCfIterator> iter =
       db_->NewMultiCfIterator(ReadOptions(), handles_);
-  ASSERT_OK(iter->status());
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ASSERT_EQ(expected_keys[i], iter->key());
     ASSERT_EQ(expected_values[i], iter->value());
     ++i;
   }
-
+  ASSERT_OK(iter->status());
   if (comparator_1) {
     delete comparator_1;
   }
@@ -349,6 +352,7 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
           ASSERT_EQ(expected_attribute_groups[i], iter->attribute_groups());
           ++i;
         }
+        ASSERT_OK(iter->status());
         // TODO - Check when implementation is done
         // ASSERT_EQ(expected_keys.size(), i);
       };

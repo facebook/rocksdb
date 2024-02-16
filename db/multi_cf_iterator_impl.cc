@@ -59,6 +59,4 @@ void MultiCfIteratorImpl::Next() {
   }
 }
 
-const AttributeGroups kNoAttributeGroups;
-
 }  // namespace ROCKSDB_NAMESPACE

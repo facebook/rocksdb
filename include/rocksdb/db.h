@@ -957,7 +957,7 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
-  // DO NOT USE, UNDER CONSTRUCTION
+  // UNDER CONSTRUCTION - DO NOT USE
   // Return a cross-column-family iterator from a consistent database state.
   // When the same key is present in multiple column families, the iterator
   // selects the value or columns from the first column family containing the

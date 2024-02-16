@@ -352,7 +352,7 @@ class DBImpl : public DB {
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
-  // DO NOT USE, UNDER CONSTRUCTION
+  // UNDER CONSTRUCTION - DO NOT USE
   // Return a cross-column-family iterator from a consistent database state.
   std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
       const ReadOptions& options,
