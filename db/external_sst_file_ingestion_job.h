@@ -164,7 +164,9 @@ class ExternalSstFileIngestionJob {
                           IngestedFileInfo* file_to_ingest,
                           std::unique_ptr<TableReader>* table_reader);
 
-  // Read the external file's table properties to do various sanity checks.
+  // Read the external file's table properties to do various sanity checks and
+  // populates certain fields in `IngestedFileInfo` according to some table
+  // properties.
   // In some cases when sanity check passes, `table_reader` could be reset with
   // different options. For example: when external file does not contain
   // timestamps while column family enables UDT in Memtables only feature.

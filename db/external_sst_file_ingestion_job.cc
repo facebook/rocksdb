@@ -656,6 +656,10 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
   std::unique_ptr<RandomAccessFileReader> sst_file_reader(
       new RandomAccessFileReader(std::move(sst_file), external_file,
                                  nullptr /*Env*/, io_tracer_));
+  // Initially create the `TableReader` with flag
+  // `user_defined_timestamps_persisted` to be true since that's the most common
+  // case.
+  bool initialize_table_reader = !table_reader->get();
   table_reader->reset();
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
@@ -668,7 +672,10 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
           /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
           /*cur_file_num*/ new_file_number,
           /* unique_id */ {}, /* largest_seqno */ 0,
-          /* tail_size */ 0, file_to_ingest->user_defined_timestamps_persisted),
+          /* tail_size */ 0,
+          initialize_table_reader
+              ? true
+              : file_to_ingest->user_defined_timestamps_persisted),
       std::move(sst_file_reader), file_to_ingest->file_size, table_reader);
   return status;
 }
@@ -730,8 +737,6 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
 
   // Validate table properties related to comparator name and user defined
   // timestamps persisted flag.
-  const bool orig_udt_persisted =
-      file_to_ingest->user_defined_timestamps_persisted;
   file_to_ingest->user_defined_timestamps_persisted =
       static_cast<bool>(props->user_defined_timestamps_persisted);
   bool mark_sst_file_has_no_udt = false;
@@ -750,13 +755,13 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
     return s;
   }
 
-  // This flag is passed to `TableReader` and affects how table is parsed and
-  // read when UDTs are enabled, if its value changes, we should recreate the
-  // `TableReader`.
+  // `TableReader` is initialized with `user_defined_timestamps_persisted` flag
+  // to be true. If its value changed to false after this sanity check, we
+  // need to reset the `TableReader`.
   auto ucmp = cfd_->user_comparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0 &&
-      orig_udt_persisted != file_to_ingest->user_defined_timestamps_persisted) {
+      !file_to_ingest->user_defined_timestamps_persisted) {
     s = ResetTableReader(external_file, new_file_number, sv, file_to_ingest,
                          table_reader);
   }
