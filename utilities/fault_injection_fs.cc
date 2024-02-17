@@ -416,7 +416,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
 
 IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
   IOStatus ret;
   IOStatus s;

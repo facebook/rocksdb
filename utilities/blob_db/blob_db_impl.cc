@@ -1409,27 +1409,43 @@ Status BlobDBImpl::AppendBlob(const WriteOptions& write_options,
   return s;
 }
 
-std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& _read_options,
-                                         const std::vector<Slice>& keys,
-                                         std::vector<std::string>* values) {
+void BlobDBImpl::MultiGet(const ReadOptions& _read_options, size_t num_keys,
+                          ColumnFamilyHandle** column_families,
+                          const Slice* keys, PinnableSlice* values,
+                          std::string* timestamps, Status* statuses,
+                          const bool /*sorted_input*/) {
   StopWatch multiget_sw(clock_, statistics_, BLOB_DB_MULTIGET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
-  std::vector<Status> statuses;
-  std::size_t num_keys = keys.size();
-  statuses.reserve(num_keys);
 
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kMultiGet) {
-    Status s = Status::InvalidArgument(
-        "Can only call MultiGet with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
-
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses.push_back(s);
+  {
+    Status s;
+    if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+        _read_options.io_activity != Env::IOActivity::kMultiGet) {
+      s = Status::InvalidArgument(
+          "Can only call MultiGet with `ReadOptions::io_activity` is "
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    } else if (timestamps) {
+      s = Status::NotSupported(
+          "MultiGet() returning timestamps not implemented.");
     }
-    return statuses;
+    if (s.ok()) {
+      for (size_t i = 0; i < num_keys; ++i) {
+        if (column_families[i]->GetID() != DefaultColumnFamily()->GetID()) {
+          s = Status::NotSupported(
+              "Blob DB doesn't support non-default column family.");
+          break;
+        }
+      }
+    }
+
+    if (!s.ok()) {
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
   }
 
   ReadOptions read_options(_read_options);
@@ -1438,19 +1454,14 @@ std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& _read_options,
   }
   bool snapshot_created = SetSnapshotIfNeeded(&read_options);
 
-  values->clear();
-  values->reserve(keys.size());
-  PinnableSlice value;
-  for (size_t i = 0; i < keys.size(); i++) {
-    statuses.push_back(
-        GetImpl(read_options, DefaultColumnFamily(), keys[i], &value));
-    values->push_back(value.ToString());
-    value.Reset();
+  for (size_t i = 0; i < num_keys; i++) {
+    PinnableSlice& value = values[i];
+    statuses[i] = GetImpl(read_options, DefaultColumnFamily(), keys[i], &value);
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(read_options.snapshot);
   }
-  return statuses;
+  return;
 }
 
 bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
@@ -1654,13 +1665,18 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 
 Status BlobDBImpl::Get(const ReadOptions& _read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* value) {
+                       PinnableSlice* value, std::string* timestamp) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not implemented.");
+  }
+
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kGet;

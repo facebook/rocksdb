@@ -790,7 +790,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
   return true;
 }
 
-void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
+void FilePrefetchBuffer::PrefetchAsyncCallback(FSReadRequest& req,
                                                void* cb_arg) {
   BufferInfo* buf = static_cast<BufferInfo*>(cb_arg);
 

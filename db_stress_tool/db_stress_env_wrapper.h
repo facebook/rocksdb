@@ -60,7 +60,7 @@ class DbStressRandomAccessFileWrapper : public FSRandomAccessFileOwnerWrapper {
   }
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& options,
-                     std::function<void(const FSReadRequest&, void*)> cb,
+                     std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override {
 #ifndef NDEBUG

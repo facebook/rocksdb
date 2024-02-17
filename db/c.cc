@@ -1687,6 +1687,11 @@ void rocksdb_release_snapshot(rocksdb_t* db,
   delete snapshot;
 }
 
+uint64_t rocksdb_snapshot_get_sequence_number(
+    const rocksdb_snapshot_t* snapshot) {
+  return snapshot->rep->GetSequenceNumber();
+}
+
 char* rocksdb_property_value(rocksdb_t* db, const char* propname) {
   std::string tmp;
   if (db->rep->GetProperty(Slice(propname), &tmp)) {
@@ -1874,9 +1879,8 @@ void rocksdb_disable_file_deletions(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->DisableFileDeletions());
 }
 
-void rocksdb_enable_file_deletions(rocksdb_t* db, unsigned char force,
-                                   char** errptr) {
-  SaveError(errptr, db->rep->EnableFileDeletions(force));
+void rocksdb_enable_file_deletions(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->EnableFileDeletions());
 }
 
 void rocksdb_destroy_db(const rocksdb_options_t* options, const char* name,

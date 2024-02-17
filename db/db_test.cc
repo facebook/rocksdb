@@ -2517,7 +2517,7 @@ TEST_F(DBTest, SnapshotFiles) {
     }
 
     // release file snapshot
-    ASSERT_OK(dbfull()->EnableFileDeletions(/*force*/ false));
+    ASSERT_OK(dbfull()->EnableFileDeletions());
     // overwrite one key, this key should not appear in the snapshot
     std::vector<std::string> extras;
     for (unsigned int i = 0; i < 1; i++) {
@@ -3098,7 +3098,8 @@ class ModelDB : public DB {
   }
   using DB::Get;
   Status Get(const ReadOptions& /*options*/, ColumnFamilyHandle* /*cf*/,
-             const Slice& key, PinnableSlice* /*value*/) override {
+             const Slice& key, PinnableSlice* /*value*/,
+             std::string* /*timestamp*/) override {
     return Status::NotSupported(key);
   }
 
@@ -3112,14 +3113,13 @@ class ModelDB : public DB {
   }
 
   using DB::MultiGet;
-  std::vector<Status> MultiGet(
-      const ReadOptions& /*options*/,
-      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* /*values*/) override {
-    std::vector<Status> s(keys.size(),
-                          Status::NotSupported("Not implemented."));
-    return s;
+  void MultiGet(const ReadOptions& /*options*/, const size_t num_keys,
+                ColumnFamilyHandle** /*column_families*/, const Slice* /*keys*/,
+                PinnableSlice* /*values*/, std::string* /*timestamps*/,
+                Status* statuses, const bool /*sorted_input*/) override {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("Not implemented.");
+    }
   }
 
   using DB::IngestExternalFile;
@@ -3354,7 +3354,7 @@ class ModelDB : public DB {
 
   Status DisableFileDeletions() override { return Status::OK(); }
 
-  Status EnableFileDeletions(bool /*force*/) override { return Status::OK(); }
+  Status EnableFileDeletions() override { return Status::OK(); }
 
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* /*size*/,
                       bool /*flush_memtable*/ = true) override {
