@@ -1,6 +1,37 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.0.0 (02/16/2024)
+### New Features
+* Provide support for FSBuffer for point lookups. Also added support for scans and compactions that don't go through prefetching.
+* *Make `SstFileWriter` create SST files without persisting user defined timestamps when the `Option.persist_user_defined_timestamps` flag is set to false.
+* Add support for user-defined timestamps in APIs `DeleteFilesInRanges` and `GetPropertiesOfTablesInRange`.
+* Mark wal\_compression feature as production-ready. Currently only compatible with ZSTD compression.
+
+### Public API Changes
+* Allow setting Stderr logger via C API
+* Declare one Get and one MultiGet variant as pure virtual, and make all the other variants non-overridable. The methods required to be implemented by derived classes of DB allow returning timestamps. It is up to the implementation to check and return an error if timestamps are not supported. The non-batched MultiGet APIs are reimplemented in terms of batched MultiGet, so callers might see a performance improvement.
+* Exposed mode option to Rate Limiter via c api.
+* Removed deprecated option `access_hint_on_compaction_start`
+* Removed deprecated option `ColumnFamilyOptions::check_flush_compaction_key_order`
+* *Remove the default `WritableFile::GetFileSize` and `FSWritableFile::GetFileSize` implementation that returns 0 and make it pure virtual, so that subclasses are enforced to explicitly provide an implementation.
+* Removed deprecated option `ColumnFamilyOptions::level_compaction_dynamic_file_size`
+* *Removed tickers with typos "rocksdb.error.handler.bg.errro.count", "rocksdb.error.handler.bg.io.errro.count", "rocksdb.error.handler.bg.retryable.io.errro.count".
+* Remove the force mode for `EnableFileDeletions` API because it is unsafe with no known legitimate use.
+* Removed deprecated option `ColumnFamilyOptions::ignore_max_compaction_bytes_for_input`
+* `sst_dump --command=check` now compares the number of records in a table with `num_entries` in table property, and reports corruption if there is a mismatch. API `SstFileDumper::ReadSequential()` is updated to optionally do this verification. (#12322)
+
+### Behavior Changes
+* format\_version=6 is the new default setting in BlockBasedTableOptions, for more robust data integrity checking. DBs and SST files written with this setting cannot be read by RocksDB versions before 8.6.0.
+* Compactions can be scheduled in parallel in an additional scenario: multiple files are marked for compaction within a single column family
+* For leveled compaction, RocksDB will try to do intra-L0 compaction if the total L0 size is small compared to Lbase (#12214). Users with atomic_flush=true are more likely to see the impact of this change.
+
+### Bug Fixes
+* Fixed a data race in `DBImpl::RenameTempFileToOptionsFile`.
+* Fix some perf context statistics error in write steps. which include missing write_memtable_time in unordered_write. missing write_memtable_time in PipelineWrite when Writer stat is STATE_PARALLEL_MEMTABLE_WRITER. missing write_delay_time when calling DelayWrite in WriteImplWALOnly function.
+* Fixed a bug that can, under rare circumstances, cause MultiGet to return an incorrect result for a duplicate key in a MultiGet batch.
+* Fix a bug where older data of an ingested key can be returned for read when universal compaction is used
+
 ## 8.11.0 (01/19/2024)
 ### New Features
 * Add new statistics: `rocksdb.sst.write.micros` measures time of each write to SST file; `rocksdb.file.write.{flush|compaction|db.open}.micros` measure time of each write to SST table (currently only block-based table format) and blob file for flush, compaction and db open.
