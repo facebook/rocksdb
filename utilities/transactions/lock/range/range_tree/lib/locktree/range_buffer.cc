@@ -158,7 +158,7 @@ void range_buffer::iterator::reset_current_chunk() {
 
 bool range_buffer::iterator::current(record *rec) {
   if (_current_chunk_offset < _current_chunk_max) {
-    const char *buf = reinterpret_cast<const char *>(_current_chunk_base);
+    const char *buf = static_cast<const char *>(_current_chunk_base);
     rec->deserialize(buf + _current_chunk_offset);
     _current_rec_size = rec->size();
     return true;
@@ -221,7 +221,7 @@ void range_buffer::append_range(const DBT *left_key, const DBT *right_key,
                                 bool is_exclusive) {
   size_t record_length =
       sizeof(record_header) + left_key->size + right_key->size;
-  char *buf = reinterpret_cast<char *>(_arena.malloc_from_arena(record_length));
+  char *buf = static_cast<char *>(_arena.malloc_from_arena(record_length));
 
   record_header h;
   h.init(left_key, right_key, is_exclusive);
@@ -244,7 +244,7 @@ void range_buffer::append_range(const DBT *left_key, const DBT *right_key,
 
 void range_buffer::append_point(const DBT *key, bool is_exclusive) {
   size_t record_length = sizeof(record_header) + key->size;
-  char *buf = reinterpret_cast<char *>(_arena.malloc_from_arena(record_length));
+  char *buf = static_cast<char *>(_arena.malloc_from_arena(record_length));
 
   record_header h;
   h.init(key, nullptr, is_exclusive);

@@ -184,7 +184,7 @@ bool MemTableListVersion::GetFromList(
       assert(*seq != kMaxSequenceNumber || s->IsNotFound());
       return true;
     }
-    if (!done && !s->ok() && !s->IsMergeInProgress() && !s->IsNotFound()) {
+    if (!s->ok() && !s->IsMergeInProgress() && !s->IsNotFound()) {
       return false;
     }
   }
@@ -434,23 +434,57 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
-                                         uint64_t /*file_number*/) {
+                                         bool rollback_succeeding_memtables) {
+  TEST_SYNC_POINT("RollbackMemtableFlush");
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
-  assert(!mems.empty());
-
-  // If the flush was not successful, then just reset state.
-  // Maybe a succeeding attempt to flush will be successful.
+#ifndef NDEBUG
   for (MemTable* m : mems) {
     assert(m->flush_in_progress_);
     assert(m->file_number_ == 0);
-
-    m->flush_in_progress_ = false;
-    m->flush_completed_ = false;
-    m->edit_.Clear();
-    num_flush_not_started_++;
   }
-  imm_flush_needed.store(true, std::memory_order_release);
+#endif
+
+  if (rollback_succeeding_memtables && !mems.empty()) {
+    std::list<MemTable*>& memlist = current_->memlist_;
+    auto it = memlist.rbegin();
+    for (; *it != mems[0] && it != memlist.rend(); ++it) {
+    }
+    // mems should be in memlist
+    assert(*it == mems[0]);
+    if (*it == mems[0]) {
+      ++it;
+    }
+    while (it != memlist.rend()) {
+      MemTable* m = *it;
+      // Only rollback complete, not in-progress,
+      // in_progress can be flushes that are still writing SSTs
+      if (m->flush_completed_) {
+        m->flush_in_progress_ = false;
+        m->flush_completed_ = false;
+        m->edit_.Clear();
+        m->file_number_ = 0;
+        num_flush_not_started_++;
+        ++it;
+      } else {
+        break;
+      }
+    }
+  }
+
+  for (MemTable* m : mems) {
+    if (m->flush_in_progress_) {
+      assert(m->file_number_ == 0);
+      m->file_number_ = 0;
+      m->flush_in_progress_ = false;
+      m->flush_completed_ = false;
+      m->edit_.Clear();
+      num_flush_not_started_++;
+    }
+  }
+  if (!mems.empty()) {
+    imm_flush_needed.store(true, std::memory_order_release);
+  }
 }
 
 // Try record a successful flush in the manifest file. It might just return
@@ -466,6 +500,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
+
+  const ReadOptions read_options(Env::IOActivity::kFlush);
+  const WriteOptions write_options(Env::IOActivity::kFlush);
 
   // Flush was successful
   // Record the status on the memtable object. Either this call or a call by a
@@ -578,10 +615,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
       };
       if (write_edits) {
         // this can release and reacquire the mutex.
-        s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
-                              db_directory, /*new_descriptor_log=*/false,
-                              /*column_family_options=*/nullptr,
-                              manifest_write_cb);
+        s = vset->LogAndApply(
+            cfd, mutable_cf_options, read_options, write_options, edit_list, mu,
+            db_directory, /*new_descriptor_log=*/false,
+            /*column_family_options=*/nullptr, manifest_write_cb);
       } else {
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
@@ -798,6 +835,9 @@ Status InstallMemtableAtomicFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
+  const ReadOptions read_options(Env::IOActivity::kFlush);
+  const WriteOptions write_options(Env::IOActivity::kFlush);
+
   size_t num = mems_list.size();
   assert(cfds.size() == num);
   if (imm_lists != nullptr) {
@@ -875,8 +915,8 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   // this can release and reacquire the mutex.
-  s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                        db_directory);
+  s = vset->LogAndApply(cfds, mutable_cf_options_list, read_options,
+                        write_options, edit_lists, mu, db_directory);
 
   for (size_t k = 0; k != cfds.size(); ++k) {
     auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);

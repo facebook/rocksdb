@@ -53,10 +53,9 @@ class ErrorFS : public FileSystemWrapper {
         num_writable_file_errors_(0) {}
   const char* Name() const override { return "ErrorEnv"; }
 
-  virtual IOStatus NewWritableFile(const std::string& fname,
-                                   const FileOptions& opts,
-                                   std::unique_ptr<FSWritableFile>* result,
-                                   IODebugContext* dbg) override {
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
     result->reset();
     if (writable_file_error_) {
       ++num_writable_file_errors_;
@@ -450,6 +449,7 @@ TEST_F(CorruptionTest, TableFile) {
 
 TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   SpecialEnv senv(base_env_);
   options.env = &senv;
   // Disable block cache as we are going to check checksum for
@@ -503,6 +503,7 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
 
 TEST_F(CorruptionTest, TableFileIndexData) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   // very big, we'll trigger flushes manually
   options.write_buffer_size = 100 * 1024 * 1024;
   Reopen(&options);
@@ -659,6 +660,7 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
 
 TEST_F(CorruptionTest, CompactionInputError) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   Reopen(&options);
   Build(10);
@@ -680,6 +682,7 @@ TEST_F(CorruptionTest, CompactionInputError) {
 
 TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
@@ -762,9 +765,11 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       fs->GetFileSize(filename, file_opts.io_options, &file_size, nullptr));
 
   BlockHandle range_del_handle;
-  ASSERT_OK(FindMetaBlockInFile(
-      file_reader.get(), file_size, kBlockBasedTableMagicNumber,
-      ImmutableOptions(options_), kRangeDelBlockName, &range_del_handle));
+  const ReadOptions read_options;
+  ASSERT_OK(FindMetaBlockInFile(file_reader.get(), file_size,
+                                kBlockBasedTableMagicNumber,
+                                ImmutableOptions(options_), read_options,
+                                kRangeDelBlockName, &range_del_handle));
 
   ASSERT_OK(TryReopen());
   ASSERT_OK(test::CorruptFile(env_.get(), filename,
@@ -775,6 +780,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
 TEST_F(CorruptionTest, FileSystemStateCorrupted) {
   for (int iter = 0; iter < 2; ++iter) {
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
     options.env = env_.get();
     options.paranoid_checks = true;
     options.create_if_missing = true;
@@ -814,8 +820,8 @@ static const auto& corruption_modes = {
 
 TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
-  options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
   Status s;
@@ -842,10 +848,10 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
-  options.check_flush_compaction_key_order = false;
   Status s;
   for (const auto& mode : corruption_modes) {
     delete db_;
@@ -875,8 +881,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
-  options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
   for (bool do_flush : {true, false}) {
@@ -911,8 +917,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
-  options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
   for (bool do_flush : {true, false}) {
@@ -950,8 +956,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
-  options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
   for (bool do_flush : {true, false}) {
@@ -986,6 +992,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
 
 TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.create_if_missing = true;
   options.allow_data_in_errors = true;
@@ -1015,10 +1022,10 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
 
 TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_file_checks = false;
   options.create_if_missing = true;
-  options.check_flush_compaction_key_order = false;
   delete db_;
   db_ = nullptr;
   ASSERT_OK(DestroyDB(dbname_, options));
@@ -1033,7 +1040,6 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptNone);
-  ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_NOK(
@@ -1042,10 +1048,10 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_file_checks = false;
   options.create_if_missing = true;
-  ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
 
   ASSERT_OK(db_->Put(WriteOptions(), "foo1", "v1"));
   ASSERT_OK(db_->Put(WriteOptions(), "foo2", "v1"));
@@ -1070,31 +1076,10 @@ TEST_F(CorruptionTest, FlushKeyOrderCheck) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(CorruptionTest, DisableKeyOrderCheck) {
-  ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "false"}}));
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-
-  SyncPoint::GetInstance()->SetCallBack(
-      "OutputValidator::Add:order_check",
-      [&](void* /*arg*/) { ASSERT_TRUE(false); });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  ASSERT_OK(db_->Put(WriteOptions(), "foo1", "v1"));
-  ASSERT_OK(db_->Put(WriteOptions(), "foo3", "v1"));
-  ASSERT_OK(dbi->TEST_FlushMemTable());
-  ASSERT_OK(db_->Put(WriteOptions(), "foo2", "v1"));
-  ASSERT_OK(db_->Put(WriteOptions(), "foo4", "v1"));
-  ASSERT_OK(dbi->TEST_FlushMemTable());
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  ASSERT_OK(
-      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-}
-
 TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   ASSERT_OK(DestroyDB(dbname_, options));
   options.create_if_missing = true;
@@ -1117,7 +1102,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   int count{0};
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::VerifyFullFileChecksum:mismatch", [&](void* arg) {
-        auto* s = reinterpret_cast<Status*>(arg);
+        auto* s = static_cast<Status*>(arg);
         ASSERT_NE(s, nullptr);
         ++count;
         ASSERT_NOK(*s);
@@ -1180,6 +1165,7 @@ INSTANTIATE_TEST_CASE_P(CorruptionTest, CrashDuringRecoveryWithCorruptionTest,
 TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.track_and_verify_wals_in_manifest =
       track_and_verify_wals_in_manifest_;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
@@ -1261,7 +1247,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::GetLogSizeAndMaybeTruncate:0", [&](void* arg) {
-          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          auto* tmp_s = static_cast<Status*>(arg);
           assert(tmp_s);
           *tmp_s = Status::IOError("Injected");
         });
@@ -1352,6 +1338,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
 TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   options.track_and_verify_wals_in_manifest =
       track_and_verify_wals_in_manifest_;
@@ -1442,7 +1429,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::Open::BeforeSyncWAL", [&](void* arg) {
-          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          auto* tmp_s = static_cast<Status*>(arg);
           assert(tmp_s);
           *tmp_s = Status::IOError("Injected");
         });
@@ -1549,6 +1536,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
 TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   options.avoid_flush_during_recovery = false;
   options.env = env_.get();
@@ -1609,7 +1597,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::GetLogSizeAndMaybeTruncate:0", [&](void* arg) {
-          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          auto* tmp_s = static_cast<Status*>(arg);
           assert(tmp_s);
           *tmp_s = Status::IOError("Injected");
         });
@@ -1666,4 +1654,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-

@@ -23,10 +23,10 @@
 #include <sys/sysctl.h>
 #endif
 #if defined(__OpenBSD__)
-#include <sys/types.h>
-#include <sys/sysctl.h>
-#include <machine/cpu.h>
 #include <machine/armreg.h>
+#include <machine/cpu.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
 #endif
 
 #ifdef HAVE_ARM64_CRYPTO
@@ -67,13 +67,12 @@ uint32_t crc32c_runtime_check(void) {
   return r == 1;
 #elif defined(__OpenBSD__)
   int r = 0;
-  const int isar0_mib[] = { CTL_MACHDEP, CPU_ID_AA64ISAR0 };
+  const int isar0_mib[] = {CTL_MACHDEP, CPU_ID_AA64ISAR0};
   uint64_t isar0;
   size_t len = sizeof(isar0);
 
   if (sysctl(isar0_mib, 2, &isar0, &len, NULL, 0) != -1) {
-      if (ID_AA64ISAR0_CRC32(isar0) >= ID_AA64ISAR0_CRC32_BASE)
-        r = 1;
+    if (ID_AA64ISAR0_CRC32(isar0) >= ID_AA64ISAR0_CRC32_BASE) r = 1;
   }
   return r;
 #else
@@ -94,13 +93,12 @@ bool crc32c_pmull_runtime_check(void) {
   return true;
 #elif defined(__OpenBSD__)
   bool r = false;
-  const int isar0_mib[] = { CTL_MACHDEP, CPU_ID_AA64ISAR0 };
+  const int isar0_mib[] = {CTL_MACHDEP, CPU_ID_AA64ISAR0};
   uint64_t isar0;
   size_t len = sizeof(isar0);
 
   if (sysctl(isar0_mib, 2, &isar0, &len, NULL, 0) != -1) {
-      if (ID_AA64ISAR0_AES(isar0) >= ID_AA64ISAR0_AES_PMULL)
-        r = true;
+    if (ID_AA64ISAR0_AES(isar0) >= ID_AA64ISAR0_AES_PMULL) r = true;
   }
   return r;
 #else

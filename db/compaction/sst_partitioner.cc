@@ -78,7 +78,6 @@ Status SstPartitionerFactory::CreateFromString(
   std::call_once(once, [&]() {
     RegisterSstPartitionerFactories(*(ObjectLibrary::Default().get()), "");
   });
-  return LoadSharedObject<SstPartitionerFactory>(options, value, nullptr,
-                                                 result);
+  return LoadSharedObject<SstPartitionerFactory>(options, value, result);
 }
 }  // namespace ROCKSDB_NAMESPACE

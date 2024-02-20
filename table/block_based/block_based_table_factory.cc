@@ -9,9 +9,8 @@
 
 #include "table/block_based/block_based_table_factory.h"
 
-#include <stdint.h>
-
 #include <cinttypes>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -83,7 +82,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //
   // and we use every of the value as a candidate, and estimate how much we
   // wasted, compared to read. For example, when we use the 3rd record
-  // as candiate. This area is what we read:
+  // as candidate. This area is what we read:
   //                                     +---+
   //                             +---+   |   |
   //                             |   |   |   |
@@ -123,7 +122,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //  +---+    +---+    +---+    +---+   +---+
   //
   // Which can be calculated iteratively.
-  // The difference between wasted using 4st and 3rd record, will
+  // The difference between wasted using 4th and 3rd record, will
   // be following area:
   //                                     +---+
   //  +--+  +-+   ++  +-+  +-+   +---+   |   |
@@ -143,8 +142,8 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //  |   |    |   |    |   |    |   |   |   |
   //  +---+    +---+    +---+    +---+   +---+
   //
-  // which will be the size difference between 4st and 3rd record,
-  // times 3, which is number of records before the 4st.
+  // which will be the size difference between 4th and 3rd record,
+  // times 3, which is number of records before the 4th.
   // Here we assume that all data within the prefetch range will be useful. In
   // reality, it may not be the case when a partial block is inside the range,
   // or there are data in the middle that is not read. We ignore those cases
@@ -224,7 +223,6 @@ static std::unordered_map<std::string,
         {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
         {"kFlushOnly",
          BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
-
 
 static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
@@ -310,6 +308,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, optimize_filters_for_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        // TODO "use_delta_encoding" has not been persisted -
+        // this may have been an omission, but changing this now might be a
+        // breaker
         {"filter_policy",
          OptionTypeInfo::AsCustomSharedPtr<const FilterPolicy>(
              offsetof(struct BlockBasedTableOptions, filter_policy),
@@ -443,11 +444,8 @@ void BlockBasedTableFactory::InitializeOptions() {
     table_options_.block_cache.reset();
   } else if (table_options_.block_cache == nullptr) {
     LRUCacheOptions co;
-    co.capacity = 8 << 20;
-    // It makes little sense to pay overhead for mid-point insertion while the
-    // block size is only 8MB.
-    co.high_pri_pool_ratio = 0.0;
-    co.low_pri_pool_ratio = 0.0;
+    // 32MB, the recommended minimum size for 64 shards, to reduce contention
+    co.capacity = 32 << 20;
     table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
@@ -570,7 +568,8 @@ Status BlockBasedTableFactory::NewTableReader(
   return BlockBasedTable::Open(
       ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, table_reader_cache_res_mgr_,
+      file_size, table_reader_options.block_protection_bytes_per_key,
+      table_reader, table_reader_options.tail_size, table_reader_cache_res_mgr_,
       table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
       table_reader_options.skip_filters, table_reader_options.level,
       table_reader_options.immortal, table_reader_options.largest_seqno,
@@ -578,7 +577,8 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
       table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,
-      table_reader_options.unique_id);
+      table_reader_options.unique_id,
+      table_reader_options.user_defined_timestamps_persisted);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -910,18 +910,6 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
 }
 
 Status GetBlockBasedTableOptionsFromString(
-    const BlockBasedTableOptions& table_options, const std::string& opts_str,
-    BlockBasedTableOptions* new_table_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  config_options.invoke_prepare_options = false;
-  config_options.ignore_unsupported_options = false;
-
-  return GetBlockBasedTableOptionsFromString(config_options, table_options,
-                                             opts_str, new_table_options);
-}
-Status GetBlockBasedTableOptionsFromString(
     const ConfigOptions& config_options,
     const BlockBasedTableOptions& table_options, const std::string& opts_str,
     BlockBasedTableOptions* new_table_options) {
@@ -938,20 +926,6 @@ Status GetBlockBasedTableOptionsFromString(
   } else {
     return Status::InvalidArgument(s.getState());
   }
-}
-
-Status GetBlockBasedTableOptionsFromMap(
-    const BlockBasedTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    BlockBasedTableOptions* new_table_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.invoke_prepare_options = false;
-
-  return GetBlockBasedTableOptionsFromMap(config_options, table_options,
-                                          opts_map, new_table_options);
 }
 
 Status GetBlockBasedTableOptionsFromMap(

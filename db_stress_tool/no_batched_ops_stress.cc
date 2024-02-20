@@ -7,7 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db_stress_tool/expected_state.h"
 #ifdef GFLAGS
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/fault_injection_fs.h"
@@ -15,9 +17,9 @@
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
  public:
-  NonBatchedOpsStressTest() {}
+  NonBatchedOpsStressTest() = default;
 
-  virtual ~NonBatchedOpsStressTest() {}
+  virtual ~NonBatchedOpsStressTest() = default;
 
   void VerifyDb(ThreadState* thread) const override {
     // This `ReadOptions` is for validation purposes. Ignore
@@ -53,6 +55,7 @@ class NonBatchedOpsStressTest : public StressTest {
         kGet,
         kGetEntity,
         kMultiGet,
+        kMultiGetEntity,
         kGetMergeOperands,
         // Add any new items above kNumberOfMethods
         kNumberOfMethods
@@ -100,12 +103,9 @@ class NonBatchedOpsStressTest : public StressTest {
             if (diff > 0) {
               s = Status::NotFound();
             } else if (diff == 0) {
-              const WideColumns expected_columns = GenerateExpectedWideColumns(
-                  GetValueBase(iter->value()), iter->value());
-              if (iter->columns() != expected_columns) {
+              if (!VerifyWideColumns(iter->value(), iter->columns())) {
                 VerificationAbort(shared, static_cast<int>(cf), i,
-                                  iter->value(), iter->columns(),
-                                  expected_columns);
+                                  iter->value(), iter->columns());
               }
 
               from_db = iter->value().ToString();
@@ -123,8 +123,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            /* msg_prefix */ "Iterator verification", s,
-                            /* strict */ true);
+                            /* msg_prefix */ "Iterator verification", s);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -143,8 +142,7 @@ class NonBatchedOpsStressTest : public StressTest {
           Status s = db_->Get(options, column_families_[cf], key, &from_db);
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            /* msg_prefix */ "Get verification", s,
-                            /* strict */ true);
+                            /* msg_prefix */ "Get verification", s);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -158,32 +156,28 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           const std::string key = Key(i);
-          PinnableWideColumns columns;
+          PinnableWideColumns result;
 
           Status s =
-              db_->GetEntity(options, column_families_[cf], key, &columns);
-
-          const WideColumns& columns_from_db = columns.columns();
+              db_->GetEntity(options, column_families_[cf], key, &result);
 
           std::string from_db;
 
           if (s.ok()) {
-            if (!columns_from_db.empty() &&
-                columns_from_db[0].name() == kDefaultWideColumnName) {
-              from_db = columns_from_db[0].value().ToString();
+            const WideColumns& columns = result.columns();
+
+            if (WideColumnsHelper::HasDefaultColumn(columns)) {
+              from_db = WideColumnsHelper::GetDefaultColumn(columns).ToString();
             }
 
-            const WideColumns expected_columns =
-                GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
-            if (columns_from_db != expected_columns) {
+            if (!VerifyWideColumns(columns)) {
               VerificationAbort(shared, static_cast<int>(cf), i, from_db,
-                                columns_from_db, expected_columns);
+                                columns);
             }
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            /* msg_prefix */ "GetEntity verification", s,
-                            /* strict */ true);
+                            /* msg_prefix */ "GetEntity verification", s);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -200,14 +194,14 @@ class NonBatchedOpsStressTest : public StressTest {
           size_t batch_size = thread->rand.Uniform(128) + 1;
           batch_size = std::min<size_t>(batch_size, end - i);
 
-          std::vector<std::string> keystrs(batch_size);
+          std::vector<std::string> key_strs(batch_size);
           std::vector<Slice> keys(batch_size);
           std::vector<PinnableSlice> values(batch_size);
           std::vector<Status> statuses(batch_size);
 
           for (size_t j = 0; j < batch_size; ++j) {
-            keystrs[j] = Key(i + j);
-            keys[j] = Slice(keystrs[j].data(), keystrs[j].size());
+            key_strs[j] = Key(i + j);
+            keys[j] = Slice(key_strs[j]);
           }
 
           db_->MultiGet(options, column_families_[cf], batch_size, keys.data(),
@@ -218,7 +212,59 @@ class NonBatchedOpsStressTest : public StressTest {
 
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
                               from_db, /* msg_prefix */ "MultiGet verification",
-                              statuses[j], /* strict */ true);
+                              statuses[j]);
+
+            if (!from_db.empty()) {
+              PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
+                            from_db.data(), from_db.size());
+            }
+          }
+
+          i += batch_size;
+        }
+      } else if (method == VerificationMethod::kMultiGetEntity) {
+        for (int64_t i = start; i < end;) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
+          }
+
+          // Keep the batch size to some reasonable value
+          size_t batch_size = thread->rand.Uniform(128) + 1;
+          batch_size = std::min<size_t>(batch_size, end - i);
+
+          std::vector<std::string> key_strs(batch_size);
+          std::vector<Slice> keys(batch_size);
+          std::vector<PinnableWideColumns> results(batch_size);
+          std::vector<Status> statuses(batch_size);
+
+          for (size_t j = 0; j < batch_size; ++j) {
+            key_strs[j] = Key(i + j);
+            keys[j] = Slice(key_strs[j]);
+          }
+
+          db_->MultiGetEntity(options, column_families_[cf], batch_size,
+                              keys.data(), results.data(), statuses.data());
+
+          for (size_t j = 0; j < batch_size; ++j) {
+            std::string from_db;
+
+            if (statuses[j].ok()) {
+              const WideColumns& columns = results[j].columns();
+
+              if (WideColumnsHelper::HasDefaultColumn(columns)) {
+                from_db =
+                    WideColumnsHelper::GetDefaultColumn(columns).ToString();
+              }
+
+              if (!VerifyWideColumns(columns)) {
+                VerificationAbort(shared, static_cast<int>(cf), i, from_db,
+                                  columns);
+              }
+            }
+
+            VerifyOrSyncValue(
+                static_cast<int>(cf), i + j, options, shared, from_db,
+                /* msg_prefix */ "MultiGetEntity verification", statuses[j]);
 
             if (!from_db.empty()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
@@ -270,8 +316,8 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            /* msg_prefix */ "GetMergeOperands verification", s,
-                            /* strict */ true);
+                            /* msg_prefix */ "GetMergeOperands verification",
+                            s);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -396,7 +442,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!s.ok()) {
           fprintf(stderr, "dropping column family error: %s\n",
                   s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
         s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
                                     &column_families_[cf]);
@@ -405,7 +451,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!s.ok()) {
           fprintf(stderr, "creating column family error: %s\n",
                   s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
         thread->shared->UnlockColumnFamily(cf);
       }
@@ -430,16 +476,22 @@ class NonBatchedOpsStressTest : public StressTest {
       SharedState::ignore_read_error = false;
     }
 
-    std::unique_ptr<MutexLock> lock(new MutexLock(
-        thread->shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
-
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
     Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
+    const ExpectedValue pre_read_expected_value =
+        thread->shared->Get(rand_column_families[0], rand_keys[0]);
     Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
+    const ExpectedValue post_read_expected_value =
+        thread->shared->Get(rand_column_families[0], rand_keys[0]);
     if (fault_fs_guard) {
       error_count = fault_fs_guard->GetAndResetErrorCount();
     }
@@ -458,23 +510,35 @@ class NonBatchedOpsStressTest : public StressTest {
       // found case
       thread->stats.AddGets(1, 1);
       // we only have the latest expected state
-      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp &&
-          thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
-              SharedState::DELETION_SENTINEL) {
-        thread->shared->SetVerificationFailure();
-        fprintf(stderr,
-                "error : inconsistent values for key %s: Get returns %s, "
-                "expected state does not have the key.\n",
-                key.ToString(true).c_str(), StringToHex(from_db).c_str());
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
+        if (ExpectedValueHelper::MustHaveNotExisted(pre_read_expected_value,
+                                                    post_read_expected_value)) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "error : inconsistent values for key %s: Get returns %s, "
+                  "but expected state is \"deleted\".\n",
+                  key.ToString(true).c_str(), StringToHex(from_db).c_str());
+        }
+        Slice from_db_slice(from_db);
+        uint32_t value_base_from_db = GetValueBase(from_db_slice);
+        if (!ExpectedValueHelper::InExpectedValueBaseRange(
+                value_base_from_db, pre_read_expected_value,
+                post_read_expected_value)) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "error : inconsistent values for key %s: Get returns %s with "
+                  "value base %d that falls out of expected state's value base "
+                  "range.\n",
+                  key.ToString(true).c_str(), StringToHex(from_db).c_str(),
+                  value_base_from_db);
+        }
       }
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
       if (!FLAGS_skip_verifydb && !read_older_ts) {
-        auto expected =
-            thread->shared->Get(rand_column_families[0], rand_keys[0]);
-        if (expected != SharedState::DELETION_SENTINEL &&
-            expected != SharedState::UNKNOWN_SENTINEL) {
+        if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                                 post_read_expected_value)) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
                   "error : inconsistent values for key %s: expected state has "
@@ -507,13 +571,25 @@ class NonBatchedOpsStressTest : public StressTest {
     keys.reserve(num_keys);
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
-    ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    // When Flags_use_txn is enabled, we also do a read your write check.
+    std::vector<std::optional<ExpectedValue>> ryw_expected_values;
+    ryw_expected_values.reserve(num_keys);
+
+    SharedState* shared = thread->shared;
+
+    int column_family = rand_column_families[0];
+    ColumnFamilyHandle* cfh = column_families_[column_family];
     int error_count = 0;
     // Do a consistency check between Get and MultiGet. Don't do it too
     // often as it will slow db_stress down
-    bool do_consistency_check = thread->rand.OneIn(4);
+    //
+    // CompactionFilter can make snapshot non-repeatable by removing keys
+    // protected by snapshot
+    bool do_consistency_check =
+        !FLAGS_enable_compaction_filter && thread->rand.OneIn(4);
 
     ReadOptions readoptionscopy = read_opts;
+
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
@@ -532,7 +608,7 @@ class NonBatchedOpsStressTest : public StressTest {
     // Create a transaction in order to write some data. The purpose is to
     // exercise WriteBatchWithIndex::MultiGetFromBatchAndDB. The transaction
     // will be rolled back once MultiGet returns.
-    Transaction* txn = nullptr;
+    std::unique_ptr<Transaction> txn;
     if (use_txn) {
       WriteOptions wo;
       if (FLAGS_rate_limit_auto_wal_flush) {
@@ -540,27 +616,37 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       Status s = NewTxn(wo, &txn);
       if (!s.ok()) {
-        fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
-        std::terminate();
+        fprintf(stderr, "NewTxn error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
       }
     }
     for (size_t i = 0; i < num_keys; ++i) {
-      key_str.emplace_back(Key(rand_keys[i]));
+      uint64_t rand_key = rand_keys[i];
+      key_str.emplace_back(Key(rand_key));
       keys.emplace_back(key_str.back());
       if (use_txn) {
+        if (!shared->AllowsOverwrite(rand_key) &&
+            shared->Exists(column_family, rand_key)) {
+          // Just do read your write checks for keys that allow overwrites.
+          ryw_expected_values.emplace_back(std::nullopt);
+          continue;
+        }
         // With a 1 in 10 probability, insert the just added key in the batch
         // into the transaction. This will create an overlap with the MultiGet
         // keys and exercise some corner cases in the code
         if (thread->rand.OneIn(10)) {
           int op = thread->rand.Uniform(2);
           Status s;
+          assert(txn);
           switch (op) {
             case 0:
             case 1: {
-              uint32_t value_base =
-                  thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
+              ExpectedValue put_value;
+              put_value.Put(false /* pending */);
+              ryw_expected_values.emplace_back(put_value);
               char value[100];
-              size_t sz = GenerateValue(value_base, value, sizeof(value));
+              size_t sz =
+                  GenerateValue(put_value.GetValueBase(), value, sizeof(value));
               Slice v(value, sz);
               if (op == 0) {
                 s = txn->Put(cfh, keys.back(), v);
@@ -569,16 +655,23 @@ class NonBatchedOpsStressTest : public StressTest {
               }
               break;
             }
-            case 2:
+            case 2: {
+              ExpectedValue delete_value;
+              delete_value.Delete(false /* pending */);
+              ryw_expected_values.emplace_back(delete_value);
               s = txn->Delete(cfh, keys.back());
               break;
+            }
             default:
               assert(false);
           }
           if (!s.ok()) {
-            fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
-            std::terminate();
+            fprintf(stderr, "Transaction put error: %s\n",
+                    s.ToString().c_str());
+            thread->shared->SafeTerminate();
           }
+        } else {
+          ryw_expected_values.emplace_back(std::nullopt);
         }
       }
     }
@@ -594,6 +687,7 @@ class NonBatchedOpsStressTest : public StressTest {
         error_count = fault_fs_guard->GetAndResetErrorCount();
       }
     } else {
+      assert(txn);
       txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
     }
@@ -622,42 +716,122 @@ class NonBatchedOpsStressTest : public StressTest {
       fault_fs_guard->DisableErrorInjection();
     }
 
-    for (size_t i = 0; i < statuses.size(); ++i) {
-      Status s = statuses[i];
+    auto ryw_check =
+        [](const Slice& key, const PinnableSlice& value, const Status& s,
+           const std::optional<ExpectedValue>& ryw_expected_value) -> bool {
+      if (!ryw_expected_value.has_value()) {
+        return true;
+      }
+      const ExpectedValue& expected = ryw_expected_value.value();
+      char expected_value[100];
+      if (s.ok() &&
+          ExpectedValueHelper::MustHaveNotExisted(expected, expected)) {
+        fprintf(stderr,
+                "MultiGet returned value different from what was "
+                "written for key %s\n",
+                key.ToString(true).c_str());
+        fprintf(stderr,
+                "MultiGet returned ok, transaction has non-committed "
+                "delete.\n");
+        return false;
+      } else if (s.IsNotFound() &&
+                 ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+        fprintf(stderr,
+                "MultiGet returned value different from what was "
+                "written for key %s\n",
+                key.ToString(true).c_str());
+        fprintf(stderr,
+                "MultiGet returned not found, transaction has "
+                "non-committed value.\n");
+        return false;
+      } else if (s.ok() &&
+                 ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+        Slice from_txn_slice(value);
+        size_t sz = GenerateValue(expected.GetValueBase(), expected_value,
+                                  sizeof(expected_value));
+        Slice expected_value_slice(expected_value, sz);
+        if (expected_value_slice.compare(from_txn_slice) == 0) {
+          return true;
+        }
+        fprintf(stderr,
+                "MultiGet returned value different from what was "
+                "written for key %s\n",
+                key.ToString(true /* hex */).c_str());
+        fprintf(stderr, "MultiGet returned value %s\n",
+                from_txn_slice.ToString(true /* hex */).c_str());
+        fprintf(stderr, "Transaction has non-committed value %s\n",
+                expected_value_slice.ToString(true /* hex */).c_str());
+        return false;
+      }
+      return true;
+    };
+
+    auto check_multiget =
+        [&](const Slice& key, const PinnableSlice& expected_value,
+            const Status& s,
+            const std::optional<ExpectedValue>& ryw_expected_value) -> bool {
       bool is_consistent = true;
-      // Only do the consistency check if no error was injected and MultiGet
-      // didn't return an unexpected error
+      bool is_ryw_correct = true;
+      // Only do the consistency check if no error was injected and
+      // MultiGet didn't return an unexpected error. If test does not use
+      // transaction, the consistency check for each key included check results
+      // from db `Get` and db `MultiGet` are consistent.
+      // If test use transaction, after consistency check, also do a read your
+      // own write check.
       if (do_consistency_check && !error_count && (s.ok() || s.IsNotFound())) {
         Status tmp_s;
         std::string value;
 
         if (use_txn) {
-          tmp_s = txn->Get(readoptionscopy, cfh, keys[i], &value);
+          assert(txn);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
+          tmp_s = txn->Get(readoptionscopy, cfh, key, &value);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGET);
         } else {
-          tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
+          tmp_s = db_->Get(readoptionscopy, cfh, key, &value);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGET);
         }
         if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
           is_consistent = false;
         } else if (!s.ok() && tmp_s.ok()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  keys[i].ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
           is_consistent = false;
         } else if (s.ok() && tmp_s.IsNotFound()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  keys[i].ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
           is_consistent = false;
-        } else if (s.ok() && value != values[i].ToString()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  keys[i].ToString(true).c_str());
+        } else if (s.ok() && value != expected_value.ToString()) {
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned value %s\n",
-                  values[i].ToString(true).c_str());
+                  expected_value.ToString(true).c_str());
           fprintf(stderr, "Get returned value %s\n",
                   Slice(value).ToString(true /* hex */).c_str());
           is_consistent = false;
         }
+      }
+
+      // If test uses transaction, continue to do a read your own write check.
+      if (is_consistent && use_txn) {
+        is_ryw_correct = ryw_check(key, expected_value, s, ryw_expected_value);
       }
 
       if (!is_consistent) {
@@ -665,7 +839,13 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->stats.AddErrors(1);
         // Fail fast to preserve the DB state
         thread->shared->SetVerificationFailure();
-        break;
+        return false;
+      } else if (!is_ryw_correct) {
+        fprintf(stderr, "TestMultiGet error: is_ryw_correct is false\n");
+        thread->stats.AddErrors(1);
+        // Fail fast to preserve the DB state
+        thread->shared->SetVerificationFailure();
+        return false;
       } else if (s.ok()) {
         // found case
         thread->stats.AddGets(1, 1);
@@ -684,15 +864,299 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->stats.AddVerifiedErrors(1);
         }
       }
+      return true;
+    };
+
+    size_t num_of_keys = keys.size();
+    assert(values.size() == num_of_keys);
+    assert(statuses.size() == num_of_keys);
+    for (size_t i = 0; i < num_of_keys; ++i) {
+      bool check_result = true;
+      if (use_txn) {
+        assert(ryw_expected_values.size() == num_of_keys);
+        check_result = check_multiget(keys[i], values[i], statuses[i],
+                                      ryw_expected_values[i]);
+      } else {
+        check_result = check_multiget(keys[i], values[i], statuses[i],
+                                      std::nullopt /* ryw_expected_value */);
+      }
+      if (!check_result) {
+        break;
+      }
     }
 
     if (readoptionscopy.snapshot) {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
     }
     if (use_txn) {
-      RollbackTxn(txn);
+      txn->Rollback().PermitUncheckedError();
     }
     return statuses;
+  }
+
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      SharedState::ignore_read_error = false;
+    }
+
+    assert(thread);
+
+    SharedState* const shared = thread->shared;
+    assert(shared);
+
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    std::unique_ptr<MutexLock> lock(new MutexLock(
+        shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
+
+    assert(rand_column_families[0] >= 0);
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    const std::string key = Key(rand_keys[0]);
+
+    PinnableWideColumns from_db;
+
+    ReadOptions read_opts_copy = read_opts;
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
+
+    const Status s = db_->GetEntity(read_opts_copy, cfh, key, &from_db);
+
+    int error_count = 0;
+
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+    }
+
+    if (s.ok()) {
+      if (fault_fs_guard) {
+        if (error_count && !SharedState::ignore_read_error) {
+          // Grab mutex so multiple threads don't try to print the
+          // stack trace at the same time
+          MutexLock l(shared->GetMutex());
+          fprintf(stderr, "Didn't get expected error from GetEntity\n");
+          fprintf(stderr, "Call stack that injected the fault\n");
+          fault_fs_guard->PrintFaultBacktrace();
+          std::terminate();
+        }
+      }
+
+      thread->stats.AddGets(1, 1);
+
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
+        const WideColumns& columns = from_db.columns();
+        ExpectedValue expected =
+            shared->Get(rand_column_families[0], rand_keys[0]);
+        if (!VerifyWideColumns(columns)) {
+          shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "error : inconsistent columns returned by GetEntity for key "
+                  "%s: %s\n",
+                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+        } else if (ExpectedValueHelper::MustHaveNotExisted(expected,
+                                                           expected)) {
+          shared->SetVerificationFailure();
+          fprintf(
+              stderr,
+              "error : inconsistent values for key %s: GetEntity returns %s, "
+              "expected state does not have the key.\n",
+              StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+        }
+      }
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(1, 0);
+
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
+        ExpectedValue expected =
+            shared->Get(rand_column_families[0], rand_keys[0]);
+        if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+          shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "error : inconsistent values for key %s: expected state has "
+                  "the key, GetEntity returns NotFound.\n",
+                  StringToHex(key).c_str());
+        }
+      }
+    } else {
+      if (error_count == 0) {
+        thread->stats.AddErrors(1);
+      } else {
+        thread->stats.AddVerifiedErrors(1);
+      }
+    }
+
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
+  }
+
+  void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                          const std::vector<int>& rand_column_families,
+                          const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+
+    ManagedSnapshot snapshot_guard(db_);
+
+    ReadOptions read_opts_copy(read_opts);
+    read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+    assert(!rand_column_families.empty());
+    assert(rand_column_families[0] >= 0);
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    assert(!rand_keys.empty());
+
+    const size_t num_keys = rand_keys.size();
+
+    std::vector<std::string> keys(num_keys);
+    std::vector<Slice> key_slices(num_keys);
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      keys[i] = Key(rand_keys[i]);
+      key_slices[i] = keys[i];
+    }
+
+    std::vector<PinnableWideColumns> results(num_keys);
+    std::vector<Status> statuses(num_keys);
+
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      SharedState::ignore_read_error = false;
+    }
+
+    db_->MultiGetEntity(read_opts_copy, cfh, num_keys, key_slices.data(),
+                        results.data(), statuses.data());
+
+    int error_count = 0;
+
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+
+      if (error_count && !SharedState::ignore_read_error) {
+        int stat_nok = 0;
+        for (const auto& s : statuses) {
+          if (!s.ok() && !s.IsNotFound()) {
+            stat_nok++;
+          }
+        }
+
+        if (stat_nok < error_count) {
+          // Grab mutex so multiple threads don't try to print the
+          // stack trace at the same time
+          assert(thread->shared);
+          MutexLock l(thread->shared->GetMutex());
+
+          fprintf(stderr, "Didn't get expected error from MultiGetEntity\n");
+          fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n",
+                  num_keys, error_count, stat_nok);
+          fprintf(stderr, "Call stack that injected the fault\n");
+          fault_fs_guard->PrintFaultBacktrace();
+          std::terminate();
+        }
+      }
+
+      fault_fs_guard->DisableErrorInjection();
+    }
+
+    // CompactionFilter can make snapshot non-repeatable by removing keys
+    // protected by snapshot
+    const bool check_get_entity = !FLAGS_enable_compaction_filter &&
+                                  !error_count && thread->rand.OneIn(4);
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const Status& s = statuses[i];
+
+      bool is_consistent = true;
+
+      if (s.ok() && !VerifyWideColumns(results[i].columns())) {
+        fprintf(
+            stderr,
+            "error : inconsistent columns returned by MultiGetEntity for key "
+            "%s: %s\n",
+            StringToHex(keys[i]).c_str(),
+            WideColumnsToHex(results[i].columns()).c_str());
+        is_consistent = false;
+      } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
+        PinnableWideColumns cmp_result;
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_GETENTITY);
+        const Status cmp_s =
+            db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
+
+        if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
+          fprintf(stderr, "GetEntity error: %s\n", cmp_s.ToString().c_str());
+          is_consistent = false;
+        } else if (cmp_s.IsNotFound()) {
+          if (s.ok()) {
+            fprintf(stderr,
+                    "Inconsistent results for key %s: MultiGetEntity returned "
+                    "ok, GetEntity returned not found\n",
+                    StringToHex(keys[i]).c_str());
+            is_consistent = false;
+          }
+        } else {
+          assert(cmp_s.ok());
+
+          if (s.IsNotFound()) {
+            fprintf(stderr,
+                    "Inconsistent results for key %s: MultiGetEntity returned "
+                    "not found, GetEntity returned ok\n",
+                    StringToHex(keys[i]).c_str());
+            is_consistent = false;
+          } else {
+            assert(s.ok());
+
+            if (results[i] != cmp_result) {
+              fprintf(
+                  stderr,
+                  "Inconsistent results for key %s: MultiGetEntity returned "
+                  "%s, GetEntity returned %s\n",
+                  StringToHex(keys[i]).c_str(),
+                  WideColumnsToHex(results[i].columns()).c_str(),
+                  WideColumnsToHex(cmp_result.columns()).c_str());
+              is_consistent = false;
+            }
+          }
+        }
+      }
+
+      if (!is_consistent) {
+        fprintf(stderr,
+                "TestMultiGetEntity error: results are not consistent\n");
+        thread->stats.AddErrors(1);
+        // Fail fast to preserve the DB state
+        thread->shared->SetVerificationFailure();
+        break;
+      } else if (s.ok()) {
+        thread->stats.AddGets(1, 1);
+      } else if (s.IsNotFound()) {
+        thread->stats.AddGets(1, 0);
+      } else {
+        if (error_count == 0) {
+          fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
+          thread->stats.AddErrors(1);
+        } else {
+          thread->stats.AddVerifiedErrors(1);
+        }
+      }
+    }
   }
 
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
@@ -749,12 +1213,9 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
-        s = Status::Corruption(
-            "Value and columns inconsistent",
-            DebugString(iter->value(), iter->columns(), expected_columns));
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
+        s = Status::Corruption("Value and columns inconsistent",
+                               DebugString(iter->value(), iter->columns()));
         break;
       }
     }
@@ -833,20 +1294,24 @@ class NonBatchedOpsStressTest : public StressTest {
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
                              /* msg_prefix */ "Pre-Put Get verification",
-                             from_db, s, /* strict */ true)) {
+                             from_db, s)) {
         return s;
       }
     }
 
-    const uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
+    PendingExpectedValue pending_expected_value =
+        shared->PreparePut(rand_column_family, rand_key);
+    const uint32_t value_base = pending_expected_value.GetFinalValueBase();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
-    shared->Put(rand_column_family, rand_key, value_base, true /* pending */);
-
     Status s;
 
-    if (FLAGS_use_merge) {
+    if (FLAGS_use_put_entity_one_in > 0 &&
+        (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      s = db_->PutEntity(write_opts, cfh, k,
+                         GenerateWideColumns(value_base, v));
+    } else if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
           s = db_->Merge(write_opts, cfh, k, v);
@@ -854,19 +1319,10 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Merge(write_opts, cfh, k, write_ts, v);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Merge(cfh, k, v);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Merge(cfh, k, v);
+        });
       }
-    } else if (FLAGS_use_put_entity_one_in > 0 &&
-               (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      s = db_->PutEntity(write_opts, cfh, k,
-                         GenerateWideColumns(value_base, v));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
@@ -875,34 +1331,28 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Put(write_opts, cfh, k, write_ts, v);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Put(cfh, k, v);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Put(cfh, k, v);
+        });
       }
     }
 
-    shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
-
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      pending_expected_value.Rollback();
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
                    s.severity() < Status::Severity::kFatalError) {
           fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       } else {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-        std::terminate();
+        thread->shared->SafeTerminate();
       }
     }
-
+    pending_expected_value.Commit();
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
                   sz);
@@ -931,7 +1381,8 @@ class NonBatchedOpsStressTest : public StressTest {
     // otherwise.
     Status s;
     if (shared->AllowsOverwrite(rand_key)) {
-      shared->Delete(rand_column_family, rand_key, true /* pending */);
+      PendingExpectedValue pending_expected_value =
+          shared->PrepareDelete(rand_column_family, rand_key);
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
           s = db_->Delete(write_opts, cfh, key);
@@ -939,34 +1390,32 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Delete(write_opts, cfh, key, write_ts);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Delete(cfh, key);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Delete(cfh, key);
+        });
       }
-      shared->Delete(rand_column_family, rand_key, false /* pending */);
-      thread->stats.AddDeletes(1);
+
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        pending_expected_value.Rollback();
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
           } else if (!is_db_stopped_ ||
                      s.severity() < Status::Severity::kFatalError) {
             fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+            thread->shared->SafeTerminate();
           }
         } else {
           fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddDeletes(1);
     } else {
-      shared->SingleDelete(rand_column_family, rand_key, true /* pending */);
+      PendingExpectedValue pending_expected_value =
+          shared->PrepareSingleDelete(rand_column_family, rand_key);
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
           s = db_->SingleDelete(write_opts, cfh, key);
@@ -974,32 +1423,29 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->SingleDelete(write_opts, cfh, key, write_ts);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->SingleDelete(cfh, key);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.SingleDelete(cfh, key);
+        });
       }
-      shared->SingleDelete(rand_column_family, rand_key, false /* pending */);
-      thread->stats.AddSingleDeletes(1);
+
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        pending_expected_value.Rollback();
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
           } else if (!is_db_stopped_ ||
                      s.severity() < Status::Severity::kFatalError) {
             fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+            thread->shared->SafeTerminate();
           }
         } else {
           fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddSingleDeletes(1);
     }
     return s;
   }
@@ -1028,10 +1474,10 @@ class NonBatchedOpsStressTest : public StressTest {
             shared->GetMutexForKey(rand_column_family, rand_key + j)));
       }
     }
-    shared->DeleteRange(rand_column_family, rand_key,
-                        rand_key + FLAGS_range_deletion_width,
-                        true /* pending */);
-
+    std::vector<PendingExpectedValue> pending_expected_values =
+        shared->PrepareDeleteRange(rand_column_family, rand_key,
+                                   rand_key + FLAGS_range_deletion_width);
+    const int covered = static_cast<int>(pending_expected_values.size());
     std::string keystr = Key(rand_key);
     Slice key = keystr;
     auto cfh = column_families_[rand_column_family];
@@ -1048,22 +1494,27 @@ class NonBatchedOpsStressTest : public StressTest {
       s = db_->DeleteRange(write_opts, cfh, key, end_key);
     }
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      for (PendingExpectedValue& pending_expected_value :
+           pending_expected_values) {
+        pending_expected_value.Rollback();
+      }
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
                    s.severity() < Status::Severity::kFatalError) {
           fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       } else {
         fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-        std::terminate();
+        thread->shared->SafeTerminate();
       }
     }
-    int covered = shared->DeleteRange(rand_column_family, rand_key,
-                                      rand_key + FLAGS_range_deletion_width,
-                                      false /* pending */);
+    for (PendingExpectedValue& pending_expected_value :
+         pending_expected_values) {
+      pending_expected_value.Commit();
+    }
     thread->stats.AddRangeDeletions(1);
     thread->stats.AddCoveredByRangeDeletions(covered);
     return s;
@@ -1093,6 +1544,8 @@ class NonBatchedOpsStressTest : public StressTest {
     keys.reserve(FLAGS_ingest_external_file_width);
     std::vector<uint32_t> values;
     values.reserve(FLAGS_ingest_external_file_width);
+    std::vector<PendingExpectedValue> pending_expected_values;
+    pending_expected_values.reserve(FLAGS_ingest_external_file_width);
     SharedState* shared = thread->shared;
 
     assert(FLAGS_nooverwritepercent < 100);
@@ -1107,20 +1560,30 @@ class NonBatchedOpsStressTest : public StressTest {
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
       if (!shared->AllowsOverwrite(key)) {
-        // We could alternatively include `key` on the condition its current
-        // value is `DELETION_SENTINEL`.
+        // We could alternatively include `key` that is deleted.
         continue;
       }
       keys.push_back(key);
 
-      uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
+      PendingExpectedValue pending_expected_value =
+          shared->PreparePut(column_family, key);
+      const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       values.push_back(value_base);
-      shared->Put(column_family, key, value_base, true /* pending */);
+      pending_expected_values.push_back(pending_expected_value);
 
       char value[100];
-      size_t value_len = GenerateValue(value_base, value, sizeof(value));
       auto key_str = Key(key);
-      s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));
+      const size_t value_len = GenerateValue(value_base, value, sizeof(value));
+      const Slice k(key_str);
+      const Slice v(value, value_len);
+
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
+        WideColumns columns = GenerateWideColumns(value_base, v);
+        s = sst_file_writer.PutEntity(k, columns);
+      } else {
+        s = sst_file_writer.Put(k, v);
+      }
     }
 
     if (s.ok() && keys.empty()) {
@@ -1135,11 +1598,21 @@ class NonBatchedOpsStressTest : public StressTest {
                                   {sst_filename}, IngestExternalFileOptions());
     }
     if (!s.ok()) {
-      fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
-      std::terminate();
-    }
-    for (size_t i = 0; i < keys.size(); ++i) {
-      shared->Put(column_family, keys[i], values[i], false /* pending */);
+      for (PendingExpectedValue& pending_expected_value :
+           pending_expected_values) {
+        pending_expected_value.Rollback();
+      }
+      if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+        fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
+      } else {
+        fprintf(stdout, "file ingestion error: %s\n", s.ToString().c_str());
+      }
+    } else {
+      for (PendingExpectedValue& pending_expected_value :
+           pending_expected_values) {
+        pending_expected_value.Commit();
+      }
     }
   }
 
@@ -1168,14 +1641,19 @@ class NonBatchedOpsStressTest : public StressTest {
 
     const int64_t ub = lb + num_iter;
 
-    // Lock the whole range over which we might iterate to ensure it doesn't
-    // change under us.
     const int rand_column_family = rand_column_families[0];
-    std::vector<std::unique_ptr<MutexLock>> range_locks =
-        shared->GetLocksForKeyRange(rand_column_family, lb, ub);
+
+    // Testing parallel read and write to the same key with user timestamp
+    // is not currently supported
+    std::vector<std::unique_ptr<MutexLock>> range_locks;
+    if (FLAGS_user_timestamp_size > 0) {
+      range_locks = shared->GetLocksForKeyRange(rand_column_family, lb, ub);
+    }
 
     ReadOptions ro(read_opts);
-    ro.total_order_seek = true;
+    if (FLAGS_prefix_size > 0) {
+      ro.total_order_seek = true;
+    }
 
     std::string read_ts_str;
     Slice read_ts;
@@ -1199,7 +1677,22 @@ class NonBatchedOpsStressTest : public StressTest {
     ColumnFamilyHandle* const cfh = column_families_[rand_column_family];
     assert(cfh);
 
+    const std::size_t expected_values_size = static_cast<std::size_t>(ub - lb);
+    std::vector<ExpectedValue> pre_read_expected_values;
+    std::vector<ExpectedValue> post_read_expected_values;
+
+    for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
+      pre_read_expected_values.push_back(
+          shared->Get(rand_column_family, i + lb));
+    }
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
+    for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
+      post_read_expected_values.push_back(
+          shared->Get(rand_column_family, i + lb));
+    }
+
+    assert(pre_read_expected_values.size() == expected_values_size &&
+           pre_read_expected_values.size() == post_read_expected_values.size());
 
     std::string op_logs;
 
@@ -1207,17 +1700,15 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(iter);
       assert(iter->Valid());
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
         shared->SetVerificationFailure();
 
         fprintf(stderr,
                 "Verification failed for key %s: "
-                "Value and columns inconsistent: %s\n",
+                "Value and columns inconsistent: value: %s, columns: %s\n",
                 Slice(iter->key()).ToString(/* hex */ true).c_str(),
-                DebugString(iter->value(), iter->columns(), expected_columns)
-                    .c_str());
+                iter->value().ToString(/* hex */ true).c_str(),
+                WideColumnsToHex(iter->columns()).c_str());
         fprintf(stderr, "Column family: %s, op_logs: %s\n",
                 cfh->GetName().c_str(), op_logs.c_str());
 
@@ -1230,20 +1721,29 @@ class NonBatchedOpsStressTest : public StressTest {
     };
 
     auto check_no_key_in_range = [&](int64_t start, int64_t end) {
+      assert(start <= end);
       for (auto j = std::max(start, lb); j < std::min(end, ub); ++j) {
-        auto expected_value =
-            shared->Get(rand_column_family, static_cast<int64_t>(j));
-        if (expected_value != shared->DELETION_SENTINEL &&
-            expected_value != shared->UNKNOWN_SENTINEL) {
+        std::size_t index = static_cast<std::size_t>(j - lb);
+        assert(index < pre_read_expected_values.size() &&
+               index < post_read_expected_values.size());
+        const ExpectedValue pre_read_expected_value =
+            pre_read_expected_values[index];
+        const ExpectedValue post_read_expected_value =
+            post_read_expected_values[index];
+        if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                                 post_read_expected_value)) {
           // Fail fast to preserve the DB state.
           thread->shared->SetVerificationFailure();
           if (iter->Valid()) {
             fprintf(stderr,
-                    "Expected state has key %s, iterator is at key %s\n",
+                    "Verification failed. Expected state has key %s, iterator "
+                    "is at key %s\n",
                     Slice(Key(j)).ToString(true).c_str(),
                     iter->key().ToString(true).c_str());
           } else {
-            fprintf(stderr, "Expected state has key %s, iterator is invalid\n",
+            fprintf(stderr,
+                    "Verification failed. Expected state has key %s, iterator "
+                    "is invalid\n",
                     Slice(Key(j)).ToString(true).c_str());
           }
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
@@ -1267,6 +1767,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     uint64_t curr = 0;
     while (true) {
+      assert(last_key < ub);
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           thread->shared->SetVerificationFailure();
@@ -1289,6 +1790,19 @@ class NonBatchedOpsStressTest : public StressTest {
 
       // iter is valid, the range (last_key, current key) was skipped
       GetIntVal(iter->key().ToString(), &curr);
+      if (static_cast<int64_t>(curr) <= last_key) {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr,
+                "TestIterateAgainstExpected failed: found unexpectedly small "
+                "key\n");
+        fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                cfh->GetName().c_str(), op_logs.c_str());
+        fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
+                Slice(Key(curr)).ToString(true).c_str(),
+                Slice(Key(last_key + 1)).ToString(true).c_str());
+        thread->stats.AddErrors(1);
+        return Status::OK();
+      }
       if (!check_no_key_in_range(last_key + 1, static_cast<int64_t>(curr))) {
         return Status::OK();
       }
@@ -1311,6 +1825,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     last_key = ub;
     while (true) {
+      assert(lb < last_key);
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           thread->shared->SetVerificationFailure();
@@ -1333,6 +1848,19 @@ class NonBatchedOpsStressTest : public StressTest {
 
       // the range (current key, last key) was skipped
       GetIntVal(iter->key().ToString(), &curr);
+      if (last_key <= static_cast<int64_t>(curr)) {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr,
+                "TestIterateAgainstExpected failed: found unexpectedly large "
+                "key\n");
+        fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                cfh->GetName().c_str(), op_logs.c_str());
+        fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
+                Slice(Key(curr)).ToString(true).c_str(),
+                Slice(Key(last_key - 1)).ToString(true).c_str());
+        thread->stats.AddErrors(1);
+        return Status::OK();
+      }
       if (!check_no_key_in_range(static_cast<int64_t>(curr + 1), last_key)) {
         return Status::OK();
       }
@@ -1347,10 +1875,28 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
-    if (thread->rand.OneIn(2)) {
+    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0) &&
+        thread->rand.OneIn(2)) {
+      pre_read_expected_values.clear();
+      post_read_expected_values.clear();
       // Refresh after forward/backward scan to allow higher chance of SV
-      // change. It is safe to refresh since the testing key range is locked.
-      iter->Refresh();
+      // change.
+      for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
+        pre_read_expected_values.push_back(
+            shared->Get(rand_column_family, i + lb));
+      }
+      Status rs = iter->Refresh();
+      assert(rs.ok());
+      op_logs += "Refresh ";
+      for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
+        post_read_expected_values.push_back(
+            shared->Get(rand_column_family, i + lb));
+      }
+
+      assert(pre_read_expected_values.size() == expected_values_size &&
+             pre_read_expected_values.size() ==
+                 post_read_expected_values.size());
     }
 
     // start from middle of [lb, ub) otherwise it is easy to iterate out of
@@ -1367,6 +1913,21 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!check_no_key_in_range(mid, ub)) {
           return Status::OK();
         }
+      } else if (iter->Valid()) {
+        GetIntVal(iter->key().ToString(), &curr);
+        if (static_cast<int64_t>(curr) < mid) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "TestIterateAgainstExpected failed: found unexpectedly small "
+                  "key\n");
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
+                  Slice(Key(curr)).ToString(true).c_str(),
+                  Slice(Key(mid)).ToString(true).c_str());
+          thread->stats.AddErrors(1);
+          return Status::OK();
+        }
       }
     } else {
       iter->SeekForPrev(key);
@@ -1374,6 +1935,21 @@ class NonBatchedOpsStressTest : public StressTest {
       if (!iter->Valid() && iter->status().ok()) {
         // iterator says nothing <= mid
         if (!check_no_key_in_range(lb, mid + 1)) {
+          return Status::OK();
+        }
+      } else if (iter->Valid()) {
+        GetIntVal(iter->key().ToString(), &curr);
+        if (mid < static_cast<int64_t>(curr)) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "TestIterateAgainstExpected failed: found unexpectedly large "
+                  "key\n");
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
+                  Slice(Key(curr)).ToString(true).c_str(),
+                  Slice(Key(mid)).ToString(true).c_str());
+          thread->stats.AddErrors(1);
           return Status::OK();
         }
       }
@@ -1392,12 +1968,24 @@ class NonBatchedOpsStressTest : public StressTest {
         iter->Prev();
         op_logs += "P";
       } else {
-        const uint32_t expected_value =
-            shared->Get(rand_column_family, static_cast<int64_t>(curr));
-        if (expected_value == shared->DELETION_SENTINEL) {
+        const uint32_t value_base_from_db = GetValueBase(iter->value());
+        std::size_t index = static_cast<std::size_t>(curr - lb);
+        assert(index < pre_read_expected_values.size() &&
+               index < post_read_expected_values.size());
+        const ExpectedValue pre_read_expected_value =
+            pre_read_expected_values[index];
+        const ExpectedValue post_read_expected_value =
+            post_read_expected_values[index];
+        if (ExpectedValueHelper::MustHaveNotExisted(pre_read_expected_value,
+                                                    post_read_expected_value) ||
+            !ExpectedValueHelper::InExpectedValueBaseRange(
+                value_base_from_db, pre_read_expected_value,
+                post_read_expected_value)) {
           // Fail fast to preserve the DB state.
           thread->shared->SetVerificationFailure();
-          fprintf(stderr, "Iterator has key %s, but expected state does not.\n",
+          fprintf(stderr,
+                  "Verification failed: iterator has key %s, but expected "
+                  "state does not.\n",
                   iter->key().ToString(true).c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
@@ -1413,6 +2001,19 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           uint64_t next = 0;
           GetIntVal(iter->key().ToString(), &next);
+          if (next <= curr) {
+            thread->shared->SetVerificationFailure();
+            fprintf(stderr,
+                    "TestIterateAgainstExpected failed: found unexpectedly "
+                    "small key\n");
+            fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                    cfh->GetName().c_str(), op_logs.c_str());
+            fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
+                    Slice(Key(next)).ToString(true).c_str(),
+                    Slice(Key(curr + 1)).ToString(true).c_str());
+            thread->stats.AddErrors(1);
+            return Status::OK();
+          }
           if (!check_no_key_in_range(static_cast<int64_t>(curr + 1),
                                      static_cast<int64_t>(next))) {
             return Status::OK();
@@ -1425,6 +2026,19 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           uint64_t prev = 0;
           GetIntVal(iter->key().ToString(), &prev);
+          if (curr <= prev) {
+            thread->shared->SetVerificationFailure();
+            fprintf(stderr,
+                    "TestIterateAgainstExpected failed: found unexpectedly "
+                    "large key\n");
+            fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                    cfh->GetName().c_str(), op_logs.c_str());
+            fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
+                    Slice(Key(prev)).ToString(true).c_str(),
+                    Slice(Key(curr - 1)).ToString(true).c_str());
+            thread->stats.AddErrors(1);
+            return Status::OK();
+          }
           if (!check_no_key_in_range(static_cast<int64_t>(prev + 1),
                                      static_cast<int64_t>(curr))) {
             return Status::OK();
@@ -1450,59 +2064,76 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                          SharedState* shared, const std::string& value_from_db,
-                         std::string msg_prefix, const Status& s,
-                         bool strict = false) const {
+                         std::string msg_prefix, const Status& s) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
+    const ExpectedValue expected_value = shared->Get(cf, key);
 
-    // compare value_from_db with the value in the shared state
-    uint32_t value_base = shared->Get(cf, key);
-    if (value_base == SharedState::UNKNOWN_SENTINEL) {
+    if (expected_value.PendingWrite() || expected_value.PendingDelete()) {
       if (s.ok()) {
         // Value exists in db, update state to reflect that
         Slice slice(value_from_db);
-        value_base = GetValueBase(slice);
-        shared->Put(cf, key, value_base, false);
+        uint32_t value_base = GetValueBase(slice);
+        shared->SyncPut(cf, key, value_base);
+        return true;
       } else if (s.IsNotFound()) {
         // Value doesn't exist in db, update state to reflect that
-        shared->SingleDelete(cf, key, false);
+        shared->SyncDelete(cf, key);
+        return true;
       }
-      return true;
     }
-    if (value_base == SharedState::DELETION_SENTINEL && !strict) {
-      return true;
-    }
+    char expected_value_data[kValueMaxLen];
+    size_t expected_value_data_size =
+        GenerateValue(expected_value.GetValueBase(), expected_value_data,
+                      sizeof(expected_value_data));
 
+    // compare value_from_db with the value in the shared state
     if (s.ok()) {
-      char value[kValueMaxLen];
-      if (value_base == SharedState::DELETION_SENTINEL) {
+      const Slice slice(value_from_db);
+      const uint32_t value_base_from_db = GetValueBase(slice);
+      if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
+                                                  expected_value)) {
         VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
                           key, value_from_db, "");
         return false;
       }
-      size_t sz = GenerateValue(value_base, value, sizeof(value));
-      if (value_from_db.length() != sz) {
-        VerificationAbort(shared,
-                          msg_prefix + ": Length of value read is not equal",
-                          cf, key, value_from_db, Slice(value, sz));
+      if (!ExpectedValueHelper::InExpectedValueBaseRange(
+              value_base_from_db, expected_value, expected_value)) {
+        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
+                          key, value_from_db,
+                          Slice(expected_value_data, expected_value_data_size));
         return false;
       }
-      if (memcmp(value_from_db.data(), value, sz) != 0) {
+      // TODO: are the length/memcmp() checks repetitive?
+      if (value_from_db.length() != expected_value_data_size) {
+        VerificationAbort(shared,
+                          msg_prefix + ": Length of value read is not equal",
+                          cf, key, value_from_db,
+                          Slice(expected_value_data, expected_value_data_size));
+        return false;
+      }
+      if (memcmp(value_from_db.data(), expected_value_data,
+                 expected_value_data_size) != 0) {
         VerificationAbort(shared,
                           msg_prefix + ": Contents of value read don't match",
-                          cf, key, value_from_db, Slice(value, sz));
+                          cf, key, value_from_db,
+                          Slice(expected_value_data, expected_value_data_size));
+        return false;
+      }
+    } else if (s.IsNotFound()) {
+      if (ExpectedValueHelper::MustHaveExisted(expected_value,
+                                               expected_value)) {
+        VerificationAbort(
+            shared, msg_prefix + ": Value not found: " + s.ToString(), cf, key,
+            "", Slice(expected_value_data, expected_value_data_size));
         return false;
       }
     } else {
-      if (value_base != SharedState::DELETION_SENTINEL) {
-        char value[kValueMaxLen];
-        size_t sz = GenerateValue(value_base, value, sizeof(value));
-        VerificationAbort(shared,
-                          msg_prefix + ": Value not found: " + s.ToString(), cf,
-                          key, "", Slice(value, sz));
-        return false;
-      }
+      VerificationAbort(shared, msg_prefix + "Non-OK status: " + s.ToString(),
+                        cf, key, "",
+                        Slice(expected_value_data, expected_value_data_size));
+      return false;
     }
     return true;
   }

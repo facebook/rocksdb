@@ -50,7 +50,7 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 //
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown.
-extern Status BuildTable(
+Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
     const FileOptions& file_options, TableCache* table_cache,
@@ -66,7 +66,6 @@ extern Status BuildTable(
     BlobFileCreationReason blob_creation_reason,
     const SeqnoToTimeMapping& seqno_to_time_mapping,
     EventLogger* event_logger = nullptr, int job_id = 0,
-    const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const std::string* full_history_ts_low = nullptr,

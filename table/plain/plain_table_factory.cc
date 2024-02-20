@@ -5,8 +5,7 @@
 
 #include "table/plain/plain_table_factory.h"
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 
 #include "db/dbformat.h"
@@ -78,7 +77,7 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
   //
   return new PlainTableBuilder(
       table_builder_options.ioptions, table_builder_options.moptions,
-      table_builder_options.int_tbl_prop_collector_factories,
+      table_builder_options.internal_tbl_prop_coll_factories,
       table_builder_options.column_family_id,
       table_builder_options.level_at_creation, file,
       table_options_.user_key_len, table_options_.encoding_type,
@@ -122,17 +121,6 @@ std::string PlainTableFactory::GetPrintableOptions() const {
   return ret;
 }
 
-Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
-                                      const std::string& opts_str,
-                                      PlainTableOptions* new_table_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  config_options.invoke_prepare_options = false;
-  return GetPlainTableOptionsFromString(config_options, table_options, opts_str,
-                                        new_table_options);
-}
-
 Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
                                       const PlainTableOptions& table_options,
                                       const std::string& opts_str,
@@ -168,7 +156,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       AsPattern(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t count = ParseSizeT(uri.substr(colon + 1));
           guard->reset(new VectorRepFactory(count));
@@ -181,7 +169,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       AsPattern(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t lookahead = ParseSizeT(uri.substr(colon + 1));
           guard->reset(new SkipListFactory(lookahead));
@@ -195,7 +183,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         // Expecting format: hash_linkedlist:<hash_bucket_count>
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
           guard->reset(NewHashLinkListRepFactory(hash_bucket_count));
@@ -209,7 +197,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         // Expecting format: prefix_hash:<hash_bucket_count>
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         if (colon != std::string::npos) {
           size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
           guard->reset(NewHashSkipListRepFactory(hash_bucket_count));
@@ -276,18 +264,6 @@ Status MemTableRepFactory::CreateFromString(
 }
 
 Status GetPlainTableOptionsFromMap(
-    const PlainTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  return GetPlainTableOptionsFromMap(config_options, table_options, opts_map,
-                                     new_table_options);
-}
-
-Status GetPlainTableOptionsFromMap(
     const ConfigOptions& config_options, const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     PlainTableOptions* new_table_options) {
@@ -303,7 +279,7 @@ Status GetPlainTableOptionsFromMap(
   return s;
 }
 
-extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
+TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }
 

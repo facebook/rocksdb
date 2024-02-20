@@ -23,7 +23,7 @@ public class WriteBatchThreadedTest {
 
   @Parameters(name = "WriteBatchThreadedTest(threadCount={0})")
   public static Iterable<Integer> data() {
-    return Arrays.asList(new Integer[]{1, 10, 50, 100});
+    return Arrays.asList(1, 10, 50, 100);
   }
 
   @Parameter
@@ -56,18 +56,15 @@ public class WriteBatchThreadedTest {
     final List<Callable<Void>> callables = new ArrayList<>();
     for (int i = 0; i < 100; i++) {
       final int offset = i * 100;
-      callables.add(new Callable<Void>() {
-        @Override
-        public Void call() throws RocksDBException {
-          try (final WriteBatch wb = new WriteBatch();
-               final WriteOptions w_opt = new WriteOptions()) {
-            for (int i = offset; i < offset + 100; i++) {
-              wb.put(ByteBuffer.allocate(4).putInt(i).array(), "parallel rocks test".getBytes());
-            }
-            db.write(w_opt, wb);
+      callables.add(() -> {
+        try (final WriteBatch wb = new WriteBatch();
+             final WriteOptions w_opt = new WriteOptions()) {
+          for (int i1 = offset; i1 < offset + 100; i1++) {
+            wb.put(ByteBuffer.allocate(4).putInt(i1).array(), "parallel rocks test".getBytes());
           }
-          return null;
+          db.write(w_opt, wb);
         }
+        return null;
       });
     }
 

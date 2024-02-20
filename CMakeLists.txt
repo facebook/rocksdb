@@ -76,11 +76,6 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
 endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-if ($ENV{CIRCLECI})
-  message(STATUS "Build for CircieCI env, a few tests may be disabled")
-  add_definitions(-DCIRCLECI)
-endif()
-
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -171,7 +166,7 @@ else()
   if(WITH_ZSTD)
     find_package(zstd REQUIRED)
     add_definitions(-DZSTD)
-    include_directories(${ZSTD_INCLUDE_DIR})
+    include_directories(${ZSTD_INCLUDE_DIRS})
     list(APPEND THIRDPARTY_LIBS zstd::zstd)
   endif()
 endif()
@@ -253,33 +248,10 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
   endif(HAS_LOONGARCH64)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 
-option(PORTABLE "build a portable binary" OFF)
-option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
-option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
-option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
-if(PORTABLE)
-  add_definitions(-DROCKSDB_PORTABLE)
-
-  # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
-  # is available, it is available by default.
-  if(FORCE_SSE42 AND NOT MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
-  endif()
-  if(MSVC)
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
-    endif()
-    # MSVC automatically enables BMI / lzcnt with AVX2.
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
-    endif()
-  else()
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
-    endif()
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
-    endif()
+set(PORTABLE 0 CACHE STRING "Minimum CPU arch to support, or 0 = current CPU, 1 = baseline CPU")
+if(PORTABLE MATCHES "1|ON|YES|TRUE|Y")
+  # Usually nothing to do; compiler default is typically the most general
+  if(NOT MSVC)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     endif()
@@ -287,15 +259,26 @@ if(PORTABLE)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
     endif()
   endif()
-else()
+elseif(PORTABLE MATCHES "0|OFF|NO|FALSE|N")
   if(MSVC)
+    # NOTE: No auto-detection of current CPU, but instead assume some useful
+    # level of optimization is supported
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
+    # Require instruction set from current CPU (with some legacy or opt-out
+    # exceptions)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x" AND NOT HAS_S390X_MARCH_NATIVE)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
+  endif()
+else()
+  # Name of a CPU arch spec or feature set to require
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
   endif()
 endif()
 
@@ -303,25 +286,6 @@ include(CheckCXXSourceCompiles)
 set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
-endif()
-
-CHECK_CXX_SOURCE_COMPILES("
-#include <cstdint>
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-int main() {
-  volatile uint32_t x = _mm_crc32_u32(0, 0);
-  const auto a = _mm_set_epi64x(0, 0);
-  const auto b = _mm_set_epi64x(0, 0);
-  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-  auto d = _mm_cvtsi128_si64(c);
-}
-" HAVE_SSE42)
-if(HAVE_SSE42)
-  add_definitions(-DHAVE_SSE42)
-  add_definitions(-DHAVE_PCLMUL)
-elseif(FORCE_SSE42)
-  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
 
 # Check if -latomic is required or not
@@ -407,7 +371,7 @@ option(WITH_NUMA "build with NUMA policy support" OFF)
 if(WITH_NUMA)
   find_package(NUMA REQUIRED)
   add_definitions(-DNUMA)
-  include_directories(${NUMA_INCLUDE_DIR})
+  include_directories(${NUMA_INCLUDE_DIRS})
   list(APPEND THIRDPARTY_LIBS NUMA::NUMA)
 endif()
 
@@ -578,7 +542,7 @@ if(HAVE_SCHED_GETCPU)
   add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
-check_cxx_symbol_exists(getauxval auvx.h HAVE_AUXV_GETAUXVAL)
+check_cxx_symbol_exists(getauxval "sys/auxv.h" HAVE_AUXV_GETAUXVAL)
 if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
@@ -661,7 +625,9 @@ set(SOURCES
         cache/compressed_secondary_cache.cc
         cache/lru_cache.cc
         cache/secondary_cache.cc
+        cache/secondary_cache_adapter.cc
         cache/sharded_cache.cc
+        cache/tiered_secondary_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
         db/blob/blob_fetcher.cc
@@ -744,9 +710,11 @@ set(SOURCES
         db/wal_manager.cc
         db/wide/wide_column_serialization.cc
         db/wide/wide_columns.cc
+        db/wide/wide_columns_helper.cc
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
+        db/write_stall_stats.cc
         db/write_thread.cc
         env/composite_env.cc
         env/env.cc
@@ -799,6 +767,7 @@ set(SOURCES
         options/configurable.cc
         options/customizable.cc
         options/db_options.cc
+        options/offpeak_time_info.cc
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
@@ -838,6 +807,7 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merging_iterator.cc
+        table/compaction_merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
         table/plain/plain_table_bloom.cc
@@ -879,6 +849,7 @@ set(SOURCES
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
+        util/data_structure.cc
         util/dynamic_bloom.cc
         util/hash.cc
         util/murmurhash.cc
@@ -892,6 +863,8 @@ set(SOURCES
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/udt_util.cc
+        util/write_batch_util.cc
         util/xxhash.cc
         utilities/agg_merge/agg_merge.cc
         utilities/backup/backup_engine.cc
@@ -1004,12 +977,6 @@ if ( ROCKSDB_PLUGINS )
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
   endforeach()
-endif()
-
-if(HAVE_SSE42 AND NOT MSVC)
-  set_source_files_properties(
-    util/crc32c.cc
-    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
@@ -1134,11 +1101,15 @@ set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
+target_include_directories(${ROCKSDB_STATIC_LIB} PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(ROCKSDB_BUILD_SHARED)
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
+  target_include_directories(${ROCKSDB_SHARED_LIB} PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
   target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
@@ -1277,6 +1248,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/mock_time_env.cc
+  test_util/secondary_cache_test_util.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
@@ -1292,6 +1264,7 @@ if(WITH_TESTS)
         cache/cache_test.cc
         cache/compressed_secondary_cache_test.cc
         cache/lru_cache_test.cc
+        cache/tiered_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
@@ -1322,6 +1295,7 @@ if(WITH_TESTS)
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
+        db/db_clip_test.cc
         db/db_dynamic_level_test.cc
         db/db_encryption_test.cc
         db/db_flush_test.cc
@@ -1386,6 +1360,7 @@ if(WITH_TESTS)
         db/wal_edit_test.cc
         db/wide/db_wide_basic_test.cc
         db/wide/wide_column_serialization_test.cc
+        db/wide/wide_columns_helper_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
@@ -1448,10 +1423,12 @@ if(WITH_TESTS)
         util/ribbon_test.cc
         util/slice_test.cc
         util/slice_transform_test.cc
+        util/string_util_test.cc
         util/timer_queue_test.cc
         util/timer_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
+        util/udt_util_test.cc
         util/work_queue_test.cc
         utilities/agg_merge/agg_merge_test.cc
         utilities/backup/backup_engine_test.cc
@@ -1496,7 +1473,7 @@ if(WITH_TESTS)
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+  add_custom_target(rocksdb_check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
   target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB} ${FOLLY_LIBS})
@@ -1521,7 +1498,7 @@ if(WITH_TESTS)
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
-        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(rocksdb_check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
 
@@ -1541,7 +1518,7 @@ if(WITH_TESTS)
     add_executable(c_test db/c_test.c)
     target_link_libraries(c_test ${ROCKSDB_LIB_FOR_C} testharness)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
-    add_dependencies(check c_test)
+    add_dependencies(rocksdb_check c_test)
   endif()
 endif()
 

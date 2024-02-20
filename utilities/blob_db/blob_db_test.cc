@@ -118,9 +118,7 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  BlobDBImpl *blob_db_impl() {
-    return reinterpret_cast<BlobDBImpl *>(blob_db_);
-  }
+  BlobDBImpl *blob_db_impl() { return static_cast<BlobDBImpl *>(blob_db_); }
 
   Status Put(const Slice &key, const Slice &value,
              std::map<std::string, std::string> *data = nullptr) {
@@ -1187,6 +1185,12 @@ TEST_F(BlobDBTest, FIFOEviction_NoEnoughBlobFilesToEvict) {
   options.statistics = statistics;
   Open(bdb_options, options);
 
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NotifyOnFlushCompleted::PostAllOnFlushCompleted",
+        "BlobDBTest.FIFOEviction_NoEnoughBlobFilesToEvict:AfterFlush"}});
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
   ASSERT_EQ(0, blob_db_impl()->TEST_live_sst_size());
   std::string small_value(50, 'v');
   std::map<std::string, std::string> data;
@@ -1196,10 +1200,15 @@ TEST_F(BlobDBTest, FIFOEviction_NoEnoughBlobFilesToEvict) {
     ASSERT_OK(Put("key" + std::to_string(i), small_value, &data));
   }
   ASSERT_OK(blob_db_->Flush(FlushOptions()));
+
   uint64_t live_sst_size = 0;
   ASSERT_TRUE(blob_db_->GetIntProperty(DB::Properties::kTotalSstFilesSize,
                                        &live_sst_size));
   ASSERT_TRUE(live_sst_size > 0);
+
+  TEST_SYNC_POINT(
+      "BlobDBTest.FIFOEviction_NoEnoughBlobFilesToEvict:AfterFlush");
+
   ASSERT_EQ(live_sst_size, blob_db_impl()->TEST_live_sst_size());
 
   bdb_options.max_db_size = live_sst_size + 2000;
@@ -1223,6 +1232,8 @@ TEST_F(BlobDBTest, FIFOEviction_NoEnoughBlobFilesToEvict) {
   ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_FIFO_NUM_FILES_EVICTED));
   // Verify large_key2 still exists.
   VerifyDB(data);
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // Test flush or compaction will trigger FIFO eviction since they update
@@ -1241,6 +1252,12 @@ TEST_F(BlobDBTest, FIFOEviction_TriggerOnSSTSizeChange) {
   options.compression = kNoCompression;
   Open(bdb_options, options);
 
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NotifyOnFlushCompleted::PostAllOnFlushCompleted",
+        "BlobDBTest.FIFOEviction_TriggerOnSSTSizeChange:AfterFlush"}});
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
   std::string value(800, 'v');
   ASSERT_OK(PutWithTTL("large_key", value, 60));
   ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
@@ -1254,11 +1271,15 @@ TEST_F(BlobDBTest, FIFOEviction_TriggerOnSSTSizeChange) {
   }
   ASSERT_OK(blob_db_->Flush(FlushOptions()));
 
+  TEST_SYNC_POINT("BlobDBTest.FIFOEviction_TriggerOnSSTSizeChange:AfterFlush");
+
   // Verify large_key is deleted by FIFO eviction.
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
   ASSERT_EQ(1, statistics->getTickerCount(BLOB_DB_FIFO_NUM_FILES_EVICTED));
   VerifyDB(data);
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(BlobDBTest, InlineSmallValues) {
@@ -1637,6 +1658,12 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   options.disable_auto_compactions = true;
   Open(bdb_options, options);
 
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NotifyOnFlushCompleted::PostAllOnFlushCompleted",
+        "BlobDBTest.FilterForFIFOEviction:AfterFlush"}});
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
   std::map<std::string, std::string> data;
   std::map<std::string, std::string> data_after_compact;
   // Insert some small values that will be inlined.
@@ -1651,6 +1678,9 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   }
   uint64_t num_keys_to_evict = data.size() - data_after_compact.size();
   ASSERT_OK(blob_db_->Flush(FlushOptions()));
+
+  TEST_SYNC_POINT("BlobDBTest.FilterForFIFOEviction:AfterFlush");
+
   uint64_t live_sst_size = blob_db_impl()->TEST_live_sst_size();
   ASSERT_GT(live_sst_size, 0);
   VerifyDB(data);
@@ -1702,6 +1732,8 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   data_after_compact["large_key2"] = large_value;
   data_after_compact["large_key3"] = large_value;
   VerifyDB(data_after_compact);
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(BlobDBTest, GarbageCollection) {
@@ -1977,40 +2009,36 @@ TEST_F(BlobDBTest, DisableFileDeletions) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
-  for (bool force : {true, false}) {
-    ASSERT_OK(Put("foo", "v", &data));
-    auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-    ASSERT_EQ(1, blob_files.size());
-    auto blob_file = blob_files[0];
-    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
-    blob_db_impl()->TEST_ObsoleteBlobFile(blob_file);
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
-    // Call DisableFileDeletions twice.
-    ASSERT_OK(blob_db_->DisableFileDeletions());
-    ASSERT_OK(blob_db_->DisableFileDeletions());
-    // File deletions should be disabled.
-    blob_db_impl()->TEST_DeleteObsoleteFiles();
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
-    VerifyDB(data);
-    // Enable file deletions once. If force=true, file deletion is enabled.
-    // Otherwise it needs to enable it for a second time.
-    ASSERT_OK(blob_db_->EnableFileDeletions(force));
-    blob_db_impl()->TEST_DeleteObsoleteFiles();
-    if (!force) {
-      ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
-      ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
-      VerifyDB(data);
-      // Call EnableFileDeletions a second time.
-      ASSERT_OK(blob_db_->EnableFileDeletions(false));
-      blob_db_impl()->TEST_DeleteObsoleteFiles();
-    }
-    // Regardless of value of `force`, file should be deleted by now.
-    ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
-    ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
-    VerifyDB({});
-  }
+  ASSERT_OK(Put("foo", "v", &data));
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  auto blob_file = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+  blob_db_impl()->TEST_ObsoleteBlobFile(blob_file);
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  // Call DisableFileDeletions twice.
+  ASSERT_OK(blob_db_->DisableFileDeletions());
+  ASSERT_OK(blob_db_->DisableFileDeletions());
+  // File deletions should be disabled.
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  VerifyDB(data);
+  // Enable file deletions once. File deletion will later get enabled when
+  // `EnableFileDeletions` called for a second time.
+  ASSERT_OK(blob_db_->EnableFileDeletions());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  VerifyDB(data);
+  // Call EnableFileDeletions a second time.
+  ASSERT_OK(blob_db_->EnableFileDeletions());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  // File should be deleted by now.
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  VerifyDB({});
 }
 
 TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
@@ -2394,4 +2422,3 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

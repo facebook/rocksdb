@@ -55,6 +55,11 @@ struct JemallocAllocatorOptions {
   // Upper bound of allocation size to use tcache, if limit_tcache_size=true.
   // When used with block cache, it is recommended to set it to block_size.
   size_t tcache_size_upper_bound = 16 * 1024;
+
+  // Number of arenas across which we spread allocation requests. Increasing
+  // this setting can mitigate arena mutex contention. The value must be
+  // positive.
+  size_t num_arenas = 1;
 };
 
 // Generate memory allocator which allocates through Jemalloc and utilize
@@ -70,12 +75,13 @@ struct JemallocAllocatorOptions {
 // core dump. Side benefit of using single arena would be reduction of jemalloc
 // metadata for some workloads.
 //
-// To mitigate mutex contention for using one single arena, jemalloc tcache
+// To mitigate mutex contention for using one single arena (see also
+// `JemallocAllocatorOptions::num_arenas` above), jemalloc tcache
 // (thread-local cache) is enabled to cache unused allocations for future use.
 // The tcache normally incurs 0.5M extra memory usage per-thread. The usage
 // can be reduced by limiting allocation sizes to cache.
-extern Status NewJemallocNodumpAllocator(
-    JemallocAllocatorOptions& options,
+Status NewJemallocNodumpAllocator(
+    const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
 }  // namespace ROCKSDB_NAMESPACE

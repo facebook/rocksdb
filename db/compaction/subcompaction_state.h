@@ -84,6 +84,11 @@ class SubcompactionState {
   // Assign range dels aggregator, for each range_del, it can only be assigned
   // to one output level, for per_key_placement, it's going to be the
   // penultimate level.
+  // TODO: This does not work for per_key_placement + user-defined timestamp +
+  //  DeleteRange() combo. If user-defined timestamp is enabled,
+  //  it is possible for a range tombstone to belong to bottommost level (
+  //  seqno < earliest snapshot) without being dropped (garbage collection
+  //  for user-defined timestamp).
   void AssignRangeDelAggregator(
       std::unique_ptr<CompactionRangeDelAggregator>&& range_del_agg) {
     if (compaction->SupportsPerKeyPlacement()) {

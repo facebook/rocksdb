@@ -5,23 +5,33 @@
 
 #include "table/block_based/block_cache.h"
 
+#include "table/block_based/block_based_table_reader.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 void BlockCreateContext::Create(std::unique_ptr<Block_kData>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kData(
       std::move(block), table_options->read_amp_bytes_per_bit, statistics));
+  parsed_out->get()->InitializeDataBlockProtectionInfo(protection_bytes_per_key,
+                                                       raw_ucmp);
 }
 void BlockCreateContext::Create(std::unique_ptr<Block_kIndex>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kIndex(std::move(block),
                                      /*read_amp_bytes_per_bit*/ 0, statistics));
+  parsed_out->get()->InitializeIndexBlockProtectionInfo(
+      protection_bytes_per_key, raw_ucmp, index_value_is_full,
+      index_has_first_key);
 }
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kFilterPartitionIndex>* parsed_out,
     BlockContents&& block) {
   parsed_out->reset(new Block_kFilterPartitionIndex(
       std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+  parsed_out->get()->InitializeIndexBlockProtectionInfo(
+      protection_bytes_per_key, raw_ucmp, index_value_is_full,
+      index_has_first_key);
 }
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kRangeDeletion>* parsed_out, BlockContents&& block) {
@@ -32,6 +42,8 @@ void BlockCreateContext::Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kMetaIndex(
       std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+  parsed_out->get()->InitializeMetaIndexBlockProtectionInfo(
+      protection_bytes_per_key);
 }
 
 void BlockCreateContext::Create(
@@ -50,43 +62,43 @@ namespace {
 // For getting SecondaryCache-compatible helpers from a BlockType. This is
 // useful for accessing block cache in untyped contexts, such as for generic
 // cache warming in table builder.
-constexpr std::array<const Cache::CacheItemHelper*,
-                     static_cast<unsigned>(BlockType::kInvalid) + 1>
+const std::array<const Cache::CacheItemHelper*,
+                 static_cast<unsigned>(BlockType::kInvalid) + 1>
     kCacheItemFullHelperForBlockType{{
-        &BlockCacheInterface<Block_kData>::kFullHelper,
-        &BlockCacheInterface<ParsedFullFilterBlock>::kFullHelper,
-        &BlockCacheInterface<Block_kFilterPartitionIndex>::kFullHelper,
+        BlockCacheInterface<Block_kData>::GetFullHelper(),
+        BlockCacheInterface<ParsedFullFilterBlock>::GetFullHelper(),
+        BlockCacheInterface<Block_kFilterPartitionIndex>::GetFullHelper(),
         nullptr,  // kProperties
-        &BlockCacheInterface<UncompressionDict>::kFullHelper,
-        &BlockCacheInterface<Block_kRangeDeletion>::kFullHelper,
+        BlockCacheInterface<UncompressionDict>::GetFullHelper(),
+        BlockCacheInterface<Block_kRangeDeletion>::GetFullHelper(),
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata
         nullptr,  // kMetaIndex (not yet stored in block cache)
-        &BlockCacheInterface<Block_kIndex>::kFullHelper,
+        BlockCacheInterface<Block_kIndex>::GetFullHelper(),
         nullptr,  // kInvalid
     }};
 
 // For getting basic helpers from a BlockType (no SecondaryCache support)
-constexpr std::array<const Cache::CacheItemHelper*,
-                     static_cast<unsigned>(BlockType::kInvalid) + 1>
+const std::array<const Cache::CacheItemHelper*,
+                 static_cast<unsigned>(BlockType::kInvalid) + 1>
     kCacheItemBasicHelperForBlockType{{
-        &BlockCacheInterface<Block_kData>::kBasicHelper,
-        &BlockCacheInterface<ParsedFullFilterBlock>::kBasicHelper,
-        &BlockCacheInterface<Block_kFilterPartitionIndex>::kBasicHelper,
+        BlockCacheInterface<Block_kData>::GetBasicHelper(),
+        BlockCacheInterface<ParsedFullFilterBlock>::GetBasicHelper(),
+        BlockCacheInterface<Block_kFilterPartitionIndex>::GetBasicHelper(),
         nullptr,  // kProperties
-        &BlockCacheInterface<UncompressionDict>::kBasicHelper,
-        &BlockCacheInterface<Block_kRangeDeletion>::kBasicHelper,
+        BlockCacheInterface<UncompressionDict>::GetBasicHelper(),
+        BlockCacheInterface<Block_kRangeDeletion>::GetBasicHelper(),
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata
         nullptr,  // kMetaIndex (not yet stored in block cache)
-        &BlockCacheInterface<Block_kIndex>::kBasicHelper,
+        BlockCacheInterface<Block_kIndex>::GetBasicHelper(),
         nullptr,  // kInvalid
     }};
 }  // namespace
 
 const Cache::CacheItemHelper* GetCacheItemHelper(
     BlockType block_type, CacheTier lowest_used_cache_tier) {
-  if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {
+  if (lowest_used_cache_tier > CacheTier::kVolatileTier) {
     return kCacheItemFullHelperForBlockType[static_cast<unsigned>(block_type)];
   } else {
     return kCacheItemBasicHelperForBlockType[static_cast<unsigned>(block_type)];

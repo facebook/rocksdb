@@ -373,12 +373,13 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
 
+    final ColumnFamilyOptions defaultColumnFamilyOptions = new ColumnFamilyOptions();
+    defaultColumnFamilyOptions.setMergeOperator(new StringAppendOperator("++"));
     final ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions();
-    final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-        Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor(TXN_TEST_COLUMN_FAMILY,
-                columnFamilyOptions));
+    columnFamilyOptions.setMergeOperator(new StringAppendOperator("**"));
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(
+        new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, defaultColumnFamilyOptions),
+        new ColumnFamilyDescriptor(TXN_TEST_COLUMN_FAMILY, columnFamilyOptions));
     final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
     final OptimisticTransactionDB optimisticTxnDb;

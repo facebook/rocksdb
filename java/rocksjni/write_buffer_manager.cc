@@ -7,6 +7,8 @@
 
 #include <jni.h>
 
+#include <cassert>
+
 #include "include/org_rocksdb_WriteBufferManager.h"
 #include "rocksdb/cache.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -34,9 +36,9 @@ jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_WriteBufferManager_disposeInternal(JNIEnv* /*env*/,
-                                                         jobject /*jobj*/,
-                                                         jlong jhandle) {
+void Java_org_rocksdb_WriteBufferManager_disposeInternalJni(JNIEnv* /*env*/,
+                                                            jclass /*jcls*/,
+                                                            jlong jhandle) {
   auto* write_buffer_manager =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
           jhandle);

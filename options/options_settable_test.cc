@@ -167,8 +167,13 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
                       kBbtoExcluded);
 
   // Need to update the option string if a new option is added.
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+  config_options.invoke_prepare_options = false;
+  config_options.ignore_unsupported_options = false;
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      *bbto,
+      config_options, *bbto,
       "cache_index_and_filter_blocks=1;"
       "cache_index_and_filter_blocks_with_high_priority=true;"
       "metadata_cache_options={top_level_index_pinning=kFallback;"
@@ -247,6 +252,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(FileTypeSet)},
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
+      {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -273,8 +279,11 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   FillWithSpecialChar(new_options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
 
   // Need to update the option string if a new option is added.
+  ConfigOptions config_options(*options);
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ASSERT_OK(
-      GetDBOptionsFromString(*options,
+      GetDBOptionsFromString(config_options, *options,
                              "wal_bytes_per_sync=4295048118;"
                              "delete_obsolete_files_period_micros=4294967758;"
                              "WAL_ttl_seconds=4295008036;"
@@ -300,6 +309,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
                              "flush_verify_memtable_count=true;"
+                             "compaction_verify_record_count=true;"
                              "track_and_verify_wals_in_manifest=true;"
                              "verify_sst_unique_id_in_manifest=true;"
                              "is_fd_close_on_exec=false;"
@@ -334,7 +344,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "enable_write_thread_adaptive_yield=true;"
                              "write_thread_slow_yield_usec=5;"
                              "write_thread_max_yield_usec=1000;"
-                             "access_hint_on_compaction_start=NONE;"
                              "info_log_level=DEBUG_LEVEL;"
                              "dump_malloc_stats=false;"
                              "allow_2pc=false;"
@@ -356,7 +365,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "db_host_id=hostname;"
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false;"
-                             "enforce_single_del_contracts=false;",
+                             "enforce_single_del_contracts=false;"
+                             "daily_offpeak_time_utc=08:30-19:00;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -369,6 +379,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
+// status check adds CXX flag -fno-elide-constructors which fails this test.
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
@@ -392,6 +404,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
+      {offsetof(struct ColumnFamilyOptions, compaction_options_fifo),
+       sizeof(struct CompactionOptionsFIFO)},
       {offsetof(struct ColumnFamilyOptions, memtable_factory),
        sizeof(std::shared_ptr<MemTableRepFactory>)},
       {offsetof(struct ColumnFamilyOptions,
@@ -461,8 +475,11 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
                       kColumnFamilyOptionsExcluded);
 
   // Need to update the option string if a new option is added.
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      *options,
+      config_options, *options,
       "compaction_filter_factory=mpudlojcujCompactionFilterFactory;"
       "table_factory=PlainTable;"
       "prefix_extractor=rocksdb.CappedPrefix.13;"
@@ -486,8 +503,14 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
-      "compression_opts=5:6:7:8:9:10:true:11:false;"
-      "bottommost_compression_opts=4:5:6:7:8:9:true:10:true;"
+      "compression_opts={max_dict_buffer_bytes=5;use_zstd_dict_trainer=true;"
+      "enabled=false;parallel_threads=6;zstd_max_train_bytes=7;strategy=8;max_"
+      "dict_bytes=9;level=10;window_bits=11;max_compressed_bytes_per_kb=987;"
+      "checksum=true};"
+      "bottommost_compression_opts={max_dict_buffer_bytes=4;use_zstd_dict_"
+      "trainer=true;enabled=true;parallel_threads=5;zstd_max_train_bytes=6;"
+      "strategy=7;max_dict_bytes=8;level=9;window_bits=10;max_compressed_bytes_"
+      "per_kb=876;checksum=true};"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
@@ -530,12 +553,18 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
+      "default_temperature=kHot;"
       "preclude_last_level_data_seconds=86400;"
       "preserve_internal_time_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;age_for_warm=1;};"
+      "compaction=true;age_for_warm=0;file_temperature_age_thresholds={{"
+      "temperature=kCold;age=12345}};};"
       "blob_cache=1M;"
-      "memtable_protection_bytes_per_key=2;",
+      "memtable_protection_bytes_per_key=2;"
+      "persist_user_defined_timestamps=true;"
+      "block_protection_bytes_per_key=1;"
+      "memtable_max_range_deletions=999999;"
+      "bottommost_file_compaction_delay=7200;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
@@ -543,6 +572,22 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),
                           kColumnFamilyOptionsExcluded));
+
+  // Custom verification since compaction_options_fifo was in
+  // kColumnFamilyOptionsExcluded
+  ASSERT_EQ(new_options->compaction_options_fifo.max_table_files_size, 3);
+  ASSERT_EQ(new_options->compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(new_options->compaction_options_fifo.file_temperature_age_thresholds
+                .size(),
+            1);
+  ASSERT_EQ(
+      new_options->compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_options->compaction_options_fifo.file_temperature_age_thresholds[0]
+          .age,
+      12345);
 
   ColumnFamilyOptions rnd_filled_options = *new_options;
 
@@ -560,6 +605,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct MutableCFOptions,
                 max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
+      {offsetof(struct MutableCFOptions, compaction_options_fifo),
+       sizeof(struct CompactionOptionsFIFO)},
       {offsetof(struct MutableCFOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
       {offsetof(struct MutableCFOptions, max_file_size),
@@ -600,6 +647,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] mcfo2_ptr;
   delete[] cfo_clean_ptr;
 }
+#endif  // !ROCKSDB_ASSERT_STATUS_CHECKED
 #endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN

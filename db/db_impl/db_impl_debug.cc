@@ -155,8 +155,10 @@ Status DBImpl::TEST_FlushMemTable(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::TEST_AtomicFlushMemTables(
-    const autovector<ColumnFamilyData*>& cfds, const FlushOptions& flush_opts) {
-  return AtomicFlushMemTables(cfds, flush_opts, FlushReason::kTest);
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+    const FlushOptions& flush_opts) {
+  return AtomicFlushMemTables(flush_opts, FlushReason::kTest,
+                              provided_candidate_cfds);
 }
 
 Status DBImpl::TEST_WaitForBackgroundWork() {
@@ -176,9 +178,12 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
-Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
-  // Wait until the compaction completes
-  return WaitForCompact(wait_unscheduled);
+Status DBImpl::TEST_WaitForCompact() {
+  return WaitForCompact(WaitForCompactOptions());
+}
+Status DBImpl::TEST_WaitForCompact(
+    const WaitForCompactOptions& wait_for_compact_options) {
+  return WaitForCompact(wait_for_compact_options);
 }
 
 Status DBImpl::TEST_WaitForPurge() {
@@ -198,14 +203,16 @@ void DBImpl::TEST_LockMutex() { mutex_.Lock(); }
 
 void DBImpl::TEST_UnlockMutex() { mutex_.Unlock(); }
 
+void DBImpl::TEST_SignalAllBgCv() { bg_cv_.SignalAll(); }
+
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer();
   write_thread_.EnterUnbatched(w, &mutex_);
-  return reinterpret_cast<void*>(w);
+  return static_cast<void*>(w);
 }
 
 void DBImpl::TEST_EndWrite(void* w) {
-  auto writer = reinterpret_cast<WriteThread::Writer*>(w);
+  auto writer = static_cast<WriteThread::Writer*>(w);
   write_thread_.ExitUnbatched(writer);
   delete writer;
 }
@@ -299,11 +306,16 @@ const PeriodicTaskScheduler& DBImpl::TEST_GetPeriodicTaskScheduler() const {
 
 SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
   InstrumentedMutexLock l(&mutex_);
-  return seqno_time_mapping_;
+  return seqno_to_time_mapping_;
 }
 
+const autovector<uint64_t>& DBImpl::TEST_GetFilesToQuarantine() const {
+  InstrumentedMutexLock l(&mutex_);
+  return error_handler_.GetFilesToQuarantine();
+}
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
+  InstrumentedMutexLock l(&const_cast<DBImpl*>(this)->stats_history_mutex_);
   return EstimateInMemoryStatsHistorySize();
 }
 }  // namespace ROCKSDB_NAMESPACE

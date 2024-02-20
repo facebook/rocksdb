@@ -492,7 +492,7 @@ class PolicyStats:
                 file.write(row + "\n")
 
 
-class Policy(object):
+class Policy:
     """
     A policy maintains a set of evicted keys. It returns a reward of one to
     itself if it has not evicted a missing key. Otherwise, it gives itself 0
@@ -654,7 +654,7 @@ class CostClassPolicy(Policy):
         return "cc"
 
 
-class Cache(object):
+class Cache:
     """
     This is the base class for the implementations of alternative cache
     replacement policies.
@@ -1310,7 +1310,7 @@ class GDSizeCache(Cache):
         return True
 
 
-class Deque(object):
+class Deque:
     """A Deque class facilitates the implementation of LRU and ARC."""
 
     def __init__(self):

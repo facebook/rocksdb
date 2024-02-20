@@ -13,7 +13,7 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -110,16 +110,6 @@ static int RegisterFlushBlockPolicyFactories(ObjectLibrary& library,
   return 2;
 }
 
-static bool LoadFlushPolicyFactory(
-    const std::string& id, std::shared_ptr<FlushBlockPolicyFactory>* result) {
-  if (id.empty()) {
-    result->reset(new FlushBlockBySizePolicyFactory());
-  } else {
-    return false;
-  }
-  return true;
-}
-
 FlushBlockBySizePolicyFactory::FlushBlockBySizePolicyFactory()
     : FlushBlockPolicyFactory() {}
 
@@ -130,7 +120,13 @@ Status FlushBlockPolicyFactory::CreateFromString(
   std::call_once(once, [&]() {
     RegisterFlushBlockPolicyFactories(*(ObjectLibrary::Default().get()), "");
   });
-  return LoadSharedObject<FlushBlockPolicyFactory>(
-      config_options, value, LoadFlushPolicyFactory, factory);
+
+  if (value.empty()) {
+    factory->reset(new FlushBlockBySizePolicyFactory());
+    return Status::OK();
+  } else {
+    return LoadSharedObject<FlushBlockPolicyFactory>(config_options, value,
+                                                     factory);
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE

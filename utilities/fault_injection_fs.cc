@@ -242,6 +242,7 @@ IOStatus TestFSWritableFile::PositionedAppend(
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
   MutexLock l(&mutex_);
+  fs_->WritableFileClosed(state_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -263,7 +264,6 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
     io_s = target_->Close(options, dbg);
   }
   if (io_s.ok()) {
-    fs_->WritableFileClosed(state_);
     IOStatus in_s = fs_->InjectMetadataWriteError();
     if (!in_s.ok()) {
       return in_s;
@@ -398,6 +398,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
                                       const IOOptions& options, Slice* result,
                                       char* scratch,
                                       IODebugContext* dbg) const {
+  TEST_SYNC_POINT("FaultInjectionTestFS::RandomRead");
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -408,14 +409,14 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
         scratch, /*need_count_increase=*/true, /*fault_injected=*/nullptr);
   }
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("Injected read error");
+    return IOStatus::IOError("injected read error");
   }
   return s;
 }
 
 IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
   IOStatus ret;
   IOStatus s;
@@ -430,7 +431,7 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
   }
   if (ret.ok()) {
     if (fs_->ShouldInjectRandomReadError()) {
-      ret = IOStatus::IOError("Injected read error");
+      ret = IOStatus::IOError("injected read error");
     } else {
       s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
     }
@@ -457,8 +458,8 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     bool this_injected_error;
     reqs[i].status = fs_->InjectThreadSpecificReadError(
-        FaultInjectionTestFS::ErrorOperation::kMultiReadSingleReq,
-        &(reqs[i].result), use_direct_io(), reqs[i].scratch,
+        FaultInjectionTestFS::ErrorOperation::kRead, &(reqs[i].result),
+        use_direct_io(), reqs[i].scratch,
         /*need_count_increase=*/true,
         /*fault_injected=*/&this_injected_error);
     injected_error |= this_injected_error;
@@ -470,7 +471,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
         /*fault_injected=*/nullptr);
   }
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("Injected read error");
+    return IOStatus::IOError("injected read error");
   }
   return s;
 }
@@ -487,7 +488,7 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
                                     IODebugContext* dbg) {
   IOStatus s = target()->Read(n, options, result, scratch, dbg);
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("Injected seq read error");
+    return IOStatus::IOError("injected seq read error");
   }
   return s;
 }
@@ -499,7 +500,7 @@ IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
   IOStatus s =
       target()->PositionedRead(offset, n, options, result, scratch, dbg);
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("Injected seq positioned read error");
+    return IOStatus::IOError("injected seq positioned read error");
   }
   return s;
 }
@@ -678,7 +679,7 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
     return GetError();
   }
   if (ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("Injected error when open random access file");
+    return IOStatus::IOError("injected error when open random access file");
   }
   IOStatus io_s = InjectThreadSpecificReadError(ErrorOperation::kOpen, nullptr,
                                                 false, nullptr,
@@ -701,7 +702,7 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
   }
 
   if (ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("Injected read error when creating seq file");
+    return IOStatus::IOError("injected read error when creating seq file");
   }
   IOStatus io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
@@ -917,9 +918,10 @@ IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
           return io_s;
         }
       } else {
+        IOOptions opts;
         IOStatus io_s =
             WriteStringToFile(target(), file_pair.second,
-                              pair.first + "/" + file_pair.first, true);
+                              pair.first + "/" + file_pair.first, true, opts);
         if (!io_s.ok()) {
           return io_s;
         }
@@ -956,6 +958,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
     return IOStatus::OK();
   }
 
+  IOStatus ret;
   if (ctx->rand.OneIn(ctx->one_in)) {
     if (ctx->count == 0) {
       ctx->message = "";
@@ -970,15 +973,15 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
 
     if (op != ErrorOperation::kMultiReadSingleReq) {
       // Likely non-per read status code for MultiRead
-      ctx->message += "error; ";
+      ctx->message += "injected read error; ";
       ret_fault_injected = true;
-      return IOStatus::IOError();
+      ret = IOStatus::IOError(ctx->message);
     } else if (Random::GetTLSInstance()->OneIn(8)) {
       assert(result);
       // For a small chance, set the failure to status but turn the
       // result to be empty, which is supposed to be caught for a check.
       *result = Slice();
-      ctx->message += "inject empty result; ";
+      ctx->message += "injected empty result; ";
       ret_fault_injected = true;
     } else if (!direct_io && Random::GetTLSInstance()->OneIn(7) &&
                scratch != nullptr && result->data() == scratch) {
@@ -995,15 +998,18 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       // It would work for CRC. Not 100% sure for xxhash and will adjust
       // if it is not the case.
       const_cast<char*>(result->data())[result->size() - 1]++;
-      ctx->message += "corrupt last byte; ";
+      ctx->message += "injected corrupt last byte; ";
       ret_fault_injected = true;
     } else {
-      ctx->message += "error result multiget single; ";
+      ctx->message += "injected error result multiget single; ";
       ret_fault_injected = true;
-      return IOStatus::IOError();
+      ret = IOStatus::IOError(ctx->message);
     }
   }
-  return IOStatus::OK();
+  if (ctx->retryable) {
+    ret.SetRetryable(true);
+  }
+  return ret;
 }
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
@@ -1052,7 +1058,7 @@ IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
     }
   }
   TEST_SYNC_POINT("FaultInjectionTestFS::InjectMetadataWriteError:Injected");
-  return IOStatus::IOError();
+  return IOStatus::IOError("injected metadata write error");
 }
 
 void FaultInjectionTestFS::PrintFaultBacktrace() {

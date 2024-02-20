@@ -96,9 +96,13 @@ class DBBlobIndexTest : public DBTestBase {
   }
 
   ArenaWrappedDBIter* GetBlobIterator() {
-    return dbfull()->NewIteratorImpl(
-        ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
-        nullptr /*read_callback*/, true /*expose_blob_index*/);
+    ColumnFamilyData* column_family = cfd();
+    DBImpl* db_impl = dbfull();
+    return db_impl->NewIteratorImpl(
+        ReadOptions(), column_family,
+        column_family->GetReferencedSuperVersion(db_impl),
+        db_impl->GetLatestSequenceNumber(), nullptr /*read_callback*/,
+        true /*expose_blob_index*/);
   }
 
   Options GetTestOptions() {
@@ -321,8 +325,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
   auto check_is_blob = [&](bool is_blob) {
     return [is_blob](Iterator* iterator) {
-      ASSERT_EQ(is_blob,
-                reinterpret_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
+      ASSERT_EQ(is_blob, static_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
     };
   };
 

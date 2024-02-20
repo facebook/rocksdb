@@ -43,21 +43,10 @@ static void RegisterTableFactories(const std::string& /*arg*/) {
   });
 }
 
-static bool LoadFactory(const std::string& name,
-                        std::shared_ptr<TableFactory>* factory) {
-  if (name == TableFactory::kBlockBasedTableName()) {
-    factory->reset(new BlockBasedTableFactory());
-    return true;
-  } else {
-    return false;
-  }
-}
-
 Status TableFactory::CreateFromString(const ConfigOptions& config_options,
                                       const std::string& value,
                                       std::shared_ptr<TableFactory>* factory) {
   RegisterTableFactories("");
-  return LoadSharedObject<TableFactory>(config_options, value, LoadFactory,
-                                        factory);
+  return LoadSharedObject<TableFactory>(config_options, value, factory);
 }
 }  // namespace ROCKSDB_NAMESPACE

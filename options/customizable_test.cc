@@ -35,7 +35,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/filter_policy_internal.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/mock_table.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
@@ -160,19 +160,6 @@ class BCustomizable : public TestCustomizable {
   BOptions opts_;
 };
 
-static bool LoadSharedB(const std::string& id,
-                        std::shared_ptr<TestCustomizable>* result) {
-  if (id == "B") {
-    result->reset(new BCustomizable(id));
-    return true;
-  } else if (id.empty()) {
-    result->reset();
-    return true;
-  } else {
-    return false;
-  }
-}
-
 static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
@@ -182,6 +169,12 @@ static int RegisterCustomTestObjects(ObjectLibrary& library,
          std::string* /* msg */) {
         guard->reset(new ACustomizable(name));
         A_count++;
+        return guard->get();
+      });
+  library.AddFactory<TestCustomizable>(
+      "B", [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
+              std::string* /* msg */) {
+        guard->reset(new BCustomizable(name));
         return guard->get();
       });
 
@@ -252,46 +245,19 @@ static void GetMapFromProperties(
 Status TestCustomizable::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<TestCustomizable>* result) {
-  return LoadSharedObject<TestCustomizable>(config_options, value, LoadSharedB,
-                                            result);
+  return LoadSharedObject<TestCustomizable>(config_options, value, result);
 }
 
 Status TestCustomizable::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::unique_ptr<TestCustomizable>* result) {
-  return LoadUniqueObject<TestCustomizable>(
-      config_options, value,
-      [](const std::string& id, std::unique_ptr<TestCustomizable>* u) {
-        if (id == "B") {
-          u->reset(new BCustomizable(id));
-          return true;
-        } else if (id.empty()) {
-          u->reset();
-          return true;
-        } else {
-          return false;
-        }
-      },
-      result);
+  return LoadUniqueObject<TestCustomizable>(config_options, value, result);
 }
 
 Status TestCustomizable::CreateFromString(const ConfigOptions& config_options,
                                           const std::string& value,
                                           TestCustomizable** result) {
-  return LoadStaticObject<TestCustomizable>(
-      config_options, value,
-      [](const std::string& id, TestCustomizable** ptr) {
-        if (id == "B") {
-          *ptr = new BCustomizable(id);
-          return true;
-        } else if (id.empty()) {
-          *ptr = nullptr;
-          return true;
-        } else {
-          return false;
-        }
-      },
-      result);
+  return LoadStaticObject<TestCustomizable>(config_options, value, result);
 }
 
 class CustomizableTest : public testing::Test {
@@ -980,69 +946,33 @@ TEST_F(CustomizableTest, IgnoreUnknownObjects) {
   std::unique_ptr<TestCustomizable> unique;
   TestCustomizable* pointer = nullptr;
   ignore.ignore_unsupported_options = false;
-  ASSERT_NOK(
-      LoadSharedObject<TestCustomizable>(ignore, "Unknown", nullptr, &shared));
-  ASSERT_NOK(
-      LoadUniqueObject<TestCustomizable>(ignore, "Unknown", nullptr, &unique));
-  ASSERT_NOK(
-      LoadStaticObject<TestCustomizable>(ignore, "Unknown", nullptr, &pointer));
+  ASSERT_NOK(LoadSharedObject<TestCustomizable>(ignore, "Unknown", &shared));
+  ASSERT_NOK(LoadUniqueObject<TestCustomizable>(ignore, "Unknown", &unique));
+  ASSERT_NOK(LoadStaticObject<TestCustomizable>(ignore, "Unknown", &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
   ASSERT_EQ(pointer, nullptr);
   ignore.ignore_unsupported_options = true;
-  ASSERT_OK(
-      LoadSharedObject<TestCustomizable>(ignore, "Unknown", nullptr, &shared));
-  ASSERT_OK(
-      LoadUniqueObject<TestCustomizable>(ignore, "Unknown", nullptr, &unique));
-  ASSERT_OK(
-      LoadStaticObject<TestCustomizable>(ignore, "Unknown", nullptr, &pointer));
+  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "Unknown", &shared));
+  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "Unknown", &unique));
+  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "Unknown", &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
   ASSERT_EQ(pointer, nullptr);
-  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "id=Unknown", nullptr,
-                                               &shared));
-  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "id=Unknown", nullptr,
-                                               &unique));
-  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "id=Unknown", nullptr,
-                                               &pointer));
+  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "id=Unknown", &shared));
+  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "id=Unknown", &unique));
+  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "id=Unknown", &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
   ASSERT_EQ(pointer, nullptr);
   ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "id=Unknown;option=bad",
-                                               nullptr, &shared));
+                                               &shared));
   ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "id=Unknown;option=bad",
-                                               nullptr, &unique));
+                                               &unique));
   ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "id=Unknown;option=bad",
-                                               nullptr, &pointer));
+                                               &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
-  ASSERT_EQ(pointer, nullptr);
-}
-
-TEST_F(CustomizableTest, FactoryFunctionTest) {
-  std::shared_ptr<TestCustomizable> shared;
-  std::unique_ptr<TestCustomizable> unique;
-  TestCustomizable* pointer = nullptr;
-  ConfigOptions ignore = config_options_;
-  ignore.ignore_unsupported_options = false;
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "B", &shared));
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "B", &unique));
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "B", &pointer));
-  ASSERT_NE(shared.get(), nullptr);
-  ASSERT_NE(unique.get(), nullptr);
-  ASSERT_NE(pointer, nullptr);
-  delete pointer;
-  pointer = nullptr;
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "id=", &shared));
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "id=", &unique));
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "id=", &pointer));
-  ASSERT_EQ(shared.get(), nullptr);
-  ASSERT_EQ(unique.get(), nullptr);
-  ASSERT_EQ(pointer, nullptr);
-  ASSERT_NOK(TestCustomizable::CreateFromString(ignore, "option=bad", &shared));
-  ASSERT_NOK(TestCustomizable::CreateFromString(ignore, "option=bad", &unique));
-  ASSERT_NOK(
-      TestCustomizable::CreateFromString(ignore, "option=bad", &pointer));
   ASSERT_EQ(pointer, nullptr);
 }
 
@@ -1300,14 +1230,20 @@ class TestSecondaryCache : public SecondaryCache {
   static const char* kClassName() { return "Test"; }
   const char* Name() const override { return kClassName(); }
   Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
-                const Cache::CacheItemHelper* /*helper*/) override {
+                const Cache::CacheItemHelper* /*helper*/,
+                bool /*force_insert*/) override {
     return Status::NotSupported();
+  }
+  Status InsertSaved(const Slice& /*key*/, const Slice& /*saved*/,
+                     CompressionType /*type*/, CacheTier /*source*/) override {
+    return Status::OK();
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CacheItemHelper* /*helper*/,
       Cache::CreateContext* /*create_context*/, bool /*wait*/,
-      bool /*advise_erase*/, bool& is_in_sec_cache) override {
-    is_in_sec_cache = true;
+      bool /*advise_erase*/, Statistics* /*stats*/,
+      bool& kept_in_sec_cache) override {
+    kept_in_sec_cache = true;
     return nullptr;
   }
 
@@ -1330,7 +1266,7 @@ class TestStatistics : public StatisticsImpl {
 
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  TestFlushBlockPolicyFactory() {}
+  TestFlushBlockPolicyFactory() = default;
 
   static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
   const char* Name() const override { return kClassName(); }

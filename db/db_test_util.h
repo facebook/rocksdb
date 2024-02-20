@@ -114,6 +114,12 @@ struct OptionsOverride {
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
+
+  // The default value for this option is changed from false to true.
+  // Keeping the default to false for unit tests as old unit tests assume
+  // this behavior. Tests for level_compaction_dynamic_level_bytes
+  // will set the option to true explicitly.
+  bool level_compaction_dynamic_level_bytes = false;
 };
 
 }  // namespace anon
@@ -227,6 +233,7 @@ class SpecialEnv : public EnvWrapper {
       size_t GetUniqueId(char* id, size_t max_size) const override {
         return base_->GetUniqueId(id, max_size);
       }
+      uint64_t GetFileSize() final { return base_->GetFileSize(); }
     };
     class ManifestFile : public WritableFile {
      public:
@@ -339,6 +346,7 @@ class SpecialEnv : public EnvWrapper {
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
+      uint64_t GetFileSize() final { return base_->GetFileSize(); }
 
      private:
       SpecialEnv* env_;
@@ -430,15 +438,15 @@ class SpecialEnv : public EnvWrapper {
           : target_(std::move(target)),
             counter_(counter),
             bytes_read_(bytes_read) {}
-      virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const override {
+      Status Read(uint64_t offset, size_t n, Slice* result,
+                  char* scratch) const override {
         counter_->Increment();
         Status s = target_->Read(offset, n, result, scratch);
         *bytes_read_ += result->size();
         return s;
       }
 
-      virtual Status Prefetch(uint64_t offset, size_t n) override {
+      Status Prefetch(uint64_t offset, size_t n) override {
         Status s = target_->Prefetch(offset, n);
         *bytes_read_ += n;
         return s;
@@ -457,8 +465,8 @@ class SpecialEnv : public EnvWrapper {
           : target_(std::move(target)),
             fail_cnt_(failure_cnt),
             fail_odd_(fail_odd) {}
-      virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const override {
+      Status Read(uint64_t offset, size_t n, Slice* result,
+                  char* scratch) const override {
         if (Random::GetTLSInstance()->OneIn(fail_odd_)) {
           fail_cnt_->fetch_add(1);
           return Status::IOError("random error");
@@ -466,7 +474,7 @@ class SpecialEnv : public EnvWrapper {
         return target_->Read(offset, n, result, scratch);
       }
 
-      virtual Status Prefetch(uint64_t offset, size_t n) override {
+      Status Prefetch(uint64_t offset, size_t n) override {
         return target_->Prefetch(offset, n);
       }
 
@@ -494,19 +502,19 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status NewSequentialFile(const std::string& f,
-                                   std::unique_ptr<SequentialFile>* r,
-                                   const EnvOptions& soptions) override {
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
+                           const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
       CountingFile(std::unique_ptr<SequentialFile>&& target,
                    anon::AtomicCounter* counter)
           : target_(std::move(target)), counter_(counter) {}
-      virtual Status Read(size_t n, Slice* result, char* scratch) override {
+      Status Read(size_t n, Slice* result, char* scratch) override {
         counter_->Increment();
         return target_->Read(n, result, scratch);
       }
-      virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
+      Status Skip(uint64_t n) override { return target_->Skip(n); }
 
      private:
       std::unique_ptr<SequentialFile> target_;
@@ -520,7 +528,7 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual void SleepForMicroseconds(int micros) override {
+  void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
     if (no_slowdown_ || time_elapse_only_sleep_) {
       addon_microseconds_.fetch_add(micros);
@@ -542,7 +550,7 @@ class SpecialEnv : public EnvWrapper {
     addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
-  virtual Status GetCurrentTime(int64_t* unix_time) override {
+  Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
     if (time_elapse_only_sleep_) {
       *unix_time = maybe_starting_time_;
@@ -556,22 +564,22 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual uint64_t NowCPUNanos() override {
+  uint64_t NowCPUNanos() override {
     now_cpu_count_.fetch_add(1);
     return target()->NowCPUNanos();
   }
 
-  virtual uint64_t NowNanos() override {
+  uint64_t NowNanos() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
            addon_microseconds_.load() * 1000;
   }
 
-  virtual uint64_t NowMicros() override {
+  uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
            addon_microseconds_.load();
   }
 
-  virtual Status DeleteFile(const std::string& fname) override {
+  Status DeleteFile(const std::string& fname) override {
     delete_count_.fetch_add(1);
     return target()->DeleteFile(fname);
   }
@@ -874,8 +882,8 @@ class FlushCounterListener : public EventListener {
 // "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
 class TestPutOperator : public MergeOperator {
  public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     static const std::map<std::string, MergeOperator::OpFailureScope>
         bad_operand_to_op_failure_scope = {
             {"corrupted", MergeOperator::OpFailureScope::kDefault},
@@ -906,83 +914,7 @@ class TestPutOperator : public MergeOperator {
     return true;
   }
 
-  virtual const char* Name() const override { return "TestPutOperator"; }
-};
-
-// A wrapper around Cache that can easily be extended with instrumentation,
-// etc.
-class CacheWrapper : public Cache {
- public:
-  explicit CacheWrapper(std::shared_ptr<Cache> target)
-      : target_(std::move(target)) {}
-
-  const char* Name() const override { return target_->Name(); }
-
-  Status Insert(const Slice& key, ObjectPtr value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    return target_->Insert(key, value, helper, charge, handle, priority);
-  }
-
-  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
-                 CreateContext* create_context,
-                 Priority priority = Priority::LOW, bool wait = true,
-                 Statistics* stats = nullptr) override {
-    return target_->Lookup(key, helper, create_context, priority, wait, stats);
-  }
-
-  bool Ref(Handle* handle) override { return target_->Ref(handle); }
-
-  using Cache::Release;
-  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
-    return target_->Release(handle, erase_if_last_ref);
-  }
-
-  ObjectPtr Value(Handle* handle) override { return target_->Value(handle); }
-
-  void Erase(const Slice& key) override { target_->Erase(key); }
-  uint64_t NewId() override { return target_->NewId(); }
-
-  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
-
-  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
-    target_->SetStrictCapacityLimit(strict_capacity_limit);
-  }
-
-  bool HasStrictCapacityLimit() const override {
-    return target_->HasStrictCapacityLimit();
-  }
-
-  size_t GetCapacity() const override { return target_->GetCapacity(); }
-
-  size_t GetUsage() const override { return target_->GetUsage(); }
-
-  size_t GetUsage(Handle* handle) const override {
-    return target_->GetUsage(handle);
-  }
-
-  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
-
-  size_t GetCharge(Handle* handle) const override {
-    return target_->GetCharge(handle);
-  }
-
-  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
-    return target_->GetCacheItemHelper(handle);
-  }
-
-  void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
-                               const CacheItemHelper* helper)>& callback,
-      const ApplyToAllEntriesOptions& opts) override {
-    target_->ApplyToAllEntries(callback, opts);
-  }
-
-  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
-
- protected:
-  std::shared_ptr<Cache> target_;
+  const char* Name() const override { return "TestPutOperator"; }
 };
 
 /*
@@ -1002,10 +934,13 @@ class TargetCacheChargeTrackingCache : public CacheWrapper {
  public:
   explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
 
+  const char* Name() const override { return "TargetCacheChargeTrackingCache"; }
+
   Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override;
+                Handle** handle = nullptr, Priority priority = Priority::LOW,
+                const Slice& compressed = Slice(),
+                CompressionType type = kNoCompression) override;
 
   using Cache::Release;
   bool Release(Handle* handle, bool erase_if_last_ref = false) override;
@@ -1266,6 +1201,8 @@ class DBTestBase : public testing::Test {
 
   size_t TotalLiveFiles(int cf = 0);
 
+  size_t TotalLiveFilesAtPath(int cf, const std::string& path);
+
   size_t CountLiveFiles();
 
   int NumTableFilesAtLevel(int level, int cf = 0);
@@ -1390,10 +1327,48 @@ class DBTestBase : public testing::Test {
                                       Tickers ticker_type) {
     return options.statistics->getAndResetTickerCount(ticker_type);
   }
+  // Short name for TestGetAndResetTickerCount
+  uint64_t PopTicker(const Options& options, Tickers ticker_type) {
+    return options.statistics->getAndResetTickerCount(ticker_type);
+  }
 
   // Note: reverting this setting within the same test run is not yet
   // supported
   void SetTimeElapseOnlySleepOnReopen(DBOptions* options);
+
+  void ResetTableProperties(TableProperties* tp) {
+    tp->data_size = 0;
+    tp->index_size = 0;
+    tp->filter_size = 0;
+    tp->raw_key_size = 0;
+    tp->raw_value_size = 0;
+    tp->num_data_blocks = 0;
+    tp->num_entries = 0;
+    tp->num_deletions = 0;
+    tp->num_merge_operands = 0;
+    tp->num_range_deletions = 0;
+  }
+
+  void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
+    double dummy_double;
+    std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
+    std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
+    ResetTableProperties(tp);
+    sscanf(tp_string.c_str(),
+           "# data blocks %" SCNu64 " # entries %" SCNu64
+           " # deletions %" SCNu64 " # merge operands %" SCNu64
+           " # range deletions %" SCNu64 " raw key size %" SCNu64
+           " raw average key size %lf "
+           " raw value size %" SCNu64
+           " raw average value size %lf "
+           " data block size %" SCNu64 " index block size (user-key? %" SCNu64
+           ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
+           &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
+           &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
+           &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
+           &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
+           &tp->index_size, &tp->filter_size);
+  }
 
  private:  // Prone to error on direct use
   void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);

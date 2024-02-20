@@ -19,8 +19,8 @@
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ConfigOptions_disposeInternal(JNIEnv *, jobject,
-                                                    jlong jhandle) {
+void Java_org_rocksdb_ConfigOptions_disposeInternalJni(JNIEnv *, jclass,
+                                                       jlong jhandle) {
   auto *co = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(jhandle);
   assert(co != nullptr);
   delete co;

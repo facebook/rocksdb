@@ -36,7 +36,7 @@ struct SstFileReader::Rep {
 
 SstFileReader::SstFileReader(const Options& options) : rep_(new Rep(options)) {}
 
-SstFileReader::~SstFileReader() {}
+SstFileReader::~SstFileReader() = default;
 
 Status SstFileReader::Open(const std::string& file_path) {
   auto r = rep_.get();
@@ -55,8 +55,17 @@ Status SstFileReader::Open(const std::string& file_path) {
     file_reader.reset(new RandomAccessFileReader(std::move(file), file_path));
   }
   if (s.ok()) {
-    TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor,
-                             r->soptions, r->ioptions.internal_comparator);
+    TableReaderOptions t_opt(
+        r->ioptions, r->moptions.prefix_extractor, r->soptions,
+        r->ioptions.internal_comparator,
+        r->moptions.block_protection_bytes_per_key,
+        /*skip_filters*/ false, /*immortal*/ false,
+        /*force_direct_prefetch*/ false, /*level*/ -1,
+        /*block_cache_tracer*/ nullptr,
+        /*max_file_size_for_l0_meta_pin*/ 0, /*cur_db_session_id*/ "",
+        /*cur_file_num*/ 0,
+        /* unique_id */ {}, /* largest_seqno */ 0,
+        /* tail_size */ 0, r->ioptions.persist_user_defined_timestamps);
     // Allow open file with global sequence number for backward compatibility.
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),
@@ -66,6 +75,7 @@ Status SstFileReader::Open(const std::string& file_path) {
 }
 
 Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
+  assert(roptions.io_activity == Env::IOActivity::kUnknown);
   auto r = rep_.get();
   auto sequence = roptions.snapshot != nullptr
                       ? roptions.snapshot->GetSequenceNumber()
@@ -91,9 +101,9 @@ std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
 }
 
 Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
+  assert(read_options.io_activity == Env::IOActivity::kUnknown);
   return rep_->table_reader->VerifyChecksum(read_options,
                                             TableReaderCaller::kSSTFileReader);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

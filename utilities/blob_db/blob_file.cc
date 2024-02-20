@@ -78,7 +78,8 @@ void BlobFile::MarkObsolete(SequenceNumber sequence) {
   obsolete_.store(true);
 }
 
-Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
+Status BlobFile::WriteFooterAndCloseLocked(const WriteOptions& write_options,
+                                           SequenceNumber sequence) {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
   if (HasTTL()) {
@@ -86,7 +87,8 @@ Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   }
 
   // this will close the file and reset the Writable File Pointer.
-  Status s = log_writer_->AppendFooter(footer, /* checksum_method */ nullptr,
+  Status s = log_writer_->AppendFooter(write_options, footer,
+                                       /* checksum_method */ nullptr,
                                        /* checksum_value */ nullptr);
   if (s.ok()) {
     closed_ = true;
@@ -114,13 +116,11 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   // TODO: rate limit reading footers from blob files.
   if (ra_file_reader_->use_direct_io()) {
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
-                              &result, nullptr, &aligned_buf,
-                              Env::IO_TOTAL /* rate_limiter_priority */);
+                              &result, nullptr, &aligned_buf);
   } else {
     buf.reserve(BlobLogFooter::kSize + 10);
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
-                              &result, &buf[0], nullptr,
-                              Env::IO_TOTAL /* rate_limiter_priority */);
+                              &result, &buf[0], nullptr);
   }
   if (!s.ok()) return s;
   if (result.size() != BlobLogFooter::kSize) {
@@ -139,10 +139,10 @@ Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
   return Status::OK();
 }
 
-Status BlobFile::Fsync() {
+Status BlobFile::Fsync(const WriteOptions& write_options) {
   Status s;
   if (log_writer_.get()) {
-    s = log_writer_->Sync();
+    s = log_writer_->Sync(write_options);
   }
   return s;
 }
@@ -238,13 +238,11 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   // TODO: rate limit reading headers from blob files.
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
-                          nullptr, &aligned_buf,
-                          Env::IO_TOTAL /* rate_limiter_priority */);
+                          nullptr, &aligned_buf);
   } else {
     header_buf.reserve(BlobLogHeader::kSize);
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
-                          &header_buf[0], nullptr,
-                          Env::IO_TOTAL /* rate_limiter_priority */);
+                          &header_buf[0], nullptr);
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
@@ -281,13 +279,12 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, nullptr,
-                          &aligned_buf,
-                          Env::IO_TOTAL /* rate_limiter_priority */);
+                          &aligned_buf);
   } else {
     footer_buf.reserve(BlobLogFooter::kSize);
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, &footer_buf[0],
-                          nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+                          nullptr);
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(

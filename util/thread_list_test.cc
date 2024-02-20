@@ -42,6 +42,8 @@ class SimulatedBackgroundTask {
     std::unique_lock<std::mutex> l(mutex_);
     running_count_++;
     bg_cv_.notify_all();
+    assert(cf_key_);
+    Env::Default()->GetThreadStatusUpdater()->SetEnableTracking(true);
     Env::Default()->GetThreadStatusUpdater()->SetColumnFamilyInfoKey(cf_key_);
     Env::Default()->GetThreadStatusUpdater()->SetThreadOperation(
         operation_type_);
@@ -77,7 +79,7 @@ class SimulatedBackgroundTask {
   }
 
   static void DoSimulatedTask(void* arg) {
-    reinterpret_cast<SimulatedBackgroundTask*>(arg)->Run();
+    static_cast<SimulatedBackgroundTask*>(arg)->Run();
   }
 
  private:

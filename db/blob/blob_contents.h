@@ -7,8 +7,8 @@
 
 #include <memory>
 
-#include "memory/memory_allocator.h"
-#include "rocksdb/cache.h"
+#include "memory/memory_allocator_impl.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -46,7 +46,8 @@ class BlobContents {
 class BlobContentsCreator : public Cache::CreateContext {
  public:
   static void Create(std::unique_ptr<BlobContents>* out, size_t* out_charge,
-                     const Slice& contents, MemoryAllocator* alloc) {
+                     const Slice& contents, CompressionType /*type*/,
+                     MemoryAllocator* alloc) {
     auto raw = new BlobContents(AllocateAndCopyBlock(contents, alloc),
                                 contents.size());
     out->reset(raw);

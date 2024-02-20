@@ -166,6 +166,8 @@ class WriteThread {
            PreReleaseCallback* _pre_release_callback = nullptr,
            PostMemTableCallback* _post_memtable_callback = nullptr)
         : batch(_batch),
+          // TODO: store a copy of WriteOptions instead of its seperated data
+          // members
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
           disable_wal(write_options.disableWAL),
@@ -357,10 +359,22 @@ class WriteThread {
 
   // Insert a dummy writer at the tail of the write queue to indicate a write
   // stall, and fail any writers in the queue with no_slowdown set to true
+  // REQUIRES: db mutex held, no other stall on this queue outstanding
   void BeginWriteStall();
 
   // Remove the dummy writer and wake up waiting writers
+  // REQUIRES: db mutex held
   void EndWriteStall();
+
+  // Number of BeginWriteStall(), or 0 if there is no active stall in the
+  // write queue.
+  // REQUIRES: db mutex held
+  uint64_t GetBegunCountOfOutstandingStall();
+
+  // Wait for number of completed EndWriteStall() to reach >= `stall_count`,
+  // which will generally have come from GetBegunCountOfOutstandingStall().
+  // (Does not require db mutex held)
+  void WaitForStallEndedCount(uint64_t stall_count);
 
  private:
   // See AwaitState.
@@ -400,6 +414,18 @@ class WriteThread {
   // on the writer queue
   port::Mutex stall_mu_;
   port::CondVar stall_cv_;
+
+  // Count the number of stalls begun, so that we can check whether
+  // a particular stall has cleared (even if caught in another stall).
+  // Controlled by DB mutex.
+  // Because of the contract on BeginWriteStall() / EndWriteStall(),
+  // stall_ended_count_ <= stall_begun_count_ <= stall_ended_count_ + 1.
+  uint64_t stall_begun_count_ = 0;
+  // Count the number of stalls ended, so that we can check whether
+  // a particular stall has cleared (even if caught in another stall).
+  // Writes controlled by DB mutex + stall_mu_, signalled by stall_cv_.
+  // Read with stall_mu or DB mutex.
+  uint64_t stall_ended_count_ = 0;
 
   // Waits for w->state & goal_mask using w->StateMutex().  Returns
   // the state that satisfies goal_mask.

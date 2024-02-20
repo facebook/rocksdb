@@ -31,9 +31,9 @@ class CassandraCompactionFilter : public CompactionFilter {
   static const char* kClassName() { return "CassandraCompactionFilter"; }
   const char* Name() const override { return kClassName(); }
 
-  virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
-                            const Slice& existing_value, std::string* new_value,
-                            std::string* skip_until) const override;
+  Decision FilterV2(int level, const Slice& key, ValueType value_type,
+                    const Slice& existing_value, std::string* new_value,
+                    std::string* skip_until) const override;
 
  private:
   CassandraOptions options_;

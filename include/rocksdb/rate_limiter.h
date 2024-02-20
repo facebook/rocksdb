@@ -26,9 +26,9 @@ class RateLimiter {
   };
 
   enum class Mode {
-    kReadsOnly,
-    kWritesOnly,
-    kAllIo,
+    kReadsOnly = 0,
+    kWritesOnly = 1,
+    kAllIo = 2,
   };
 
   // For API compatibility, default to rate-limiting writes only.
@@ -39,6 +39,15 @@ class RateLimiter {
   // This API allows user to dynamically change rate limiter's bytes per second.
   // REQUIRED: bytes_per_second > 0
   virtual void SetBytesPerSecond(int64_t bytes_per_second) = 0;
+
+  // This API allows user to dynamically change the max bytes can be granted in
+  // a single refill period (i.e, burst)
+  //
+  // REQUIRED: single_burst_bytes > 0. Otherwise `Status::InvalidArgument` will
+  // be returned.
+  virtual Status SetSingleBurstBytes(int64_t /* single_burst_bytes */) {
+    return Status::NotSupported();
+  }
 
   // Deprecated. New RateLimiter derived classes should override
   // Request(const int64_t, const Env::IOPriority, Statistics*) or
@@ -150,7 +159,7 @@ class RateLimiter {
 // @auto_tuned: Enables dynamic adjustment of rate limit within the range
 //              `[rate_bytes_per_sec / 20, rate_bytes_per_sec]`, according to
 //              the recent demand for background I/O.
-extern RateLimiter* NewGenericRateLimiter(
+RateLimiter* NewGenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us = 100 * 1000,
     int32_t fairness = 10,
     RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly,

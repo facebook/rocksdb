@@ -19,6 +19,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -285,7 +286,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
         ready_count++;
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           leader_count++;
           while (ready_count < kNumThreads) {
@@ -295,7 +296,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   for (int i = 0; i < kNumThreads; i++) {
-    threads.push_back(port::Thread(
+    threads.emplace_back(
         [&](int index) {
           // All threads should fail.
           auto res = Put("key" + std::to_string(index), "value");
@@ -312,7 +313,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
             ASSERT_FALSE(res.ok());
           }
         },
-        i));
+        i);
   }
   for (int i = 0; i < kNumThreads; i++) {
     threads[i].join();
@@ -383,7 +384,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
           second_write_in_progress = true;
           return;
         }
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           active_writers++;
           if (leader.load() == nullptr) {
@@ -403,7 +404,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:Start", [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader && !finished_WAL_write) {
           finished_WAL_write = true;
           while (active_writers.load() < 3) {
@@ -415,7 +416,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
       [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader) {
           while (!second_write_in_progress.load()) {
             // wait for the old follower thread to start the next write
@@ -494,7 +495,7 @@ TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
 
   // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
   // DB WAL.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -535,7 +536,7 @@ TEST_P(DBWriteTest, InactiveWalFullySyncedBeforeUntracked) {
 
   // Simulate full loss of unsynced data. This should drop nothing since we did
   // `FlushWAL(true /* sync */)` before `Close()`.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -608,11 +609,18 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
 
 // Test that db->LockWAL() flushes the WAL after locking, which can fail
 TEST_P(DBWriteTest, LockWALInEffect) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   Options options = GetOptions();
-  std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(env_));
-  options.env = mock_env.get();
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  options.env = fault_fs_env.get();
+  options.disable_auto_compactions = true;
   options.paranoid_checks = false;
+  options.max_bgerror_resume_count = 0;  // manual Resume()
   Reopen(options);
   // try the 1st WAL created during open
   ASSERT_OK(Put("key0", "value"));
@@ -628,8 +636,13 @@ TEST_P(DBWriteTest, LockWALInEffect) {
   ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
   ASSERT_OK(db_->UnlockWAL());
 
+  // The above `TEST_SwitchWAL()` triggered a flush. That flush needs to finish
+  // before we make the filesystem inactive, otherwise the flush might hit an
+  // unrecoverable error (e.g., failed MANIFEST update).
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
+
   // Fail the WAL flush if applicable
-  mock_env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   Status s = Put("key2", "value");
   if (options.manual_wal_flush) {
     ASSERT_OK(s);
@@ -641,7 +654,8 @@ TEST_P(DBWriteTest, LockWALInEffect) {
     ASSERT_OK(db_->LockWAL());
     ASSERT_OK(db_->UnlockWAL());
   }
-  mock_env->SetFilesystemActive(true);
+  fault_fs->SetFilesystemActive(true);
+  ASSERT_OK(db_->Resume());
   // Writes should work again
   ASSERT_OK(Put("key3", "value"));
   ASSERT_EQ(Get("key3"), "value");

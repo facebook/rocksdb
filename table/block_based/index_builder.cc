@@ -9,8 +9,7 @@
 
 #include "table/block_based/index_builder.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <cinttypes>
 #include <list>
 #include <string>
@@ -29,14 +28,16 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
     const InternalKeySliceTransform* int_key_slice_transform,
     const bool use_value_delta_encoding,
-    const BlockBasedTableOptions& table_opt) {
+    const BlockBasedTableOptions& table_opt, size_t ts_sz,
+    const bool persist_user_defined_timestamps) {
   IndexBuilder* result = nullptr;
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
       result = new ShortenedIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
-          table_opt.index_shortening, /* include_first_key */ false);
+          table_opt.index_shortening, /* include_first_key */ false, ts_sz,
+          persist_user_defined_timestamps);
       break;
     }
     case BlockBasedTableOptions::kHashSearch: {
@@ -46,19 +47,22 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
       result = new HashIndexBuilder(
           comparator, int_key_slice_transform,
           table_opt.index_block_restart_interval, table_opt.format_version,
-          use_value_delta_encoding, table_opt.index_shortening);
+          use_value_delta_encoding, table_opt.index_shortening, ts_sz,
+          persist_user_defined_timestamps);
       break;
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
       result = PartitionedIndexBuilder::CreateIndexBuilder(
-          comparator, use_value_delta_encoding, table_opt);
+          comparator, use_value_delta_encoding, table_opt, ts_sz,
+          persist_user_defined_timestamps);
       break;
     }
     case BlockBasedTableOptions::kBinarySearchWithFirstKey: {
       result = new ShortenedIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
-          table_opt.index_shortening, /* include_first_key */ true);
+          table_opt.index_shortening, /* include_first_key */ true, ts_sz,
+          persist_user_defined_timestamps);
       break;
     }
     default: {
@@ -106,22 +110,31 @@ void ShortenedIndexBuilder::FindShortInternalKeySuccessor(
 PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
     const bool use_value_delta_encoding,
-    const BlockBasedTableOptions& table_opt) {
+    const BlockBasedTableOptions& table_opt, size_t ts_sz,
+    const bool persist_user_defined_timestamps) {
   return new PartitionedIndexBuilder(comparator, table_opt,
-                                     use_value_delta_encoding);
+                                     use_value_delta_encoding, ts_sz,
+                                     persist_user_defined_timestamps);
 }
 
 PartitionedIndexBuilder::PartitionedIndexBuilder(
     const InternalKeyComparator* comparator,
     const BlockBasedTableOptions& table_opt,
-    const bool use_value_delta_encoding)
-    : IndexBuilder(comparator),
-      index_block_builder_(table_opt.index_block_restart_interval,
-                           true /*use_delta_encoding*/,
-                           use_value_delta_encoding),
-      index_block_builder_without_seq_(table_opt.index_block_restart_interval,
-                                       true /*use_delta_encoding*/,
-                                       use_value_delta_encoding),
+    const bool use_value_delta_encoding, size_t ts_sz,
+    const bool persist_user_defined_timestamps)
+    : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
+      index_block_builder_(
+          table_opt.index_block_restart_interval, true /*use_delta_encoding*/,
+          use_value_delta_encoding,
+          BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+          0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+          persist_user_defined_timestamps, false /* is_user_key */),
+      index_block_builder_without_seq_(
+          table_opt.index_block_restart_interval, true /*use_delta_encoding*/,
+          use_value_delta_encoding,
+          BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+          0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+          persist_user_defined_timestamps, true /* is_user_key */),
       sub_index_builder_(nullptr),
       table_opt_(table_opt),
       // We start by false. After each partition we revise the value based on
@@ -142,7 +155,8 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
   sub_index_builder_ = new ShortenedIndexBuilder(
       comparator_, table_opt_.index_block_restart_interval,
       table_opt_.format_version, use_value_delta_encoding_,
-      table_opt_.index_shortening, /* include_first_key */ false);
+      table_opt_.index_shortening, /* include_first_key */ false, ts_sz_,
+      persist_user_defined_timestamps_);
 
   // Set sub_index_builder_->seperator_is_key_plus_seq_ to true if
   // seperator_is_key_plus_seq_ is true (internal-key mode) (set to false by

@@ -15,6 +15,7 @@
 #include "db/column_family.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -169,6 +170,16 @@ struct JobContext {
   // a list of log files that we need to preserve during full purge since they
   // will be reused later
   std::vector<uint64_t> log_recycle_files;
+
+  // Files quarantined from deletion. This list contains file numbers for files
+  // that are in an ambiguous states. This includes newly generated SST files
+  // and blob files from flush and compaction job whose VersionEdits' persist
+  // state in Manifest are unclear. An old manifest file whose immediately
+  // following new manifest file's CURRENT file creation is in an unclear state.
+  // WAL logs don't have this premature deletion risk since
+  // min_log_number_to_keep is only updated after successful manifest commits.
+  // So this data structure doesn't track log files.
+  autovector<uint64_t> files_to_quarantine;
 
   // a list of manifest files that we need to delete
   std::vector<std::string> manifest_delete_files;
