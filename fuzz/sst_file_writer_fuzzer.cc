@@ -92,7 +92,8 @@ TableReader* NewTableReader(const std::string& sst_file_path,
   if (s.ok()) {
     ImmutableOptions iopts(options, cf_ioptions);
     TableReaderOptions t_opt(iopts, /*prefix_extractor=*/nullptr, env_options,
-                             cf_ioptions.internal_comparator);
+                             cf_ioptions.internal_comparator,
+                             0 /* block_protection_bytes_per_key */);
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = options.table_factory->NewTableReader(t_opt, std::move(file_reader),
                                               file_size, &table_reader,

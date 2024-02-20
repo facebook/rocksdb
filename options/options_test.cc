@@ -49,7 +49,7 @@ class OptionsTest : public testing::Test {};
 
 class UnregisteredTableFactory : public TableFactory {
  public:
-  UnregisteredTableFactory() {}
+  UnregisteredTableFactory() = default;
   const char* Name() const override { return "Unregistered"; }
   using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions&, const TableReaderOptions&,
@@ -101,7 +101,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
-      {"compaction_options_fifo", "23"},
+      {"compaction_options_fifo",
+       "{allow_compaction=true;max_table_files_size=11002244;"
+       "file_temperature_age_thresholds={{temperature=kCold;age=12345}}}"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
@@ -128,7 +130,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
+      {"memtable_max_range_deletions", "0"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -174,6 +178,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
       {"preserve_deletes", "false"},
+      {"daily_offpeak_time_utc", ""},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -244,7 +249,18 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
-            static_cast<uint64_t>(23));
+            static_cast<uint64_t>(11002244));
+  ASSERT_EQ(new_cf_opt.compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds.size(),
+      1);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0].age,
+      12345);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
@@ -270,7 +286,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
+  ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -341,6 +359,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
   ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
+  ASSERT_EQ(new_db_opt.daily_offpeak_time_utc, "");
 
   db_options_map["max_open_files"] = "hello";
   Status s =
@@ -862,6 +881,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
+      {"daily_offpeak_time_utc", "06:30-23:30"},
   };
 
   ConfigOptions db_config_options(base_db_opt);
@@ -892,11 +912,13 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   db_config_options.ignore_unknown_options = false;
   ASSERT_OK(GetDBOptionsFromString(
       db_config_options, base_db_opt,
-      "create_if_missing=false;error_if_exists=false;max_open_files=42;",
+      "create_if_missing=false;error_if_exists=false;max_open_files=42;"
+      "daily_offpeak_time_utc=08:30-19:00;",
       &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.max_open_files, 42);
+  ASSERT_EQ(new_db_opt.daily_offpeak_time_utc, "08:30-19:00");
   s = GetDBOptionsFromString(
       db_config_options, base_db_opt,
       "create_if_missing=false;error_if_exists=false;max_open_files=42;"
@@ -1566,6 +1588,7 @@ TEST_F(OptionsTest, GetMutableCFOptions) {
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   Options options;
   ColumnFamilyOptions base_opt, new_opt;
+  base_opt.comparator = test::BytewiseComparatorWithU64TsWrapper();
   Random rnd(302);
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
@@ -1586,6 +1609,7 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
                                        base_options_file_content, &new_opt));
   ASSERT_OK(
       RocksDBOptionsParser::VerifyCFOptions(config_options, base_opt, new_opt));
+  ASSERT_EQ(base_opt.comparator, new_opt.comparator);
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }
@@ -1864,7 +1888,7 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
       "a={aa={};tt={xxx={}}};c=defff;d={{}yxx{}3{xx}}",
       "abc={{}{}{}{{{}}}{{}{}{}{}{}{}{}"};
 
-  for (std::string base : bases) {
+  for (const std::string& base : bases) {
     for (int rand_seed = 301; rand_seed < 401; rand_seed++) {
       Random rnd(rand_seed);
       for (int attempt = 0; attempt < 10; attempt++) {
@@ -1885,7 +1909,7 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
   for (int rand_seed = 301; rand_seed < 1301; rand_seed++) {
     Random rnd(rand_seed);
     int len = rnd.Uniform(30);
-    std::string str = "";
+    std::string str;
     for (int attempt = 0; attempt < len; attempt++) {
       // Add a random character
       size_t pos = static_cast<size_t>(
@@ -2295,7 +2319,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
-      {"compaction_options_fifo", "23"},
+      {"compaction_options_fifo",
+       "{allow_compaction=true;max_table_files_size=11002244;"
+       "file_temperature_age_thresholds={{temperature=kCold;age=12345}}}"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
@@ -2322,7 +2348,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
+      {"memtable_max_range_deletions", "0"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2423,7 +2451,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
   ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
-  ASSERT_EQ(new_cf_opt.level_compaction_dynamic_file_size, true);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15.0);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[0], 16);
@@ -2436,7 +2463,18 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
-            static_cast<uint64_t>(23));
+            static_cast<uint64_t>(11002244));
+  ASSERT_EQ(new_cf_opt.compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds.size(),
+      1);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0].age,
+      12345);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
@@ -2462,7 +2500,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
+  ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
@@ -3513,7 +3553,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
       "3..2",
       ".", ".1.2",             // must have at least one digit before each dot
       "1.2.", "1.", "2.34."};  // must have at least one digit after each dot
-  for (auto iv : invalid_versions) {
+  for (const auto& iv : invalid_versions) {
     snprintf(buffer, kLength - 1, file_template.c_str(), iv.c_str());
 
     parser.Reset();
@@ -3523,7 +3563,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
 
   const std::vector<std::string> valid_versions = {
       "1.232", "100", "3.12", "1", "12.3  ", "  1.25  "};
-  for (auto vv : valid_versions) {
+  for (const auto& vv : valid_versions) {
     snprintf(buffer, kLength - 1, file_template.c_str(), vv.c_str());
     parser.Reset();
     ASSERT_OK(fs_->WriteToNewFile(vv, buffer));
@@ -3631,8 +3671,8 @@ TEST_F(OptionsParserTest, Readahead) {
   std::vector<std::string> cf_names = {"default", one_mb_string};
   const std::string kOptionsFileName = "test-persisted-options.ini";
 
-  ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
-                                  kOptionsFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), base_db_opt, cf_names,
+                                  base_cf_opts, kOptionsFileName, fs_.get()));
 
   uint64_t file_size = 0;
   ASSERT_OK(
@@ -3706,8 +3746,8 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   const std::string kOptionsFileName = "test-persisted-options.ini";
   // Use default for escaped(true), unknown(false) and check (exact)
   ConfigOptions config_options;
-  ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
-                                  kOptionsFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), base_db_opt, cf_names,
+                                  base_cf_opts, kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(config_options, kOptionsFileName, fs_.get()));
@@ -3767,9 +3807,9 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   ColumnFamilyOptions cf_univ_opts;
   cf_univ_opts.OptimizeUniversalStyleCompaction();
 
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(), {"default", "universal"},
-                                  {cf_level_opts, cf_univ_opts},
-                                  kOptionsFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(
+      WriteOptions(), DBOptions(), {"default", "universal"},
+      {cf_level_opts, cf_univ_opts}, kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), false,
@@ -3912,8 +3952,8 @@ class OptionsSanityCheckTest : public OptionsParserTest,
     if (!s.ok()) {
       return s;
     }
-    return PersistRocksDBOptions(db_opts, {"default"}, {cf_opts},
-                                 kOptionsFileName, fs_.get());
+    return PersistRocksDBOptions(WriteOptions(), db_opts, {"default"},
+                                 {cf_opts}, kOptionsFileName, fs_.get());
   }
 
   Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
@@ -4602,42 +4642,42 @@ TEST_F(OptionTypeInfoTest, TestCustomEnum) {
 
 TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
   ConfigOptions config_options;
-  for (auto iter : OptionsHelper::compaction_style_string_map) {
+  for (const auto& iter : OptionsHelper::compaction_style_string_map) {
     CompactionStyle e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompactionStyle),
                               "CompactionStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::compaction_pri_string_map) {
+  for (const auto& iter : OptionsHelper::compaction_pri_string_map) {
     CompactionPri e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompactionPri),
                               "CompactionPri", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::compression_type_string_map) {
+  for (const auto& iter : OptionsHelper::compression_type_string_map) {
     CompressionType e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompressionType),
                               "CompressionType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::compaction_stop_style_string_map) {
+  for (const auto& iter : OptionsHelper::compaction_stop_style_string_map) {
     CompactionStopStyle e1, e2;
     TestParseAndCompareOption(
         config_options, OptionTypeInfo(0, OptionType::kCompactionStopStyle),
         "CompactionStopStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::checksum_type_string_map) {
+  for (const auto& iter : OptionsHelper::checksum_type_string_map) {
     ChecksumType e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kChecksumType),
                               "CheckSumType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::encoding_type_string_map) {
+  for (const auto& iter : OptionsHelper::encoding_type_string_map) {
     EncodingType e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kEncodingType),

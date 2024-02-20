@@ -53,11 +53,13 @@ class TransactionBaseImpl : public Transaction {
   Status PopSavePoint() override;
 
   using Transaction::Get;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, std::string* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             std::string* value) override;
 
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value) override;
 
   Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override {
@@ -84,7 +86,7 @@ class TransactionBaseImpl : public Transaction {
 
   using Transaction::MultiGet;
   std::vector<Status> MultiGet(
-      const ReadOptions& options,
+      const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
@@ -98,9 +100,10 @@ class TransactionBaseImpl : public Transaction {
                     keys, values);
   }
 
-  void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                const size_t num_keys, const Slice* keys, PinnableSlice* values,
-                Status* statuses, const bool sorted_input = false) override;
+  void MultiGet(const ReadOptions& _read_options,
+                ColumnFamilyHandle* column_family, const size_t num_keys,
+                const Slice* keys, PinnableSlice* values, Status* statuses,
+                const bool sorted_input = false) override;
 
   using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
@@ -198,7 +201,7 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
-  virtual void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
+  void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
   }
 
   const Snapshot* GetSnapshot() const override {
@@ -210,7 +213,7 @@ class TransactionBaseImpl : public Transaction {
     return snapshot_;
   }
 
-  virtual void SetSnapshot() override;
+  void SetSnapshot() override;
   void SetSnapshotOnNextOperation(
       std::shared_ptr<TransactionNotifier> notifier = nullptr) override;
 
@@ -240,7 +243,7 @@ class TransactionBaseImpl : public Transaction {
                         const Slice& key) override;
   void UndoGetForUpdate(const Slice& key) override {
     return UndoGetForUpdate(nullptr, key);
-  };
+  }
 
   WriteOptions* GetWriteOptions() override { return &write_options_; }
 
@@ -253,13 +256,19 @@ class TransactionBaseImpl : public Transaction {
 
   // iterates over the given batch and makes the appropriate inserts.
   // used for rebuilding prepared transactions after recovery.
-  virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+  Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
 
   WriteBatch* GetCommitTimeWriteBatch() override;
 
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
 
  protected:
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, std::string* value) override;
+
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, PinnableSlice* value) override;
+
   // Add a key to the list of tracked keys.
   //
   // seqno is the earliest seqno this key was involved with this transaction.
@@ -379,4 +388,3 @@ class TransactionBaseImpl : public Transaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

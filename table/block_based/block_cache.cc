@@ -5,23 +5,33 @@
 
 #include "table/block_based/block_cache.h"
 
+#include "table/block_based/block_based_table_reader.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 void BlockCreateContext::Create(std::unique_ptr<Block_kData>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kData(
       std::move(block), table_options->read_amp_bytes_per_bit, statistics));
+  parsed_out->get()->InitializeDataBlockProtectionInfo(protection_bytes_per_key,
+                                                       raw_ucmp);
 }
 void BlockCreateContext::Create(std::unique_ptr<Block_kIndex>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kIndex(std::move(block),
                                      /*read_amp_bytes_per_bit*/ 0, statistics));
+  parsed_out->get()->InitializeIndexBlockProtectionInfo(
+      protection_bytes_per_key, raw_ucmp, index_value_is_full,
+      index_has_first_key);
 }
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kFilterPartitionIndex>* parsed_out,
     BlockContents&& block) {
   parsed_out->reset(new Block_kFilterPartitionIndex(
       std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+  parsed_out->get()->InitializeIndexBlockProtectionInfo(
+      protection_bytes_per_key, raw_ucmp, index_value_is_full,
+      index_has_first_key);
 }
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kRangeDeletion>* parsed_out, BlockContents&& block) {
@@ -32,6 +42,8 @@ void BlockCreateContext::Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kMetaIndex(
       std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+  parsed_out->get()->InitializeMetaIndexBlockProtectionInfo(
+      protection_bytes_per_key);
 }
 
 void BlockCreateContext::Create(
@@ -86,7 +98,7 @@ const std::array<const Cache::CacheItemHelper*,
 
 const Cache::CacheItemHelper* GetCacheItemHelper(
     BlockType block_type, CacheTier lowest_used_cache_tier) {
-  if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {
+  if (lowest_used_cache_tier > CacheTier::kVolatileTier) {
     return kCacheItemFullHelperForBlockType[static_cast<unsigned>(block_type)];
   } else {
     return kCacheItemBasicHelperForBlockType[static_cast<unsigned>(block_type)];

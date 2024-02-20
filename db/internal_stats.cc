@@ -291,6 +291,7 @@ static const std::string min_obsolete_sst_number_to_keep_str =
 static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
+static const std::string obsolete_sst_files_size = "obsolete-sst-files-size";
 static const std::string live_sst_files_size_at_temperature =
     "live-sst-files-size-at-temperature";
 static const std::string estimate_pending_comp_bytes =
@@ -394,6 +395,8 @@ const std::string DB::Properties::kTotalSstFilesSize =
     rocksdb_prefix + total_sst_files_size;
 const std::string DB::Properties::kLiveSstFilesSize =
     rocksdb_prefix + live_sst_files_size;
+const std::string DB::Properties::kObsoleteSstFilesSize =
+    rocksdb_prefix + obsolete_sst_files_size;
 const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level_str;
 const std::string DB::Properties::kEstimatePendingCompactionBytes =
     rocksdb_prefix + estimate_pending_comp_bytes;
@@ -565,6 +568,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kLiveSstFilesSizeAtTemperature,
          {false, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
           nullptr, nullptr}},
+        {DB::Properties::kObsoleteSstFilesSize,
+         {false, nullptr, &InternalStats::HandleObsoleteSstFilesSize, nullptr,
+          nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr, nullptr}},
@@ -700,6 +706,7 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   cache_usage = cache->GetUsage();
   table_size = cache->GetTableAddressCount();
   occupancy = cache->GetOccupancyCount();
+  hash_seed = cache->GetHashSeed();
 }
 
 void InternalStats::CacheEntryRoleStats::EndCollection(
@@ -724,7 +731,7 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
   std::ostringstream str;
   str << "Block cache " << cache_id
       << " capacity: " << BytesToHumanString(cache_capacity)
-      << " usage: " << BytesToHumanString(cache_usage)
+      << " seed: " << hash_seed << " usage: " << BytesToHumanString(cache_usage)
       << " table_size: " << table_size << " occupancy: " << occupancy
       << " collections: " << collection_count
       << " last_copies: " << copies_of_last_collection
@@ -1148,7 +1155,7 @@ bool InternalStats::HandleSsTables(std::string* value, Slice /*suffix*/) {
 bool InternalStats::HandleAggregatedTableProperties(std::string* value,
                                                     Slice /*suffix*/) {
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(read_options, &tp);
   if (!s.ok()) {
@@ -1170,7 +1177,7 @@ static std::map<std::string, std::string> MapUint64ValuesToString(
 bool InternalStats::HandleAggregatedTablePropertiesMap(
     std::map<std::string, std::string>* values, Slice /*suffix*/) {
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(read_options, &tp);
   if (!s.ok()) {
@@ -1188,7 +1195,7 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* values,
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(
       read_options, &tp, static_cast<int>(level));
@@ -1207,7 +1214,7 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevelMap(
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(
       read_options, &tp, static_cast<int>(level));
@@ -1394,6 +1401,12 @@ bool InternalStats::HandleLiveSstFilesSize(uint64_t* value, DBImpl* /*db*/,
   return true;
 }
 
+bool InternalStats::HandleObsoleteSstFilesSize(uint64_t* value, DBImpl* db,
+                                               Version* /*version*/) {
+  *value = db->GetObsoleteSstFilesSize();
+  return true;
+}
+
 bool InternalStats::HandleEstimatePendingCompactionBytes(uint64_t* value,
                                                          DBImpl* /*db*/,
                                                          Version* /*version*/) {
@@ -1405,7 +1418,7 @@ bool InternalStats::HandleEstimatePendingCompactionBytes(uint64_t* value,
 bool InternalStats::HandleEstimateTableReadersMem(uint64_t* value,
                                                   DBImpl* /*db*/,
                                                   Version* version) {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   *value = (version == nullptr)
                ? 0
@@ -1460,7 +1473,7 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
           ->compaction_options_fifo.allow_compaction) {
     return false;
   }
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   TablePropertiesCollection collection;
   auto s = cfd_->current()->GetPropertiesOfAllTables(read_options, &collection);
@@ -1687,8 +1700,16 @@ void InternalStats::DumpDBStatsWriteStall(std::string* value) {
   std::ostringstream str;
   str << "Write Stall (count): ";
 
-  for (const auto& name_and_stat : write_stall_stats_map) {
-    str << name_and_stat.first << ": " << name_and_stat.second << ", ";
+  for (auto write_stall_stats_map_iter = write_stall_stats_map.begin();
+       write_stall_stats_map_iter != write_stall_stats_map.end();
+       write_stall_stats_map_iter++) {
+    const auto& name_and_stat = *write_stall_stats_map_iter;
+    str << name_and_stat.first << ": " << name_and_stat.second;
+    if (std::next(write_stall_stats_map_iter) == write_stall_stats_map.end()) {
+      str << "\n";
+    } else {
+      str << ", ";
+    }
   }
   *value = str.str();
 }
@@ -1729,7 +1750,7 @@ void InternalStats::DumpCFMapStats(
   assert(vstorage);
 
   int num_levels_to_check =
-      (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
+      (cfd_->ioptions()->compaction_style == kCompactionStyleLevel)
           ? vstorage->num_levels() - 1
           : 1;
 
@@ -1870,8 +1891,16 @@ void InternalStats::DumpCFStatsWriteStall(std::string* value,
   std::ostringstream str;
   str << "Write Stall (count): ";
 
-  for (const auto& name_and_stat : write_stall_stats_map) {
-    str << name_and_stat.first << ": " << name_and_stat.second << ", ";
+  for (auto write_stall_stats_map_iter = write_stall_stats_map.begin();
+       write_stall_stats_map_iter != write_stall_stats_map.end();
+       write_stall_stats_map_iter++) {
+    const auto& name_and_stat = *write_stall_stats_map_iter;
+    str << name_and_stat.first << ": " << name_and_stat.second;
+    if (std::next(write_stall_stats_map_iter) == write_stall_stats_map.end()) {
+      str << "\n";
+    } else {
+      str << ", ";
+    }
   }
 
   if (total_stall_count) {
@@ -2038,6 +2067,12 @@ void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
       interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001),
       interval_compact_micros / kMicrosInSec);
   value->append(buf);
+
+  snprintf(buf, sizeof(buf),
+           "Estimated pending compaction bytes: %" PRIu64 "\n",
+           vstorage->estimated_compaction_needed_bytes());
+  value->append(buf);
+
   if (is_periodic) {
     cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
     cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;

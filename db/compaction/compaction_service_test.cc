@@ -928,7 +928,7 @@ TEST_F(CompactionServiceTest, TablePropertiesCollector) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_OK(db_->GetPropertiesOfAllTables(&fname_to_props));
 
@@ -952,4 +952,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-

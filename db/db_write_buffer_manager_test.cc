@@ -42,10 +42,10 @@ TEST_P(DBWriteBufferManagerTest, SharedBufferAcrossCFs1) {
 
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3".
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -84,10 +84,10 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
 
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3". No flush will be triggered.
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -119,7 +119,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         InstrumentedMutexLock lock(&mutex);
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         w_set.insert(w);
         // Allow the flush to continue if all writer threads are blocked.
         if (w_set.size() == (unsigned long)num_writers) {
@@ -368,7 +368,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         {
           InstrumentedMutexLock lock(&mutex);
           w_set.insert(w);
@@ -471,10 +471,10 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
 
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3". No flush will be triggered.
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -511,7 +511,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         {
           InstrumentedMutexLock lock(&mutex);
-          WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+          WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
           w_slowdown_set.insert(w);
           // Allow the flush continue if all writer threads are blocked.
           if (w_slowdown_set.size() + (unsigned long)w_no_slowdown.load(
@@ -674,7 +674,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         InstrumentedMutexLock lock(&mutex);
         w_slowdown_set.insert(w);
         // Allow the flush continue if all writer threads are blocked.

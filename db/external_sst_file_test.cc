@@ -92,7 +92,7 @@ class ExternalSSTFileTest
     : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileTest() {}
+  ExternalSSTFileTest() = default;
 
   Status GenerateOneExternalFile(
       const Options& options, ColumnFamilyHandle* cfh,
@@ -538,6 +538,113 @@ TEST_F(ExternalSSTFileTest, Basic) {
                          kRangeDelSkipConfigs));
 }
 
+TEST_F(ExternalSSTFileTest, BasicWideColumn) {
+  do {
+    Options options = CurrentOptions();
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
+    ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+    std::string file = sst_files_dir_ + "wide_column_file.sst";
+    ASSERT_OK(sst_file_writer.Open(file));
+    for (int k = 0; k < 10; k++) {
+      std::string val1 = Key(k) + "_attr_1_val";
+      std::string val2 = Key(k) + "_attr_2_val";
+      WideColumns columns{{"attr_1", val1}, {"attr_2", val2}};
+      ASSERT_OK(sst_file_writer.PutEntity(Key(k), columns));
+    }
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file_info.file_path, file);
+    ASSERT_EQ(file_info.num_entries, 10);
+    ASSERT_EQ(file_info.smallest_key, Key(0));
+    ASSERT_EQ(file_info.largest_key, Key(9));
+    ASSERT_EQ(file_info.num_range_del_entries, 0);
+    ASSERT_EQ(file_info.smallest_range_del_key, "");
+    ASSERT_EQ(file_info.largest_range_del_key, "");
+
+    DestroyAndReopen(options);
+    // Add file using file path
+    ASSERT_OK(DeprecatedAddFile({file}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 10; k++) {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               Key(k), &result));
+      std::string val1 = Key(k) + "_attr_1_val";
+      std::string val2 = Key(k) + "_attr_2_val";
+      WideColumns expected_columns{{"attr_1", val1}, {"attr_2", val2}};
+      ASSERT_EQ(result.columns(), expected_columns);
+    }
+
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
+}
+
+TEST_F(ExternalSSTFileTest, BasicMixed) {
+  do {
+    Options options = CurrentOptions();
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
+    ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+    std::string file = sst_files_dir_ + "mixed_file.sst";
+    ASSERT_OK(sst_file_writer.Open(file));
+    for (int k = 0; k < 100; k++) {
+      if (k % 5 == 0) {
+        std::string val1 = Key(k) + "_attr_1_val";
+        std::string val2 = Key(k) + "_attr_2_val";
+        WideColumns columns{{"attr_1", val1}, {"attr_2", val2}};
+        ASSERT_OK(sst_file_writer.PutEntity(Key(k), columns));
+      } else {
+        ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
+      }
+    }
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file_info.file_path, file);
+    ASSERT_EQ(file_info.num_entries, 100);
+    ASSERT_EQ(file_info.smallest_key, Key(0));
+    ASSERT_EQ(file_info.largest_key, Key(99));
+    ASSERT_EQ(file_info.num_range_del_entries, 0);
+    ASSERT_EQ(file_info.smallest_range_del_key, "");
+    ASSERT_EQ(file_info.largest_range_del_key, "");
+
+    DestroyAndReopen(options);
+    // Add file using file path
+    ASSERT_OK(DeprecatedAddFile({file}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 10; k++) {
+      if (k % 5 == 0) {
+        PinnableWideColumns result;
+        ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                                 Key(k), &result));
+        std::string val1 = Key(k) + "_attr_1_val";
+        std::string val2 = Key(k) + "_attr_2_val";
+        WideColumns expected_columns{{"attr_1", val1}, {"attr_2", val2}};
+        ASSERT_EQ(result.columns(), expected_columns);
+      } else {
+        ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+      }
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
+}
+
 class SstFileWriterCollector : public TablePropertiesCollector {
  public:
   explicit SstFileWriterCollector(const std::string prefix) : prefix_(prefix) {
@@ -725,7 +832,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     TablePropertiesCollection props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
     ASSERT_EQ(props.size(), 2);
-    for (auto file_props : props) {
+    for (const auto& file_props : props) {
       auto user_props = file_props.second->user_collected_properties;
       ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
       ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
@@ -748,7 +855,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
 
     ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
     ASSERT_EQ(props.size(), 3);
-    for (auto file_props : props) {
+    for (const auto& file_props : props) {
       auto user_props = file_props.second->user_collected_properties;
       ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
       ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
@@ -1289,7 +1396,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // After full compaction, there should be only 1 file.
   std::vector<std::string> files;
@@ -1607,9 +1714,8 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
        {"DBImpl::WaitForPendingWrites:BeforeBlock",
         "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::IngestExternalFile:NeedFlush", [&](void* need_flush) {
-        ASSERT_TRUE(*reinterpret_cast<bool*>(need_flush));
-      });
+      "DBImpl::IngestExternalFile:NeedFlush",
+      [&](void* need_flush) { ASSERT_TRUE(*static_cast<bool*>(need_flush)); });
 
   Options options = CurrentOptions();
   options.unordered_write = true;
@@ -1739,6 +1845,92 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
 
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
+}
+
+TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedUniversal) {
+  bool write_global_seqno = std::get<0>(GetParam());
+  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  Options options = CurrentOptions();
+  options.num_levels = 5;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  std::vector<std::pair<std::string, std::string>> file_data;
+  std::map<std::string, std::string> true_data;
+
+  // Write 200 -> 250 into the bottommost level
+  for (int i = 200; i <= 250; i++) {
+    ASSERT_OK(Put(Key(i), "bottommost"));
+    true_data[Key(i)] = "bottommost";
+  }
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,1", FilesPerLevel());
+
+  // Take a snapshot to enforce global sequence number.
+  const Snapshot* snap = db_->GetSnapshot();
+
+  // Insert 100 -> 200 into the memtable
+  for (int i = 100; i <= 200; i++) {
+    ASSERT_OK(Put(Key(i), "memtable"));
+    true_data[Key(i)] = "memtable";
+  }
+
+  // Insert 0 -> 20 using AddFile
+  file_data.clear();
+  for (int i = 0; i <= 20; i++) {
+    file_data.emplace_back(Key(i), "L4");
+  }
+
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file don't overlap with anything in the DB, will go to L4
+  ASSERT_EQ("0,0,0,0,2", FilesPerLevel());
+
+  // Insert 80 -> 130 using AddFile
+  file_data.clear();
+  for (int i = 80; i <= 130; i++) {
+    file_data.emplace_back(Key(i), "L0");
+  }
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file overlap with the memtable, so it will flush it and add
+  // it self to L0
+  ASSERT_EQ("2,0,0,0,2", FilesPerLevel());
+
+  // Insert 30 -> 50 using AddFile
+  file_data.clear();
+  for (int i = 30; i <= 50; i++) {
+    file_data.emplace_back(Key(i), "L4");
+  }
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file don't overlap with anything in the DB and fit in L4 as well
+  ASSERT_EQ("2,0,0,0,3", FilesPerLevel());
+
+  // Insert 10 -> 40 using AddFile
+  file_data.clear();
+  for (int i = 10; i <= 40; i++) {
+    file_data.emplace_back(Key(i), "L3");
+  }
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
+
+  // This file overlap with files in L4, we will ingest it into the last
+  // non-overlapping and non-empty level, in this case, it's L0.
+  ASSERT_EQ("3,0,0,0,3", FilesPerLevel());
+
+  size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
+  db_->ReleaseSnapshot(snap);
 }
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
@@ -2160,13 +2352,13 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
-    true_data[Key(i)] = "memtable";
   }
 
   // Insert 100 -> 200 using IngestExternalFile
   file_data.clear();
   for (int i = 0; i <= 20; i++) {
     file_data.emplace_back(Key(i), "ingest_behind");
+    true_data[Key(i)] = "ingest_behind";
   }
 
   bool allow_global_seqno = true;
@@ -2188,6 +2380,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
 
   options.num_levels = 3;
   DestroyAndReopen(options);
+  true_data.clear();
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
@@ -2207,11 +2400,42 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
       verify_checksums_before_ingest, true /*ingest_behind*/,
       false /*sort_data*/, &true_data));
   ASSERT_EQ("0,1,1", FilesPerLevel());
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  uint64_t ingested_file_number = level_to_files[2][0].fd.GetNumber();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // bottom level should be empty
-  ASSERT_EQ("0,1", FilesPerLevel());
-
+  // Last level should not be compacted
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
+
+  // Auto-compaction should not include the last level.
+  // Trigger compaction if size amplification exceeds 110%.
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  options.level0_file_num_compaction_trigger = 4;
+  ASSERT_OK(TryReopen(options));
+  Random rnd(301);
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 10; j++) {
+      true_data[Key(j)] = rnd.RandomString(1000);
+      ASSERT_OK(Put(Key(j), true_data[Key(j)]));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(1, level_to_files[2].size());
+  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
+
+  // Turning off the option allows DB to compact ingested files.
+  options.allow_ingest_behind = false;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(1, level_to_files[2].size());
+  ASSERT_NE(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   VerifyDBFromMap(true_data, &kcnt, false);
 }
 
@@ -2484,6 +2708,7 @@ TEST_P(ExternalSSTFileTest,
       "AfterRead");
   ingest_thread.join();
   for (auto* iter : iters) {
+    ASSERT_OK(iter->status());
     delete iter;
   }
   iters.clear();
@@ -2738,7 +2963,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
   // currently at the front of the 2nd writer queue. We must make
   // sure that it won't enter the 2nd writer queue for the second time.
   std::vector<std::pair<std::string, std::string>> data;
-  data.push_back(std::make_pair("1001", "v2"));
+  data.emplace_back("1001", "v2");
   ASSERT_OK(GenerateAndAddExternalFile(options, data, -1, true));
 }
 
@@ -2838,6 +3063,285 @@ TEST_P(ExternalSSTFileTest,
   delete iter;
 }
 
+class ExternalSSTFileWithTimestampTest : public ExternalSSTFileTest {
+ public:
+  ExternalSSTFileWithTimestampTest() = default;
+
+  static const std::string kValueNotFound;
+  static const std::string kTsNotFound;
+
+  std::string EncodeAsUint64(uint64_t v) {
+    std::string dst;
+    PutFixed64(&dst, v);
+    return dst;
+  }
+
+  Status IngestExternalUDTFile(const std::vector<std::string>& files,
+                               bool allow_global_seqno = true) {
+    IngestExternalFileOptions opts;
+    opts.snapshot_consistency = true;
+    opts.allow_global_seqno = allow_global_seqno;
+    return db_->IngestExternalFile(files, opts);
+  }
+
+  void VerifyValueAndTs(const std::string& key,
+                        const std::string& read_timestamp,
+                        const std::string& expected_value,
+                        const std::string& expected_timestamp) {
+    Slice read_ts = read_timestamp;
+    ReadOptions read_options;
+    read_options.timestamp = &read_ts;
+    std::string value;
+    std::string timestamp;
+    Status s = db_->Get(read_options, key, &value, &timestamp);
+    if (s.ok()) {
+      ASSERT_EQ(value, expected_value);
+      ASSERT_EQ(timestamp, expected_timestamp);
+    } else if (s.IsNotFound()) {
+      ASSERT_EQ(kValueNotFound, expected_value);
+      ASSERT_EQ(kTsNotFound, expected_timestamp);
+    } else {
+      assert(false);
+    }
+  }
+};
+
+const std::string ExternalSSTFileWithTimestampTest::kValueNotFound =
+    "NOT_FOUND";
+const std::string ExternalSSTFileWithTimestampTest::kTsNotFound =
+    "NOT_FOUND_TS";
+
+TEST_F(ExternalSSTFileWithTimestampTest, Basic) {
+  do {
+    Options options = CurrentOptions();
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    options.persist_user_defined_timestamps = true;
+
+    DestroyAndReopen(options);
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
+    ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+    // file1.sst [0, 50)
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    for (int k = 0; k < 50; k++) {
+      // write 3 versions of values for each key, write newer version first
+      // they are treated as logically smaller by the comparator.
+      for (int version = 3; version > 0; version--) {
+        ASSERT_OK(
+            sst_file_writer.Put(Key(k), EncodeAsUint64(k + version),
+                                Key(k) + "_val" + std::to_string(version)));
+      }
+    }
+
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    // sst_file_writer already finished, cannot add this value
+    ASSERT_NOK(sst_file_writer.Put(Key(100), EncodeAsUint64(1), "bad_val"));
+
+    ASSERT_EQ(file1_info.file_path, file1);
+    ASSERT_EQ(file1_info.num_entries, 150);
+    ASSERT_EQ(file1_info.smallest_key, Key(0) + EncodeAsUint64(0 + 3));
+    ASSERT_EQ(file1_info.largest_key, Key(49) + EncodeAsUint64(49 + 1));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    // Add file using file path
+    ASSERT_OK(IngestExternalUDTFile({file1}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+
+    for (int k = 0; k < 50; k++) {
+      for (int version = 3; version > 0; version--) {
+        VerifyValueAndTs(Key(k), EncodeAsUint64(k + version),
+                         Key(k) + "_val" + std::to_string(version),
+                         EncodeAsUint64(k + version));
+      }
+    }
+
+    // file2.sst [50, 200)
+    // Put [key=k, ts=k, value=k_val] for k in [50, 200)
+    // RangeDelete[start_key=75, end_key=125, ts=100]
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    int range_del_begin = 75, range_del_end = 125, range_del_ts = 100;
+    ASSERT_OK(sst_file_writer.Open(file2));
+    for (int k = 50; k < 200; k++) {
+      ASSERT_OK(
+          sst_file_writer.Put(Key(k), EncodeAsUint64(k), Key(k) + "_val"));
+      if (k == range_del_ts) {
+        ASSERT_OK(sst_file_writer.DeleteRange(
+            Key(range_del_begin), Key(range_del_end), EncodeAsUint64(k)));
+      }
+    }
+
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file2_info.file_path, file2);
+    ASSERT_EQ(file2_info.num_entries, 150);
+    ASSERT_EQ(file2_info.smallest_key, Key(50) + EncodeAsUint64(50));
+    ASSERT_EQ(file2_info.largest_key, Key(199) + EncodeAsUint64(199));
+    ASSERT_EQ(file2_info.num_range_del_entries, 1);
+    ASSERT_EQ(file2_info.smallest_range_del_key,
+              Key(range_del_begin) + EncodeAsUint64(range_del_ts));
+    ASSERT_EQ(file2_info.largest_range_del_key,
+              Key(range_del_end) + EncodeAsUint64(range_del_ts));
+    // Add file using file path
+    ASSERT_OK(IngestExternalUDTFile({file2}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+
+    for (int k = 50; k < 200; k++) {
+      if (k < range_del_begin || k >= range_del_end) {
+        VerifyValueAndTs(Key(k), EncodeAsUint64(k), Key(k) + "_val",
+                         EncodeAsUint64(k));
+      }
+      //      else {
+      //        // FIXME(yuzhangyu): when range tombstone and point data has the
+      //        // same seq, on read path, make range tombstone overrides point
+      //        // data if it has a newer user-defined timestamp. This is how
+      //        // we determine point data's overriding relationship, so we
+      //        //  should keep it consistent.
+      //        VerifyValueAndTs(Key(k), EncodeAsUint64(k), Key(k) + "_val",
+      //                         EncodeAsUint64(k));
+      //        VerifyValueAndTs(Key(k), EncodeAsUint64(range_del_ts),
+      //        kValueNotFound,
+      //                         kTsNotFound);
+      //      }
+    }
+
+    // file3.sst [100, 200), key range overlap with db
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    for (int k = 100; k < 200; k++) {
+      ASSERT_OK(
+          sst_file_writer.Put(Key(k), EncodeAsUint64(k + 1), Key(k) + "_val1"));
+    }
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    ASSERT_EQ(file3_info.file_path, file3);
+    ASSERT_EQ(file3_info.num_entries, 100);
+    ASSERT_EQ(file3_info.smallest_key, Key(100) + EncodeAsUint64(101));
+    ASSERT_EQ(file3_info.largest_key, Key(199) + EncodeAsUint64(200));
+
+    // Allowing ingesting a file containing overlap key range with the db is
+    // not safe without verifying the overlapped key has a higher timestamp
+    // than what the db contains, so we do not allow this regardless of
+    // whether global sequence number is allowed.
+    ASSERT_NOK(IngestExternalUDTFile({file2}));
+    ASSERT_NOK(IngestExternalUDTFile({file2}, /*allow_global_seqno*/ false));
+
+    // Write [0, 50)
+    // Write to DB newer versions to cover ingested data and move sequence
+    // number forward.
+    for (int k = 0; k < 50; k++) {
+      ASSERT_OK(dbfull()->Put(WriteOptions(), Key(k), EncodeAsUint64(k + 4),
+                              Key(k) + "_val" + std::to_string(4)));
+    }
+
+    // Read all 4 versions (3 from ingested, 1 from live writes).
+    for (int k = 0; k < 50; k++) {
+      for (int version = 4; version > 0; version--) {
+        VerifyValueAndTs(Key(k), EncodeAsUint64(k + version),
+                         Key(k) + "_val" + std::to_string(version),
+                         EncodeAsUint64(k + version));
+      }
+    }
+    SequenceNumber seq_num_before_ingestion = db_->GetLatestSequenceNumber();
+    ASSERT_GT(seq_num_before_ingestion, 0U);
+
+    // file4.sst [200, 250)
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    for (int k = 200; k < 250; k++) {
+      ASSERT_OK(
+          sst_file_writer.Put(Key(k), EncodeAsUint64(k), Key(k) + "_val"));
+    }
+
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file4_info.file_path, file4);
+    ASSERT_EQ(file4_info.num_entries, 50);
+    ASSERT_EQ(file4_info.smallest_key, Key(200) + EncodeAsUint64(200));
+    ASSERT_EQ(file4_info.largest_key, Key(249) + EncodeAsUint64(249));
+    ASSERT_EQ(file4_info.num_range_del_entries, 0);
+    ASSERT_EQ(file4_info.smallest_range_del_key, "");
+    ASSERT_EQ(file4_info.largest_range_del_key, "");
+
+    ASSERT_OK(IngestExternalUDTFile({file4}));
+
+    // In UDT mode, any external file that can be successfully ingested also
+    // should not overlap with the db. As a result, they can always get the
+    // seq 0 assigned.
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), seq_num_before_ingestion);
+
+    DestroyAndRecreateExternalSSTFilesDir();
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
+}
+
+TEST_F(ExternalSSTFileWithTimestampTest, SanityCheck) {
+  Options options = CurrentOptions();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.persist_user_defined_timestamps = true;
+  DestroyAndReopen(options);
+
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // file1.sst [0, 100)
+  std::string file1 = sst_files_dir_ + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  for (int k = 0; k < 100; k++) {
+    ASSERT_OK(sst_file_writer.Put(Key(k), EncodeAsUint64(k), Key(k) + "_val"));
+  }
+
+  ExternalSstFileInfo file1_info;
+  ASSERT_OK(sst_file_writer.Finish(&file1_info));
+
+  // file2.sst [50, 75)
+  std::string file2 = sst_files_dir_ + "file2.sst";
+  ASSERT_OK(sst_file_writer.Open(file2));
+  for (int k = 50; k < 75; k++) {
+    ASSERT_OK(
+        sst_file_writer.Put(Key(k), EncodeAsUint64(k + 2), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file2_info;
+  ASSERT_OK(sst_file_writer.Finish(&file2_info));
+
+  // Cannot ingest when files' user key range overlaps. There is no
+  // straightforward way to assign sequence number to the files so that they
+  // meet the user-defined timestamps invariant: for the same user provided key,
+  // the entry with a higher sequence number should not have a smaller
+  // timestamp. In this case: file1 has (key=k, ts=k) for k in [50, 75),
+  //               file2 has (key=k, ts=k+2) for k in [50, 75).
+  // The invariant is only met if file2 is ingested after file1. In other cases
+  // when user key ranges are interleaved in files, no order of ingestion can
+  // guarantee this invariant. So we do not allow ingesting files with
+  // overlapping key ranges.
+  ASSERT_TRUE(IngestExternalUDTFile({file1, file2}).IsNotSupported());
+
+  options.allow_ingest_behind = true;
+  DestroyAndReopen(options);
+  IngestExternalFileOptions opts;
+
+  // TODO(yuzhangyu): support ingestion behind for user-defined timestamps?
+  // Ingesting external files with user-defined timestamps requires searching
+  // through the whole lsm tree to make sure there is no key range overlap with
+  // the db. Ingestion behind currently is doing a simply placing it at the
+  // bottom level step without a search, so we don't allow it either.
+  opts.ingest_behind = true;
+  ASSERT_TRUE(db_->IngestExternalFile({file1}, opts).IsNotSupported());
+
+  DestroyAndRecreateExternalSSTFilesDir();
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
                         testing::Values(std::make_tuple(false, false),
                                         std::make_tuple(false, true),
@@ -2857,4 +3361,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

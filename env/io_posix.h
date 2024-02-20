@@ -29,7 +29,8 @@
 
 // For non linux platform, the following macros are used only as place
 // holder.
-#if !(defined OS_LINUX) && !(defined CYGWIN) && !(defined OS_AIX)
+#if !(defined OS_LINUX) && !(defined OS_FREEBSD) && !(defined CYGWIN) && \
+    !(defined OS_AIX)
 #define POSIX_FADV_NORMAL 0     /* [MC1] no further special treatment */
 #define POSIX_FADV_RANDOM 1     /* [MC1] expect random page refs */
 #define POSIX_FADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
@@ -75,8 +76,8 @@ inline bool IsSectorAligned(const void* ptr, size_t sector_size) {
 #if defined(ROCKSDB_IOURING_PRESENT)
 struct Posix_IOHandle {
   Posix_IOHandle(struct io_uring* _iu,
-                 std::function<void(const FSReadRequest&, void*)> _cb,
-                 void* _cb_arg, uint64_t _offset, size_t _len, char* _scratch,
+                 std::function<void(FSReadRequest&, void*)> _cb, void* _cb_arg,
+                 uint64_t _offset, size_t _len, char* _scratch,
                  bool _use_direct_io, size_t _alignment)
       : iu(_iu),
         cb(_cb),
@@ -91,7 +92,7 @@ struct Posix_IOHandle {
 
   struct iovec iov;
   struct io_uring* iu;
-  std::function<void(const FSReadRequest&, void*)> cb;
+  std::function<void(FSReadRequest&, void*)> cb;
   void* cb_arg;
   uint64_t offset;
   size_t len;
@@ -245,15 +246,15 @@ class PosixSequentialFile : public FSSequentialFile {
                       size_t logical_block_size, const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
-  virtual IOStatus Read(size_t n, const IOOptions& opts, Slice* result,
-                        char* scratch, IODebugContext* dbg) override;
-  virtual IOStatus PositionedRead(uint64_t offset, size_t n,
-                                  const IOOptions& opts, Slice* result,
-                                  char* scratch, IODebugContext* dbg) override;
-  virtual IOStatus Skip(uint64_t n) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
-  virtual bool use_direct_io() const override { return use_direct_io_; }
-  virtual size_t GetRequiredBufferAlignment() const override {
+  IOStatus Read(size_t n, const IOOptions& opts, Slice* result, char* scratch,
+                IODebugContext* dbg) override;
+  IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& opts,
+                          Slice* result, char* scratch,
+                          IODebugContext* dbg) override;
+  IOStatus Skip(uint64_t n) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  bool use_direct_io() const override { return use_direct_io_; }
+  size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
 };
@@ -298,31 +299,30 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   );
   virtual ~PosixRandomAccessFile();
 
-  virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts,
-                        Slice* result, char* scratch,
-                        IODebugContext* dbg) const override;
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
+                char* scratch, IODebugContext* dbg) const override;
 
-  virtual IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
-                             const IOOptions& options,
-                             IODebugContext* dbg) override;
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& opts,
-                            IODebugContext* dbg) override;
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& opts,
+                    IODebugContext* dbg) override;
 
 #if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_AIX)
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
-  virtual void Hint(AccessPattern pattern) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
-  virtual bool use_direct_io() const override { return use_direct_io_; }
-  virtual size_t GetRequiredBufferAlignment() const override {
+  void Hint(AccessPattern pattern) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  bool use_direct_io() const override { return use_direct_io_; }
+  size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
-  // EXPERIMENTAL
-  virtual IOStatus ReadAsync(
-      FSReadRequest& req, const IOOptions& opts,
-      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-      void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) override;
+
+  virtual IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                             std::function<void(FSReadRequest&, void*)> cb,
+                             void* cb_arg, void** io_handle,
+                             IOHandleDeleter* del_fn,
+                             IODebugContext* dbg) override;
 };
 
 class PosixWritableFile : public FSWritableFile {
@@ -350,47 +350,44 @@ class PosixWritableFile : public FSWritableFile {
 
   // Need to implement this so the file is truncated correctly
   // with direct I/O
-  virtual IOStatus Truncate(uint64_t size, const IOOptions& opts,
-                            IODebugContext* dbg) override;
-  virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Append(const Slice& data, const IOOptions& opts,
-                          IODebugContext* dbg) override;
-  virtual IOStatus Append(const Slice& data, const IOOptions& opts,
-                          const DataVerificationInfo& /* verification_info */,
-                          IODebugContext* dbg) override {
+  IOStatus Truncate(uint64_t size, const IOOptions& opts,
+                    IODebugContext* dbg) override;
+  IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  const DataVerificationInfo& /* verification_info */,
+                  IODebugContext* dbg) override {
     return Append(data, opts, dbg);
   }
-  virtual IOStatus PositionedAppend(const Slice& data, uint64_t offset,
-                                    const IOOptions& opts,
-                                    IODebugContext* dbg) override;
-  virtual IOStatus PositionedAppend(
-      const Slice& data, uint64_t offset, const IOOptions& opts,
-      const DataVerificationInfo& /* verification_info */,
-      IODebugContext* dbg) override {
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& opts,
+                            IODebugContext* dbg) override;
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& opts,
+                            const DataVerificationInfo& /* verification_info */,
+                            IODebugContext* dbg) override {
     return PositionedAppend(data, offset, opts, dbg);
   }
-  virtual IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Sync(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual bool IsSyncThreadSafe() const override;
-  virtual bool use_direct_io() const override { return use_direct_io_; }
-  virtual void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) override;
-  virtual uint64_t GetFileSize(const IOOptions& opts,
-                               IODebugContext* dbg) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
-  virtual size_t GetRequiredBufferAlignment() const override {
+  IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Sync(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
+  bool IsSyncThreadSafe() const override;
+  bool use_direct_io() const override { return use_direct_io_; }
+  void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) override;
+  uint64_t GetFileSize(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual IOStatus Allocate(uint64_t offset, uint64_t len,
-                            const IOOptions& opts,
-                            IODebugContext* dbg) override;
+  IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& opts,
+                    IODebugContext* dbg) override;
 #endif
-  virtual IOStatus RangeSync(uint64_t offset, uint64_t nbytes,
-                             const IOOptions& opts,
-                             IODebugContext* dbg) override;
+  IOStatus RangeSync(uint64_t offset, uint64_t nbytes, const IOOptions& opts,
+                     IODebugContext* dbg) override;
 #ifdef OS_LINUX
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
 };
 
@@ -448,28 +445,26 @@ class PosixMmapFile : public FSWritableFile {
 
   // Means Close() will properly take care of truncate
   // and it does not need any additional information
-  virtual IOStatus Truncate(uint64_t /*size*/, const IOOptions& /*opts*/,
-                            IODebugContext* /*dbg*/) override {
+  IOStatus Truncate(uint64_t /*size*/, const IOOptions& /*opts*/,
+                    IODebugContext* /*dbg*/) override {
     return IOStatus::OK();
   }
-  virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Append(const Slice& data, const IOOptions& opts,
-                          IODebugContext* dbg) override;
-  virtual IOStatus Append(const Slice& data, const IOOptions& opts,
-                          const DataVerificationInfo& /* verification_info */,
-                          IODebugContext* dbg) override {
+  IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  const DataVerificationInfo& /* verification_info */,
+                  IODebugContext* dbg) override {
     return Append(data, opts, dbg);
   }
-  virtual IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Sync(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual uint64_t GetFileSize(const IOOptions& opts,
-                               IODebugContext* dbg) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Sync(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
+  uint64_t GetFileSize(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual IOStatus Allocate(uint64_t offset, uint64_t len,
-                            const IOOptions& opts,
-                            IODebugContext* dbg) override;
+  IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& opts,
+                    IODebugContext* dbg) override;
 #endif
 };
 
@@ -479,17 +474,16 @@ class PosixRandomRWFile : public FSRandomRWFile {
                              const EnvOptions& options);
   virtual ~PosixRandomRWFile();
 
-  virtual IOStatus Write(uint64_t offset, const Slice& data,
-                         const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& opts,
+                 IODebugContext* dbg) override;
 
-  virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts,
-                        Slice* result, char* scratch,
-                        IODebugContext* dbg) const override;
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
+                char* scratch, IODebugContext* dbg) const override;
 
-  virtual IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Sync(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
-  virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Sync(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
 
  private:
   const std::string filename_;
@@ -506,11 +500,11 @@ class PosixDirectory : public FSDirectory {
  public:
   explicit PosixDirectory(int fd, const std::string& directory_name);
   ~PosixDirectory();
-  virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
 
-  virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
+  IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
 
-  virtual IOStatus FsyncWithDirOptions(
+  IOStatus FsyncWithDirOptions(
       const IOOptions&, IODebugContext*,
       const DirFsyncOptions& dir_fsync_options) override;
 

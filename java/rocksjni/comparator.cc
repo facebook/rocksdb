@@ -39,8 +39,7 @@ jlong Java_org_rocksdb_AbstractComparator_createNewComparator(
  * Method:    usingDirectBuffers
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_AbstractComparator_usingDirectBuffers(JNIEnv*,
-                                                                jobject,
+jboolean Java_org_rocksdb_AbstractComparator_usingDirectBuffers(JNIEnv*, jclass,
                                                                 jlong jhandle) {
   auto* c =
       reinterpret_cast<ROCKSDB_NAMESPACE::ComparatorJniCallback*>(jhandle);
@@ -53,7 +52,7 @@ jboolean Java_org_rocksdb_AbstractComparator_usingDirectBuffers(JNIEnv*,
  * Signature: (J)V
  */
 void Java_org_rocksdb_NativeComparatorWrapper_disposeInternal(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jcomparator_handle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jcomparator_handle) {
   auto* comparator =
       reinterpret_cast<ROCKSDB_NAMESPACE::Comparator*>(jcomparator_handle);
   delete comparator;

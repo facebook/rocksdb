@@ -25,8 +25,8 @@ TEST(SliceTest, StringView) {
 
 // Use this to keep track of the cleanups that were actually performed
 void Multiplier(void* arg1, void* arg2) {
-  int* res = reinterpret_cast<int*>(arg1);
-  int* num = reinterpret_cast<int*>(arg2);
+  int* res = static_cast<int*>(arg1);
+  int* num = static_cast<int*>(arg2);
   *res *= *num;
 }
 
@@ -241,6 +241,36 @@ TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
     (void)e;
     assert(false);
   }
+}
+
+// ***************************************************************** //
+// Unit test for Status
+TEST(StatusTest, Update) {
+  const Status ok = Status::OK();
+  const Status inc = Status::Incomplete("blah");
+  const Status notf = Status::NotFound("meow");
+
+  Status s = ok;
+  ASSERT_TRUE(s.UpdateIfOk(Status::Corruption("bad")).IsCorruption());
+  ASSERT_TRUE(s.IsCorruption());
+
+  s = ok;
+  ASSERT_TRUE(s.UpdateIfOk(Status::OK()).ok());
+  ASSERT_TRUE(s.UpdateIfOk(ok).ok());
+  ASSERT_TRUE(s.ok());
+
+  ASSERT_TRUE(s.UpdateIfOk(inc).IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete());
+
+  ASSERT_TRUE(s.UpdateIfOk(notf).IsIncomplete());
+  ASSERT_TRUE(s.UpdateIfOk(ok).IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete());
+
+  // Keeps left-most non-OK status
+  s = ok;
+  ASSERT_TRUE(
+      s.UpdateIfOk(Status()).UpdateIfOk(notf).UpdateIfOk(inc).IsNotFound());
+  ASSERT_TRUE(s.IsNotFound());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

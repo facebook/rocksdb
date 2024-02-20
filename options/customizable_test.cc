@@ -35,7 +35,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/filter_policy_internal.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/mock_table.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
@@ -1230,13 +1230,19 @@ class TestSecondaryCache : public SecondaryCache {
   static const char* kClassName() { return "Test"; }
   const char* Name() const override { return kClassName(); }
   Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
-                const Cache::CacheItemHelper* /*helper*/) override {
+                const Cache::CacheItemHelper* /*helper*/,
+                bool /*force_insert*/) override {
     return Status::NotSupported();
+  }
+  Status InsertSaved(const Slice& /*key*/, const Slice& /*saved*/,
+                     CompressionType /*type*/, CacheTier /*source*/) override {
+    return Status::OK();
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CacheItemHelper* /*helper*/,
       Cache::CreateContext* /*create_context*/, bool /*wait*/,
-      bool /*advise_erase*/, bool& kept_in_sec_cache) override {
+      bool /*advise_erase*/, Statistics* /*stats*/,
+      bool& kept_in_sec_cache) override {
     kept_in_sec_cache = true;
     return nullptr;
   }
@@ -1260,7 +1266,7 @@ class TestStatistics : public StatisticsImpl {
 
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  TestFlushBlockPolicyFactory() {}
+  TestFlushBlockPolicyFactory() = default;
 
   static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
   const char* Name() const override { return kClassName(); }

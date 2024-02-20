@@ -17,9 +17,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Base class for internal table properties collector.
-class IntTblPropCollector {
+class InternalTblPropColl {
  public:
-  virtual ~IntTblPropCollector() {}
+  virtual ~InternalTblPropColl() {}
   virtual Status Finish(UserCollectedProperties* properties) = 0;
 
   virtual const char* Name() const = 0;
@@ -39,26 +39,26 @@ class IntTblPropCollector {
 };
 
 // Factory for internal table properties collector.
-class IntTblPropCollectorFactory {
+class InternalTblPropCollFactory {
  public:
-  virtual ~IntTblPropCollectorFactory() {}
+  virtual ~InternalTblPropCollFactory() {}
   // has to be thread-safe
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
+  virtual InternalTblPropColl* CreateInternalTblPropColl(
       uint32_t column_family_id, int level_at_creation) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
 };
 
-using IntTblPropCollectorFactories =
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>;
+using InternalTblPropCollFactories =
+    std::vector<std::unique_ptr<InternalTblPropCollFactory>>;
 
 // When rocksdb creates a new table, it will encode all "user keys" into
 // "internal keys", which contains meta information of a given entry.
 //
 // This class extracts user key from the encoded internal key when Add() is
 // invoked.
-class UserKeyTablePropertiesCollector : public IntTblPropCollector {
+class UserKeyTablePropertiesCollector : public InternalTblPropColl {
  public:
   // transfer of ownership
   explicit UserKeyTablePropertiesCollector(TablePropertiesCollector* collector)
@@ -66,45 +66,46 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
 
   virtual ~UserKeyTablePropertiesCollector() {}
 
-  virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) override;
+  Status InternalAdd(const Slice& key, const Slice& value,
+                     uint64_t file_size) override;
 
-  virtual void BlockAdd(uint64_t block_uncomp_bytes,
-                        uint64_t block_compressed_bytes_fast,
-                        uint64_t block_compressed_bytes_slow) override;
+  void BlockAdd(uint64_t block_uncomp_bytes,
+                uint64_t block_compressed_bytes_fast,
+                uint64_t block_compressed_bytes_slow) override;
 
-  virtual Status Finish(UserCollectedProperties* properties) override;
+  Status Finish(UserCollectedProperties* properties) override;
 
-  virtual const char* Name() const override { return collector_->Name(); }
+  const char* Name() const override { return collector_->Name(); }
 
   UserCollectedProperties GetReadableProperties() const override;
 
-  virtual bool NeedCompact() const override {
-    return collector_->NeedCompact();
-  }
+  bool NeedCompact() const override { return collector_->NeedCompact(); }
 
  protected:
   std::unique_ptr<TablePropertiesCollector> collector_;
 };
 
 class UserKeyTablePropertiesCollectorFactory
-    : public IntTblPropCollectorFactory {
+    : public InternalTblPropCollFactory {
  public:
   explicit UserKeyTablePropertiesCollectorFactory(
       std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory)
       : user_collector_factory_(user_collector_factory) {}
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
+  InternalTblPropColl* CreateInternalTblPropColl(
       uint32_t column_family_id, int level_at_creation) override {
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = column_family_id;
     context.level_at_creation = level_at_creation;
-    return new UserKeyTablePropertiesCollector(
-        user_collector_factory_->CreateTablePropertiesCollector(context));
+    TablePropertiesCollector* collector =
+        user_collector_factory_->CreateTablePropertiesCollector(context);
+    if (collector) {
+      return new UserKeyTablePropertiesCollector(collector);
+    } else {
+      return nullptr;
+    }
   }
 
-  virtual const char* Name() const override {
-    return user_collector_factory_->Name();
-  }
+  const char* Name() const override { return user_collector_factory_->Name(); }
 
  private:
   std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory_;
@@ -115,7 +116,7 @@ class UserKeyTablePropertiesCollectorFactory
 // internal key when Add() is invoked.
 //
 // @param cmp  the user comparator to compare the timestamps in internal key.
-class TimestampTablePropertiesCollector : public IntTblPropCollector {
+class TimestampTablePropertiesCollector : public InternalTblPropColl {
  public:
   explicit TimestampTablePropertiesCollector(const Comparator* cmp)
       : cmp_(cmp),

@@ -20,7 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
     const InternalKeyComparator& icmp, bool for_compaction,
-    const std::vector<SequenceNumber>& snapshots) {
+    const std::vector<SequenceNumber>& snapshots,
+    const bool tombstone_end_include_ts) {
   if (unfragmented_tombstones == nullptr) {
     return;
   }
@@ -45,7 +46,12 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
       last_start_key = pinned_last_start_key.Encode();
     }
   }
-  if (is_sorted) {
+
+  auto ucmp = icmp.user_comparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+  bool pad_min_ts_for_end = ts_sz > 0 && !tombstone_end_include_ts;
+  if (is_sorted && !pad_min_ts_for_end) {
     FragmentTombstones(std::move(unfragmented_tombstones), icmp, for_compaction,
                        snapshots);
     return;
@@ -63,8 +69,15 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
                                       unfragmented_tombstones->value().size();
     keys.emplace_back(unfragmented_tombstones->key().data(),
                       unfragmented_tombstones->key().size());
-    values.emplace_back(unfragmented_tombstones->value().data(),
-                        unfragmented_tombstones->value().size());
+    Slice value = unfragmented_tombstones->value();
+    if (pad_min_ts_for_end) {
+      AppendKeyWithMinTimestamp(&values.emplace_back(), value, ts_sz);
+    } else {
+      values.emplace_back(value.data(), value.size());
+    }
+  }
+  if (pad_min_ts_for_end) {
+    total_tombstone_payload_bytes_ += num_unfragmented_tombstones_ * ts_sz;
   }
   // VectorIterator implicitly sorts by key during construction.
   auto iter = std::make_unique<VectorIterator>(std::move(keys),

@@ -26,15 +26,22 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
     const bool use_value_delta_encoding,
     PartitionedIndexBuilder* const p_index_builder,
-    const uint32_t partition_size)
+    const uint32_t partition_size, size_t ts_sz,
+    const bool persist_user_defined_timestamps)
     : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
-      index_on_filter_block_builder_(index_block_restart_interval,
-                                     true /*use_delta_encoding*/,
-                                     use_value_delta_encoding),
-      index_on_filter_block_builder_without_seq_(index_block_restart_interval,
-                                                 true /*use_delta_encoding*/,
-                                                 use_value_delta_encoding),
+      index_on_filter_block_builder_(
+          index_block_restart_interval, true /*use_delta_encoding*/,
+          use_value_delta_encoding,
+          BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+          0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+          persist_user_defined_timestamps, false /* is_user_key */),
+      index_on_filter_block_builder_without_seq_(
+          index_block_restart_interval, true /*use_delta_encoding*/,
+          use_value_delta_encoding,
+          BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+          0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+          persist_user_defined_timestamps, true /* is_user_key */),
       p_index_builder_(p_index_builder),
       keys_added_to_partition_(0),
       total_added_in_built_(0) {
@@ -270,7 +277,8 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
       table()->get_rep()->get_global_seqno(BlockType::kFilterPartitionIndex),
       &iter, kNullStats, true /* total_order_seek */,
       false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full());
+      index_value_is_full(), false /* block_contents_pinned */,
+      user_defined_timestamps_persisted());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     // entry is larger than all the keys. However its prefix might still be
@@ -309,12 +317,12 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     read_options.read_tier = kBlockCacheTier;
   }
 
-  const Status s =
-      table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
-                             UncompressionDict::GetEmptyDict(), filter_block,
-                             get_context, lookup_context,
-                             /* for_compaction */ false, /* use_cache */ true,
-                             /* async_read */ false);
+  const Status s = table()->RetrieveBlock(
+      prefetch_buffer, read_options, fltr_blk_handle,
+      UncompressionDict::GetEmptyDict(), filter_block, get_context,
+      lookup_context,
+      /* for_compaction */ false, /* use_cache */ true,
+      /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
   return s;
 }
@@ -439,8 +447,8 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
 }
 
 // TODO(myabandeh): merge this with the same function in IndexReader
-Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
-                                                       bool pin) {
+Status PartitionedFilterBlockReader::CacheDependencies(
+    const ReadOptions& ro, bool pin, FilePrefetchBuffer* tail_prefetch_buffer) {
   assert(table());
 
   const BlockBasedTable::Rep* const rep = table()->get_rep();
@@ -470,7 +478,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
       comparator->user_comparator(),
       rep->get_global_seqno(BlockType::kFilterPartitionIndex), &biter,
       kNullStats, true /* total_order_seek */, false /* have_first_key */,
-      index_key_includes_seq(), index_value_is_full());
+      index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -484,21 +493,22 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
       handle.offset() + handle.size() + BlockBasedTable::kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(
-      0, 0, &prefetch_buffer, false /* Implicit autoreadahead */,
-      0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled() ||
+      tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
+    rep->CreateFilePrefetchBuffer(ReadaheadParams(), &prefetch_buffer,
+                                  /*readaheadsize_cb*/ nullptr,
+                                  /*usage=*/FilePrefetchBufferUsage::kUnknown);
 
-  IOOptions opts;
-  s = rep->file->PrepareIOOptions(ro, opts);
-  if (s.ok()) {
-    s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len),
-                                  ro.rate_limiter_priority);
+    IOOptions opts;
+    s = rep->file->PrepareIOOptions(ro, opts);
+    if (s.ok()) {
+      s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                    static_cast<size_t>(prefetch_len));
+    }
+    if (!s.ok()) {
+      return s;
+    }
   }
-  if (!s.ok()) {
-    return s;
-  }
-
   // After prefetch, read the partitions one by one
   for (biter.SeekToFirst(); biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
@@ -507,9 +517,11 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
-        prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
+        prefetch_buffer ? prefetch_buffer.get() : tail_prefetch_buffer, ro,
+        handle, UncompressionDict::GetEmptyDict(),
         /* for_compaction */ false, &block, nullptr /* get_context */,
-        &lookup_context, nullptr /* contents */, false);
+        &lookup_context, nullptr /* contents */, false,
+        /* use_block_cache_for_lookup */ true);
     if (!s.ok()) {
       return s;
     }
@@ -548,4 +560,10 @@ bool PartitionedFilterBlockReader::index_value_is_full() const {
   return table()->get_rep()->index_value_is_full;
 }
 
+bool PartitionedFilterBlockReader::user_defined_timestamps_persisted() const {
+  assert(table());
+  assert(table()->get_rep());
+
+  return table()->get_rep()->user_defined_timestamps_persisted;
+}
 }  // namespace ROCKSDB_NAMESPACE

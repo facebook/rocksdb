@@ -37,6 +37,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_env_wrapper.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -54,6 +55,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -106,11 +108,14 @@ DECLARE_int32(max_write_buffer_number);
 DECLARE_int32(min_write_buffer_number_to_merge);
 DECLARE_int32(max_write_buffer_number_to_maintain);
 DECLARE_int64(max_write_buffer_size_to_maintain);
+DECLARE_bool(use_write_buffer_manager);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
-DECLARE_int64(compressed_cache_size);
-DECLARE_int32(compressed_cache_numshardbits);
+DECLARE_uint64(compressed_secondary_cache_size);
+DECLARE_int32(compressed_secondary_cache_numshardbits);
+DECLARE_int32(secondary_cache_update_interval);
+DECLARE_double(compressed_secondary_cache_ratio);
 DECLARE_int32(compaction_style);
 DECLARE_int32(compaction_pri);
 DECLARE_int32(num_levels);
@@ -157,7 +162,7 @@ DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
-DECLARE_int32(ribbon_starting_level);
+DECLARE_int32(bloom_before_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_bool(detect_filter_construct_corruption);
@@ -194,9 +199,6 @@ DECLARE_bool(rate_limit_user_ops);
 DECLARE_bool(rate_limit_auto_wal_flush);
 DECLARE_uint64(sst_file_manager_bytes_per_sec);
 DECLARE_uint64(sst_file_manager_bytes_per_truncate);
-DECLARE_bool(use_txn);
-DECLARE_uint64(txn_write_policy);
-DECLARE_bool(unordered_write);
 DECLARE_int32(backup_one_in);
 DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
@@ -231,6 +233,7 @@ DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_bool(compression_use_zstd_dict_trainer);
+DECLARE_bool(compression_checksum);
 DECLARE_string(checksum_type);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
@@ -250,10 +253,27 @@ DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+DECLARE_int32(verify_file_checksums_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
+DECLARE_bool(verification_only);
+
+// Options for transaction dbs.
+// Use TransactionDB (a.k.a. Pessimistic Transaction DB)
+// OR OptimisticTransactionDB
+DECLARE_bool(use_txn);
+
+// Options for TransactionDB (a.k.a. Pessimistic Transaction DB)
+DECLARE_uint64(txn_write_policy);
+DECLARE_bool(unordered_write);
+
+// Options for OptimisticTransactionDB
+DECLARE_bool(use_optimistic_txn);
+DECLARE_uint64(occ_validation_policy);
+DECLARE_bool(share_occ_lock_buckets);
+DECLARE_uint32(occ_lock_bucket_count);
 
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
@@ -290,8 +310,10 @@ DECLARE_bool(paranoid_file_checks);
 DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
 DECLARE_uint32(memtable_protection_bytes_per_key);
+DECLARE_uint32(block_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
+DECLARE_bool(persist_user_defined_timestamps);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
 
@@ -313,6 +335,10 @@ DECLARE_bool(allow_data_in_errors);
 
 DECLARE_bool(enable_thread_tracking);
 
+DECLARE_uint32(memtable_max_range_deletions);
+
+DECLARE_uint32(bottommost_file_compaction_delay);
+
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);
@@ -325,7 +351,7 @@ DECLARE_uint64(readahead_size);
 DECLARE_uint64(initial_auto_readahead_size);
 DECLARE_uint64(max_auto_readahead_size);
 DECLARE_uint64(num_file_reads_for_auto_readahead);
-DECLARE_bool(use_io_uring);
+DECLARE_bool(auto_readahead_size);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -335,6 +361,9 @@ constexpr int kValueMaxLen = 100;
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
+    compressed_secondary_cache;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
@@ -459,7 +488,7 @@ inline bool GetNextPrefix(const ROCKSDB_NAMESPACE::Slice& src, std::string* v) {
 #endif
 
 // Append `val` to `*key` in fixed-width big-endian format
-extern inline void AppendIntToString(uint64_t val, std::string* key) {
+inline void AppendIntToString(uint64_t val, std::string* key) {
   // PutFixed64 uses little endian
   PutFixed64(key, val);
   // Reverse to get big endian
@@ -488,7 +517,7 @@ extern KeyGenContext key_gen_ctx;
 // - {0}...{x-1}
 // {(x-1),0}..{(x-1),(y-1)},{(x-1),(y-1),0}..{(x-1),(y-1),(z-1)} and so on.
 // Additionally, a trailer of 0-7 bytes could be appended.
-extern inline std::string Key(int64_t val) {
+inline std::string Key(int64_t val) {
   uint64_t window = key_gen_ctx.window;
   size_t levels = key_gen_ctx.weights.size();
   std::string key;
@@ -526,7 +555,7 @@ extern inline std::string Key(int64_t val) {
 }
 
 // Given a string key, map it to an index into the expected values buffer
-extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
+inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
   size_t size_key = big_endian_key.size();
   std::vector<uint64_t> prefixes;
 
@@ -581,8 +610,8 @@ inline bool GetFirstIntValInPrefix(std::string big_endian_prefix,
   return GetIntVal(std::move(big_endian_prefix), key_p);
 }
 
-extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
-                                         const std::string& ub) {
+inline uint64_t GetPrefixKeyCount(const std::string& prefix,
+                                  const std::string& ub) {
   uint64_t start = 0;
   uint64_t end = 0;
 
@@ -594,7 +623,7 @@ extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
   return end - start;
 }
 
-extern inline std::string StringToHex(const std::string& str) {
+inline std::string StringToHex(const std::string& str) {
   std::string result = "0x";
   result.append(Slice(str).ToString(true));
   return result;
@@ -607,59 +636,55 @@ inline std::string WideColumnsToHex(const WideColumns& columns) {
 
   std::ostringstream oss;
 
-  oss << std::hex;
-
-  auto it = columns.begin();
-  oss << *it;
-  for (++it; it != columns.end(); ++it) {
-    oss << ' ' << *it;
-  }
+  WideColumnsHelper::DumpWideColumns(columns, oss, true);
 
   return oss.str();
 }
 
 // Unified output format for double parameters
-extern inline std::string FormatDoubleParam(double param) {
+inline std::string FormatDoubleParam(double param) {
   return std::to_string(param);
 }
 
 // Make sure that double parameter is a value we can reproduce by
 // re-inputting the value printed.
-extern inline void SanitizeDoubleParam(double* param) {
+inline void SanitizeDoubleParam(double* param) {
   *param = std::atof(FormatDoubleParam(*param).c_str());
 }
 
-extern void PoolSizeChangeThread(void* v);
+void PoolSizeChangeThread(void* v);
 
-extern void DbVerificationThread(void* v);
+void DbVerificationThread(void* v);
 
-extern void TimestampedSnapshotsThread(void* v);
+void CompressedCacheSetCapacityThread(void* v);
 
-extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
+void TimestampedSnapshotsThread(void* v);
 
-extern int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration);
+void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 
-extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
-                                          uint64_t iteration);
+int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration);
 
-extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
-extern uint32_t GetValueBase(Slice s);
+std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
+                                   uint64_t iteration);
 
-extern WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
-extern WideColumns GenerateExpectedWideColumns(uint32_t value_base,
-                                               const Slice& slice);
-extern bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
-extern bool VerifyWideColumns(const WideColumns& columns);
+size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
+uint32_t GetValueBase(Slice s);
 
-extern StressTest* CreateCfConsistencyStressTest();
-extern StressTest* CreateBatchedOpsStressTest();
-extern StressTest* CreateNonBatchedOpsStressTest();
-extern StressTest* CreateMultiOpsTxnsStressTest();
-extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
-extern void InitializeHotKeyGenerator(double alpha);
-extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
+WideColumns GenerateExpectedWideColumns(uint32_t value_base,
+                                        const Slice& slice);
+bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
+bool VerifyWideColumns(const WideColumns& columns);
 
-extern std::string GetNowNanos();
+StressTest* CreateCfConsistencyStressTest();
+StressTest* CreateBatchedOpsStressTest();
+StressTest* CreateNonBatchedOpsStressTest();
+StressTest* CreateMultiOpsTxnsStressTest();
+void CheckAndSetOptionsForMultiOpsTxnStressTest();
+void InitializeHotKeyGenerator(double alpha);
+int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+
+std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

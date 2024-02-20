@@ -91,6 +91,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // is enabled.
   uint64_t EstimatedFileSize() const override;
 
+  // Get the size of the "tail" part of a SST file. "Tail" refers to
+  // all blocks after data blocks till the end of the SST file.
+  uint64_t GetTailSize() const override;
+
   bool NeedCompact() const override;
 
   // Get table properties
@@ -102,9 +106,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
-  void SetSeqnoTimeTableProperties(
-      const std::string& encoded_seqno_to_time_mapping,
-      uint64_t oldest_ancestor_time) override;
+  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
+                                   uint64_t oldest_ancestor_time) override;
 
  private:
   bool ok() const { return status().ok(); }

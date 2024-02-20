@@ -15,7 +15,7 @@ public class ThreadStatus {
   private final OperationType operationType;
   private final long operationElapsedTime; // microseconds
   private final OperationStage operationStage;
-  private final long  operationProperties[];
+  private final long[] operationProperties;
   private final StateType stateType;
 
   /**
@@ -113,11 +113,12 @@ public class ThreadStatus {
   /**
    * Get the list of properties that describe some details about the current
    * operation.
-   *
+   * <p>
    * Each field in might have different meanings for different operations.
    *
    * @return the properties
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   public long[] getOperationProperties() {
     return operationProperties;
   }

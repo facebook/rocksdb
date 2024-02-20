@@ -6,9 +6,11 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "db/write_batch_internal.h"
 #include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -219,7 +221,7 @@ TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   ASSERT_OK(Flush());
   std::unordered_map<std::string, uint64_t> table_files;
   uint64_t table_files_size = 0;
-  GetAllDataFiles(kTableFile, &table_files, &table_files_size);
+  ASSERT_OK(GetAllDataFiles(kTableFile, &table_files, &table_files_size));
 
   {
     // Scenario 1: Table verified in `VerifyFileChecksums()`. This should read
@@ -242,6 +244,118 @@ TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   }
 }
 
+TEST_F(DBStatisticsTest, BlockChecksumStats) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Scenario 0: only WAL data. Not verified so require ticker to be zero.
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+
+  // Scenario 1: Flushed table verified in `VerifyChecksum()`. This opens a
+  // `TableReader` to verify each of the four blocks (meta-index, table
+  // properties, index, and data block).
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_EQ(4,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+
+  // Scenario 2: Corrupted table verified in `VerifyChecksum()`. The corruption
+  // is in the fourth and final verified block, i.e., the data block.
+  std::unordered_map<std::string, uint64_t> table_files;
+  ASSERT_OK(GetAllDataFiles(kTableFile, &table_files));
+  ASSERT_EQ(1, table_files.size());
+  std::string table_name = table_files.begin()->first;
+  // Assumes the data block starts at offset zero.
+  ASSERT_OK(test::CorruptFile(options.env, table_name, 0 /* offset */,
+                              3 /* bytes_to_corrupt */));
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_NOK(db_->VerifyChecksum());
+  ASSERT_EQ(4,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(1,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+}
+
+TEST_F(DBStatisticsTest, BytesWrittenStats) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kExceptHistogramOrTimers);
+  Reopen(options);
+
+  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(WAL_FILE_BYTES));
+  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
+
+  const int kNumKeysWritten = 100;
+
+  // Scenario 0: Not using transactions.
+  // This will write to WAL and memtable directly.
+  ASSERT_OK(options.statistics->Reset());
+
+  for (int i = 0; i < kNumKeysWritten; ++i) {
+    ASSERT_OK(Put(Key(i), "val"));
+  }
+
+  EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
+            options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
+
+  // Scenario 1: Using transactions.
+  // This should not double count BYTES_WRITTEN (issue #12061).
+  for (bool enable_pipelined_write : {false, true}) {
+    ASSERT_OK(options.statistics->Reset());
+
+    // Destroy the DB to recreate as a TransactionDB.
+    Destroy(options, true);
+
+    // Create a TransactionDB.
+    TransactionDB* txn_db = nullptr;
+    TransactionDBOptions txn_db_opts;
+    txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+    options.enable_pipelined_write = enable_pipelined_write;
+    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+    ASSERT_NE(txn_db, nullptr);
+    db_ = txn_db->GetBaseDB();
+
+    WriteOptions wopts;
+    TransactionOptions txn_opts;
+    Transaction* txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(txn->Put(Key(i), "val"));
+    }
+
+    // Prepare() writes to WAL, but not to memtable. (WriteCommitted)
+    ASSERT_OK(txn->Prepare());
+    EXPECT_NE(0, options.statistics->getTickerCount(WAL_FILE_BYTES));
+    // BYTES_WRITTEN would have been non-zero previously (issue #12061).
+    EXPECT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
+
+    // Commit() writes to memtable and also a commit marker to WAL.
+    ASSERT_OK(txn->Commit());
+    delete txn;
+
+    // The WAL has an extra header of size `kHeader` written to it,
+    // as we are writing twice to it (first during Prepare, second during
+    // Commit).
+    EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
+              options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
+                  WriteBatchInternal::kHeader);
+
+    // Cleanup
+    db_ = nullptr;
+    delete txn_db;
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

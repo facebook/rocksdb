@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * The type used to refer to a thread operation.
- *
+ * <p>
  * A thread operation describes high-level action of a thread,
  * examples include compaction and flush.
  */

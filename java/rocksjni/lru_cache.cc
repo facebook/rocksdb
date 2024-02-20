@@ -40,9 +40,9 @@ jlong Java_org_rocksdb_LRUCache_newLRUCache(JNIEnv* /*env*/, jclass /*jcls*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_LRUCache_disposeInternal(JNIEnv* /*env*/,
-                                               jobject /*jobj*/,
-                                               jlong jhandle) {
+void Java_org_rocksdb_LRUCache_disposeInternalJni(JNIEnv* /*env*/,
+                                                  jclass /*jcls*/,
+                                                  jlong jhandle) {
   auto* sptr_lru_cache =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
   delete sptr_lru_cache;  // delete std::shared_ptr

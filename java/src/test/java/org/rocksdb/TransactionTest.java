@@ -116,7 +116,7 @@ public class TransactionTest extends AbstractTransactionTest {
         txn.commit();
       }
 
-      Transaction txnPrepare;
+      final Transaction txnPrepare;
       txnPrepare = dbContainer.beginTransaction();
       txnPrepare.setName("txnPrepare1");
       txnPrepare.put(k1, v12);
@@ -147,7 +147,7 @@ public class TransactionTest extends AbstractTransactionTest {
         txn.commit();
       }
 
-      Transaction txnPrepare;
+      final Transaction txnPrepare;
       txnPrepare = dbContainer.beginTransaction();
       txnPrepare.setName("txnPrepare1");
       txnPrepare.put(k1, v12);
@@ -416,12 +416,13 @@ public class TransactionTest extends AbstractTransactionTest {
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
     final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+    final ColumnFamilyOptions defaultColumnFamilyOptions = new ColumnFamilyOptions();
+    defaultColumnFamilyOptions.setMergeOperator(new StringAppendOperator("++"));
     final ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions();
-    final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-        Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor(TXN_TEST_COLUMN_FAMILY,
-                columnFamilyOptions));
+    columnFamilyOptions.setMergeOperator(new StringAppendOperator("**"));
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(
+        new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, defaultColumnFamilyOptions),
+        new ColumnFamilyDescriptor(TXN_TEST_COLUMN_FAMILY, columnFamilyOptions));
     final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
     final TransactionDB txnDb;

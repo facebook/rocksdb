@@ -177,7 +177,7 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
 Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
                                     std::string* trash_file) {
   // Sanity check of the path
-  size_t idx = file_path.rfind("/");
+  size_t idx = file_path.rfind('/');
   if (idx == std::string::npos || idx == file_path.size() - 1) {
     return Status::InvalidArgument("file_path is corrupted");
   }
@@ -256,6 +256,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
       if (is_complete) {
+        RecordTick(stats_.get(), FILES_DELETED_FROM_TRASH_QUEUE);
         queue_.pop();
       }
 
@@ -366,7 +367,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
               DirFsyncOptions(DirFsyncOptions::FsyncReason::kFileDeleted));
           TEST_SYNC_POINT_CALLBACK(
               "DeleteScheduler::DeleteTrashFile::AfterSyncDir",
-              reinterpret_cast<void*>(const_cast<std::string*>(&dir_to_sync)));
+              static_cast<void*>(const_cast<std::string*>(&dir_to_sync)));
         }
       }
       if (s.ok()) {

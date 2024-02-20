@@ -208,9 +208,9 @@ class UpdateManifestCommand : public LDBCommand {
                         const std::vector<std::string>& flags);
 
   static void Help(std::string& ret);
-  virtual void DoCommand() override;
+  void DoCommand() override;
 
-  virtual bool NoDBOpen() override { return true; }
+  bool NoDBOpen() override { return true; }
 
  private:
   bool verbose_;
@@ -403,6 +403,38 @@ class GetCommand : public LDBCommand {
   std::string key_;
 };
 
+class MultiGetCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "multi_get"; }
+
+  MultiGetCommand(const std::vector<std::string>& params,
+                  const std::map<std::string, std::string>& options,
+                  const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::vector<std::string> keys_;
+};
+
+class GetEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "get_entity"; }
+
+  GetEntityCommand(const std::vector<std::string>& params,
+                   const std::map<std::string, std::string>& options,
+                   const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string key_;
+};
+
 class ApproxSizeCommand : public LDBCommand {
  public:
   static std::string Name() { return "approxsize"; }
@@ -528,6 +560,26 @@ class PutCommand : public LDBCommand {
  private:
   std::string key_;
   std::string value_;
+};
+
+class PutEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "put_entity"; }
+
+  PutEntityCommand(const std::vector<std::string>& params,
+                   const std::map<std::string, std::string>& options,
+                   const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+  void OverrideBaseOptions() override;
+
+ private:
+  std::string key_;
+  std::vector<std::string> column_names_;
+  std::vector<std::string> column_values_;
 };
 
 /**

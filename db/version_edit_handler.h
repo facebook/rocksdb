@@ -133,8 +133,8 @@ class VersionEditHandler : public VersionEditHandlerBase {
   bool HasMissingFiles() const;
 
   void GetDbId(std::string* db_id) const {
-    if (db_id && version_edit_params_.has_db_id_) {
-      *db_id = version_edit_params_.db_id_;
+    if (db_id && version_edit_params_.HasDbId()) {
+      *db_id = version_edit_params_.GetDbId();
     }
   }
 
@@ -202,10 +202,22 @@ class VersionEditHandler : public VersionEditHandlerBase {
   bool initialized_;
   std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
   EpochNumberRequirement epoch_number_requirement_;
+  std::unordered_set<uint32_t> cfds_to_mark_no_udt_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& edit);
+
+  // When `FileMetaData.user_defined_timestamps_persisted` is false and
+  // user-defined timestamp size is non-zero. User-defined timestamps are
+  // stripped from file boundaries: `smallest`, `largest` in
+  // `VersionEdit.DecodeFrom` before they were written to Manifest.
+  // This is the mirroring change to handle file boundaries on the Manifest read
+  // path for this scenario: to pad a minimum timestamp to the user key in
+  // `smallest` and `largest` so their format are consistent with the running
+  // user comparator.
+  Status MaybeHandleFileBoundariesForNewFiles(VersionEdit& edit,
+                                              const ColumnFamilyData* cfd);
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.

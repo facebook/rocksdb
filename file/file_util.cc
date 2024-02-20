@@ -13,6 +13,7 @@
 #include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
+#include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -25,6 +26,7 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
   FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
+  const IOOptions opts;
 
   {
     soptions.temperature = temperature;
@@ -36,7 +38,7 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
 
     if (size == 0) {
       // default argument means copy everything
-      io_s = fs->GetFileSize(source, IOOptions(), &size, nullptr);
+      io_s = fs->GetFileSize(source, opts, &size, nullptr);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -59,13 +61,14 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
     if (slice.size() == 0) {
       return IOStatus::Corruption("file too small");
     }
-    io_s = dest_writer->Append(slice);
+
+    io_s = dest_writer->Append(opts, slice);
     if (!io_s.ok()) {
       return io_s;
     }
     size -= slice.size();
   }
-  return dest_writer->Sync(use_fsync);
+  return dest_writer->Sync(opts, use_fsync);
 }
 
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
@@ -84,6 +87,7 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
       return io_s;
     }
 
+    // TODO: pass in Histograms if the destination file is sst or blob
     dest_writer.reset(
         new WritableFileWriter(std::move(destfile), destination, options));
   }
@@ -98,19 +102,21 @@ IOStatus CreateFile(FileSystem* fs, const std::string& destination,
   const EnvOptions soptions;
   IOStatus io_s;
   std::unique_ptr<WritableFileWriter> dest_writer;
+  const IOOptions opts;
 
   std::unique_ptr<FSWritableFile> destfile;
   io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
   if (!io_s.ok()) {
     return io_s;
   }
+  // TODO: pass in Histograms if the destination file is sst or blob
   dest_writer.reset(
       new WritableFileWriter(std::move(destfile), destination, soptions));
-  io_s = dest_writer->Append(Slice(contents));
+  io_s = dest_writer->Append(opts, Slice(contents));
   if (!io_s.ok()) {
     return io_s;
   }
-  return dest_writer->Sync(use_fsync);
+  return dest_writer->Sync(opts, use_fsync);
 }
 
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
@@ -137,7 +143,7 @@ IOStatus GenerateOneFileChecksum(
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool /*allow_mmap_reads*/,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
-    Env::IOPriority rate_limiter_priority) {
+    const ReadOptions& read_options, Statistics* stats, SystemClock* clock) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -186,8 +192,8 @@ IOStatus GenerateOneFileChecksum(
       return io_s;
     }
     reader.reset(new RandomAccessFileReader(
-        std::move(r_file), file_path, nullptr /*Env*/, io_tracer, nullptr,
-        Histograms::HISTOGRAM_ENUM_MAX, nullptr, rate_limiter));
+        std::move(r_file), file_path, clock, io_tracer, stats,
+        Histograms::SST_READ_MICROS, nullptr, rate_limiter));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on
@@ -206,11 +212,15 @@ IOStatus GenerateOneFileChecksum(
   Slice slice;
   uint64_t offset = 0;
   IOOptions opts;
+  io_s = reader->PrepareIOOptions(read_options, opts);
+  if (!io_s.ok()) {
+    return io_s;
+  }
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    io_s = reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr,
-                        rate_limiter_priority);
+    io_s =
+        reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr);
     if (!io_s.ok()) {
       return IOStatus::Corruption("file read failed with error: " +
                                   io_s.ToString());

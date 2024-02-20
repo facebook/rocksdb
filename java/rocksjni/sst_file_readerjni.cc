@@ -39,7 +39,7 @@ jlong Java_org_rocksdb_SstFileReader_newSstFileReader(JNIEnv * /*env*/,
  * Method:    open
  * Signature: (JLjava/lang/String;)V
  */
-void Java_org_rocksdb_SstFileReader_open(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileReader_open(JNIEnv *env, jclass /*jcls*/,
                                          jlong jhandle, jstring jfile_path) {
   const char *file_path = env->GetStringUTFChars(jfile_path, nullptr);
   if (file_path == nullptr) {
@@ -62,8 +62,7 @@ void Java_org_rocksdb_SstFileReader_open(JNIEnv *env, jobject /*jobj*/,
  * Signature: (JJ)J
  */
 jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle,
+                                                 jclass /*jcls*/, jlong jhandle,
                                                  jlong jread_options_handle) {
   auto *sst_file_reader =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
@@ -77,9 +76,9 @@ jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
-                                                    jobject /*jobj*/,
-                                                    jlong jhandle) {
+void Java_org_rocksdb_SstFileReader_disposeInternalJni(JNIEnv * /*env*/,
+                                                       jclass /*jcls*/,
+                                                       jlong jhandle) {
   delete reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
 }
 
@@ -88,8 +87,7 @@ void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
  * Method:    verifyChecksum
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env,
-                                                   jobject /*jobj*/,
+void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env, jclass /*jcls*/,
                                                    jlong jhandle) {
   auto *sst_file_reader =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
@@ -105,7 +103,7 @@ void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env,
  * Signature: (J)J
  */
 jobject Java_org_rocksdb_SstFileReader_getTableProperties(JNIEnv *env,
-                                                          jobject /*jobj*/,
+                                                          jclass /*jcls*/,
                                                           jlong jhandle) {
   auto *sst_file_reader =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);

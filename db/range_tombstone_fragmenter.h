@@ -54,7 +54,8 @@ struct FragmentedRangeTombstoneList {
   FragmentedRangeTombstoneList(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       const InternalKeyComparator& icmp, bool for_compaction = false,
-      const std::vector<SequenceNumber>& snapshots = {});
+      const std::vector<SequenceNumber>& snapshots = {},
+      const bool tombstone_end_include_ts = true);
 
   std::vector<RangeTombstoneStack>::const_iterator begin() const {
     return tombstones_.begin();
@@ -148,6 +149,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
       const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
 
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) override {
+    upper_bound_ = read_seqno;
+  }
+
   void SeekToFirst() override;
   void SeekToLast() override;
 
@@ -194,13 +199,15 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     pinned_seq_pos_ = tombstones_->seq_end();
   }
 
-  RangeTombstone Tombstone() const {
+  RangeTombstone Tombstone(bool logical_strip_timestamp = false) const {
     assert(Valid());
     if (icmp_->user_comparator()->timestamp_size()) {
-      return RangeTombstone(start_key(), end_key(), seq(), timestamp());
+      return RangeTombstone(start_key(), end_key(), seq(), timestamp(),
+                            logical_strip_timestamp);
     }
     return RangeTombstone(start_key(), end_key(), seq());
   }
+
   // Note that start_key() and end_key() are not guaranteed to have the
   // correct timestamp. User can call timestamp() to get the correct
   // timestamp().

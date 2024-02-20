@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * Options that control write operations.
- *
+ * <p>
  * Note that developers should call WriteOptions.dispose() to release the
  * c++ side memory before a WriteOptions instance runs out of scope.
  */
@@ -28,33 +28,32 @@ public class WriteOptions extends RocksObject {
 
   /**
    * Copy constructor for WriteOptions.
-   *
+   * <p>
    * NOTE: This does a shallow copy, which means comparator, merge_operator, compaction_filter,
    * compaction_filter_factory and other pointers will be cloned!
    *
    * @param other The ColumnFamilyOptions to copy.
    */
-  public WriteOptions(WriteOptions other) {
+  public WriteOptions(final WriteOptions other) {
     super(copyWriteOptions(other.nativeHandle_));
   }
-
 
   /**
    * If true, the write will be flushed from the operating system
    * buffer cache (by calling WritableFile::Sync()) before the write
    * is considered complete.  If this flag is true, writes will be
    * slower.
-   *
+   * <p>
    * If this flag is false, and the machine crashes, some recent
    * writes may be lost.  Note that if it is just the process that
    * crashes (i.e., the machine does not reboot), no writes will be
    * lost even if sync==false.
-   *
+   * <p>
    * In other words, a DB write with sync==false has similar
    * crash semantics as the "write()" system call.  A DB write
    * with sync==true has similar crash semantics to a "write()"
    * system call followed by "fdatasync()".
-   *
+   * <p>
    * Default: false
    *
    * @param flag a boolean flag to indicate whether a write
@@ -71,12 +70,12 @@ public class WriteOptions extends RocksObject {
    * buffer cache (by calling WritableFile::Sync()) before the write
    * is considered complete.  If this flag is true, writes will be
    * slower.
-   *
+   * <p>
    * If this flag is false, and the machine crashes, some recent
    * writes may be lost.  Note that if it is just the process that
    * crashes (i.e., the machine does not reboot), no writes will be
    * lost even if sync==false.
-   *
+   * <p>
    * In other words, a DB write with sync==false has similar
    * crash semantics as the "write()" system call.  A DB write
    * with sync==true has similar crash semantics to a "write()"
@@ -121,7 +120,7 @@ public class WriteOptions extends RocksObject {
    * If true and if user is trying to write to column families that don't exist
    * (they were dropped), ignore the write (don't return an error). If there
    * are multiple writes in a WriteBatch, other writes will succeed.
-   *
+   * <p>
    * Default: false
    *
    * @param ignoreMissingColumnFamilies true to ignore writes to column families
@@ -138,7 +137,7 @@ public class WriteOptions extends RocksObject {
    * If true and if user is trying to write to column families that don't exist
    * (they were dropped), ignore the write (don't return an error). If there
    * are multiple writes in a WriteBatch, other writes will succeed.
-   *
+   * <p>
    * Default: false
    *
    * @return true if writes to column families which don't exist are ignored
@@ -175,7 +174,7 @@ public class WriteOptions extends RocksObject {
    * will be cancelled immediately with {@link Status.Code#Incomplete} returned.
    * Otherwise, it will be slowed down. The slowdown value is determined by
    * RocksDB to guarantee it introduces minimum impacts to high priority writes.
-   *
+   * <p>
    * Default: false
    *
    * @param lowPri true if the write request should be of lower priority than
@@ -191,7 +190,7 @@ public class WriteOptions extends RocksObject {
   /**
    * Returns true if this write request is of lower priority if compaction is
    * behind.
-   *
+   * <p>
    * See {@link #setLowPri(boolean)}.
    *
    * @return true if this write request is of lower priority, false otherwise.
@@ -206,7 +205,7 @@ public class WriteOptions extends RocksObject {
    * in concurrent writes if keys in one writebatch are sequential. In
    * non-concurrent writes (when {@code concurrent_memtable_writes} is false) this
    * option will be ignored.
-   *
+   * <p>
    * Default: false
    *
    * @return true if writebatch will maintain the last insert positions of each memtable as hints in
@@ -222,7 +221,7 @@ public class WriteOptions extends RocksObject {
    * in concurrent writes if keys in one writebatch are sequential. In
    * non-concurrent writes (when {@code concurrent_memtable_writes} is false) this
    * option will be ignored.
-   *
+   * <p>
    * Default: false
    *
    * @param memtableInsertHintPerBatch true if writebatch should maintain the last insert positions
@@ -234,23 +233,26 @@ public class WriteOptions extends RocksObject {
     return this;
   }
 
-  private native static long newWriteOptions();
-  private native static long copyWriteOptions(long handle);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native long newWriteOptions();
+  private static native long copyWriteOptions(long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native void setSync(long handle, boolean flag);
-  private native boolean sync(long handle);
-  private native void setDisableWAL(long handle, boolean flag);
-  private native boolean disableWAL(long handle);
-  private native void setIgnoreMissingColumnFamilies(final long handle,
-      final boolean ignoreMissingColumnFamilies);
-  private native boolean ignoreMissingColumnFamilies(final long handle);
-  private native void setNoSlowdown(final long handle,
-      final boolean noSlowdown);
-  private native boolean noSlowdown(final long handle);
-  private native void setLowPri(final long handle, final boolean lowPri);
-  private native boolean lowPri(final long handle);
-  private native boolean memtableInsertHintPerBatch(final long handle);
-  private native void setMemtableInsertHintPerBatch(
+  private static native void setSync(long handle, boolean flag);
+  private static native boolean sync(long handle);
+  private static native void setDisableWAL(long handle, boolean flag);
+  private static native boolean disableWAL(long handle);
+  private static native void setIgnoreMissingColumnFamilies(
+      final long handle, final boolean ignoreMissingColumnFamilies);
+  private static native boolean ignoreMissingColumnFamilies(final long handle);
+  private static native void setNoSlowdown(final long handle, final boolean noSlowdown);
+  private static native boolean noSlowdown(final long handle);
+  private static native void setLowPri(final long handle, final boolean lowPri);
+  private static native boolean lowPri(final long handle);
+  private static native boolean memtableInsertHintPerBatch(final long handle);
+  private static native void setMemtableInsertHintPerBatch(
       final long handle, final boolean memtableInsertHintPerBatch);
 }

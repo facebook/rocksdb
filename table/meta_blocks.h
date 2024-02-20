@@ -32,6 +32,7 @@ struct TableProperties;
 
 // Meta block names for metaindex
 extern const std::string kPropertiesBlockName;
+extern const std::string kIndexBlockName;
 extern const std::string kPropertiesBlockOldName;
 extern const std::string kCompressionDictBlockName;
 extern const std::string kRangeDelBlockName;
@@ -87,19 +88,23 @@ void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
 // property collectors.
 bool NotifyCollectTableCollectorsOnAdd(
     const Slice& key, const Slice& value, uint64_t file_size,
-    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
+    const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
     Logger* info_log);
 
 void NotifyCollectTableCollectorsOnBlockAdd(
-    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
+    const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
     uint64_t block_uncomp_bytes, uint64_t block_compressed_bytes_fast,
     uint64_t block_compressed_bytes_slow);
 
 // NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
+// It will also populate `user_collected_properties` and `readable_properties`
+// with the collected properties.
 bool NotifyCollectTableCollectorsOnFinish(
-    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    Logger* info_log, PropertyBlockBuilder* builder);
+    const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
+    Logger* info_log, PropertyBlockBuilder* builder,
+    UserCollectedProperties& user_collected_properties,
+    UserCollectedProperties& readable_properties);
 
 // Read table properties from a file using known BlockHandle.
 // @returns a status to indicate if the operation succeeded. On success,

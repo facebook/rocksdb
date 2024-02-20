@@ -78,13 +78,13 @@ FaultInjectionSecondaryCache::GetErrorContext() {
 
 Status FaultInjectionSecondaryCache::Insert(
     const Slice& key, Cache::ObjectPtr value,
-    const Cache::CacheItemHelper* helper) {
+    const Cache::CacheItemHelper* helper, bool force_insert) {
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {
     return Status::IOError();
   }
 
-  return base_->Insert(key, value, helper);
+  return base_->Insert(key, value, helper, force_insert);
 }
 
 std::unique_ptr<SecondaryCacheResultHandle>
@@ -92,6 +92,7 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      const Cache::CacheItemHelper* helper,
                                      Cache::CreateContext* create_context,
                                      bool wait, bool advise_erase,
+                                     Statistics* stats,
                                      bool& kept_in_sec_cache) {
   ErrorContext* ctx = GetErrorContext();
   if (base_is_compressed_sec_cache_) {
@@ -99,11 +100,12 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
       return nullptr;
     } else {
       return base_->Lookup(key, helper, create_context, wait, advise_erase,
-                           kept_in_sec_cache);
+                           stats, kept_in_sec_cache);
     }
   } else {
-    std::unique_ptr<SecondaryCacheResultHandle> hdl = base_->Lookup(
-        key, helper, create_context, wait, advise_erase, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> hdl =
+        base_->Lookup(key, helper, create_context, wait, advise_erase, stats,
+                      kept_in_sec_cache);
     if (wait && ctx->rand.OneIn(prob_)) {
       hdl.reset();
     }

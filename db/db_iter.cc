@@ -18,6 +18,7 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "memory/arena.h"
@@ -77,6 +78,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expose_blob_index_(expose_blob_index),
       is_blob_(false),
       arena_mode_(arena_mode),
+      io_activity_(read_options.io_activity),
       db_impl_(db_impl),
       cfd_(cfd),
       timestamp_ub_(read_options.timestamp),
@@ -111,6 +113,9 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
   } else if (prop_name == "rocksdb.iterator.internal-key") {
     *prop = saved_key_.GetUserKey().ToString();
     return Status::OK();
+  } else if (prop_name == "rocksdb.iterator.write-time") {
+    // TODO(yuzhangyu): implement return the actual write time.
+    return Status::NotSupported("write time property is under construction");
   }
   return Status::InvalidArgument("Unidentified property.");
 }
@@ -196,12 +201,12 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.fill_cache = fill_cache_;
   read_options.verify_checksums = verify_checksums_;
-
+  read_options.io_activity = io_activity_;
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
@@ -230,11 +235,35 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
     return false;
   }
 
-  if (!wide_columns_.empty() &&
-      wide_columns_[0].name() == kDefaultWideColumnName) {
-    value_ = wide_columns_[0].value();
+  if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+    value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
   }
 
+  return true;
+}
+
+bool DBIter::SetValueAndColumnsFromMergeResult(const Status& merge_status,
+                                               ValueType result_type) {
+  if (!merge_status.ok()) {
+    valid_ = false;
+    status_ = merge_status;
+    return false;
+  }
+
+  if (result_type == kTypeWideColumnEntity) {
+    if (!SetValueAndColumnsFromEntity(saved_value_)) {
+      assert(!valid_);
+      return false;
+    }
+
+    valid_ = true;
+    return true;
+  }
+
+  assert(result_type == kTypeValue);
+  SetValueAndColumnsFromPlain(pinned_value_.data() ? pinned_value_
+                                                   : saved_value_);
+  valid_ = true;
   return true;
 }
 
@@ -366,9 +395,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeValue:
           case kTypeBlobIndex:
           case kTypeWideColumnEntity:
-            if (!iter_.PrepareValue()) {
-              assert(!iter_.status().ok());
-              valid_ = false;
+            if (!PrepareValue()) {
               return false;
             }
             if (timestamp_lb_) {
@@ -399,9 +426,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             return true;
             break;
           case kTypeMerge:
-            if (!iter_.PrepareValue()) {
-              assert(!iter_.status().ok());
-              valid_ = false;
+            if (!PrepareValue()) {
               return false;
             }
             saved_key_.SetUserKey(
@@ -546,16 +571,14 @@ bool DBIter::MergeValuesNewToOld() {
       iter_.Next();
       break;
     }
-    if (!iter_.PrepareValue()) {
-      valid_ = false;
+    if (!PrepareValue()) {
       return false;
     }
 
     if (kTypeValue == ikey.type) {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
-      const Slice val = iter_.value();
-      if (!Merge(&val, ikey.user_key)) {
+      if (!MergeWithPlainBaseValue(iter_.value(), ikey.user_key)) {
         return false;
       }
       // iter_ is positioned after put
@@ -584,7 +607,7 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
       valid_ = true;
-      if (!Merge(&blob_value_, ikey.user_key)) {
+      if (!MergeWithPlainBaseValue(blob_value_, ikey.user_key)) {
         return false;
       }
 
@@ -598,7 +621,7 @@ bool DBIter::MergeValuesNewToOld() {
       }
       return true;
     } else if (kTypeWideColumnEntity == ikey.type) {
-      if (!MergeEntity(iter_.value(), ikey.user_key)) {
+      if (!MergeWithWideColumnBaseValue(iter_.value(), ikey.user_key)) {
         return false;
       }
 
@@ -628,7 +651,7 @@ bool DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  if (!Merge(nullptr, saved_key_.GetUserKey())) {
+  if (!MergeWithNoBaseValue(saved_key_.GetUserKey())) {
     return false;
   }
   assert(status_.ok());
@@ -874,8 +897,7 @@ bool DBIter::FindValueForCurrentKey() {
       return FindValueForCurrentKeyUsingSeek();
     }
 
-    if (!iter_.PrepareValue()) {
-      valid_ = false;
+    if (!PrepareValue()) {
       return false;
     }
 
@@ -964,9 +986,6 @@ bool DBIter::FindValueForCurrentKey() {
     assert(last_key_entry_type == ikey_.type);
   }
 
-  Status s;
-  s.PermitUncheckedError();
-
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeDeletionWithTimestamp:
@@ -982,7 +1001,7 @@ bool DBIter::FindValueForCurrentKey() {
       if (last_not_merge_type == kTypeDeletion ||
           last_not_merge_type == kTypeSingleDeletion ||
           last_not_merge_type == kTypeDeletionWithTimestamp) {
-        if (!Merge(nullptr, saved_key_.GetUserKey())) {
+        if (!MergeWithNoBaseValue(saved_key_.GetUserKey())) {
           return false;
         }
         return true;
@@ -997,7 +1016,7 @@ bool DBIter::FindValueForCurrentKey() {
           return false;
         }
         valid_ = true;
-        if (!Merge(&blob_value_, saved_key_.GetUserKey())) {
+        if (!MergeWithPlainBaseValue(blob_value_, saved_key_.GetUserKey())) {
           return false;
         }
 
@@ -1005,14 +1024,15 @@ bool DBIter::FindValueForCurrentKey() {
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
-        if (!MergeEntity(pinned_value_, saved_key_.GetUserKey())) {
+        if (!MergeWithWideColumnBaseValue(pinned_value_,
+                                          saved_key_.GetUserKey())) {
           return false;
         }
 
         return true;
       } else {
         assert(last_not_merge_type == kTypeValue);
-        if (!Merge(&pinned_value_, saved_key_.GetUserKey())) {
+        if (!MergeWithPlainBaseValue(pinned_value_, saved_key_.GetUserKey())) {
           return false;
         }
         return true;
@@ -1042,11 +1062,6 @@ bool DBIter::FindValueForCurrentKey() {
           "Unknown value type: " +
           std::to_string(static_cast<unsigned int>(last_key_entry_type)));
       return false;
-  }
-  if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
-    return false;
   }
   valid_ = true;
   return true;
@@ -1121,8 +1136,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
     return true;
   }
-  if (!iter_.PrepareValue()) {
-    valid_ = false;
+  if (!PrepareValue()) {
     return false;
   }
   if (timestamp_size_ > 0) {
@@ -1187,14 +1201,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         ikey.type == kTypeDeletionWithTimestamp) {
       break;
     }
-    if (!iter_.PrepareValue()) {
-      valid_ = false;
+    if (!PrepareValue()) {
       return false;
     }
 
     if (ikey.type == kTypeValue) {
-      const Slice val = iter_.value();
-      if (!Merge(&val, saved_key_.GetUserKey())) {
+      if (!MergeWithPlainBaseValue(iter_.value(), saved_key_.GetUserKey())) {
         return false;
       }
       return true;
@@ -1213,7 +1225,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         return false;
       }
       valid_ = true;
-      if (!Merge(&blob_value_, saved_key_.GetUserKey())) {
+      if (!MergeWithPlainBaseValue(blob_value_, saved_key_.GetUserKey())) {
         return false;
       }
 
@@ -1221,7 +1233,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
-      if (!MergeEntity(iter_.value(), saved_key_.GetUserKey())) {
+      if (!MergeWithWideColumnBaseValue(iter_.value(),
+                                        saved_key_.GetUserKey())) {
         return false;
       }
 
@@ -1235,7 +1248,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
   }
 
-  if (!Merge(nullptr, saved_key_.GetUserKey())) {
+  if (!MergeWithNoBaseValue(saved_key_.GetUserKey())) {
     return false;
   }
 
@@ -1258,47 +1271,42 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   return true;
 }
 
-bool DBIter::Merge(const Slice* val, const Slice& user_key) {
+bool DBIter::MergeWithNoBaseValue(const Slice& user_key) {
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
   // since a failure must be propagated regardless of its value.
-  Status s = MergeHelper::TimedFullMerge(
-      merge_operator_, user_key, val, merge_context_.GetOperands(),
-      &saved_value_, logger_, statistics_, clock_, &pinned_value_,
-      /* update_num_ops_stats */ true,
-      /* op_failure_scope */ nullptr);
-  if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
-    return false;
-  }
-
-  SetValueAndColumnsFromPlain(pinned_value_.data() ? pinned_value_
-                                                   : saved_value_);
-
-  valid_ = true;
-  return true;
+  ValueType result_type;
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key, MergeHelper::kNoBaseValue,
+      merge_context_.GetOperands(), logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
+  return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
-bool DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
+bool DBIter::MergeWithPlainBaseValue(const Slice& value,
+                                     const Slice& user_key) {
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
   // since a failure must be propagated regardless of its value.
-  Status s = MergeHelper::TimedFullMergeWithEntity(
-      merge_operator_, user_key, entity, merge_context_.GetOperands(),
-      &saved_value_, logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true,
-      /* op_failure_scope */ nullptr);
-  if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
-    return false;
-  }
+  ValueType result_type;
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key, MergeHelper::kPlainBaseValue, value,
+      merge_context_.GetOperands(), logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
+  return SetValueAndColumnsFromMergeResult(s, result_type);
+}
 
-  if (!SetValueAndColumnsFromEntity(saved_value_)) {
-    return false;
-  }
-
-  valid_ = true;
-  return true;
+bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
+                                          const Slice& user_key) {
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
+  ValueType result_type;
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key, MergeHelper::kWideBaseValue, entity,
+      merge_context_.GetOperands(), logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
+  return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
 // Move backwards until the key smaller than saved_key_.

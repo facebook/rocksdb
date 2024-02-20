@@ -67,9 +67,7 @@ class MockTableFactory : public TableFactory {
   Status CreateMockTable(Env* env, const std::string& fname,
                          KVVector file_contents);
 
-  virtual std::string GetPrintableOptions() const override {
-    return std::string();
-  }
+  std::string GetPrintableOptions() const override { return std::string(); }
 
   void SetCorruptionMode(MockCorruptionMode mode) { corrupt_mode_ = mode; }
 

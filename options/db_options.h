@@ -25,6 +25,7 @@ struct ImmutableDBOptions {
   bool error_if_exists;
   bool paranoid_checks;
   bool flush_verify_memtable_count;
+  bool compaction_verify_record_count;
   bool track_and_verify_wals_in_manifest;
   bool verify_sst_unique_id_in_manifest;
   Env* env;
@@ -60,7 +61,6 @@ struct ImmutableDBOptions {
   bool advise_random_on_open;
   size_t db_write_buffer_size;
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
-  DBOptions::AccessHint access_hint_on_compaction_start;
   size_t random_access_max_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
@@ -135,6 +135,7 @@ struct MutableDBOptions {
   bool strict_bytes_per_sync;
   size_t compaction_readahead_size;
   int max_background_flushes;
+  std::string daily_offpeak_time_utc;
 };
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,

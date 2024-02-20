@@ -11,11 +11,11 @@
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
-extern const std::string& InvalidWriteStallHyphenString();
+const std::string& InvalidWriteStallHyphenString();
 
-extern const std::string& WriteStallCauseToHyphenString(WriteStallCause cause);
+const std::string& WriteStallCauseToHyphenString(WriteStallCause cause);
 
-extern const std::string& WriteStallConditionToHyphenString(
+const std::string& WriteStallConditionToHyphenString(
     WriteStallCondition condition);
 
 // REQUIRES:
@@ -23,7 +23,7 @@ extern const std::string& WriteStallConditionToHyphenString(
 //
 // REQUIRES:
 // `condition` != `WriteStallCondition::kNormal`
-extern InternalStats::InternalCFStatsType InternalCFStat(
+InternalStats::InternalCFStatsType InternalCFStat(
     WriteStallCause cause, WriteStallCondition condition);
 
 // REQUIRES:
@@ -31,11 +31,11 @@ extern InternalStats::InternalCFStatsType InternalCFStat(
 //
 // REQUIRES:
 // `condition` != `WriteStallCondition::kNormal`
-extern InternalStats::InternalDBStatsType InternalDBStat(
+InternalStats::InternalDBStatsType InternalDBStat(
     WriteStallCause cause, WriteStallCondition condition);
 
-extern bool isCFScopeWriteStallCause(WriteStallCause cause);
-extern bool isDBScopeWriteStallCause(WriteStallCause cause);
+bool isCFScopeWriteStallCause(WriteStallCause cause);
+bool isDBScopeWriteStallCause(WriteStallCause cause);
 
 constexpr uint32_t kNumCFScopeWriteStallCauses =
     static_cast<uint32_t>(WriteStallCause::kCFScopeWriteStallCauseEnumMax) -

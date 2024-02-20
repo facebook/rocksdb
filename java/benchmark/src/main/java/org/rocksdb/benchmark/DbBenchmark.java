@@ -614,9 +614,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.universal_compression_size_percent));
     // TODO(yhchiang): add RocksDB.openForReadOnly() to enable Flag.readonly
     // TODO(yhchiang): enable Flag.merge_operator by switch
-    options.setAccessHintOnCompactionStart(
-        (String)flags_.get(Flag.compaction_fadvice));
-    // available values of fadvice are "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED" for fadvice
     */
   }
 

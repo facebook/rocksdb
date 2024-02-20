@@ -115,9 +115,12 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
-  virtual Status GetRangeLock(ColumnFamilyHandle* column_family,
-                              const Endpoint& start_key,
-                              const Endpoint& end_key) override;
+  Status GetRangeLock(ColumnFamilyHandle* column_family,
+                      const Endpoint& start_key,
+                      const Endpoint& end_key) override;
+
+  Status CollapseKey(const ReadOptions& options, const Slice& key,
+                     ColumnFamilyHandle* column_family = nullptr) override;
 
  protected:
   // Refer to
@@ -308,4 +311,3 @@ class WriteCommittedTxn : public PessimisticTransaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

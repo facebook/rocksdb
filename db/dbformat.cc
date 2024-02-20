@@ -8,9 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/dbformat.h"
 
-#include <stdio.h>
-
 #include <cinttypes>
+#include <cstdio>
 
 #include "db/lookup_key.h"
 #include "monitoring/perf_context_imp.h"
@@ -28,7 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 // ValueType, not the lowest).
 const ValueType kValueTypeForSeek = kTypeWideColumnEntity;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
-const std::string kDisableUserTimestamp("");
+const std::string kDisableUserTimestamp;
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {
@@ -67,6 +66,13 @@ void AppendInternalKeyWithDifferentTimestamp(std::string* result,
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
 
+void AppendUserKeyWithDifferentTimestamp(std::string* result, const Slice& key,
+                                         const Slice& ts) {
+  assert(key.size() >= ts.size());
+  result->append(key.data(), key.size() - ts.size());
+  result->append(ts.data(), ts.size());
+}
+
 void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
                              ValueType t) {
   PutFixed64(result, PackSequenceAndType(s, t));
@@ -88,6 +94,13 @@ void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
   result->append(kTsMax.data(), ts_sz);
 }
 
+void AppendUserKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                   size_t ts_sz) {
+  assert(ts_sz > 0);
+  result->append(key.data(), key.size() - ts_sz);
+  result->append(ts_sz, static_cast<unsigned char>(0));
+}
+
 void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                    size_t ts_sz) {
   assert(ts_sz > 0);
@@ -99,6 +112,47 @@ void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
   } else {
     result->append(std::string(ts_sz, '\xff'));
   }
+}
+
+void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz) {
+  assert(ts_sz > 0);
+  assert(key.size() >= kNumInternalBytes);
+  size_t user_key_size = key.size() - kNumInternalBytes;
+  result->reserve(key.size() + ts_sz);
+  result->append(key.data(), user_key_size);
+  result->append(ts_sz, static_cast<unsigned char>(0));
+  result->append(key.data() + user_key_size, kNumInternalBytes);
+}
+
+void PadInternalKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz) {
+  assert(ts_sz > 0);
+  assert(key.size() >= kNumInternalBytes);
+  size_t user_key_size = key.size() - kNumInternalBytes;
+  result->reserve(key.size() + ts_sz);
+  result->append(key.data(), user_key_size);
+  result->append(std::string(ts_sz, '\xff'));
+  result->append(key.data() + user_key_size, kNumInternalBytes);
+}
+
+void StripTimestampFromInternalKey(std::string* result, const Slice& key,
+                                   size_t ts_sz) {
+  assert(key.size() >= ts_sz + kNumInternalBytes);
+  result->reserve(key.size() - ts_sz);
+  result->append(key.data(), key.size() - kNumInternalBytes - ts_sz);
+  result->append(key.data() + key.size() - kNumInternalBytes,
+                 kNumInternalBytes);
+}
+
+void ReplaceInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                        size_t ts_sz) {
+  const size_t key_sz = key.size();
+  assert(key_sz >= ts_sz + kNumInternalBytes);
+  result->reserve(key_sz);
+  result->append(key.data(), key_sz - kNumInternalBytes - ts_sz);
+  result->append(ts_sz, static_cast<unsigned char>(0));
+  result->append(key.data() + key_sz - kNumInternalBytes, kNumInternalBytes);
 }
 
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {

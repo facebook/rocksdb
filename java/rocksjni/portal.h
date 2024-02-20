@@ -27,6 +27,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/perf_level.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -206,6 +207,18 @@ class IllegalArgumentExceptionJni
     }
 
     return JavaException::ThrowNew(env, s.ToString());
+  }
+
+  /**
+   * Create and throw a Java IllegalArgumentException with the provided message
+   *
+   * @param env A pointer to the Java environment
+   * @param msg The message for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const std::string& msg) {
+    return JavaException::ThrowNew(env, msg);
   }
 };
 
@@ -2127,8 +2140,8 @@ class JniUtil {
       std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice,
                                               ROCKSDB_NAMESPACE::Slice)>
           op,
-      JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len,
-      jbyteArray jvalue, jint jvalue_len) {
+      JNIEnv* env, jbyteArray jkey, jint jkey_len, jbyteArray jvalue,
+      jint jvalue_len) {
     jbyte* key = env->GetByteArrayElements(jkey, nullptr);
     if (env->ExceptionCheck()) {
       // exception thrown: OutOfMemoryError
@@ -2169,7 +2182,7 @@ class JniUtil {
    */
   static std::unique_ptr<ROCKSDB_NAMESPACE::Status> k_op(
       std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)> op,
-      JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
+      JNIEnv* env, jbyteArray jkey, jint jkey_len) {
     jbyte* key = env->GetByteArrayElements(jkey, nullptr);
     if (env->ExceptionCheck()) {
       // exception thrown: OutOfMemoryError
@@ -3561,13 +3574,20 @@ class IteratorJni
   }
 };
 
-// The portal class for org.rocksdb.Filter
-class FilterJni
+// The portal class for org.rocksdb.FilterPolicy
+
+enum FilterPolicyTypeJni {
+  kUnknownFilterPolicy = 0x00,
+  kBloomFilterPolicy = 0x01,
+  kRibbonFilterPolicy = 0x02,
+};
+class FilterPolicyJni
     : public RocksDBNativeClass<
-          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterJni> {
+          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterPolicyJni> {
+ private:
  public:
   /**
-   * Get the Java Class org.rocksdb.Filter
+   * Get the Java Class org.rocksdb.FilterPolicy
    *
    * @param env A pointer to the Java environment
    *
@@ -3576,7 +3596,19 @@ class FilterJni
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Filter");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/FilterPolicy");
+  }
+
+  static jbyte toJavaIndexType(const FilterPolicyTypeJni& filter_policy_type) {
+    return static_cast<jbyte>(filter_policy_type);
+  }
+
+  static FilterPolicyTypeJni getFilterPolicyType(
+      const std::string& policy_class_name) {
+    if (policy_class_name == "rocksdb.BuiltinBloomFilter") {
+      return kBloomFilterPolicy;
+    }
+    return kUnknownFilterPolicy;
   }
 };
 
@@ -4698,48 +4730,6 @@ class CompactionPriorityJni {
   }
 };
 
-// The portal class for org.rocksdb.AccessHint
-class AccessHintJni {
- public:
-  // Returns the equivalent org.rocksdb.AccessHint for the provided
-  // C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
-  static jbyte toJavaAccessHint(
-      const ROCKSDB_NAMESPACE::DBOptions::AccessHint& access_hint) {
-    switch (access_hint) {
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE:
-        return 0x0;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL:
-        return 0x1;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL:
-        return 0x2;
-      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED:
-        return 0x3;
-      default:
-        // undefined/default
-        return 0x1;
-    }
-  }
-
-  // Returns the equivalent C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
-  // for the provided Java org.rocksdb.AccessHint
-  static ROCKSDB_NAMESPACE::DBOptions::AccessHint toCppAccessHint(
-      jbyte jaccess_hint) {
-    switch (jaccess_hint) {
-      case 0x0:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE;
-      case 0x1:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
-      case 0x2:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL;
-      case 0x3:
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED;
-      default:
-        // undefined/default
-        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
-    }
-  }
-};
-
 // The portal class for org.rocksdb.WALRecoveryMode
 class WALRecoveryModeJni {
  public:
@@ -4807,338 +4797,428 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT:
         return 0x7;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_MISS:
-        return 0x9;
+        return 0x8;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_HIT:
-        return 0xA;
+        return 0x9;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_ADD:
-        return 0xB;
+        return 0xA;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT:
-        return 0xC;
+        return 0xB;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_MISS:
-        return 0xE;
+        return 0xC;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_HIT:
-        return 0xF;
+        return 0xD;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_ADD:
-        return 0x10;
+        return 0xE;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT:
-        return 0x11;
+        return 0xF;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_READ:
-        return 0x12;
+        return 0x10;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_WRITE:
+        return 0x11;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSION_DICT_MISS:
+        return 0x12;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSION_DICT_HIT:
         return 0x13;
-      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_USEFUL:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSION_DICT_ADD:
         return 0x14;
-      case ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::
+          BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT:
         return 0x15;
-      case ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_ADD_REDUNDANT:
         return 0x16;
-      case ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_ADD_REDUNDANT:
         return 0x17;
-      case ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_ADD_REDUNDANT:
         return 0x18;
-      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_ADD_REDUNDANT:
         return 0x19;
-      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::
+          BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT:
         return 0x1A;
-      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L0:
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS:
         return 0x1B;
-      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L1:
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS:
         return 0x1C;
-      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L2_AND_UP:
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS:
         return 0x1D;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY:
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS:
         return 0x1E;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_OBSOLETE:
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_DUMMY_HITS:
         return 0x1F;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_RANGE_DEL:
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_HITS:
         return 0x20;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_USER:
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_PROMOTIONS:
         return 0x21;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE:
+      case ROCKSDB_NAMESPACE::Tickers::
+          COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS:
         return 0x22;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_WRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_USEFUL:
         return 0x23;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_READ:
-        return 0x24;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_UPDATED:
-        return 0x25;
-      case ROCKSDB_NAMESPACE::Tickers::BYTES_WRITTEN:
-        return 0x26;
-      case ROCKSDB_NAMESPACE::Tickers::BYTES_READ:
-        return 0x27;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK:
-        return 0x28;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT:
-        return 0x29;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV:
-        return 0x2A;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK_FOUND:
-        return 0x2B;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT_FOUND:
-        return 0x2C;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV_FOUND:
-        return 0x2D;
-      case ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ:
-        return 0x2E;
-      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS:
-        return 0x30;
-      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS:
-        return 0x31;
-      case ROCKSDB_NAMESPACE::Tickers::STALL_MICROS:
-        return 0x35;
-      case ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS:
-        return 0x36;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS:
-        return 0x39;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ:
-        return 0x3A;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ:
-        return 0x3B;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES:
-        return 0x3D;
-      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_CHECKED:
-        return 0x3E;
-      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_USEFUL:
-        return 0x3F;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION:
-        return 0x40;
-      case ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS:
-        return 0x41;
-      case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED:
-        return 0x46;
-      case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:
-        return 0x47;
-      case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF:
-        return 0x48;
-      case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER:
-        return 0x49;
-      case ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL:
-        return 0x4B;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES:
-        return 0x4C;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES:
-        return 0x4D;
-      case ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES:
-        return 0x4E;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES:
-        return 0x4F;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES:
-        return 0x50;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES:
-        return 0x51;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS:
-        return 0x52;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED:
-        return 0x53;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED:
-        return 0x54;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_NOT_COMPRESSED:
-        return 0x55;
-      case ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME:
-        return 0x56;
-      case ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME:
-        return 0x57;
-      case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT:
-        return 0x58;
-      case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS:
-        return 0x59;
-      case ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES:
-        return 0x5A;
-      case ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES:
-        return 0x5B;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS:
-        return 0x5C;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP:
-        return 0x5D;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
-        return 0x5E;
-      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED:
-        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
-        return -0x01;
-      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED:
-        return 0x60;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE:
-        return 0x61;
-      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED:
-        return 0x62;
       case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_POSITIVE:
-        return 0x63;
+        return 0x24;
       case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE:
-        return 0x64;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT:
-        return 0x65;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE:
-        return 0x66;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET:
-        return 0x67;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET:
-        return 0x68;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK:
-        return 0x69;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT:
-        return 0x6A;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV:
-        return 0x6B;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN:
-        return 0x6C;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ:
-        return 0x6D;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN:
-        return 0x6E;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ:
-        return 0x6F;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED:
-        return 0x70;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL:
-        return 0x71;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB:
-        return 0x72;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL:
-        return 0x73;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN:
-        return 0x74;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ:
-        return 0x75;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED:
-        return 0x76;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT:
-        return 0x77;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE:
-        return 0x78;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT:
-        return 0x79;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE:
-        return 0x7A;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES:
-        return 0x7B;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES:
-        return 0x7C;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES:
-        return 0x7D;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
-        return -0x02;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED:
-        return -0x05;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED:
-        return -0x06;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED:
-        return -0x07;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED:
-        return -0x08;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
-        return -0x09;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
-        return -0x0A;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
-        return -0x0B;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
-        return -0x0C;
-      case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
-        return -0x0D;
-      case ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH:
-        return -0x0E;
-      case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY:
-        return -0X0F;
+        return 0x25;
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_CHECKED:
+        return 0x26;
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_USEFUL:
+        return 0x27;
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_TRUE_POSITIVE:
+        return 0x28;
+      case ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_HIT:
+        return 0x29;
+      case ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_MISS:
+        return 0x2A;
+      case ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_HIT:
+        return 0x2B;
+      case ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_MISS:
+        return 0x2C;
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_HIT:
+        return 0x2D;
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_MISS:
+        return 0x2E;
+      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L0:
+        return 0x2F;
+      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L1:
+        return 0x30;
+      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L2_AND_UP:
+        return 0x31;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY:
+        return 0x32;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_OBSOLETE:
+        return 0x33;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_RANGE_DEL:
+        return 0x34;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_USER:
+        return 0x35;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE:
+        return 0x36;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE:
+        return 0x37;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED:
+        return 0x38;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_WRITTEN:
+        return 0x39;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_READ:
+        return 0x3A;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_UPDATED:
+        return 0x3B;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_WRITTEN:
+        return 0x3C;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_READ:
+        return 0x3D;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK:
+        return 0x3E;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT:
+        return 0x3F;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV:
+        return 0x40;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK_FOUND:
+        return 0x41;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT_FOUND:
+        return 0x42;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV_FOUND:
+        return 0x43;
+      case ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ:
+        return 0x44;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP:
+        return 0x45;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION:
+        return 0x46;
+      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED:
+        return 0x47;
+      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED:
+        return 0x48;
+      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS:
+        return 0x49;
+      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS:
+        return 0x4A;
+      case ROCKSDB_NAMESPACE::Tickers::STALL_MICROS:
+        return 0x4B;
+      case ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS:
+        return 0x4C;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS:
+        return 0x4D;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ:
+        return 0x4E;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ:
+        return 0x4F;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
+        return 0x50;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES:
+        return 0x51;
+      case ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS:
+        return 0x52;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED:
+        return 0x53;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:
+        return 0x54;
+      case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF:
+        return 0x55;
+      case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER:
+        return 0x56;
+      case ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL:
+        return 0x57;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES:
+        return 0x58;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES:
+        return 0x59;
+      case ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES:
+        return 0x5A;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED:
-        return -0x10;
+        return 0x5B;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC:
-        return -0x11;
+        return 0x5C;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL:
-        return -0x12;
+        return 0x5D;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED:
-        return -0x13;
+        return 0x5E;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC:
-        return -0x14;
+        return 0x5F;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
+        return 0x60;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES:
+        return 0x61;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES:
+        return 0x62;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES:
+        return 0x63;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS:
+        return 0x64;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED:
+        return 0x65;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED:
+        return 0x66;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSED_FROM:
+        return 0x67;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSED_TO:
+        return 0x68;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSION_BYPASSED:
+        return 0x69;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSION_REJECTED:
+        return 0x6A;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSION_BYPASSED:
+        return 0x6B;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSION_REJECTED:
+        return 0x6C;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_DECOMPRESSED_FROM:
+        return 0x6D;
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_DECOMPRESSED_TO:
+        return 0x6E;
+      case ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME:
+        return 0x6F;
+      case ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME:
+        return 0x70;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_CPU_TOTAL_TIME:
+        return 0x71;
+      case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT:
+        return 0x72;
+      case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS:
+        return 0x73;
+      case ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES:
+        return 0x74;
+      case ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES:
+        return 0x75;
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS:
+        return 0x76;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT:
+        return 0x77;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE:
+        return 0x78;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET:
+        return 0x79;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET:
+        return 0x7A;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK:
+        return 0x7B;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT:
+        return 0x7C;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV:
+        return 0x7D;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN:
+        return 0x7E;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ:
+        return 0x7F;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN:
+        return -0x1;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ:
+        return -0x2;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED:
+        return -0x3;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL:
+        return -0x4;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB:
+        return -0x5;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL:
+        return -0x6;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN:
+        return -0x7;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ:
+        return -0x8;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED:
+        return -0x9;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT:
+        return -0xA;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE:
+        return -0xB;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT:
+        return -0xC;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE:
+        return -0xD;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES:
+        return -0xE;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES:
+        return -0xF;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES:
+        return -0x10;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
+        return -0x11;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED:
+        return -0x12;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED:
+        return -0x13;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED:
+        return -0x14;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED:
         return -0x15;
-      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS:
         return -0x16;
-      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT:
         return -0x17;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD:
+        return -0x18;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES:
+        return -0x19;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ:
+        return -0x1A;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE:
+        return -0x1B;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
+        return -0x1C;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
+        return -0x1D;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
+        return -0x1E;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
+        return -0x1F;
+      case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
+        return -0x20;
+      case ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH:
+        return -0x21;
+      case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_FROM_TRASH_QUEUE:
+        return -0x22;
+      case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY:
+        return -0x23;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT:
+        return -0x24;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT:
+        return -0x25;
       case ROCKSDB_NAMESPACE::Tickers::
           ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT:
-        return -0x18;
+        return -0x26;
       case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT:
-        return -0x19;
+        return -0x27;
       case ROCKSDB_NAMESPACE::Tickers::
           ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT:
-        return -0x1A;
-      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT:
-        return -0x1B;
-      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH:
-        return -0x1C;
-      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH:
-        return -0x1D;
-      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS:
-        return -0x1E;
-      case ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES:
-        return -0x1F;
-      case ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES:
-        return -0x20;
-      case ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES:
-        return -0x21;
-      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES:
-        return -0x22;
-      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
-        return -0x23;
-      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
-        return -0x24;
-      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
-        return -0x25;
-      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
-        return -0x26;
-      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
-        return -0x27;
-      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
         return -0x28;
-      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT:
         return -0x29;
-      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH:
         return -0x2A;
-      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH:
         return -0x2B;
-      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES:
         return -0x2C;
-      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES:
         return -0x2D;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES:
         return -0x2E;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES:
         return -0x2F;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
         return -0x30;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD:
+      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
         return -0x31;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES:
+      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
         return -0x32;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ:
+      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
         return -0x33;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE:
+      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
         return -0x34;
-      case ROCKSDB_NAMESPACE::Tickers::READ_ASYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
         return -0x35;
-      case ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
         return -0x36;
-      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS:
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
         return -0x37;
-      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS:
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT:
         return -0x38;
-      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS:
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES:
         return -0x39;
-      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT:
         return -0x3A;
-      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_FILTERED:
         return -0x3B;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_FILTER_MATCH:
+        return -0x3C;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_DATA:
+        return -0x3D;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER:
+        return -0x3E;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH:
+        return -0x3F;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_SEEK_FILTERED:
+        return -0x40;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_SEEK_FILTER_MATCH:
+        return -0x41;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_SEEK_DATA:
+        return -0x42;
+      case ROCKSDB_NAMESPACE::Tickers::
+          NON_LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER:
+        return -0x43;
+      case ROCKSDB_NAMESPACE::Tickers::
+          NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH:
+        return -0x44;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT:
+        return -0x45;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT:
+        return -0x46;
+      case ROCKSDB_NAMESPACE::Tickers::MULTIGET_COROUTINE_COUNT:
+        return -0x47;
+      case ROCKSDB_NAMESPACE::Tickers::READ_ASYNC_MICROS:
+        return -0x48;
+      case ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT:
+        return -0x49;
+      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS:
+        return -0x4A;
+      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT:
+        return -0x4B;
+      case ROCKSDB_NAMESPACE::Tickers::TIMESTAMP_FILTER_TABLE_CHECKED:
+        return -0x4C;
+      case ROCKSDB_NAMESPACE::Tickers::TIMESTAMP_FILTER_TABLE_FILTERED:
+        return -0x4D;
+      case ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED:
+        return -0x4E;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS:
+        return -0x4F;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS:
+        return -0x50;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES:
+        return -0x51;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL:
+        return -0x52;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS:
+        return -0x53;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
-        // 0x5F was the max value in the initial copy of tickers to Java.
-        // Since these values are exposed directly to Java clients, we keep
-        // the value the same forever.
+        // -0x54 is the max value at this time. Since these values are exposed
+        // directly to Java clients, we'll keep the value the same till the next
+        // major release.
         //
         // TODO: This particular case seems confusing and unnecessary to pin the
         // value since it's meant to be the number of tickers, not an actual
         // ticker value. But we aren't yet in a position to fix it since the
         // number of tickers doesn't fit in the Java representation (jbyte).
-        return 0x5F;
+        return -0x54;
       default:
         // undefined/default
         return 0x0;
@@ -5165,335 +5245,429 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_ADD;
       case 0x7:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT;
-      case 0x9:
+      case 0x8:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_MISS;
-      case 0xA:
+      case 0x9:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_HIT;
-      case 0xB:
+      case 0xA:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_ADD;
-      case 0xC:
+      case 0xB:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT;
-      case 0xE:
+      case 0xC:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_MISS;
-      case 0xF:
+      case 0xD:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_HIT;
-      case 0x10:
+      case 0xE:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_ADD;
-      case 0x11:
+      case 0xF:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT;
-      case 0x12:
+      case 0x10:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_READ;
-      case 0x13:
+      case 0x11:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_WRITE;
+      case 0x12:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSION_DICT_MISS;
+      case 0x13:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSION_DICT_HIT;
       case 0x14:
-        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_USEFUL;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSION_DICT_ADD;
       case 0x15:
-        return ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::
+            BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT;
       case 0x16:
-        return ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_ADD_REDUNDANT;
       case 0x17:
-        return ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_ADD_REDUNDANT;
       case 0x18:
-        return ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_ADD_REDUNDANT;
       case 0x19:
-        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_ADD_REDUNDANT;
       case 0x1A:
-        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::
+            BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT;
       case 0x1B:
-        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L0;
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS;
       case 0x1C:
-        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L1;
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS;
       case 0x1D:
-        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L2_AND_UP;
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS;
       case 0x1E:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY;
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS;
       case 0x1F:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_OBSOLETE;
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_DUMMY_HITS;
       case 0x20:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_RANGE_DEL;
+        return ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_HITS;
       case 0x21:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_USER;
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_PROMOTIONS;
       case 0x22:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE;
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS;
       case 0x23:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_WRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_USEFUL;
       case 0x24:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_READ;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_POSITIVE;
       case 0x25:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_UPDATED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE;
       case 0x26:
-        return ROCKSDB_NAMESPACE::Tickers::BYTES_WRITTEN;
-      case 0x27:
-        return ROCKSDB_NAMESPACE::Tickers::BYTES_READ;
-      case 0x28:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK;
-      case 0x29:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT;
-      case 0x2A:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV;
-      case 0x2B:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK_FOUND;
-      case 0x2C:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT_FOUND;
-      case 0x2D:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV_FOUND;
-      case 0x2E:
-        return ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ;
-      case 0x30:
-        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS;
-      case 0x31:
-        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS;
-      case 0x35:
-        return ROCKSDB_NAMESPACE::Tickers::STALL_MICROS;
-      case 0x36:
-        return ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS;
-      case 0x39:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS;
-      case 0x3A:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ;
-      case 0x3B:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ;
-      case 0x3D:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES;
-      case 0x3E:
         return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_CHECKED;
-      case 0x3F:
+      case 0x27:
         return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_USEFUL;
-      case 0x40:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION;
-      case 0x41:
-        return ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS;
-      case 0x46:
-        return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED;
-      case 0x47:
-        return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES;
-      case 0x48:
-        return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF;
-      case 0x49:
-        return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER;
-      case 0x4B:
-        return ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL;
-      case 0x4C:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES;
-      case 0x4D:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES;
-      case 0x4E:
-        return ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES;
-      case 0x4F:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES;
-      case 0x50:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES;
-      case 0x51:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES;
-      case 0x52:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS;
-      case 0x53:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED;
-      case 0x54:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED;
-      case 0x55:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_NOT_COMPRESSED;
-      case 0x56:
-        return ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME;
-      case 0x57:
-        return ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME;
-      case 0x58:
-        return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT;
-      case 0x59:
-        return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS;
-      case 0x5A:
-        return ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES;
-      case 0x5B:
-        return ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES;
-      case 0x5C:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS;
-      case 0x5D:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP;
-      case 0x5E:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
-      case -0x01:
-        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
-        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED;
-      case 0x60:
-        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED;
-      case 0x61:
+      case 0x28:
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_TRUE_POSITIVE;
+      case 0x29:
+        return ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_HIT;
+      case 0x2A:
+        return ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_MISS;
+      case 0x2B:
+        return ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_HIT;
+      case 0x2C:
+        return ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_MISS;
+      case 0x2D:
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_HIT;
+      case 0x2E:
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_MISS;
+      case 0x2F:
+        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L0;
+      case 0x30:
+        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L1;
+      case 0x31:
+        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L2_AND_UP;
+      case 0x32:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY;
+      case 0x33:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_OBSOLETE;
+      case 0x34:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_RANGE_DEL;
+      case 0x35:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_USER;
+      case 0x36:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE;
+      case 0x37:
         return ROCKSDB_NAMESPACE::Tickers::
             COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE;
-      case 0x62:
+      case 0x38:
         return ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED;
-      case 0x63:
-        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_POSITIVE;
-      case 0x64:
-        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE;
-      case 0x65:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT;
-      case 0x66:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE;
-      case 0x67:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET;
-      case 0x68:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET;
-      case 0x69:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK;
-      case 0x6A:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT;
-      case 0x6B:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV;
-      case 0x6C:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN;
-      case 0x6D:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ;
-      case 0x6E:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN;
-      case 0x6F:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ;
-      case 0x70:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED;
-      case 0x71:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL;
-      case 0x72:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB;
-      case 0x73:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL;
-      case 0x74:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN;
-      case 0x75:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ;
-      case 0x76:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED;
-      case 0x77:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT;
-      case 0x78:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE;
-      case 0x79:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT;
-      case 0x7A:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE;
-      case 0x7B:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES;
-      case 0x7C:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
-      case 0x7D:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES;
-      case -0x02:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
-      case -0x05:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED;
-      case -0x06:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED;
-      case -0x07:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED;
-      case -0x08:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED;
-      case -0x09:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
-      case -0x0A:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
-      case -0x0B:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
-      case -0x0C:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
-      case -0x0D:
-        return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
-      case -0x0E:
-        return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
-      case -0x0F:
-        return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
-      case -0x10:
+      case 0x39:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_WRITTEN;
+      case 0x3A:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_READ;
+      case 0x3B:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_UPDATED;
+      case 0x3C:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_WRITTEN;
+      case 0x3D:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_READ;
+      case 0x3E:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK;
+      case 0x3F:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT;
+      case 0x40:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV;
+      case 0x41:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK_FOUND;
+      case 0x42:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT_FOUND;
+      case 0x43:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV_FOUND;
+      case 0x44:
+        return ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ;
+      case 0x45:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP;
+      case 0x46:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION;
+      case 0x47:
+        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED;
+      case 0x48:
+        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED;
+      case 0x49:
+        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS;
+      case 0x4A:
+        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS;
+      case 0x4B:
+        return ROCKSDB_NAMESPACE::Tickers::STALL_MICROS;
+      case 0x4C:
+        return ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS;
+      case 0x4D:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS;
+      case 0x4E:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ;
+      case 0x4F:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ;
+      case 0x50:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
+      case 0x51:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES;
+      case 0x52:
+        return ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS;
+      case 0x53:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED;
+      case 0x54:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES;
+      case 0x55:
+        return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF;
+      case 0x56:
+        return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER;
+      case 0x57:
+        return ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL;
+      case 0x58:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES;
+      case 0x59:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES;
+      case 0x5A:
+        return ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES;
+      case 0x5B:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED;
-      case -0x11:
+      case 0x5C:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC;
-      case -0x12:
+      case 0x5D:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL;
-      case -0x13:
+      case 0x5E:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED;
-      case -0x14:
+      case 0x5F:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC;
-      case -0x15:
+      case 0x60:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL;
+      case 0x61:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES;
+      case 0x62:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES;
+      case 0x63:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES;
+      case 0x64:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS;
+      case 0x65:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED;
+      case 0x66:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED;
+      case 0x67:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSED_FROM;
+      case 0x68:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSED_TO;
+      case 0x69:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSION_BYPASSED;
+      case 0x6A:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_COMPRESSION_REJECTED;
+      case 0x6B:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSION_BYPASSED;
+      case 0x6C:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSION_REJECTED;
+      case 0x6D:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_DECOMPRESSED_FROM;
+      case 0x6E:
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_DECOMPRESSED_TO;
+      case 0x6F:
+        return ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME;
+      case 0x70:
+        return ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME;
+      case 0x71:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_CPU_TOTAL_TIME;
+      case 0x72:
+        return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT;
+      case 0x73:
+        return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS;
+      case 0x74:
+        return ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES;
+      case 0x75:
+        return ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES;
+      case 0x76:
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS;
+      case 0x77:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT;
+      case 0x78:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE;
+      case 0x79:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET;
+      case 0x7A:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET;
+      case 0x7B:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK;
+      case 0x7C:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT;
+      case 0x7D:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV;
+      case 0x7E:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN;
+      case 0x7F:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ;
+      case -0x1:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN;
+      case -0x2:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ;
+      case -0x3:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED;
+      case -0x4:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL;
+      case -0x5:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB;
+      case -0x6:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL;
+      case -0x7:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN;
+      case -0x8:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ;
+      case -0x9:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED;
+      case -0xA:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT;
+      case -0xB:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE;
+      case -0xC:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT;
+      case -0xD:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE;
+      case -0xE:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES;
+      case -0xF:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
+      case -0x10:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES;
+      case -0x11:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
+      case -0x12:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED;
+      case -0x13:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED;
+      case -0x14:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED;
+      case -0x15:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED;
       case -0x16:
-        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS;
       case -0x17:
-        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT;
       case -0x18:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD;
+      case -0x19:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES;
+      case -0x1A:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ;
+      case -0x1B:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE;
+      case -0x1C:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
+      case -0x1D:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
+      case -0x1E:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
+      case -0x1F:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
+      case -0x20:
+        return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
+      case -0x21:
+        return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
+      case -0x22:
+        return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_FROM_TRASH_QUEUE;
+      case -0x23:
+        return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
+      case -0x24:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT;
+      case -0x25:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT;
+      case -0x26:
         return ROCKSDB_NAMESPACE::Tickers::
             ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT;
-      case -0x19:
+      case -0x27:
         return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT;
-      case -0x1A:
+      case -0x28:
         return ROCKSDB_NAMESPACE::Tickers::
             ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT;
-      case -0x1B:
+      case -0x29:
         return ROCKSDB_NAMESPACE::Tickers::
             ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT;
-      case -0x1C:
-        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH;
-      case -0x1D:
-        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
-      case -0x1E:
-        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS;
-      case -0x1F:
-        return ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES;
-      case -0x20:
-        return ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES;
-      case -0x21:
-        return ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES;
-      case -0x22:
-        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES;
-      case -0x23:
-        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES;
-      case -0x24:
-        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
-      case -0x25:
-        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
-      case -0x26:
-        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
-      case -0x27:
-        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
-      case -0x28:
-        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
-      case -0x29:
-        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
       case -0x2A:
-        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH;
       case -0x2B:
-        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
       case -0x2C:
-        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES;
       case -0x2D:
-        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES;
       case -0x2E:
-        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES;
       case -0x2F:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES;
       case -0x30:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES;
       case -0x31:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD;
+        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
       case -0x32:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES;
+        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
       case -0x33:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ;
+        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
       case -0x34:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE;
+        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
       case -0x35:
-        return ROCKSDB_NAMESPACE::Tickers::READ_ASYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
       case -0x36:
-        return ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
       case -0x37:
-        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS;
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES;
       case -0x38:
-        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS;
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT;
       case -0x39:
-        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS;
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES;
       case -0x3A:
-        return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT;
       case -0x3B:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_FILTERED;
+      case -0x3C:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_FILTER_MATCH;
+      case -0x3D:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_SEEK_DATA;
+      case -0x3E:
+        return ROCKSDB_NAMESPACE::Tickers::
+            LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER;
+      case -0x3F:
+        return ROCKSDB_NAMESPACE::Tickers::
+            LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH;
+      case -0x40:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_SEEK_FILTERED;
+      case -0x41:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_SEEK_FILTER_MATCH;
+      case -0x42:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_SEEK_DATA;
+      case -0x43:
+        return ROCKSDB_NAMESPACE::Tickers::
+            NON_LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER;
+      case -0x44:
+        return ROCKSDB_NAMESPACE::Tickers::
+            NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH;
+      case -0x45:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT;
+      case -0x46:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT;
+      case -0x47:
+        return ROCKSDB_NAMESPACE::Tickers::MULTIGET_COROUTINE_COUNT;
+      case -0x48:
+        return ROCKSDB_NAMESPACE::Tickers::READ_ASYNC_MICROS;
+      case -0x49:
+        return ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT;
+      case -0x4A:
+        return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS;
+      case -0x4B:
         return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT;
-      case 0x5F:
-        // 0x5F was the max value in the initial copy of tickers to Java.
-        // Since these values are exposed directly to Java clients, we keep
-        // the value the same forever.
+      case -0x4C:
+        return ROCKSDB_NAMESPACE::Tickers::TIMESTAMP_FILTER_TABLE_CHECKED;
+      case -0x4D:
+        return ROCKSDB_NAMESPACE::Tickers::TIMESTAMP_FILTER_TABLE_FILTERED;
+      case -0x4E:
+        return ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED;
+      case -0x4F:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS;
+      case -0x50:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS;
+      case -0x51:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES;
+      case -0x52:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL;
+      case -0x53:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
+      case -0x54:
+        // -0x54 is the max value at this time. Since these values are exposed
+        // directly to Java clients, we'll keep the value the same till the next
+        // major release.
         //
         // TODO: This particular case seems confusing and unnecessary to pin the
         // value since it's meant to be the number of tickers, not an actual
@@ -5522,111 +5696,131 @@ class HistogramTypeJni {
         return 0x1;
       case ROCKSDB_NAMESPACE::Histograms::COMPACTION_TIME:
         return 0x2;
-      case ROCKSDB_NAMESPACE::Histograms::SUBCOMPACTION_SETUP_TIME:
+      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_CPU_TIME:
         return 0x3;
-      case ROCKSDB_NAMESPACE::Histograms::TABLE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::SUBCOMPACTION_SETUP_TIME:
         return 0x4;
-      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_OUTFILE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_SYNC_MICROS:
         return 0x5;
-      case ROCKSDB_NAMESPACE::Histograms::WAL_FILE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_OUTFILE_SYNC_MICROS:
         return 0x6;
-      case ROCKSDB_NAMESPACE::Histograms::MANIFEST_FILE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::WAL_FILE_SYNC_MICROS:
         return 0x7;
-      case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_IO_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::MANIFEST_FILE_SYNC_MICROS:
         return 0x8;
-      case ROCKSDB_NAMESPACE::Histograms::DB_MULTIGET:
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_IO_MICROS:
         return 0x9;
-      case ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_COMPACTION_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::DB_MULTIGET:
         return 0xA;
-      case ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_GET_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_COMPACTION_MICROS:
         return 0xB;
-      case ROCKSDB_NAMESPACE::Histograms::WRITE_RAW_BLOCK_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_GET_MICROS:
         return 0xC;
+      case ROCKSDB_NAMESPACE::Histograms::WRITE_RAW_BLOCK_MICROS:
+        return 0xD;
       case ROCKSDB_NAMESPACE::Histograms::NUM_FILES_IN_SINGLE_COMPACTION:
-        return 0x12;
+        return 0xE;
       case ROCKSDB_NAMESPACE::Histograms::DB_SEEK:
-        return 0x13;
+        return 0xF;
       case ROCKSDB_NAMESPACE::Histograms::WRITE_STALL:
-        return 0x14;
+        return 0x10;
       case ROCKSDB_NAMESPACE::Histograms::SST_READ_MICROS:
+        return 0x11;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS:
+        return 0x12;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS:
+        return 0x13;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS:
+        return 0x14;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_GET_MICROS:
         return 0x15;
-      case ROCKSDB_NAMESPACE::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED:
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_MULTIGET_MICROS:
         return 0x16;
-      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_READ:
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_ITERATOR_MICROS:
         return 0x17;
-      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_WRITE:
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_VERIFY_DB_CHECKSUM_MICROS:
         return 0x18;
-      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_MULTIGET:
+      case ROCKSDB_NAMESPACE::Histograms::
+          FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS:
         return 0x19;
-      case ROCKSDB_NAMESPACE::Histograms::BYTES_COMPRESSED:
+      case ROCKSDB_NAMESPACE::Histograms::SST_WRITE_MICROS:
         return 0x1A;
-      case ROCKSDB_NAMESPACE::Histograms::BYTES_DECOMPRESSED:
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_FLUSH_MICROS:
         return 0x1B;
-      case ROCKSDB_NAMESPACE::Histograms::COMPRESSION_TIMES_NANOS:
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_COMPACTION_MICROS:
         return 0x1C;
-      case ROCKSDB_NAMESPACE::Histograms::DECOMPRESSION_TIMES_NANOS:
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_DB_OPEN_MICROS:
         return 0x1D;
-      case ROCKSDB_NAMESPACE::Histograms::READ_NUM_MERGE_OPERANDS:
+      case ROCKSDB_NAMESPACE::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED:
         return 0x1E;
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_READ:
+        return 0x1F;
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_WRITE:
+        return 0x20;
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_MULTIGET:
+        return 0x21;
+      case ROCKSDB_NAMESPACE::Histograms::COMPRESSION_TIMES_NANOS:
+        return 0x22;
+      case ROCKSDB_NAMESPACE::Histograms::DECOMPRESSION_TIMES_NANOS:
+        return 0x23;
+      case ROCKSDB_NAMESPACE::Histograms::READ_NUM_MERGE_OPERANDS:
+        return 0x24;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_KEY_SIZE:
+        return 0x25;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_VALUE_SIZE:
+        return 0x26;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_WRITE_MICROS:
+        return 0x27;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GET_MICROS:
+        return 0x28;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_MULTIGET_MICROS:
+        return 0x29;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_SEEK_MICROS:
+        return 0x2A;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_NEXT_MICROS:
+        return 0x2B;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_PREV_MICROS:
+        return 0x2C;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS:
+        return 0x2D;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS:
+        return 0x2E;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
+        return 0x2F;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS:
+        return 0x30;
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
+        return 0x31;
       // 0x20 to skip 0x1F so TICKER_ENUM_MAX remains unchanged for minor
       // version compatibility.
       case ROCKSDB_NAMESPACE::Histograms::FLUSH_TIME:
-        return 0x20;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_KEY_SIZE:
-        return 0x21;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_VALUE_SIZE:
-        return 0x22;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_WRITE_MICROS:
-        return 0x23;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GET_MICROS:
-        return 0x24;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_MULTIGET_MICROS:
-        return 0x25;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_SEEK_MICROS:
-        return 0x26;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_NEXT_MICROS:
-        return 0x27;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_PREV_MICROS:
-        return 0x28;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS:
-        return 0x29;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS:
-        return 0x2A;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
-        return 0x2B;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS:
-        return 0x2D;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
-        return 0x2E;
+        return 0x32;
+      case ROCKSDB_NAMESPACE::Histograms::SST_BATCH_SIZE:
+        return 0x33;
+      case ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE:
+        return 0x34;
       case ROCKSDB_NAMESPACE::Histograms::
           NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL:
-        return 0x2F;
-      case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
-        return 0x31;
-      case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
-        return 0x32;
-      case ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES:
-        return 0x33;
-      case ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS:
-        return 0x34;
-      case ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED:
         return 0x35;
-      case ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE:
+      case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
         return 0x36;
-      case NUM_LEVEL_READ_PER_MULTIGET:
+      case ROCKSDB_NAMESPACE::Histograms::NUM_LEVEL_READ_PER_MULTIGET:
         return 0x37;
-      case ASYNC_PREFETCH_ABORT_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
         return 0x38;
-      case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_PREFETCH_TAIL_READ_BYTES:
+      case ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES:
         return 0x39;
-      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS:
         return 0x3A;
-      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED:
         return 0x3B;
+      case ASYNC_PREFETCH_ABORT_MICROS:
+        return 0x3C;
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_PREFETCH_TAIL_READ_BYTES:
+        return 0x3D;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
-        // 0x1F for backwards compatibility on current minor version.
-        return 0x1F;
-
+        // 0x3D for backwards compatibility on current minor version.
+        return 0x3E;
       default:
         // undefined/default
         return 0x0;
@@ -5644,109 +5838,131 @@ class HistogramTypeJni {
       case 0x2:
         return ROCKSDB_NAMESPACE::Histograms::COMPACTION_TIME;
       case 0x3:
-        return ROCKSDB_NAMESPACE::Histograms::SUBCOMPACTION_SETUP_TIME;
+        return ROCKSDB_NAMESPACE::Histograms::COMPACTION_CPU_TIME;
       case 0x4:
-        return ROCKSDB_NAMESPACE::Histograms::TABLE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::SUBCOMPACTION_SETUP_TIME;
       case 0x5:
-        return ROCKSDB_NAMESPACE::Histograms::COMPACTION_OUTFILE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::TABLE_SYNC_MICROS;
       case 0x6:
-        return ROCKSDB_NAMESPACE::Histograms::WAL_FILE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::COMPACTION_OUTFILE_SYNC_MICROS;
       case 0x7:
-        return ROCKSDB_NAMESPACE::Histograms::MANIFEST_FILE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::WAL_FILE_SYNC_MICROS;
       case 0x8:
-        return ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_IO_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::MANIFEST_FILE_SYNC_MICROS;
       case 0x9:
-        return ROCKSDB_NAMESPACE::Histograms::DB_MULTIGET;
+        return ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_IO_MICROS;
       case 0xA:
-        return ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_COMPACTION_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::DB_MULTIGET;
       case 0xB:
-        return ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_GET_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_COMPACTION_MICROS;
       case 0xC:
+        return ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_GET_MICROS;
+      case 0xD:
         return ROCKSDB_NAMESPACE::Histograms::WRITE_RAW_BLOCK_MICROS;
-      case 0x12:
+      case 0xE:
         return ROCKSDB_NAMESPACE::Histograms::NUM_FILES_IN_SINGLE_COMPACTION;
-      case 0x13:
+      case 0xF:
         return ROCKSDB_NAMESPACE::Histograms::DB_SEEK;
-      case 0x14:
+      case 0x10:
         return ROCKSDB_NAMESPACE::Histograms::WRITE_STALL;
-      case 0x15:
+      case 0x11:
         return ROCKSDB_NAMESPACE::Histograms::SST_READ_MICROS;
+      case 0x12:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS;
+      case 0x13:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS;
+      case 0x14:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS;
+      case 0x15:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_GET_MICROS;
       case 0x16:
-        return ROCKSDB_NAMESPACE::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED;
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_MULTIGET_MICROS;
       case 0x17:
-        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_READ;
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_ITERATOR_MICROS;
       case 0x18:
-        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_WRITE;
+        return ROCKSDB_NAMESPACE::Histograms::
+            FILE_READ_VERIFY_DB_CHECKSUM_MICROS;
       case 0x19:
-        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_MULTIGET;
+        return ROCKSDB_NAMESPACE::Histograms::
+            FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
       case 0x1A:
-        return ROCKSDB_NAMESPACE::Histograms::BYTES_COMPRESSED;
+        return ROCKSDB_NAMESPACE::Histograms::SST_WRITE_MICROS;
       case 0x1B:
-        return ROCKSDB_NAMESPACE::Histograms::BYTES_DECOMPRESSED;
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_FLUSH_MICROS;
       case 0x1C:
-        return ROCKSDB_NAMESPACE::Histograms::COMPRESSION_TIMES_NANOS;
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_COMPACTION_MICROS;
       case 0x1D:
-        return ROCKSDB_NAMESPACE::Histograms::DECOMPRESSION_TIMES_NANOS;
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_DB_OPEN_MICROS;
       case 0x1E:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED;
+      case 0x1F:
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_READ;
+      case 0x20:
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_WRITE;
+      case 0x21:
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_MULTIGET;
+      case 0x22:
+        return ROCKSDB_NAMESPACE::Histograms::COMPRESSION_TIMES_NANOS;
+      case 0x23:
+        return ROCKSDB_NAMESPACE::Histograms::DECOMPRESSION_TIMES_NANOS;
+      case 0x24:
         return ROCKSDB_NAMESPACE::Histograms::READ_NUM_MERGE_OPERANDS;
+      case 0x25:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_KEY_SIZE;
+      case 0x26:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_VALUE_SIZE;
+      case 0x27:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_WRITE_MICROS;
+      case 0x28:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GET_MICROS;
+      case 0x29:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_MULTIGET_MICROS;
+      case 0x2A:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_SEEK_MICROS;
+      case 0x2B:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_NEXT_MICROS;
+      case 0x2C:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_PREV_MICROS;
+      case 0x2D:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS;
+      case 0x2E:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
+      case 0x2F:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
+      case 0x30:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
+      case 0x31:
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
       // 0x20 to skip 0x1F so TICKER_ENUM_MAX remains unchanged for minor
       // version compatibility.
-      case 0x20:
+      case 0x32:
         return ROCKSDB_NAMESPACE::Histograms::FLUSH_TIME;
-      case 0x21:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_KEY_SIZE;
-      case 0x22:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_VALUE_SIZE;
-      case 0x23:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_WRITE_MICROS;
-      case 0x24:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GET_MICROS;
-      case 0x25:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_MULTIGET_MICROS;
-      case 0x26:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_SEEK_MICROS;
-      case 0x27:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_NEXT_MICROS;
-      case 0x28:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_PREV_MICROS;
-      case 0x29:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS;
-      case 0x2A:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
-      case 0x2B:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
-      case 0x2D:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
-      case 0x2E:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
-      case 0x2F:
+      case 0x33:
+        return ROCKSDB_NAMESPACE::Histograms::SST_BATCH_SIZE;
+      case 0x34:
+        return ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE;
+      case 0x35:
         return ROCKSDB_NAMESPACE::Histograms::
             NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL;
-      case 0x31:
-        return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
-      case 0x32:
-        return ROCKSDB_NAMESPACE::Histograms::
-            ERROR_HANDLER_AUTORESUME_RETRY_COUNT;
-      case 0x33:
-        return ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES;
-      case 0x34:
-        return ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS;
-      case 0x35:
-        return ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED;
       case 0x36:
-        return ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE;
+        return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
       case 0x37:
         return ROCKSDB_NAMESPACE::Histograms::NUM_LEVEL_READ_PER_MULTIGET;
       case 0x38:
-        return ROCKSDB_NAMESPACE::Histograms::ASYNC_PREFETCH_ABORT_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::
+            ERROR_HANDLER_AUTORESUME_RETRY_COUNT;
       case 0x39:
+        return ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES;
+      case 0x3A:
+        return ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS;
+      case 0x3B:
+        return ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED;
+      case 0x3C:
+        return ROCKSDB_NAMESPACE::Histograms::ASYNC_PREFETCH_ABORT_MICROS;
+      case 0x3D:
         return ROCKSDB_NAMESPACE::Histograms::
             TABLE_OPEN_PREFETCH_TAIL_READ_BYTES;
-      case 0x3A:
-        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS;
-      case 0x3B:
-        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS;
-      case 0x1F:
+      case 0x3E:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
 
@@ -5874,6 +6090,52 @@ class MemoryUsageTypeJni {
       default:
         // undefined/default: use kNumUsageTypes
         return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kNumUsageTypes;
+    }
+  }
+};
+
+class PerfLevelTypeJni {
+ public:
+  static jbyte toJavaPerfLevelType(const ROCKSDB_NAMESPACE::PerfLevel level) {
+    switch (level) {
+      case ROCKSDB_NAMESPACE::PerfLevel::kUninitialized:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::PerfLevel::kDisable:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableCount:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex:
+        return 0x3;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex:
+        return 0x4;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTime:
+        return 0x5;
+      case ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds:
+        return 0x6;
+      default:
+        return 0x6;
+    }
+  }
+
+  static ROCKSDB_NAMESPACE::PerfLevel toCppPerfLevelType(const jbyte level) {
+    switch (level) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::PerfLevel::kUninitialized;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::PerfLevel::kDisable;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableCount;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::PerfLevel::
+            kEnableTimeAndCPUTimeExceptForMutex;
+      case 0x5:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTime;
+      case 0x6:
+        return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;
+      default:
+        return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;
     }
   }
 };
@@ -6640,7 +6902,7 @@ class ChecksumTypeJni {
         return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
       default:
         // undefined/default
-        return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+        return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
     }
   }
 };
@@ -7294,7 +7556,7 @@ class LiveFileMetaDataJni : public JavaClass {
 
     jmethodID mid = env->GetMethodID(
         jclazz, "<init>",
-        "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+        "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ[B)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -7345,6 +7607,18 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
+    jbyteArray jfile_checksum = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
+        env, live_file_meta_data->file_checksum);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfile_name);
+      env->DeleteLocalRef(jpath);
+      env->DeleteLocalRef(jsmallest_key);
+      env->DeleteLocalRef(jlargest_key);
+      return nullptr;
+    }
+
     jobject jlive_file_meta_data = env->NewObject(
         jclazz, mid, jcolumn_family_name,
         static_cast<jint>(live_file_meta_data->level), jfile_name, jpath,
@@ -7355,7 +7629,7 @@ class LiveFileMetaDataJni : public JavaClass {
         static_cast<jlong>(live_file_meta_data->num_reads_sampled),
         static_cast<jboolean>(live_file_meta_data->being_compacted),
         static_cast<jlong>(live_file_meta_data->num_entries),
-        static_cast<jlong>(live_file_meta_data->num_deletions));
+        static_cast<jlong>(live_file_meta_data->num_deletions), jfile_checksum);
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jcolumn_family_name);
@@ -7363,6 +7637,7 @@ class LiveFileMetaDataJni : public JavaClass {
       env->DeleteLocalRef(jpath);
       env->DeleteLocalRef(jsmallest_key);
       env->DeleteLocalRef(jlargest_key);
+      env->DeleteLocalRef(jfile_checksum);
       return nullptr;
     }
 
@@ -7372,6 +7647,7 @@ class LiveFileMetaDataJni : public JavaClass {
     env->DeleteLocalRef(jpath);
     env->DeleteLocalRef(jsmallest_key);
     env->DeleteLocalRef(jlargest_key);
+    env->DeleteLocalRef(jfile_checksum);
 
     return jlive_file_meta_data;
   }
@@ -8694,5 +8970,124 @@ class FileOperationInfoJni : public JavaClass {
                             "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
+
+class CompactRangeOptionsTimestampJni : public JavaClass {
+ public:
+  static jobject fromCppTimestamp(JNIEnv* env, const uint64_t start,
+                                  const uint64_t range) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    return env->NewObject(jclazz, ctor, static_cast<jlong>(start),
+                          static_cast<jlong>(range));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+                                "org/rocksdb/CompactRangeOptions$Timestamp");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(JJ)V");
+  }
+};
+
+// The portal class for org.rocksdb.BlockBasedTableOptions
+class BlockBasedTableOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BlockBasedTableOptions*,
+                                BlockBasedTableOptions> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.BlockBasedTableConfig
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+                                         "org/rocksdb/BlockBasedTableConfig");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.BlockBasedTableConfig object with the
+   * properties as the provided C++ ROCKSDB_NAMESPACE::BlockBasedTableOptions
+   * object
+   *
+   * @param env A pointer to the Java environment
+   * @param cfoptions A pointer to ROCKSDB_NAMESPACE::ColumnFamilyOptions object
+   *
+   * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(
+      JNIEnv* env, const BlockBasedTableOptions* table_factory_options) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID method_id_init =
+        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZBBJD)V");
+    if (method_id_init == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    FilterPolicyTypeJni filter_policy_type =
+        FilterPolicyTypeJni::kUnknownFilterPolicy;
+    jlong filter_policy_handle = 0L;
+    jdouble filter_policy_config_value = 0.0;
+    if (table_factory_options->filter_policy) {
+      auto filter_policy = table_factory_options->filter_policy.get();
+      filter_policy_type = FilterPolicyJni::getFilterPolicyType(
+          filter_policy->CompatibilityName());
+      if (FilterPolicyTypeJni::kUnknownFilterPolicy != filter_policy_type) {
+        filter_policy_handle = GET_CPLUSPLUS_POINTER(filter_policy);
+      }
+    }
+
+    jobject jcfd = env->NewObject(
+        jclazz, method_id_init,
+        table_factory_options->cache_index_and_filter_blocks,
+        table_factory_options->cache_index_and_filter_blocks_with_high_priority,
+        table_factory_options->pin_l0_filter_and_index_blocks_in_cache,
+        table_factory_options->pin_top_level_index_and_filter,
+        IndexTypeJni::toJavaIndexType(table_factory_options->index_type),
+        DataBlockIndexTypeJni::toJavaDataBlockIndexType(
+            table_factory_options->data_block_index_type),
+        table_factory_options->data_block_hash_table_util_ratio,
+        ChecksumTypeJni::toJavaChecksumType(table_factory_options->checksum),
+        table_factory_options->no_block_cache,
+        static_cast<jlong>(table_factory_options->block_size),
+        table_factory_options->block_size_deviation,
+        table_factory_options->block_restart_interval,
+        table_factory_options->index_block_restart_interval,
+        static_cast<jlong>(table_factory_options->metadata_block_size),
+        table_factory_options->partition_filters,
+        table_factory_options->optimize_filters_for_memory,
+        table_factory_options->use_delta_encoding,
+        table_factory_options->whole_key_filtering,
+        table_factory_options->verify_compression,
+        table_factory_options->read_amp_bytes_per_bit,
+        table_factory_options->format_version,
+        table_factory_options->enable_index_compression,
+        table_factory_options->block_align,
+        IndexShorteningModeJni::toJavaIndexShorteningMode(
+            table_factory_options->index_shortening),
+        FilterPolicyJni::toJavaIndexType(filter_policy_type),
+        filter_policy_handle, filter_policy_config_value);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jcfd;
+  }
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

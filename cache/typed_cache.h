@@ -155,7 +155,7 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   using BaseCacheInterface<CachePtr>::BaseCacheInterface;
   struct TypedAsyncLookupHandle : public Cache::AsyncLookupHandle {
     TypedHandle* Result() {
-      return reinterpret_cast<TypedHandle*>(Cache::AsyncLookupHandle::Result());
+      return static_cast<TypedHandle*>(Cache::AsyncLookupHandle::Result());
     }
   };
 
@@ -169,8 +169,7 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   }
 
   inline TypedHandle* Lookup(const Slice& key, Statistics* stats = nullptr) {
-    return reinterpret_cast<TypedHandle*>(
-        this->cache_->BasicLookup(key, stats));
+    return static_cast<TypedHandle*>(this->cache_->BasicLookup(key, stats));
   }
 
   inline void StartAsyncLookup(TypedAsyncLookupHandle& async_handle) {
@@ -234,15 +233,19 @@ class FullTypedCacheHelperFns : public BasicTypedCacheHelperFns<TValue> {
     return Status::OK();
   }
 
-  static Status Create(const Slice& data, CreateContext* context,
+  static Status Create(const Slice& data, CompressionType type,
+                       CacheTier source, CreateContext* context,
                        MemoryAllocator* allocator, ObjectPtr* out_obj,
                        size_t* out_charge) {
     std::unique_ptr<TValue> value = nullptr;
+    if (source != CacheTier::kVolatileTier) {
+      return Status::InvalidArgument();
+    }
     if constexpr (sizeof(TCreateContext) > 0) {
       TCreateContext* tcontext = static_cast<TCreateContext*>(context);
-      tcontext->Create(&value, out_charge, data, allocator);
+      tcontext->Create(&value, out_charge, data, type, allocator);
     } else {
-      TCreateContext::Create(&value, out_charge, data, allocator);
+      TCreateContext::Create(&value, out_charge, data, type, allocator);
     }
     *out_obj = UpCastValue(value.release());
     return Status::OK();
@@ -301,13 +304,15 @@ class FullTypedCacheInterface
   inline Status InsertFull(
       const Slice& key, TValuePtr value, size_t charge,
       TypedHandle** handle = nullptr, Priority priority = Priority::LOW,
-      CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
+      CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier,
+      const Slice& compressed = Slice(),
+      CompressionType type = CompressionType::kNoCompression) {
     auto untyped_handle = reinterpret_cast<Handle**>(handle);
-    auto helper = lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier
+    auto helper = lowest_used_cache_tier > CacheTier::kVolatileTier
                       ? GetFullHelper()
                       : GetBasicHelper();
     return this->cache_->Insert(key, UpCastValue(value), helper, charge,
-                                untyped_handle, priority);
+                                untyped_handle, priority, compressed, type);
   }
 
   // Like SecondaryCache::InsertSaved, with SecondaryCache compatibility
@@ -319,9 +324,9 @@ class FullTypedCacheInterface
       size_t* out_charge = nullptr) {
     ObjectPtr value;
     size_t charge;
-    Status st = GetFullHelper()->create_cb(data, create_context,
-                                           this->cache_->memory_allocator(),
-                                           &value, &charge);
+    Status st = GetFullHelper()->create_cb(
+        data, kNoCompression, CacheTier::kVolatileTier, create_context,
+        this->cache_->memory_allocator(), &value, &charge);
     if (out_charge) {
       *out_charge = charge;
     }
@@ -340,8 +345,8 @@ class FullTypedCacheInterface
       const Slice& key, TCreateContext* create_context = nullptr,
       Priority priority = Priority::LOW, Statistics* stats = nullptr,
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
-    if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {
-      return reinterpret_cast<TypedHandle*>(this->cache_->Lookup(
+    if (lowest_used_cache_tier > CacheTier::kVolatileTier) {
+      return static_cast<TypedHandle*>(this->cache_->Lookup(
           key, GetFullHelper(), create_context, priority, stats));
     } else {
       return BasicTypedCacheInterface<TValue, kRole, CachePtr>::Lookup(key,
@@ -352,7 +357,7 @@ class FullTypedCacheInterface
   inline void StartAsyncLookupFull(
       TypedAsyncLookupHandle& async_handle,
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
-    if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {
+    if (lowest_used_cache_tier > CacheTier::kVolatileTier) {
       async_handle.helper = GetFullHelper();
       this->cache_->StartAsyncLookup(async_handle);
     } else {

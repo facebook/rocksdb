@@ -11,6 +11,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/types.h"
@@ -19,16 +20,15 @@
 namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
-extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                         std::unique_ptr<WritableFileWriter>& dest_writer,
-                         uint64_t size, bool use_fsync,
-                         const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature);
-extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                         const std::string& destination, uint64_t size,
-                         bool use_fsync,
-                         const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature);
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  std::unique_ptr<WritableFileWriter>& dest_writer,
+                  uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const Temperature temperature);
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const Temperature temperature);
 inline IOStatus CopyFile(const std::shared_ptr<FileSystem>& fs,
                          const std::string& source,
                          const std::string& destination, uint64_t size,
@@ -38,8 +38,8 @@ inline IOStatus CopyFile(const std::shared_ptr<FileSystem>& fs,
   return CopyFile(fs.get(), source, destination, size, use_fsync, io_tracer,
                   temperature);
 }
-extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
-                           const std::string& contents, bool use_fsync);
+IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+                    const std::string& contents, bool use_fsync);
 
 inline IOStatus CreateFile(const std::shared_ptr<FileSystem>& fs,
                            const std::string& destination,
@@ -47,19 +47,19 @@ inline IOStatus CreateFile(const std::shared_ptr<FileSystem>& fs,
   return CreateFile(fs.get(), destination, contents, use_fsync);
 }
 
-extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
-                           const std::string& fname,
-                           const std::string& path_to_sync, const bool force_bg,
-                           const bool force_fg);
+Status DeleteDBFile(const ImmutableDBOptions* db_options,
+                    const std::string& fname, const std::string& path_to_sync,
+                    const bool force_bg, const bool force_fg);
 
-extern IOStatus GenerateOneFileChecksum(
+// TODO(hx235): pass the whole DBOptions intead of its individual fields
+IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,
     FileChecksumGenFactory* checksum_factory,
     const std::string& requested_checksum_func_name, std::string* file_checksum,
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool allow_mmap_reads,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
-    Env::IOPriority rate_limiter_priority);
+    const ReadOptions& read_options, Statistics* stats, SystemClock* clock);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
                                          SystemClock* clock, IOOptions& opts) {
@@ -85,7 +85,25 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
   return IOStatus::OK();
 }
 
+inline IOStatus PrepareIOFromWriteOptions(const WriteOptions& wo,
+                                          IOOptions& opts) {
+  opts.rate_limiter_priority = wo.rate_limiter_priority;
+  opts.io_activity = wo.io_activity;
+
+  return IOStatus::OK();
+}
+
 // Test method to delete the input directory and all of its contents.
 // This method is destructive and is meant for use only in tests!!!
 Status DestroyDir(Env* env, const std::string& dir);
+
+inline bool CheckFSFeatureSupport(FileSystem* fs, FSSupportedOps feat) {
+  int64_t supported_ops = 0;
+  fs->SupportedOps(supported_ops);
+  if (supported_ops & (1ULL << feat)) {
+    return true;
+  }
+  return false;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

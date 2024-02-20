@@ -163,7 +163,9 @@ class FilterBlockReader {
     return error_msg;
   }
 
-  virtual Status CacheDependencies(const ReadOptions& /*ro*/, bool /*pin*/) {
+  virtual Status CacheDependencies(
+      const ReadOptions& /*ro*/, bool /*pin*/,
+      FilePrefetchBuffer* /* tail_prefetch_buffer */) {
     return Status::OK();
   }
 

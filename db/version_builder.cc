@@ -1073,6 +1073,12 @@ class VersionBuilder::Rep {
     const uint64_t oldest_blob_file_with_linked_ssts =
         GetMinOldestBlobFileNumber();
 
+    // If there are no blob files with linked SSTs, meaning that there are no
+    // valid blob files
+    if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
+      return;
+    }
+
     auto process_base =
         [vstorage](const std::shared_ptr<BlobFileMetaData>& base_meta) {
           assert(base_meta);
@@ -1257,7 +1263,8 @@ class VersionBuilder::Rep {
       InternalStats* internal_stats, int max_threads,
       bool prefetch_index_and_filter_in_cache, bool is_initial_load,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options) {
+      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
+      uint8_t block_protection_bytes_per_key) {
     assert(table_cache_ != nullptr);
 
     size_t table_cache_capacity =
@@ -1326,7 +1333,7 @@ class VersionBuilder::Rep {
         statuses[file_idx] = table_cache_->FindTable(
             read_options, file_options_,
             *(base_vstorage_->InternalComparator()), *file_meta, &handle,
-            prefix_extractor, false /*no_io */, true /* record_read_stats */,
+            block_protection_bytes_per_key, prefix_extractor, false /*no_io */,
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
             file_meta->temperature);
@@ -1384,11 +1391,12 @@ Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache, bool is_initial_load,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
-    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options) {
-  return rep_->LoadTableHandlers(internal_stats, max_threads,
-                                 prefetch_index_and_filter_in_cache,
-                                 is_initial_load, prefix_extractor,
-                                 max_file_size_for_l0_meta_pin, read_options);
+    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
+    uint8_t block_protection_bytes_per_key) {
+  return rep_->LoadTableHandlers(
+      internal_stats, max_threads, prefetch_index_and_filter_in_cache,
+      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin,
+      read_options, block_protection_bytes_per_key);
 }
 
 uint64_t VersionBuilder::GetMinOldestBlobFileNumber() const {

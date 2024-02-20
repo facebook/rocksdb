@@ -14,6 +14,7 @@
 #include "db/blob/prefetch_buffer_collection.h"
 #include "db/snapshot_checker.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "logging/logging.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -31,7 +32,8 @@ CompactionIterator::CompactionIterator(
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
-    const Compaction* compaction, const CompactionFilter* compaction_filter,
+    bool must_count_input_entries, const Compaction* compaction,
+    const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
@@ -45,8 +47,9 @@ CompactionIterator::CompactionIterator(
           manual_compaction_canceled,
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
-          compaction_filter, shutting_down, info_log, full_history_ts_low,
-          preserve_time_min_seqno, preclude_last_level_min_seqno) {}
+          must_count_input_entries, compaction_filter, shutting_down, info_log,
+          full_history_ts_low, preserve_time_min_seqno,
+          preclude_last_level_min_seqno) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -58,15 +61,14 @@ CompactionIterator::CompactionIterator(
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
-    std::unique_ptr<CompactionProxy> compaction,
+    std::unique_ptr<CompactionProxy> compaction, bool must_count_input_entries,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
     const SequenceNumber preserve_time_min_seqno,
     const SequenceNumber preclude_last_level_min_seqno)
-    : input_(input, cmp,
-             !compaction || compaction->DoesInputReferenceBlobFiles()),
+    : input_(input, cmp, must_count_input_entries),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),
@@ -422,16 +424,13 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     return false;
   } else if (decision == CompactionFilter::Decision::kChangeWideColumnEntity) {
     WideColumns sorted_columns;
-
     sorted_columns.reserve(new_columns.size());
+
     for (const auto& column : new_columns) {
       sorted_columns.emplace_back(column.first, column.second);
     }
 
-    std::sort(sorted_columns.begin(), sorted_columns.end(),
-              [](const WideColumn& lhs, const WideColumn& rhs) {
-                return lhs.name().compare(rhs.name()) < 0;
-              });
+    WideColumnsHelper::SortColumns(sorted_columns);
 
     {
       const Status s = WideColumnSerialization::Serialize(
@@ -1228,7 +1227,7 @@ void CompactionIterator::DecideOutputLevel() {
     // not from this compaction.
     // TODO: add statistic for declined output_to_penultimate_level
     bool safe_to_penultimate_level =
-        compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key);
+        compaction_->WithinPenultimateLevelOutputRange(ikey_);
     if (!safe_to_penultimate_level) {
       output_to_penultimate_level_ = false;
       // It could happen when disable/enable `last_level_temperature` while
@@ -1257,10 +1256,13 @@ void CompactionIterator::PrepareOutput() {
       } else if (ikey_.type == kTypeBlobIndex) {
         GarbageCollectBlobIfNeeded();
       }
-    }
 
-    if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
-      DecideOutputLevel();
+      // For range del sentinel, we don't use it to cut files for bottommost
+      // compaction. So it should not make a difference which output level we
+      // decide.
+      if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
+        DecideOutputLevel();
+      }
     }
 
     // Zeroing out the sequence number leads to better compression.

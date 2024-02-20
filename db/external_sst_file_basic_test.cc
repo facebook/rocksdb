@@ -9,6 +9,8 @@
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
+#include "rocksdb/options.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -244,7 +246,7 @@ class ChecksumVerifyHelper {
 
  public:
   ChecksumVerifyHelper(Options& options) : options_(options) {}
-  ~ChecksumVerifyHelper() {}
+  ~ChecksumVerifyHelper() = default;
 
   Status GetSingleFileChecksumAndFuncName(
       const std::string& file_path, std::string* file_checksum,
@@ -472,7 +474,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   std::vector<LiveFileMetaData> live_files;
   dbfull()->GetLiveFilesMetaData(&live_files);
   std::set<std::string> set1;
-  for (auto f : live_files) {
+  for (const auto& f : live_files) {
     set1.insert(f.name);
     ASSERT_EQ(f.file_checksum, kUnknownFileChecksum);
     ASSERT_EQ(f.file_checksum_func_name, kUnknownFileChecksumFuncName);
@@ -521,7 +523,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files1;
   dbfull()->GetLiveFilesMetaData(&live_files1);
-  for (auto f : live_files1) {
+  for (const auto& f : live_files1) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_EQ(f.file_checksum, file_checksum2);
       ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name2);
@@ -538,7 +540,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files2;
   dbfull()->GetLiveFilesMetaData(&live_files2);
-  for (auto f : live_files2) {
+  for (const auto& f : live_files2) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_EQ(f.file_checksum, file_checksum3);
       ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name3);
@@ -561,7 +563,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files3;
   dbfull()->GetLiveFilesMetaData(&live_files3);
-  for (auto f : live_files3) {
+  for (const auto& f : live_files3) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_FALSE(f.file_checksum == file_checksum4);
       ASSERT_EQ(f.file_checksum, "asd");
@@ -581,7 +583,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files4;
   dbfull()->GetLiveFilesMetaData(&live_files4);
-  for (auto f : live_files4) {
+  for (const auto& f : live_files4) {
     if (set1.find(f.name) == set1.end()) {
       std::string cur_checksum5, cur_checksum_func_name5;
       ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
@@ -603,7 +605,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files6;
   dbfull()->GetLiveFilesMetaData(&live_files6);
-  for (auto f : live_files6) {
+  for (const auto& f : live_files6) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_EQ(f.file_checksum, file_checksum6);
       ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name6);
@@ -1093,7 +1095,7 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
   size_t total_fadvised_bytes = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SstFileWriter::Rep::InvalidatePageCache", [&](void* arg) {
-        size_t fadvise_size = *(reinterpret_cast<size_t*>(arg));
+        size_t fadvise_size = *(static_cast<size_t*>(arg));
         total_fadvised_bytes += fadvise_size;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -1292,6 +1294,80 @@ TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   Destroy(options);
 }
 
+TEST_F(ExternalSSTFileBasicTest, ReadOldValueOfIngestedKeyBug) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  options.preserve_internal_time_seconds = 36000;
+  DestroyAndReopen(options);
+
+  // To create the following LSM tree to trigger the bug:
+  // L0
+  // L1 with seqno [1, 2]
+  // L2 with seqno [3, 4]
+
+  // To create L1 shape
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k1", "seqno1"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k1", "seqno2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ColumnFamilyMetaData meta_1;
+  db_->GetColumnFamilyMetaData(&meta_1);
+  auto& files_1 = meta_1.levels[0].files;
+  ASSERT_EQ(files_1.size(), 2);
+  std::string file1 = files_1[0].db_path + files_1[0].name;
+  std::string file2 = files_1[1].db_path + files_1[1].name;
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(), {file1, file2}, 1));
+  // To confirm L1 shape
+  ColumnFamilyMetaData meta_2;
+  db_->GetColumnFamilyMetaData(&meta_2);
+  ASSERT_EQ(meta_2.levels[0].files.size(), 0);
+  ASSERT_EQ(meta_2.levels[1].files.size(), 1);
+  // Seqno starts from non-zero due to seqno reservation for
+  // preserve_internal_time_seconds greater than 0;
+  ASSERT_EQ(meta_2.levels[1].files[0].largest_seqno, 102);
+  ASSERT_EQ(meta_2.levels[2].files.size(), 0);
+  // To create L2 shape
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k2overlap",
+                     "old_value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), "k2overlap",
+                     "old_value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ColumnFamilyMetaData meta_3;
+  db_->GetColumnFamilyMetaData(&meta_3);
+  auto& files_3 = meta_3.levels[0].files;
+  std::string file3 = files_3[0].db_path + files_3[0].name;
+  std::string file4 = files_3[1].db_path + files_3[1].name;
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(), {file3, file4}, 2));
+  // To confirm L2 shape
+  ColumnFamilyMetaData meta_4;
+  db_->GetColumnFamilyMetaData(&meta_4);
+  ASSERT_EQ(meta_4.levels[0].files.size(), 0);
+  ASSERT_EQ(meta_4.levels[1].files.size(), 1);
+  ASSERT_EQ(meta_4.levels[2].files.size(), 1);
+  ASSERT_EQ(meta_4.levels[2].files[0].largest_seqno, 104);
+
+  // Ingest a file with new value of the key "k2overlap"
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  std::string f = sst_files_dir_ + "f.sst";
+  ASSERT_OK(sst_file_writer.Open(f));
+  ASSERT_OK(sst_file_writer.Put("k2overlap", "new_value"));
+  ExternalSstFileInfo f_info;
+  ASSERT_OK(sst_file_writer.Finish(&f_info));
+  ASSERT_OK(db_->IngestExternalFile({f}, IngestExternalFileOptions()));
+
+  // To verify new value of the key "k2overlap" is correctly returned
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "k2overlap", &value));
+  // Before the fix, the value would be "old_value" and assertion failed
+  ASSERT_EQ(value, "new_value");
+}
+
 TEST_F(ExternalSSTFileBasicTest, IngestRangeDeletionTombstoneWithGlobalSeqno) {
   for (int i = 5; i < 25; i++) {
     ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(i),
@@ -1346,7 +1422,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   // range del [0, 50) in L6 file, [50, 100) in L0 file, [100, 150) in memtable
   for (int i = 0; i < 3; i++) {
     if (i != 0) {
-      db_->Flush(FlushOptions());
+      ASSERT_OK(db_->Flush(FlushOptions()));
       if (i == 1) {
         MoveFilesToLevel(kNumLevels - 1);
       }
@@ -1548,10 +1624,15 @@ TEST_F(ExternalSSTFileBasicTest, RangeDeletionEndComesBeforeStart) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
+  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  if (!verify_checksums_before_ingest) {
+    ROCKSDB_GTEST_BYPASS("Bypassing test when !verify_checksums_before_ingest");
+    return;
+  }
   bool change_checksum_called = false;
   const auto& change_checksum = [&](void* arg) {
     if (!change_checksum_called) {
-      char* buf = reinterpret_cast<char*>(arg);
+      char* buf = static_cast<char*>(arg);
       assert(nullptr != buf);
       buf[0] ^= 0x1;
       change_checksum_called = true;
@@ -1565,24 +1646,20 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
   SyncPoint::GetInstance()->EnableProcessing();
   int file_id = 0;
   bool write_global_seqno = std::get<0>(GetParam());
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
   do {
     Options options = CurrentOptions();
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
     Status s = GenerateAndAddExternalFile(
         options, {1, 2, 3, 4, 5, 6}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data);
-    if (verify_checksums_before_ingest) {
-      ASSERT_NOK(s);
-    } else {
-      ASSERT_OK(s);
-    }
+        write_global_seqno, /*verify_checksums_before_ingest=*/true,
+        &true_data);
+    ASSERT_NOK(s);
     change_checksum_called = false;
   } while (ChangeOptionsForFileIngestionTest());
 }
 
-TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
+TEST_P(ExternalSSTFileBasicTest, IngestFileWithCorruptedDataBlock) {
   if (!random_rwfile_supported_) {
     ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
@@ -1590,15 +1667,21 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
   SyncPoint::GetInstance()->DisableProcessing();
   int file_id = 0;
   EnvOptions env_options;
+  Random rnd(301);
   do {
     Options options = CurrentOptions();
+    options.compression = kNoCompression;
+    BlockBasedTableOptions table_options;
+    table_options.block_size = 4 * 1024;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     std::string file_path = sst_files_dir_ + std::to_string(file_id++);
     SstFileWriter sst_file_writer(env_options, options);
     Status s = sst_file_writer.Open(file_path);
     ASSERT_OK(s);
+    // This should write more than 2 data blocks.
     for (int i = 0; i != 100; ++i) {
       std::string key = Key(i);
-      std::string value = Key(i) + std::to_string(0);
+      std::string value = rnd.RandomString(200);
       ASSERT_OK(sst_file_writer.Put(key, value));
     }
     ASSERT_OK(sst_file_writer.Finish());
@@ -1609,11 +1692,11 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
       ASSERT_GT(file_size, 8);
       std::unique_ptr<RandomRWFile> rwfile;
       ASSERT_OK(env_->NewRandomRWFile(file_path, &rwfile, EnvOptions()));
-      // Manually corrupt the file
-      // We deterministically corrupt the first byte because we currently
-      // cannot choose a random offset. The reason for this limitation is that
-      // we do not checksum property block at present.
-      const uint64_t offset = 0;
+      // Corrupt the second data block.
+      // We need to corrupt a non-first and non-last data block
+      // since we access them to get smallest and largest internal
+      // key in the file in GetIngestedFileInfo().
+      const uint64_t offset = 5000;
       char scratch[8] = {0};
       Slice buf;
       ASSERT_OK(rwfile->Read(offset, sizeof(scratch), &buf, scratch));
@@ -1646,10 +1729,10 @@ TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   uint64_t props_block_offset = 0;
   size_t props_block_size = 0;
   const auto& get_props_block_offset = [&](void* arg) {
-    props_block_offset = *reinterpret_cast<uint64_t*>(arg);
+    props_block_offset = *static_cast<uint64_t*>(arg);
   };
   const auto& get_props_block_size = [&](void* arg) {
-    props_block_size = *reinterpret_cast<uint64_t*>(arg);
+    props_block_size = *static_cast<uint64_t*>(arg);
   };
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1747,11 +1830,11 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
   Options options = CurrentOptions();
 
   ASSERT_OK(Put("k", "a"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("k", "a"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("k", "a"));
-  Flush();
+  ASSERT_OK(Flush());
   SstFileWriter sst_file_writer(EnvOptions(), options);
 
   // Current file size should be 0 after sst_file_writer init and before open a

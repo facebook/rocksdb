@@ -87,7 +87,6 @@ class PlainTableIterator : public InternalIterator {
   Status status_;
 };
 
-extern const uint64_t kPlainTableMagicNumber;
 PlainTableReader::PlainTableReader(
     const ImmutableOptions& ioptions,
     std::unique_ptr<RandomAccessFileReader>&& file,
@@ -126,7 +125,7 @@ Status PlainTableReader::Open(
   }
 
   std::unique_ptr<TableProperties> props;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                ioptions, read_options, &props);
@@ -284,9 +283,9 @@ void PlainTableReader::FillBloom(const std::vector<uint32_t>& prefix_hashes) {
 Status PlainTableReader::MmapDataIfNeeded() {
   if (file_info_.is_mmap_mode) {
     // Get mmapped memory.
-    return file_info_.file->Read(
-        IOOptions(), 0, static_cast<size_t>(file_size_), &file_info_.file_data,
-        nullptr, nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+    return file_info_.file->Read(IOOptions(), 0,
+                                 static_cast<size_t>(file_size_),
+                                 &file_info_.file_data, nullptr, nullptr);
   }
   return Status::OK();
 }
@@ -300,7 +299,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   BlockContents index_block_contents;
 
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   Status s =
       ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
@@ -454,7 +453,9 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   ParsedInternalKey parsed_target;
   Status s = ParseInternalKey(target, &parsed_target,
                               false /* log_err_key */);  // TODO
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   // The key is between [low, high). Do a binary search between it.
   while (high - low > 1) {
@@ -591,7 +592,9 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   ParsedInternalKey parsed_target;
   s = ParseInternalKey(target, &parsed_target,
                        false /* log_err_key */);  // TODO
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   Slice found_value;
   while (offset < file_info_.data_end_offset) {
@@ -642,7 +645,7 @@ PlainTableIterator::PlainTableIterator(PlainTableReader* table,
   next_offset_ = offset_ = table_->file_info_.data_end_offset;
 }
 
-PlainTableIterator::~PlainTableIterator() {}
+PlainTableIterator::~PlainTableIterator() = default;
 
 bool PlainTableIterator::Valid() const {
   return offset_ < table_->file_info_.data_end_offset &&

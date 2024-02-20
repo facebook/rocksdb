@@ -58,7 +58,7 @@ struct DBPropertyInfo {
   bool (DBImpl::*handle_string_dbimpl)(std::string* value);
 };
 
-extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
+const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #undef SCORE
 enum class LevelStatType {
@@ -432,7 +432,7 @@ class InternalStats {
     explicit CompactionStatsFull() : stats(), penultimate_level_stats() {}
 
     explicit CompactionStatsFull(CompactionReason reason, int c)
-        : stats(reason, c), penultimate_level_stats(reason, c){};
+        : stats(reason, c), penultimate_level_stats(reason, c){}
 
     uint64_t TotalBytesWritten() const {
       uint64_t bytes_written = stats.bytes_written + stats.bytes_written_blob;
@@ -478,6 +478,7 @@ class InternalStats {
     uint32_t copies_of_last_collection = 0;
     uint64_t last_start_time_micros_ = 0;
     uint64_t last_end_time_micros_ = 0;
+    uint32_t hash_seed = 0;
 
     void Clear() {
       // Wipe everything except collection_count
@@ -818,6 +819,8 @@ class InternalStats {
   bool HandleBaseLevel(uint64_t* value, DBImpl* db, Version* version);
   bool HandleTotalSstFilesSize(uint64_t* value, DBImpl* db, Version* version);
   bool HandleLiveSstFilesSize(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleObsoleteSstFilesSize(uint64_t* value, DBImpl* db,
+                                  Version* version);
   bool HandleEstimatePendingCompactionBytes(uint64_t* value, DBImpl* db,
                                             Version* version);
   bool HandleEstimateTableReadersMem(uint64_t* value, DBImpl* db,

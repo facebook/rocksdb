@@ -11,10 +11,10 @@ import java.util.List;
  * RocksCallbackObject is similar to {@link RocksObject} but varies
  * in its construction as it is designed for Java objects which have functions
  * which are called from C++ via JNI.
- *
+ * <p>
  * RocksCallbackObject is the base-class any RocksDB classes that acts as a
  * callback from some underlying underlying native C++ {@code rocksdb} object.
- *
+ * <p>
  * The use of {@code RocksObject} should always be preferred over
  * {@link RocksCallbackObject} if callbacks are not required.
  */
@@ -39,7 +39,7 @@ public abstract class RocksCallbackObject extends
   static /* @Nullable */ long[] toNativeHandleList(
       /* @Nullable */ final List<? extends RocksCallbackObject> objectList) {
     if (objectList == null) {
-      return null;
+      return new long[0];
     }
     final int len = objectList.size();
     final long[] handleList = new long[len];
@@ -69,5 +69,5 @@ public abstract class RocksCallbackObject extends
     disposeInternal(nativeHandle_);
   }
 
-  private native void disposeInternal(final long handle);
+  private static native void disposeInternal(final long handle);
 }

@@ -260,7 +260,7 @@ void locktree_manager::run_escalation(void) {
     static void run(void *extra) {
       locktree_manager *mgr = (locktree_manager *)extra;
       mgr->escalate_all_locktrees();
-    };
+    }
   };
   m_escalator.run(this, escalation_fn::run, this);
 }

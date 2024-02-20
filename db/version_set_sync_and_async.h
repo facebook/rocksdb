@@ -25,6 +25,7 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
   StopWatchNano timer(clock_, timer_enabled /* auto_start */);
   s = CO_AWAIT(table_cache_->MultiGet)(
       read_options, *internal_comparator(), *f->file_metadata, &file_range,
+      mutable_cf_options_.block_protection_bytes_per_key,
       mutable_cf_options_.prefix_extractor,
       cfd_->internal_stats()->GetFileReadHist(hit_file_level), skip_filters,
       skip_range_deletions, hit_file_level, table_handle);
@@ -112,12 +113,9 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
 
           } else {
             assert(iter->columns);
-            assert(!iter->columns->columns().empty());
-            assert(iter->columns->columns().front().name() ==
-                   kDefaultWideColumnName);
 
-            tmp_s =
-                blob_index.DecodeFrom(iter->columns->columns().front().value());
+            tmp_s = blob_index.DecodeFrom(
+                WideColumnsHelper::GetDefaultColumn(iter->columns->columns()));
           }
 
           if (tmp_s.ok()) {

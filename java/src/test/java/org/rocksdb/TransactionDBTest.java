@@ -130,9 +130,8 @@ public class TransactionDBTest {
          final ReadOptions readOptions = new ReadOptions()) {
 
       try (final Transaction txn = tdb.beginTransaction(writeOptions)) {
-
-        final byte key[] = "key".getBytes(UTF_8);
-        final byte value[] = "value".getBytes(UTF_8);
+        final byte[] key = "key".getBytes(UTF_8);
+        final byte[] value = "value".getBytes(UTF_8);
 
         txn.put(key, value);
         assertThat(txn.getForUpdate(readOptions, key, true)).isEqualTo(value);

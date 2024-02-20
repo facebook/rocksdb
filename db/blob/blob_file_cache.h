@@ -43,7 +43,7 @@ class BlobFileCache {
   CacheInterface cache_;
   // Note: mutex_ below is used to guard against multiple threads racing to open
   // the same file.
-  Striped<port::Mutex, Slice> mutex_;
+  Striped<CacheAlignedWrapper<port::Mutex>> mutex_;
   const ImmutableOptions* immutable_options_;
   const FileOptions* file_options_;
   uint32_t column_family_id_;

@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,7 +32,7 @@ class StopWatch {
         elapsed_(elapsed),
         overwrite_(overwrite),
         stats_enabled_(statistics &&
-                       statistics->get_stats_level() >=
+                       statistics->get_stats_level() >
                            StatsLevel::kExceptTimers &&
                        (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX ||
                         hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX)),

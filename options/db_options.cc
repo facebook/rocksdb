@@ -35,12 +35,6 @@ static std::unordered_map<std::string, WALRecoveryMode>
         {"kSkipAnyCorruptedRecords",
          WALRecoveryMode::kSkipAnyCorruptedRecords}};
 
-static std::unordered_map<std::string, DBOptions::AccessHint>
-    access_hint_string_map = {{"NONE", DBOptions::AccessHint::NONE},
-                              {"NORMAL", DBOptions::AccessHint::NORMAL},
-                              {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
-                              {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
-
 static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
     {"kVolatileTier", CacheTier::kVolatileTier},
     {"kNonVolatileBlockTier", CacheTier::kNonVolatileBlockTier}};
@@ -128,6 +122,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"max_background_flushes",
          {offsetof(struct MutableDBOptions, max_background_flushes),
           OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"daily_offpeak_time_utc",
+         {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
+          OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
 
@@ -220,6 +218,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"flush_verify_memtable_count",
          {offsetof(struct ImmutableDBOptions, flush_verify_memtable_count),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"compaction_verify_record_count",
+         {offsetof(struct ImmutableDBOptions, compaction_verify_record_count),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"track_and_verify_wals_in_manifest",
@@ -349,10 +351,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"access_hint_on_compaction_start",
-         OptionTypeInfo::Enum<DBOptions::AccessHint>(
-             offsetof(struct ImmutableDBOptions,
-                      access_hint_on_compaction_start),
-             &access_hint_string_map)},
+         OptionTypeInfo::Enum<bool>(0, nullptr, OptionTypeFlags::kNone,
+                                    OptionVerificationType::kDeprecated)},
         {"info_log_level",
          OptionTypeInfo::Enum<InfoLogLevel>(
              offsetof(struct ImmutableDBOptions, info_log_level),
@@ -679,6 +679,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       flush_verify_memtable_count(options.flush_verify_memtable_count),
+      compaction_verify_record_count(options.compaction_verify_record_count),
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
       verify_sst_unique_id_in_manifest(
@@ -715,7 +716,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       advise_random_on_open(options.advise_random_on_open),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
-      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       random_access_max_buffer_size(options.random_access_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       listeners(options.listeners),
@@ -771,6 +771,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    paranoid_checks);
   ROCKS_LOG_HEADER(log, "            Options.flush_verify_memtable_count: %d",
                    flush_verify_memtable_count);
+  ROCKS_LOG_HEADER(log, "         Options.compaction_verify_record_count: %d",
+                   compaction_verify_record_count);
   ROCKS_LOG_HEADER(log,
                    "                              "
                    "Options.track_and_verify_wals_in_manifest: %d",
@@ -787,6 +789,11 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    max_file_opening_threads);
   ROCKS_LOG_HEADER(log, "                             Options.statistics: %p",
                    stats);
+  if (stats) {
+    ROCKS_LOG_HEADER(
+        log, "                             Options.statistics stats level: %u",
+        stats->get_stats_level());
+  }
   ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
                    use_fsync);
   ROCKS_LOG_HEADER(
@@ -846,8 +853,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
       db_write_buffer_size);
   ROCKS_LOG_HEADER(log, "                   Options.write_buffer_manager: %p",
                    write_buffer_manager.get());
-  ROCKS_LOG_HEADER(log, "        Options.access_hint_on_compaction_start: %d",
-                   static_cast<int>(access_hint_on_compaction_start));
   ROCKS_LOG_HEADER(
       log, "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
       random_access_max_buffer_size);
@@ -999,7 +1004,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
-      max_background_flushes(options.max_background_flushes) {}
+      max_background_flushes(options.max_background_flushes),
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1044,6 +1050,8 @@ void MutableDBOptions::Dump(Logger* log) const {
                    compaction_readahead_size);
   ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
                           max_background_flushes);
+  ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
+                   daily_offpeak_time_utc.c_str());
 }
 
 Status GetMutableDBOptionsFromStrings(

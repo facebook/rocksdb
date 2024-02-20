@@ -8,6 +8,7 @@
 
 #if USE_COROUTINES
 #include <atomic>
+#include <queue>
 
 #include "folly/CPortability.h"
 #include "folly/CppAttributes.h"

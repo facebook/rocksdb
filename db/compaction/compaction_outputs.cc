@@ -18,16 +18,18 @@ void CompactionOutputs::NewBuilder(const TableBuilderOptions& tboptions) {
   builder_.reset(NewTableBuilder(tboptions, file_writer_.get()));
 }
 
-Status CompactionOutputs::Finish(const Status& intput_status,
-                                 const SeqnoToTimeMapping& seqno_time_mapping) {
+Status CompactionOutputs::Finish(
+    const Status& intput_status,
+    const SeqnoToTimeMapping& seqno_to_time_mapping) {
   FileMetaData* meta = GetMetaData();
   assert(meta != nullptr);
   Status s = intput_status;
   if (s.ok()) {
-    std::string seqno_time_mapping_str;
-    seqno_time_mapping.Encode(seqno_time_mapping_str, meta->fd.smallest_seqno,
-                              meta->fd.largest_seqno, meta->file_creation_time);
-    builder_->SetSeqnoTimeTableProperties(seqno_time_mapping_str,
+    SeqnoToTimeMapping relevant_mapping;
+    relevant_mapping.CopyFromSeqnoRange(
+        seqno_to_time_mapping, meta->fd.smallest_seqno, meta->fd.largest_seqno);
+    relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
+    builder_->SetSeqnoTimeTableProperties(relevant_mapping,
                                           meta->oldest_ancester_time);
     s = builder_->Finish();
 
@@ -43,7 +45,10 @@ Status CompactionOutputs::Finish(const Status& intput_status,
   const uint64_t current_bytes = builder_->FileSize();
   if (s.ok()) {
     meta->fd.file_size = current_bytes;
+    meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
+    meta->user_defined_timestamps_persisted = static_cast<bool>(
+        builder_->GetTableProperties().user_defined_timestamps_persisted);
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
@@ -57,12 +62,15 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
                                             Statistics* statistics,
                                             bool use_fsync) {
   IOStatus io_s;
-  if (input_status.ok()) {
+  IOOptions opts;
+  io_s = WritableFileWriter::PrepareIOOptions(
+      WriteOptions(Env::IOActivity::kCompaction), opts);
+  if (input_status.ok() && io_s.ok()) {
     StopWatch sw(clock, statistics, COMPACTION_OUTFILE_SYNC_MICROS);
-    io_s = file_writer_->Sync(use_fsync);
+    io_s = file_writer_->Sync(opts, use_fsync);
   }
   if (input_status.ok() && io_s.ok()) {
-    io_s = file_writer_->Close();
+    io_s = file_writer_->Close(opts);
   }
 
   if (input_status.ok() && io_s.ok()) {
@@ -124,11 +132,6 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   if (grandparents.empty()) {
     return curr_key_boundary_switched_num;
   }
-  assert(!internal_key.empty());
-  InternalKey ikey;
-  ikey.DecodeFrom(internal_key);
-  assert(ikey.Valid());
-
   const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
 
   // Move the grandparent_index_ to the file containing the current user_key.
@@ -136,7 +139,7 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   // index points to the last file containing the key.
   while (grandparent_index_ < grandparents.size()) {
     if (being_grandparent_gap_) {
-      if (sstableKeyCompare(ucmp, ikey,
+      if (sstableKeyCompare(ucmp, internal_key,
                             grandparents[grandparent_index_]->smallest) < 0) {
         break;
       }
@@ -149,13 +152,13 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
       being_grandparent_gap_ = false;
     } else {
       int cmp_result = sstableKeyCompare(
-          ucmp, ikey, grandparents[grandparent_index_]->largest);
+          ucmp, internal_key, grandparents[grandparent_index_]->largest);
       // If it's same key, make sure grandparent_index_ is pointing to the last
       // one.
       if (cmp_result < 0 ||
           (cmp_result == 0 &&
            (grandparent_index_ == grandparents.size() - 1 ||
-            sstableKeyCompare(ucmp, ikey,
+            sstableKeyCompare(ucmp, internal_key,
                               grandparents[grandparent_index_ + 1]->smallest) <
                 0))) {
         break;
@@ -317,7 +320,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
         being_grandparent_gap_ ? 2 : 3;
     if (compaction_->immutable_options()->compaction_style ==
             kCompactionStyleLevel &&
-        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         num_grandparent_boundaries_crossed >=
             num_skippable_boundaries_crossed &&
         grandparent_overlapped_bytes_ - previous_overlapped_bytes >
@@ -339,7 +341,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // improvement.
     if (compaction_->immutable_options()->compaction_style ==
             kCompactionStyleLevel &&
-        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         current_output_file_size_ >=
             ((compaction_->target_output_file_size() + 99) / 100) *
                 (50 + std::min(grandparent_boundary_switched_num_ * 5,
@@ -597,10 +598,12 @@ Status CompactionOutputs::AddRangeDels(
     // in any snapshot. trim_ts_ is passed to the constructor for
     // range_del_agg_, and range_del_agg_ internally drops tombstones above
     // trim_ts_.
-    if (bottommost_level && tombstone.seq_ <= earliest_snapshot &&
+    bool consider_drop =
+        tombstone.seq_ <= earliest_snapshot &&
         (ts_sz == 0 ||
          (!full_history_ts_low.empty() &&
-          ucmp->CompareTimestamp(tombstone.ts_, full_history_ts_low) < 0))) {
+          ucmp->CompareTimestamp(tombstone.ts_, full_history_ts_low) < 0));
+    if (consider_drop && bottommost_level) {
       // TODO(andrewkr): tombstones that span multiple output files are
       // counted for each compaction output file, so lots of double
       // counting.
@@ -633,6 +636,20 @@ Status CompactionOutputs::AddRangeDels(
     if (upper_bound != nullptr &&
         icmp.Compare(*upper_bound, tombstone_start.Encode()) < 0) {
       break;
+    }
+    if (lower_bound &&
+        icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
+      tombstone_start.DecodeFrom(*lower_bound);
+    }
+    if (upper_bound && icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
+      tombstone_end.DecodeFrom(*upper_bound);
+    }
+    if (consider_drop && compaction_->KeyRangeNotExistsBeyondOutputLevel(
+                             tombstone_start.user_key(),
+                             tombstone_end.user_key(), &level_ptrs_)) {
+      range_del_out_stats.num_range_del_drop_obsolete++;
+      range_del_out_stats.num_record_drop_obsolete++;
+      continue;
     }
     // Here we show that *only* range tombstones that overlap with
     // [lower_bound, upper_bound] are added to the current file, and
@@ -687,13 +704,6 @@ Status CompactionOutputs::AddRangeDels(
 
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
-    if (lower_bound &&
-        icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
-      tombstone_start.DecodeFrom(*lower_bound);
-    }
-    if (upper_bound && icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
-      tombstone_end.DecodeFrom(*upper_bound);
-    }
     assert(icmp.Compare(tombstone_start, tombstone_end) <= 0);
     meta.UpdateBoundariesForRange(tombstone_start, tombstone_end,
                                   tombstone.seq_, icmp);
@@ -778,6 +788,8 @@ CompactionOutputs::CompactionOutputs(const Compaction* compaction,
   if (compaction->output_level() != 0) {
     FillFilesToCutForTtl();
   }
+
+  level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

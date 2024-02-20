@@ -181,7 +181,9 @@ bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
   BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
   assert(blob_db_impl);
 
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const Status s = blob_db_impl->CreateBlobFileAndWriter(
+      WriteOptions(),
       /* has_ttl */ false, ExpirationRange(), "compaction/GC", &blob_file_,
       &writer_);
   if (!s.ok()) {
@@ -251,8 +253,9 @@ bool BlobIndexCompactionFilterBase::WriteBlobToNewFile(
 
   assert(writer_);
   uint64_t new_key_offset = 0;
-  const Status s = writer_->AddRecord(key, blob, kNoExpiration, &new_key_offset,
-                                      new_blob_offset);
+  // TODO: plumb Env::IOActivity, Env::IOPriority
+  const Status s = writer_->AddRecord(WriteOptions(), key, blob, kNoExpiration,
+                                      &new_key_offset, new_blob_offset);
 
   if (!s.ok()) {
     const BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
@@ -302,7 +305,8 @@ bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFile() const {
   {
     WriteLock wl(&blob_db_impl->mutex_);
 
-    s = blob_db_impl->CloseBlobFile(blob_file_);
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    s = blob_db_impl->CloseBlobFile(WriteOptions(), blob_file_);
 
     // Note: we delay registering the new blob file until it's closed to
     // prevent FIFO eviction from processing it during compaction/GC.
