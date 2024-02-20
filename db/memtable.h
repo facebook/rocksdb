@@ -90,10 +90,10 @@ class MemTable {
   struct KeyComparator : public MemTableRep::KeyComparator {
     const InternalKeyComparator comparator;
     explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
-    virtual int operator()(const char* prefix_len_key1,
-                           const char* prefix_len_key2) const override;
-    virtual int operator()(const char* prefix_len_key,
-                           const DecodedType& key) const override;
+    int operator()(const char* prefix_len_key1,
+                   const char* prefix_len_key2) const override;
+    int operator()(const char* prefix_len_key,
+                   const DecodedType& key) const override;
   };
 
   // MemTables are reference counted.  The initial reference count
@@ -699,6 +699,6 @@ class MemTable {
   void MaybeUpdateNewestUDT(const Slice& user_key);
 };
 
-extern const char* EncodeKey(std::string* scratch, const Slice& target);
+const char* EncodeKey(std::string* scratch, const Slice& target);
 
 }  // namespace ROCKSDB_NAMESPACE

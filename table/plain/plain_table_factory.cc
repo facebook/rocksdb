@@ -77,7 +77,7 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
   //
   return new PlainTableBuilder(
       table_builder_options.ioptions, table_builder_options.moptions,
-      table_builder_options.int_tbl_prop_collector_factories,
+      table_builder_options.internal_tbl_prop_coll_factories,
       table_builder_options.column_family_id,
       table_builder_options.level_at_creation, file,
       table_options_.user_key_len, table_options_.encoding_type,
@@ -279,7 +279,7 @@ Status GetPlainTableOptionsFromMap(
   return s;
 }
 
-extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
+TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }
 

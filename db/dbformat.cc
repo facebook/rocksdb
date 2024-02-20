@@ -8,9 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/dbformat.h"
 
-#include <stdio.h>
-
 #include <cinttypes>
+#include <cstdio>
 
 #include "db/lookup_key.h"
 #include "monitoring/perf_context_imp.h"
@@ -28,7 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 // ValueType, not the lowest).
 const ValueType kValueTypeForSeek = kTypeWideColumnEntity;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
-const std::string kDisableUserTimestamp("");
+const std::string kDisableUserTimestamp;
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {
@@ -65,6 +64,13 @@ void AppendInternalKeyWithDifferentTimestamp(std::string* result,
   result->append(key.user_key.data(), key.user_key.size() - ts.size());
   result->append(ts.data(), ts.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
+}
+
+void AppendUserKeyWithDifferentTimestamp(std::string* result, const Slice& key,
+                                         const Slice& ts) {
+  assert(key.size() >= ts.size());
+  result->append(key.data(), key.size() - ts.size());
+  result->append(ts.data(), ts.size());
 }
 
 void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
@@ -111,10 +117,22 @@ void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
 void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
                                     size_t ts_sz) {
   assert(ts_sz > 0);
+  assert(key.size() >= kNumInternalBytes);
   size_t user_key_size = key.size() - kNumInternalBytes;
   result->reserve(key.size() + ts_sz);
   result->append(key.data(), user_key_size);
   result->append(ts_sz, static_cast<unsigned char>(0));
+  result->append(key.data() + user_key_size, kNumInternalBytes);
+}
+
+void PadInternalKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz) {
+  assert(ts_sz > 0);
+  assert(key.size() >= kNumInternalBytes);
+  size_t user_key_size = key.size() - kNumInternalBytes;
+  result->reserve(key.size() + ts_sz);
+  result->append(key.data(), user_key_size);
+  result->append(std::string(ts_sz, '\xff'));
   result->append(key.data() + user_key_size, kNumInternalBytes);
 }
 

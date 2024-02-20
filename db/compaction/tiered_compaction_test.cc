@@ -1338,7 +1338,7 @@ class PrecludeLastLevelTest : public DBTestBase {
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
           auto periodic_task_scheduler_ptr =
-              reinterpret_cast<PeriodicTaskScheduler*>(arg);
+              static_cast<PeriodicTaskScheduler*>(arg);
           periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
     mock_clock_->SetCurrentTime(kMockStartTime);
@@ -1575,9 +1575,8 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   ASSERT_EQ(tables_props.size(), 1);
   ASSERT_FALSE(tables_props.begin()->second->seqno_to_time_mapping.empty());
   SeqnoToTimeMapping tp_mapping;
-  ASSERT_OK(
-      tp_mapping.Add(tables_props.begin()->second->seqno_to_time_mapping));
-  ASSERT_OK(tp_mapping.Sort());
+  ASSERT_OK(tp_mapping.DecodeFrom(
+      tables_props.begin()->second->seqno_to_time_mapping));
   ASSERT_FALSE(tp_mapping.Empty());
   auto seqs = tp_mapping.TEST_GetInternalMapping();
   ASSERT_FALSE(seqs.empty());
@@ -1824,7 +1823,6 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
   options.env = mock_env_.get();
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
-  options.ignore_max_compaction_bytes_for_input = false;
   options.periodic_compaction_seconds = 10000;
   DestroyAndReopen(options);
 

@@ -170,18 +170,26 @@ namespace ROCKSDB_NAMESPACE {
 const size_t kShadowValueSize = 10;
 
 std::map<std::string, int> taOptToIndex = {
-    {"get", 0},           {"put", 1},
-    {"delete", 2},        {"single_delete", 3},
-    {"range_delete", 4},  {"merge", 5},
-    {"iterator_Seek", 6}, {"iterator_SeekForPrev", 7},
-    {"multiget", 8}};
+    {"get", kGet},
+    {"put", kPut},
+    {"delete", kDelete},
+    {"single_delete", kSingleDelete},
+    {"range_delete", kRangeDelete},
+    {"merge", kMerge},
+    {"iterator_Seek", kIteratorSeek},
+    {"iterator_SeekForPrev", kIteratorSeekForPrev},
+    {"multiget", kMultiGet}};
 
 std::map<int, std::string> taIndexToOpt = {
-    {0, "get"},           {1, "put"},
-    {2, "delete"},        {3, "single_delete"},
-    {4, "range_delete"},  {5, "merge"},
-    {6, "iterator_Seek"}, {7, "iterator_SeekForPrev"},
-    {8, "multiget"}};
+    {kGet, "get"},
+    {kPut, "put"},
+    {kDelete, "delete"},
+    {kSingleDelete, "single_delete"},
+    {kRangeDelete, "range_delete"},
+    {kMerge, "merge"},
+    {kIteratorSeek, "iterator_Seek"},
+    {kIteratorSeekForPrev, "iterator_SeekForPrev"},
+    {kMultiGet, "multiget"}};
 
 namespace {
 
@@ -293,59 +301,59 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   }
 
   ta_.resize(kTaTypeNum);
-  ta_[0].type_name = "get";
+  ta_[kGet].type_name = "get";
   if (FLAGS_analyze_get) {
-    ta_[0].enabled = true;
+    ta_[kGet].enabled = true;
   } else {
-    ta_[0].enabled = false;
+    ta_[kGet].enabled = false;
   }
-  ta_[1].type_name = "put";
+  ta_[kPut].type_name = "put";
   if (FLAGS_analyze_put) {
-    ta_[1].enabled = true;
+    ta_[kPut].enabled = true;
   } else {
-    ta_[1].enabled = false;
+    ta_[kPut].enabled = false;
   }
-  ta_[2].type_name = "delete";
+  ta_[kDelete].type_name = "delete";
   if (FLAGS_analyze_delete) {
-    ta_[2].enabled = true;
+    ta_[kDelete].enabled = true;
   } else {
-    ta_[2].enabled = false;
+    ta_[kDelete].enabled = false;
   }
-  ta_[3].type_name = "single_delete";
+  ta_[kSingleDelete].type_name = "single_delete";
   if (FLAGS_analyze_single_delete) {
-    ta_[3].enabled = true;
+    ta_[kSingleDelete].enabled = true;
   } else {
-    ta_[3].enabled = false;
+    ta_[kSingleDelete].enabled = false;
   }
-  ta_[4].type_name = "range_delete";
+  ta_[kRangeDelete].type_name = "range_delete";
   if (FLAGS_analyze_range_delete) {
-    ta_[4].enabled = true;
+    ta_[kRangeDelete].enabled = true;
   } else {
-    ta_[4].enabled = false;
+    ta_[kRangeDelete].enabled = false;
   }
-  ta_[5].type_name = "merge";
+  ta_[kMerge].type_name = "merge";
   if (FLAGS_analyze_merge) {
-    ta_[5].enabled = true;
+    ta_[kMerge].enabled = true;
   } else {
-    ta_[5].enabled = false;
+    ta_[kMerge].enabled = false;
   }
-  ta_[6].type_name = "iterator_Seek";
+  ta_[kIteratorSeek].type_name = "iterator_Seek";
   if (FLAGS_analyze_iterator) {
-    ta_[6].enabled = true;
+    ta_[kIteratorSeek].enabled = true;
   } else {
-    ta_[6].enabled = false;
+    ta_[kIteratorSeek].enabled = false;
   }
-  ta_[7].type_name = "iterator_SeekForPrev";
+  ta_[kIteratorSeekForPrev].type_name = "iterator_SeekForPrev";
   if (FLAGS_analyze_iterator) {
-    ta_[7].enabled = true;
+    ta_[kIteratorSeekForPrev].enabled = true;
   } else {
-    ta_[7].enabled = false;
+    ta_[kIteratorSeekForPrev].enabled = false;
   }
-  ta_[8].type_name = "multiget";
+  ta_[kMultiGet].type_name = "multiget";
   if (FLAGS_analyze_multiget) {
-    ta_[8].enabled = true;
+    ta_[kMultiGet].enabled = true;
   } else {
-    ta_[8].enabled = false;
+    ta_[kMultiGet].enabled = false;
   }
   for (int i = 0; i < kTaTypeNum; i++) {
     ta_[i].sample_count = 0;

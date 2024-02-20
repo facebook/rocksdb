@@ -322,7 +322,7 @@ struct BGThreadMetadata {
 };
 
 void ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
-  BGThreadMetadata* meta = reinterpret_cast<BGThreadMetadata*>(arg);
+  BGThreadMetadata* meta = static_cast<BGThreadMetadata*>(arg);
   size_t thread_id = meta->thread_id_;
   ThreadPoolImpl::Impl* tp = meta->thread_pool_;
 #ifdef ROCKSDB_USING_THREAD_STATUS

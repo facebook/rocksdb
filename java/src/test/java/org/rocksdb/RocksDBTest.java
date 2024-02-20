@@ -1137,6 +1137,40 @@ public class RocksDBTest {
   }
 
   @Test
+  public void compactRangeWithNullBoundaries() throws RocksDBException {
+    try (final Options opt = new Options()
+                                 .setCreateIfMissing(true)
+                                 .setDisableAutoCompactions(true)
+                                 .setCompactionStyle(CompactionStyle.LEVEL)
+                                 .setNumLevels(4)
+                                 .setWriteBufferSize(100 << 10)
+                                 .setLevelZeroFileNumCompactionTrigger(3)
+                                 .setTargetFileSizeBase(200 << 10)
+                                 .setTargetFileSizeMultiplier(1)
+                                 .setMaxBytesForLevelBase(500 << 10)
+                                 .setMaxBytesForLevelMultiplier(1)
+                                 .setDisableAutoCompactions(true);
+         final FlushOptions flushOptions = new FlushOptions();
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      final byte[] b = new byte[10000];
+      // Create an SST containing key4, key5, and key6
+      db.put(("key4").getBytes(), b);
+      db.put(("key5").getBytes(), b);
+      db.put(("key6").getBytes(), b);
+      db.flush(flushOptions);
+      // Create a new SST that includes the tombstones of all keys
+      db.delete(("key4").getBytes());
+      db.delete(("key5").getBytes());
+      db.delete(("key6").getBytes());
+      db.flush(flushOptions);
+
+      db.compactRange(("key4").getBytes(), null);
+      List<LiveFileMetaData> liveFilesMetaData = db.getLiveFilesMetaData();
+      assertThat(liveFilesMetaData.size()).isEqualTo(0);
+    }
+  }
+
+  @Test
   public void continueBackgroundWorkAfterCancelAllBackgroundWork() throws RocksDBException {
     final int KEY_SIZE = 20;
     final int VALUE_SIZE = 300;
@@ -1210,9 +1244,7 @@ public class RocksDBTest {
              dbFolder.getRoot().getAbsolutePath())
     ) {
       db.disableFileDeletions();
-      db.enableFileDeletions(false);
-      db.disableFileDeletions();
-      db.enableFileDeletions(true);
+      db.enableFileDeletions();
     }
   }
 
@@ -1343,6 +1375,34 @@ public class RocksDBTest {
         assertThat(stats).isNotNull();
         assertThat(stats.count).isEqualTo(1);
         assertThat(stats.size).isGreaterThan(1);
+      }
+    }
+  }
+
+  @Test
+  public void getLiveFilesMetadataWithChecksum() throws RocksDBException {
+    final Properties props = new Properties();
+    final byte[] key1 = "key1".getBytes(UTF_8);
+    props.put("file_checksum_gen_factory", "FileChecksumGenCrc32cFactory");
+
+    try (final DBOptions dbOptions = DBOptions.getDBOptionsFromProps(props);
+         final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
+         final Options options = new Options(dbOptions, cfOptions).setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+
+      // disable WAL so we have a deterministic checksum
+      try (final RocksDB db = RocksDB.open(options, dbPath);
+           final WriteOptions writeOptions = new WriteOptions().setDisableWAL(true)) {
+        db.put(writeOptions, key1, key1);
+      }
+
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        final List<LiveFileMetaData> expectedFileMetadata = db.getLiveFilesMetaData();
+        assertThat(expectedFileMetadata).hasSize(1);
+        // ideally we could re-compute here, but CRC32C is a Java 9 feature, so we have no CRC32C
+        // implementation available here
+        final LiveFileMetaData sstFile = expectedFileMetadata.get(0);
+        assertThat(sstFile.fileChecksum()).isNotEmpty();
       }
     }
   }

@@ -485,6 +485,11 @@ public class BytewiseComparatorTest {
     }
 
     @Override
+    public void refresh(final Snapshot snapshot) throws RocksDBException {
+      offset = -1;
+    }
+
+    @Override
     public void status() throws RocksDBException {
       if(offset < 0 || offset >= entries.size()) {
         throw new RocksDBException("Index out of bounds. Size is: " +

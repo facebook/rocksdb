@@ -34,6 +34,14 @@ bool ShouldReportDetailedTime(Env* env, Statistics* stats);
 // the length of the magic number in bytes.
 constexpr uint32_t kMagicNumberLengthByte = 8;
 
+extern const uint64_t kLegacyBlockBasedTableMagicNumber;
+extern const uint64_t kBlockBasedTableMagicNumber;
+
+extern const uint64_t kLegacyPlainTableMagicNumber;
+extern const uint64_t kPlainTableMagicNumber;
+
+extern const uint64_t kCuckooTableMagicNumber;
+
 // BlockHandle is a pointer to the extent of a file that stores a data
 // block or a meta block.
 class BlockHandle {

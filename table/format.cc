@@ -38,11 +38,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kBlockBasedTableMagicNumber;
-
-extern const uint64_t kLegacyPlainTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
 const char* kHostnameForDbHostId = "__hostname__";
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
@@ -466,19 +461,16 @@ std::string Footer::ToString() const {
   std::string result;
   result.reserve(1024);
 
-  bool legacy = IsLegacyFooterFormat(table_magic_number_);
-  if (legacy) {
-    result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
-    result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
-                  "\n  ");
-  } else {
-    result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
-    result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
-                  "\n  ");
-    result.append("format version: " + std::to_string(format_version_) +
-                  "\n  ");
+  result.append("metaindex handle: " + metaindex_handle_.ToString() +
+                " offset: " + std::to_string(metaindex_handle_.offset()) +
+                " size: " + std::to_string(metaindex_handle_.size()) + "\n  ");
+  result.append("index handle: " + index_handle_.ToString() +
+                " offset: " + std::to_string(index_handle_.offset()) +
+                " size: " + std::to_string(index_handle_.size()) + "\n  ");
+  result.append("table_magic_number: " + std::to_string(table_magic_number_) +
+                "\n  ");
+  if (!IsLegacyFooterFormat(table_magic_number_)) {
+    result.append("format version: " + std::to_string(format_version_) + "\n");
   }
   return result;
 }

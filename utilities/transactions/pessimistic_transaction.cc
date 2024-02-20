@@ -547,9 +547,8 @@ Status WriteCommittedTxn::PrepareInternal() {
         : db_(db), two_write_queues_(two_write_queues) {
       (void)two_write_queues_;  // to silence unused private field warning
     }
-    virtual Status Callback(SequenceNumber, bool is_mem_disabled,
-                            uint64_t log_number, size_t /*index*/,
-                            size_t /*total*/) override {
+    Status Callback(SequenceNumber, bool is_mem_disabled, uint64_t log_number,
+                    size_t /*index*/, size_t /*total*/) override {
 #ifdef NDEBUG
       (void)is_mem_disabled;
 #endif
@@ -688,7 +687,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
           const Comparator* ucmp =
               WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
           return ucmp ? ucmp->timestamp_size()
-                      : std::numeric_limits<uint64_t>::max();
+                      : std::numeric_limits<size_t>::max();
         });
     if (!s.ok()) {
       return s;
@@ -763,7 +762,7 @@ Status WriteCommittedTxn::CommitInternal() {
         const Comparator* ucmp =
             WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
         return ucmp ? ucmp->timestamp_size()
-                    : std::numeric_limits<uint64_t>::max();
+                    : std::numeric_limits<size_t>::max();
       });
     }
   }

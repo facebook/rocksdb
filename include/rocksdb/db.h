@@ -549,35 +549,23 @@ class DB {
   // any, or an empty value otherwise.
   //
   // If timestamp is enabled and a non-null timestamp pointer is passed in,
-  // timestamp is returned.
+  // timestamp is returned. If the underlying DB implementation doesn't
+  // support returning timestamp and the timestamp argument is non-null,
+  // a Status::NotSupported() error will be returned.
   //
   // Returns OK on success. Returns NotFound and an empty value in "*value" if
   // there is no entry for "key". Returns some other non-OK status on error.
-  virtual inline Status Get(const ReadOptions& options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            std::string* value) {
-    assert(value != nullptr);
-    PinnableSlice pinnable_val(value);
-    assert(!pinnable_val.IsPinned());
-    auto s = Get(options, column_family, key, &pinnable_val);
-    if (s.ok() && pinnable_val.IsPinned()) {
-      value->assign(pinnable_val.data(), pinnable_val.size());
-    }  // else value is already assigned
-    return s;
-  }
+  // NOTE: Pure virtual => was virtual before
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) = 0;
-  virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value) {
-    return Get(options, DefaultColumnFamily(), key, value);
-  }
+                     PinnableSlice* value, std::string* timestamp) = 0;
 
-  // Get() methods that return timestamp. Derived DB classes don't need to worry
-  // about this group of methods if they don't care about timestamp feature.
+  // The timestamp of the key is returned if a non-null timestamp pointer is
+  // passed, and value is returned as a string
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual inline Status Get(const ReadOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
-                            std::string* value, std::string* timestamp) {
+                            std::string* value, std::string* timestamp) final {
     assert(value != nullptr);
     PinnableSlice pinnable_val(value);
     assert(!pinnable_val.IsPinned());
@@ -587,15 +575,43 @@ class DB {
     }  // else value is already assigned
     return s;
   }
-  virtual Status Get(const ReadOptions& /*options*/,
-                     ColumnFamilyHandle* /*column_family*/,
-                     const Slice& /*key*/, PinnableSlice* /*value*/,
-                     std::string* /*timestamp*/) {
-    return Status::NotSupported(
-        "Get() that returns timestamp is not implemented.");
+
+  // No timestamp, and value is returned in a PinnableSlice
+  // NOTE: virtual final => disallow override (was previously allowed)
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) final {
+    return Get(options, column_family, key, value, nullptr);
   }
+
+  // No timestamp, and the value is returned as a string
+  // NOTE: virtual final => disallow override (was previously allowed)
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value) final {
+    assert(value != nullptr);
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = Get(options, column_family, key, &pinnable_val);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
+
+  // Gets a key in the default column family, returns the value as a string,
+  // and no timestamp returned
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value, std::string* timestamp) {
+                     std::string* value) final {
+    return Get(options, DefaultColumnFamily(), key, value);
+  }
+
+  // Gets a key in the default column family, returns the value as a string,
+  // and timestamp of the key is returned if timestamp parameter is non-null
+  // NOTE: virtual final => disallow override (was previously allowed)
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value, std::string* timestamp) final {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
@@ -650,9 +666,10 @@ class DB {
       int* number_of_operands) = 0;
 
   // Consistent Get of many keys across column families without the need
-  // for an explicit snapshot. NOTE: the implementation of this MultiGet API
-  // does not have the performance benefits of the void-returning MultiGet
-  // functions.
+  // for an explicit snapshot. The main difference between this set of
+  // MultiGet APis and the batched MultiGet APIs that follow are -
+  // 1. The APIs take std::vector instead of C style array pointers
+  // 2. Values are returned as std::string rather than PinnableSlice
   //
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
@@ -662,34 +679,67 @@ class DB {
   //
   // (*values) will always be resized to be the same size as (keys).
   // Similarly, the number of returned statuses will be the number of keys.
+  // If timestamps is non-null, the vector pointed to by it will be resized to
+  // number of keys and filled with timestamps of the keys on return.
   // Note: keys will not be "de-duplicated". Duplicate keys will return
-  // duplicate values in order.
+  // duplicate values in order, and may return different status values
+  // in case there are errors.
+  // NOTE: virtual final => disallow override (was previously allowed)
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Slice>& keys, std::vector<std::string>* values,
+      std::vector<std::string>* timestamps) final {
+    size_t num_keys = keys.size();
+    std::vector<Status> statuses(num_keys);
+    std::vector<PinnableSlice> pin_values(num_keys);
+
+    values->resize(num_keys);
+    if (timestamps) {
+      timestamps->resize(num_keys);
+    }
+    MultiGet(options, num_keys,
+             const_cast<ColumnFamilyHandle**>(column_families.data()),
+             keys.data(), pin_values.data(),
+             timestamps ? timestamps->data() : nullptr, statuses.data(),
+             /*sorted_input=*/false);
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
+      }
+    }
+    return statuses;
+  }
+
+  // No timestamps are returned
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, std::vector<std::string>* values) = 0;
+      const std::vector<Slice>& keys, std::vector<std::string>* values) final {
+    values->resize(keys.size());
+    return MultiGet(options, column_family, keys, values, nullptr);
+  }
+
+  // MultiGet for default column family, no timestamps returned
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(const ReadOptions& options,
                                        const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values) {
+                                       std::vector<std::string>* values) final {
+    values->resize(keys.size());
     return MultiGet(
         options,
         std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
         keys, values);
   }
 
+  // MultiGet for default column family
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& /*options*/,
-      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
-      const std::vector<Slice>& keys, std::vector<std::string>* /*values*/,
-      std::vector<std::string>* /*timestamps*/) {
-    return std::vector<Status>(
-        keys.size(), Status::NotSupported(
-                         "MultiGet() returning timestamps not implemented."));
-  }
-  virtual std::vector<Status> MultiGet(const ReadOptions& options,
-                                       const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values,
-                                       std::vector<std::string>* timestamps) {
+      const ReadOptions& options, const std::vector<Slice>& keys,
+      std::vector<std::string>* values,
+      std::vector<std::string>* timestamps) final {
+    values->resize(keys.size());
     return MultiGet(
         options,
         std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
@@ -704,123 +754,59 @@ class DB {
   // benefits.
   // Parameters -
   // options - ReadOptions
-  // column_family - ColumnFamilyHandle* that the keys belong to. All the keys
-  //                 passed to the API are restricted to a single column family
   // num_keys - Number of keys to lookup
+  // column_families - Pointer to C style array of ColumnFamilyHandle* that
+  //                   the keys belong to.
   // keys - Pointer to C style array of key Slices with num_keys elements
   // values - Pointer to C style array of PinnableSlices with num_keys elements
+  // timestamps - Pointer to C style array of std::string that, if non-null and
+  //              timestamps are enabled, will be filled with timestamps of the
+  //              keys on return. The array should be sized to num_keys entries
+  //              by the caller.
   // statuses - Pointer to C style array of Status with num_keys elements
   // sorted_input - If true, it means the input keys are already sorted by key
   //                order, so the MultiGet() API doesn't have to sort them
   //                again. If false, the keys will be copied and sorted
   //                internally by the API - the input array will not be
   //                modified
-  virtual void MultiGet(const ReadOptions& options,
-                        ColumnFamilyHandle* column_family,
-                        const size_t num_keys, const Slice* keys,
-                        PinnableSlice* values, Status* statuses,
-                        const bool /*sorted_input*/ = false) {
-    std::vector<ColumnFamilyHandle*> cf;
-    std::vector<Slice> user_keys;
-    std::vector<Status> status;
-    std::vector<std::string> vals;
 
-    for (size_t i = 0; i < num_keys; ++i) {
-      cf.emplace_back(column_family);
-      user_keys.emplace_back(keys[i]);
-    }
-    status = MultiGet(options, cf, user_keys, &vals);
-    std::copy(status.begin(), status.end(), statuses);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
-    }
-  }
+  // NOTE: Pure virtual => was virtual (optional). If the concrete
+  // implementation
+  //       doesn't support returning timestamps, and the timestamps paramater is
+  //       non-null, it should return Status::NotSupported() for all the keys.
+  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
+                        ColumnFamilyHandle** column_families, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses, const bool sorted_input = false) = 0;
 
+  // MultiGet for single column family
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual void MultiGet(const ReadOptions& options,
                         ColumnFamilyHandle* column_family,
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, std::string* timestamps,
-                        Status* statuses, const bool /*sorted_input*/ = false) {
-    std::vector<ColumnFamilyHandle*> cf;
-    std::vector<Slice> user_keys;
-    std::vector<Status> status;
-    std::vector<std::string> vals;
-    std::vector<std::string> tss;
+                        Status* statuses,
+                        const bool sorted_input = false) final;
 
-    for (size_t i = 0; i < num_keys; ++i) {
-      cf.emplace_back(column_family);
-      user_keys.emplace_back(keys[i]);
-    }
-    status = MultiGet(options, cf, user_keys, &vals, &tss);
-    std::copy(status.begin(), status.end(), statuses);
-    std::copy(tss.begin(), tss.end(), timestamps);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
-    }
+  // MultiGet for single column family, no timestamps returned
+  // NOTE: virtual final => disallow override (was previously allowed)
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool sorted_input = false) final {
+    MultiGet(options, column_family, num_keys, keys, values, nullptr, statuses,
+             sorted_input);
   }
 
-  // Overloaded MultiGet API that improves performance by batching operations
-  // in the read path for greater efficiency. Currently, only the block based
-  // table format with full filters are supported. Other table formats such
-  // as plain table, block based table with block based filters and
-  // partitioned indexes will still work, but will not get any performance
-  // benefits.
-  // Parameters -
-  // options - ReadOptions
-  // column_family - ColumnFamilyHandle* that the keys belong to. All the keys
-  //                 passed to the API are restricted to a single column family
-  // num_keys - Number of keys to lookup
-  // keys - Pointer to C style array of key Slices with num_keys elements
-  // values - Pointer to C style array of PinnableSlices with num_keys elements
-  // statuses - Pointer to C style array of Status with num_keys elements
-  // sorted_input - If true, it means the input keys are already sorted by key
-  //                order, so the MultiGet() API doesn't have to sort them
-  //                again. If false, the keys will be copied and sorted
-  //                internally by the API - the input array will not be
-  //                modified
+  // Multiple column families, no timestamps returned
+  // NOTE: virtual final => disallow override (was previously allowed)
   virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
                         ColumnFamilyHandle** column_families, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
-                        const bool /*sorted_input*/ = false) {
-    std::vector<ColumnFamilyHandle*> cf;
-    std::vector<Slice> user_keys;
-    std::vector<Status> status;
-    std::vector<std::string> vals;
-
-    for (size_t i = 0; i < num_keys; ++i) {
-      cf.emplace_back(column_families[i]);
-      user_keys.emplace_back(keys[i]);
-    }
-    status = MultiGet(options, cf, user_keys, &vals);
-    std::copy(status.begin(), status.end(), statuses);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
-    }
-  }
-  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
-                        ColumnFamilyHandle** column_families, const Slice* keys,
-                        PinnableSlice* values, std::string* timestamps,
-                        Status* statuses, const bool /*sorted_input*/ = false) {
-    std::vector<ColumnFamilyHandle*> cf;
-    std::vector<Slice> user_keys;
-    std::vector<Status> status;
-    std::vector<std::string> vals;
-    std::vector<std::string> tss;
-
-    for (size_t i = 0; i < num_keys; ++i) {
-      cf.emplace_back(column_families[i]);
-      user_keys.emplace_back(keys[i]);
-    }
-    status = MultiGet(options, cf, user_keys, &vals, &tss);
-    std::copy(status.begin(), status.end(), statuses);
-    std::copy(tss.begin(), tss.end(), timestamps);
-    for (auto& value : vals) {
-      values->PinSelf(value);
-      values++;
-    }
+                        const bool sorted_input = false) final {
+    MultiGet(options, num_keys, column_families, keys, values, nullptr,
+             statuses, sorted_input);
   }
 
   // Batched MultiGet-like API that returns wide-column entities from a single
@@ -1643,11 +1629,6 @@ class DB {
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 
-  // Prevent file deletions. Compactions will continue to occur,
-  // but no obsolete files will be deleted. Calling this multiple
-  // times have the same effect as calling it once.
-  virtual Status DisableFileDeletions() = 0;
-
   // Increase the full_history_ts of column family. The new ts_low value should
   // be newer than current full_history_ts value.
   // If another thread updates full_history_ts_low concurrently to a higher
@@ -1659,26 +1640,24 @@ class DB {
   virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                      std::string* ts_low) = 0;
 
-  // Enable deleting obsolete files.
-  // Usually users should only need to call this if they have previously called
-  // `DisableFileDeletions`.
+  // Suspend deleting obsolete files. Compactions will continue to occur,
+  // but no obsolete files will be deleted. To resume file deletions, each
+  // call to DisableFileDeletions() must be matched by a subsequent call to
+  // EnableFileDeletions(). For more details, see EnableFileDeletions().
+  virtual Status DisableFileDeletions() = 0;
+
+  // Resume deleting obsolete files, following up on `DisableFileDeletions()`.
+  //
   // File deletions disabling and enabling is not controlled by a binary flag,
   // instead it's represented as a counter to allow different callers to
   // independently disable file deletion. Disabling file deletion can be
   // critical for operations like making a backup. So the counter implementation
   // makes the file deletion disabled as long as there is one caller requesting
   // so, and only when every caller agrees to re-enable file deletion, it will
-  // be enabled. So be careful when calling this function with force = true as
-  // explained below.
-  // If force == true, the call to EnableFileDeletions() will guarantee that
-  // file deletions are enabled after the call, even if DisableFileDeletions()
-  // was called multiple times before.
-  // If force == false, EnableFileDeletions will only enable file deletion
-  // after it's been called at least as many times as DisableFileDeletions(),
-  // enabling the two methods to be called by two threads concurrently without
+  // be enabled. Two threads can call this method concurrently without
   // synchronization -- i.e., file deletions will be enabled only after both
   // threads call EnableFileDeletions()
-  virtual Status EnableFileDeletions(bool force) = 0;
+  virtual Status EnableFileDeletions() = 0;
 
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then
@@ -1804,6 +1783,14 @@ class DB {
   // to Flush the memtable first before ingesting the file.
   // In the second mode we will always ingest in the bottom most level (see
   // docs to IngestExternalFileOptions::ingest_behind).
+  // For a column family that enables user-defined timestamps, ingesting
+  // external SST files are supported with these limitations: 1) Ingested file's
+  // user key (without timestamp) range should not overlap with the db's key
+  // range. 2) When ingesting multiple external SST files, their key ranges
+  // should not overlap with each other either. 3) Ingestion behind mode is not
+  // supported. 4) When an ingested file contains point data and range deletion
+  // for the same key, the point data currently overrides the range deletion
+  // regardless which one has the higher user-defined timestamps.
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level

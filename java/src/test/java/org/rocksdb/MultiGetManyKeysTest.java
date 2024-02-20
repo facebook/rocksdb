@@ -7,11 +7,14 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.*;
+import org.junit.Assume;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.rocksdb.util.Environment;
 
 @RunWith(Parameterized.class)
 public class MultiGetManyKeysTest {
@@ -26,6 +29,12 @@ public class MultiGetManyKeysTest {
 
   public MultiGetManyKeysTest(final Integer numKeys) {
     this.numKeys = numKeys;
+  }
+
+  @BeforeClass
+  public static void beforeAllTest() {
+    Assume.assumeFalse("We are not running this test on 32bit systems dues to memory constraints",
+        !Environment.is64Bit());
   }
 
   /**

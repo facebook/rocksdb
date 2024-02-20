@@ -739,7 +739,7 @@ bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
     splice = AllocateSplice();
-    *hint = reinterpret_cast<void*>(splice);
+    *hint = splice;
   }
   return Insert<false>(key, splice, true);
 }
@@ -751,7 +751,7 @@ bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
     splice = AllocateSpliceOnHeap();
-    *hint = reinterpret_cast<void*>(splice);
+    *hint = splice;
   }
   return Insert<true>(key, splice, true);
 }

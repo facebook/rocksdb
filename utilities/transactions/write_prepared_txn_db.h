@@ -60,9 +60,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   virtual ~WritePreparedTxnDB();
 
-  virtual Status Initialize(
-      const std::vector<size_t>& compaction_enabled_cf_indices,
-      const std::vector<ColumnFamilyHandle*>& handles) override;
+  Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
+                    const std::vector<ColumnFamilyHandle*>& handles) override;
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
@@ -83,26 +82,24 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                        size_t batch_cnt, WritePreparedTxn* txn);
 
   using DB::Get;
-  virtual Status Get(const ReadOptions& _read_options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
 
   using DB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& _read_options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+  void MultiGet(const ReadOptions& _read_options, const size_t num_keys,
+                ColumnFamilyHandle** column_families, const Slice* keys,
+                PinnableSlice* values, std::string* timestamps,
+                Status* statuses, const bool sorted_input) override;
 
   using DB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& _read_options,
-                                ColumnFamilyHandle* column_family) override;
+  Iterator* NewIterator(const ReadOptions& _read_options,
+                        ColumnFamilyHandle* column_family) override;
 
   using DB::NewIterators;
-  virtual Status NewIterators(
-      const ReadOptions& _read_options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators) override;
+  Status NewIterators(const ReadOptions& _read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
 
   // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq.
@@ -440,12 +437,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const std::vector<ColumnFamilyHandle*>& handles) override;
   void UpdateCFComparatorMap(ColumnFamilyHandle* handle) override;
 
-  virtual const Snapshot* GetSnapshot() override;
+  const Snapshot* GetSnapshot() override;
   SnapshotImpl* GetSnapshotInternal(bool for_ww_conflict_check);
 
  protected:
-  virtual Status VerifyCFOptions(
-      const ColumnFamilyOptions& cf_options) override;
+  Status VerifyCFOptions(const ColumnFamilyOptions& cf_options) override;
   // Assign the min and max sequence numbers for reading from the db. A seq >
   // max is not valid, and a seq < min is valid, and a min <= seq < max requires
   // further checking. Normally max is defined by the snapshot and min is by
@@ -845,7 +841,7 @@ class WritePreparedTxnReadCallback : public ReadCallback {
 
   // Will be called to see if the seq number visible; if not it moves on to
   // the next seq number.
-  inline virtual bool IsVisibleFullCheck(SequenceNumber seq) override {
+  inline bool IsVisibleFullCheck(SequenceNumber seq) override {
     auto snapshot = max_visible_seq_;
     bool snap_released = false;
     auto ret =
@@ -882,10 +878,9 @@ class AddPreparedCallback : public PreReleaseCallback {
         first_prepare_batch_(first_prepare_batch) {
     (void)two_write_queues_;  // to silence unused private field warning
   }
-  virtual Status Callback(SequenceNumber prepare_seq,
-                          bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t log_number, size_t index,
-                          size_t total) override {
+  Status Callback(SequenceNumber prepare_seq,
+                  bool is_mem_disabled __attribute__((__unused__)),
+                  uint64_t log_number, size_t index, size_t total) override {
     assert(index < total);
     // To reduce the cost of lock acquisition competing with the concurrent
     // prepare requests, lock on the first callback and unlock on the last.
@@ -946,10 +941,9 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     assert((aux_batch_cnt_ > 0) != (aux_seq == kMaxSequenceNumber));  // xor
   }
 
-  virtual Status Callback(SequenceNumber commit_seq,
-                          bool is_mem_disabled __attribute__((__unused__)),
-                          uint64_t, size_t /*index*/,
-                          size_t /*total*/) override {
+  Status Callback(SequenceNumber commit_seq,
+                  bool is_mem_disabled __attribute__((__unused__)), uint64_t,
+                  size_t /*index*/, size_t /*total*/) override {
     // Always commit from the 2nd queue
     assert(!db_impl_->immutable_db_options().two_write_queues ||
            is_mem_disabled);

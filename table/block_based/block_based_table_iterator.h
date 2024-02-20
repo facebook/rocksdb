@@ -122,7 +122,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
     } else if (async_read_in_progress_) {
-      return Status::TryAgain();
+      return Status::TryAgain("Async read in progress");
     } else {
       return Status::OK();
     }
@@ -371,7 +371,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   // *** BEGIN APIs relevant to auto tuning of readahead_size ***
-  void FindReadAheadSizeUpperBound();
 
   // This API is called to lookup the data blocks ahead in the cache to tune
   // the start and end offsets passed.
@@ -411,7 +410,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                     uint64_t& start_updated_offset,
                                     uint64_t& end_updated_offset,
                                     size_t& prev_handles_size);
-
   // *** END APIs relevant to auto tuning of readahead_size ***
 };
 }  // namespace ROCKSDB_NAMESPACE

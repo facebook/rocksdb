@@ -186,7 +186,6 @@ class CompactionPicker {
       int penultimate_level) const;
 
   bool SetupOtherInputs(const std::string& cf_name,
-                        const MutableCFOptions& mutable_cf_options,
                         VersionStorageInfo* vstorage,
                         CompactionInputFiles* inputs,
                         CompactionInputFiles* output_level_inputs,
@@ -277,8 +276,7 @@ class NullCompactionPicker : public CompactionPicker {
   }
 
   // Always returns false.
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* /*vstorage*/) const override {
+  bool NeedsCompaction(const VersionStorageInfo* /*vstorage*/) const override {
     return false;
   }
 };

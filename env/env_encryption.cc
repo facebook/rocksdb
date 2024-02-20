@@ -117,7 +117,7 @@ IOStatus EncryptedRandomAccessFile::Prefetch(uint64_t offset, size_t n,
 
 size_t EncryptedRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return file_->GetUniqueId(id, max_size);
-};
+}
 
 void EncryptedRandomAccessFile::Hint(AccessPattern pattern) {
   file_->Hint(pattern);

@@ -98,7 +98,7 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
     return Status::InvalidArgument("checksum_list is nullptr");
   }
   assert(checksum_list);
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   checksum_list->reset();
   Status s;
@@ -118,7 +118,7 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status_ptr;
-    virtual void Corruption(size_t /*bytes*/, const Status& st) override {
+    void Corruption(size_t /*bytes*/, const Status& st) override {
       if (status_ptr->ok()) {
         *status_ptr = st;
       }

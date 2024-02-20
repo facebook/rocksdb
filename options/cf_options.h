@@ -64,8 +64,6 @@ struct ImmutableCFOptions {
 
   bool level_compaction_dynamic_level_bytes;
 
-  bool level_compaction_dynamic_file_size;
-
   int num_levels;
 
   bool optimize_filters_for_hits;
@@ -134,8 +132,6 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
         max_compaction_bytes(options.max_compaction_bytes),
-        ignore_max_compaction_bytes_for_input(
-            options.ignore_max_compaction_bytes_for_input),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -160,8 +156,6 @@ struct MutableCFOptions {
         prepopulate_blob_cache(options.prepopulate_blob_cache),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
-        check_flush_compaction_key_order(
-            options.check_flush_compaction_key_order),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
@@ -202,7 +196,6 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
         max_compaction_bytes(0),
-        ignore_max_compaction_bytes_for_input(true),
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
@@ -221,7 +214,6 @@ struct MutableCFOptions {
         blob_file_starting_level(0),
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
         max_sequential_skip_in_iterations(0),
-        check_flush_compaction_key_order(true),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
@@ -286,7 +278,6 @@ struct MutableCFOptions {
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
   uint64_t max_compaction_bytes;
-  bool ignore_max_compaction_bytes_for_input;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
@@ -311,7 +302,6 @@ struct MutableCFOptions {
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
-  bool check_flush_compaction_key_order;
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;

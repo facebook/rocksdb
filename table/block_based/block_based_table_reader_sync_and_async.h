@@ -192,10 +192,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
     BlockContents serialized_block;
     if (s.ok()) {
-      if (use_fs_scratch) {
-        serialized_block =
-            BlockContents(Slice(req.result.data() + req_offset, handle.size()));
-      } else if (!use_shared_buffer) {
+      if (!use_fs_scratch && !use_shared_buffer) {
         // We allocated a buffer for this block. Give ownership of it to
         // BlockContents so it can free the memory
         assert(req.result.data() == req.scratch);
@@ -206,7 +203,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       } else {
         // We used the scratch buffer or direct io buffer
         // which are shared by the blocks.
-        // serialized_block does not have the ownership.
+        // In case of use_fs_scratch, underlying file system provided buffer is
+        // used. serialized_block does not have the ownership.
         serialized_block =
             BlockContents(Slice(req.result.data() + req_offset, handle.size()));
       }
@@ -224,6 +222,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // beyond the payload size.
         s = VerifyBlockChecksum(footer, data + req_offset, handle.size(),
                                 rep_->file->file_name(), handle.offset());
+        RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     } else if (!use_shared_buffer) {

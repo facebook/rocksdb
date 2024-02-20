@@ -65,8 +65,7 @@ class TestIterator : public InternalIterator {
            size_t seq_num, bool update_iter = false) {
     valid_ = true;
     ParsedInternalKey internal_key(argkey, seq_num, type);
-    data_.push_back(
-        std::pair<std::string, std::string>(std::string(), argvalue));
+    data_.emplace_back(std::string(), argvalue);
     AppendInternalKey(&data_.back().first, internal_key);
     if (update_iter && valid_ && cmp.Compare(data_.back().first, key()) < 0) {
       // insert a key smaller than current key
@@ -2617,7 +2616,7 @@ class DBIterWithMergeIterTest : public testing::Test {
     child_iters.push_back(internal_iter2_);
     InternalKeyComparator icomp(BytewiseComparator());
     InternalIterator* merge_iter =
-        NewMergingIterator(&icomp_, &child_iters[0], 2u);
+        NewMergingIterator(&icomp_, child_iters.data(), 2u);
 
     db_iter_.reset(NewDBIterator(
         env_, ro_, ImmutableOptions(options_), MutableCFOptions(options_),
@@ -2825,7 +2824,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
   // Seek() and before calling Prev()
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
-        IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
+        IteratorWrapper* it = static_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
           internal_iter2_->Add("x", kTypeValue, "7", 16u, true);
           internal_iter2_->Add("x", kTypeValue, "7", 15u, true);
@@ -2876,7 +2875,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
   // Seek() and before calling Prev()
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
-        IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
+        IteratorWrapper* it = static_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
           internal_iter2_->Add("x", kTypeValue, "7", 16u, true);
           internal_iter2_->Add("x", kTypeValue, "7", 15u, true);
@@ -2923,7 +2922,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
   // Seek() and before calling Prev()
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
-        IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
+        IteratorWrapper* it = static_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
           internal_iter2_->Add("x", kTypeValue, "7", 16u, true);
         }
@@ -2972,7 +2971,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
   // Seek() and before calling Prev()
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
-        IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
+        IteratorWrapper* it = static_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
           internal_iter2_->Add("x", kTypeValue, "7", 16u, true);
           internal_iter2_->Add("x", kTypeValue, "7", 15u, true);
@@ -3025,7 +3024,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
   // before calling Prev()
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
-        IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
+        IteratorWrapper* it = static_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
           internal_iter2_->Add("x", kTypeValue, "7", 16u, true);
           internal_iter2_->Add("y", kTypeValue, "7", 17u, true);

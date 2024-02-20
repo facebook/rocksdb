@@ -49,19 +49,16 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   // directly. and be deleted here
   ~FullFilterBlockBuilder() {}
 
-  virtual void Add(const Slice& key_without_ts) override;
-  virtual bool IsEmpty() const override { return !any_added_; }
-  virtual size_t EstimateEntriesAdded() override;
-  virtual Slice Finish(
-      const BlockHandle& tmp, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  void Add(const Slice& key_without_ts) override;
+  bool IsEmpty() const override { return !any_added_; }
+  size_t EstimateEntriesAdded() override;
+  Slice Finish(const BlockHandle& tmp, Status* status,
+               std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
 
-  virtual void ResetFilterBitsBuilder() override {
-    filter_bits_builder_.reset();
-  }
+  void ResetFilterBitsBuilder() override { filter_bits_builder_.reset(); }
 
-  virtual Status MaybePostVerifyFilter(const Slice& filter_content) override {
+  Status MaybePostVerifyFilter(const Slice& filter_content) override {
     return filter_bits_builder_->MaybePostVerify(filter_content);
   }
 

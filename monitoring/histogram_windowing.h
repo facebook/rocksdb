@@ -25,22 +25,22 @@ class HistogramWindowingImpl : public Histogram {
 
   ~HistogramWindowingImpl();
 
-  virtual void Clear() override;
-  virtual bool Empty() const override;
-  virtual void Add(uint64_t value) override;
-  virtual void Merge(const Histogram& other) override;
+  void Clear() override;
+  bool Empty() const override;
+  void Add(uint64_t value) override;
+  void Merge(const Histogram& other) override;
   void Merge(const HistogramWindowingImpl& other);
 
-  virtual std::string ToString() const override;
-  virtual const char* Name() const override { return "HistogramWindowingImpl"; }
-  virtual uint64_t min() const override { return stats_.min(); }
-  virtual uint64_t max() const override { return stats_.max(); }
-  virtual uint64_t num() const override { return stats_.num(); }
-  virtual double Median() const override;
-  virtual double Percentile(double p) const override;
-  virtual double Average() const override;
-  virtual double StandardDeviation() const override;
-  virtual void Data(HistogramData* const data) const override;
+  std::string ToString() const override;
+  const char* Name() const override { return "HistogramWindowingImpl"; }
+  uint64_t min() const override { return stats_.min(); }
+  uint64_t max() const override { return stats_.max(); }
+  uint64_t num() const override { return stats_.num(); }
+  double Median() const override;
+  double Percentile(double p) const override;
+  double Average() const override;
+  double StandardDeviation() const override;
+  void Data(HistogramData* const data) const override;
 
 #ifndef NDEBUG
   void TEST_UpdateClock(const std::shared_ptr<SystemClock>& clock) {

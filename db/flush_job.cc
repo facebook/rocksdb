@@ -409,7 +409,7 @@ Status FlushJob::MemPurge() {
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
   // Range Tombstones (from DeleteRanges).
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
@@ -701,8 +701,8 @@ bool FlushJob::MemPurgeDecider(double threshold) {
   // Cochran formula for determining sample size.
   // 95% confidence interval, 7% precision.
   //    n0 = (1.96*1.96)*0.25/(0.07*0.07) = 196.0
-  // TODO: plumb Env::IOActivity
   double n0 = 196.0;
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   ro.total_order_seek = true;
 
@@ -852,17 +852,16 @@ Status FlushJob::WriteLevel0Table() {
 
   SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
   if (!db_impl_seqno_to_time_mapping_.Empty()) {
-    // make a local copy, as the seqno_to_time_mapping from db_impl is not
-    // thread safe, which will be used while not holding the db_mutex.
-    seqno_to_time_mapping_ =
-        db_impl_seqno_to_time_mapping_.Copy(smallest_seqno);
+    // make a local copy to use while not holding the db_mutex.
+    seqno_to_time_mapping_.CopyFromSeqnoRange(db_impl_seqno_to_time_mapping_,
+                                              smallest_seqno);
   }
 
   std::vector<BlobFileAddition> blob_file_additions;
 
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
-    Env::IOPriority io_priority = GetRateLimiterPriorityForWrite();
+    Env::IOPriority io_priority = GetRateLimiterPriority();
     db_mutex_->Unlock();
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
@@ -961,29 +960,31 @@ Status FlushJob::WriteLevel0Table() {
 
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
+      ReadOptions read_options(Env::IOActivity::kFlush);
+      read_options.rate_limiter_priority = io_priority;
+      const WriteOptions write_options(io_priority, Env::IOActivity::kFlush);
       TableBuilderOptions tboptions(
-          *cfd_->ioptions(), mutable_cf_options_, cfd_->internal_comparator(),
-          cfd_->int_tbl_prop_collector_factories(), output_compression_,
-          mutable_cf_options_.compression_opts, cfd_->GetID(), cfd_->GetName(),
-          0 /* level */, false /* is_bottommost */,
-          TableFileCreationReason::kFlush, oldest_key_time, current_time,
-          db_id_, db_session_id_, 0 /* target_file_size */,
-          meta_.fd.GetNumber());
+          *cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
+          cfd_->internal_comparator(), cfd_->internal_tbl_prop_coll_factories(),
+          output_compression_, mutable_cf_options_.compression_opts,
+          cfd_->GetID(), cfd_->GetName(), 0 /* level */,
+          false /* is_bottommost */, TableFileCreationReason::kFlush,
+          oldest_key_time, current_time, db_id_, db_session_id_,
+          0 /* target_file_size */, meta_.fd.GetNumber());
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
-      const ReadOptions read_options(Env::IOActivity::kFlush);
-      s = BuildTable(dbname_, versions_, db_options_, tboptions, file_options_,
-                     read_options, cfd_->table_cache(), iter.get(),
-                     std::move(range_del_iters), &meta_, &blob_file_additions,
-                     existing_snapshots_, earliest_write_conflict_snapshot_,
-                     job_snapshot_seq, snapshot_checker_,
-                     mutable_cf_options_.paranoid_file_checks,
-                     cfd_->internal_stats(), &io_s, io_tracer_,
-                     BlobFileCreationReason::kFlush, seqno_to_time_mapping_,
-                     event_logger_, job_context_->job_id, io_priority,
-                     &table_properties_, write_hint, full_history_ts_low,
-                     blob_callback_, base_, &num_input_entries,
-                     &memtable_payload_bytes, &memtable_garbage_bytes);
+
+      s = BuildTable(
+          dbname_, versions_, db_options_, tboptions, file_options_,
+          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+          &blob_file_additions, existing_snapshots_,
+          earliest_write_conflict_snapshot_, job_snapshot_seq,
+          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
+          cfd_->internal_stats(), &io_s, io_tracer_,
+          BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
+          job_context_->job_id, &table_properties_, write_hint,
+          full_history_ts_low, blob_callback_, base_, &num_input_entries,
+          &memtable_payload_bytes, &memtable_garbage_bytes);
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
@@ -1087,7 +1088,7 @@ Status FlushJob::WriteLevel0Table() {
   return s;
 }
 
-Env::IOPriority FlushJob::GetRateLimiterPriorityForWrite() {
+Env::IOPriority FlushJob::GetRateLimiterPriority() {
   if (versions_ && versions_->GetColumnFamilySet() &&
       versions_->GetColumnFamilySet()->write_controller()) {
     WriteController* write_controller =
@@ -1178,8 +1179,9 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
   edit.SetColumnFamily(cfd_->GetID());
   edit.SetFullHistoryTsLow(new_full_history_ts_low);
   return versions_->LogAndApply(cfd_, *cfd_->GetLatestMutableCFOptions(),
-                                ReadOptions(), &edit, db_mutex_,
-                                output_file_directory_);
+                                ReadOptions(Env::IOActivity::kFlush),
+                                WriteOptions(Env::IOActivity::kFlush), &edit,
+                                db_mutex_, output_file_directory_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

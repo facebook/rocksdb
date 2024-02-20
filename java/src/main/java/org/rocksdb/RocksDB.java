@@ -41,7 +41,7 @@ public class RocksDB extends RocksObject {
   private ColumnFamilyHandle defaultColumnFamilyHandle_;
   private final ReadOptions defaultReadOptions_ = new ReadOptions();
 
-  private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
+  final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
   /**
    * Loads the necessary library files.
@@ -305,11 +305,19 @@ public class RocksDB extends RocksObject {
 
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final long[] handles = open(options.nativeHandle_, path, cfNames,
@@ -324,8 +332,7 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(db.makeDefaultColumnFamilyHandle());
-
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
     return db;
   }
 
@@ -4277,28 +4284,18 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Enable deleting obsolete files.
-   * If force == true, the call to EnableFileDeletions()
-   * will guarantee that file deletions are enabled after
-   * the call, even if DisableFileDeletions() was called
-   * multiple times before.</p>
-   *
-   * <p>If force == false, EnableFileDeletions will only
-   * enable file deletion after it's been called at least
-   * as many times as DisableFileDeletions(), enabling
-   * the two methods to be called by two threads
-   * concurrently without synchronization
+   * <p>EnableFileDeletions will only enable file deletion after
+   * it's been called at least as many times as DisableFileDeletions(),
+   * enabling the two methods to be called by two threads concurrently
+   * without synchronization
    * -- i.e., file deletions will be enabled only after both
    * threads call EnableFileDeletions()</p>
-   *
-   * @param force boolean value described above.
    *
    * @throws RocksDBException thrown if operation was not performed
    *     successfully.
    */
-  public void enableFileDeletions(final boolean force)
-      throws RocksDBException {
-    enableFileDeletions(nativeHandle_, force);
+  public void enableFileDeletions() throws RocksDBException {
+    enableFileDeletions(nativeHandle_);
   }
 
   public static class LiveFiles {
@@ -4830,281 +4827,239 @@ public class RocksDB extends RocksObject {
       final String secondaryPath, final byte[][] columnFamilyNames,
       final long[] columnFamilyOptions) throws RocksDBException;
 
-  @Override protected native void disposeInternal(final long handle);
+  @Override
+  protected void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   private static native void closeDatabase(final long handle) throws RocksDBException;
   private static native byte[][] listColumnFamilies(final long optionsHandle, final String path)
       throws RocksDBException;
-  private native long createColumnFamily(final long handle,
-      final byte[] columnFamilyName, final int columnFamilyNamelen,
-      final long columnFamilyOptions) throws RocksDBException;
-  private native long[] createColumnFamilies(final long handle,
-      final long columnFamilyOptionsHandle, final byte[][] columnFamilyNames)
+  private static native long createColumnFamily(final long handle, final byte[] columnFamilyName,
+      final int columnFamilyNamelen, final long columnFamilyOptions) throws RocksDBException;
+  private static native long[] createColumnFamilies(
+      final long handle, final long columnFamilyOptionsHandle, final byte[][] columnFamilyNames)
       throws RocksDBException;
-  private native long[] createColumnFamilies(
+  private static native long[] createColumnFamilies(
       final long handle, final long[] columnFamilyOptionsHandles, final byte[][] columnFamilyNames)
       throws RocksDBException;
-  private native long createColumnFamilyWithImport(final long handle, final byte[] columnFamilyName,
-      final int columnFamilyNamelen, final long columnFamilyOptions,
+  private static native long createColumnFamilyWithImport(final long handle,
+      final byte[] columnFamilyName, final int columnFamilyNamelen, final long columnFamilyOptions,
       final long importColumnFamilyOptions, final long[] metadataHandleList)
       throws RocksDBException;
-  private native void dropColumnFamily(
-      final long handle, final long cfHandle) throws RocksDBException;
-  private native void dropColumnFamilies(final long handle,
-      final long[] cfHandles) throws RocksDBException;
-  private native void put(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, int valueLength) throws RocksDBException;
-  private native void put(final long handle, final byte[] key, final int keyOffset,
-      final int keyLength, final byte[] value, final int valueOffset,
+  private static native void dropColumnFamily(final long handle, final long cfHandle)
+      throws RocksDBException;
+  private static native void dropColumnFamilies(final long handle, final long[] cfHandles)
+      throws RocksDBException;
+  private static native void put(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, int valueLength)
+      throws RocksDBException;
+  private static native void put(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+      final long cfHandle) throws RocksDBException;
+  private static native void put(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private static native void put(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
       final int valueLength, final long cfHandle) throws RocksDBException;
-  private native void put(final long handle, final long writeOptHandle,
-      final byte[] key,  final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
-      throws RocksDBException;
-  private native void put(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
-      final long cfHandle) throws RocksDBException;
-  private native void delete(final long handle, final byte[] key,
+  private static native void delete(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength) throws RocksDBException;
+  private static native void delete(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final long cfHandle) throws RocksDBException;
+  private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyOffset, final int keyLength) throws RocksDBException;
-  private native void delete(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle)
+  private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
+  private static native void singleDelete(final long handle, final byte[] key, final int keyLen)
       throws RocksDBException;
-  private native void delete(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength)
-      throws RocksDBException;
-  private native void delete(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
+  private static native void singleDelete(final long handle, final byte[] key, final int keyLen,
       final long cfHandle) throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final byte[] key, final int keyLen)
-      throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final byte[] key, final int keyLen,
-      final long cfHandle) throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final long writeOptHandle, final byte[] key,
-      final int keyLen) throws RocksDBException;
-  private native void singleDelete(
-      final long handle, final long writeOptHandle,
-      final byte[] key, final int keyLen, final long cfHandle)
-      throws RocksDBException;
-  private native void deleteRange(final long handle, final byte[] beginKey,
+  private static native void singleDelete(final long handle, final long writeOptHandle,
+      final byte[] key, final int keyLen) throws RocksDBException;
+  private static native void singleDelete(final long handle, final long writeOptHandle,
+      final byte[] key, final int keyLen, final long cfHandle) throws RocksDBException;
+  private static native void deleteRange(final long handle, final byte[] beginKey,
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
       final int endKeyOffset, final int endKeyLength) throws RocksDBException;
-  private native void deleteRange(final long handle, final byte[] beginKey,
+  private static native void deleteRange(final long handle, final byte[] beginKey,
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
-      final int endKeyOffset, final int endKeyLength, final long cfHandle)
-      throws RocksDBException;
-  private native void deleteRange(final long handle, final long writeOptHandle,
-      final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
-      final byte[] endKey, final int endKeyOffset, final int endKeyLength)
-      throws RocksDBException;
-  private native void deleteRange(
-      final long handle, final long writeOptHandle, final byte[] beginKey,
-      final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
-      final int endKeyOffset, final int endKeyLength, final long cfHandle)
-      throws RocksDBException;
-  private native void clipColumnFamily(final long handle, final long cfHandle,
+      final int endKeyOffset, final int endKeyLength, final long cfHandle) throws RocksDBException;
+  private static native void deleteRange(final long handle, final long writeOptHandle,
       final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
       final byte[] endKey, final int endKeyOffset, final int endKeyLength) throws RocksDBException;
-  private native void merge(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength) throws RocksDBException;
-  private native void merge(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength, final long cfHandle)
+  private static native void deleteRange(final long handle, final long writeOptHandle,
+      final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength, final long cfHandle)
       throws RocksDBException;
-  private native void merge(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
+  private static native void clipColumnFamily(final long handle, final long cfHandle,
+      final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength) throws RocksDBException;
+  private static native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
       throws RocksDBException;
-  private native void merge(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
+  private static native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
-  private native void mergeDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
-      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-      throws RocksDBException;
+  private static native void merge(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private static native void merge(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength, final long cfHandle) throws RocksDBException;
+  private static native void mergeDirect(long handle, long writeOptHandle, ByteBuffer key,
+      int keyOffset, int keyLength, ByteBuffer value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
 
-  private native void write0(final long handle, final long writeOptHandle,
-      final long wbHandle) throws RocksDBException;
-  private native void write1(final long handle, final long writeOptHandle,
-      final long wbwiHandle) throws RocksDBException;
-  private native int get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength) throws RocksDBException;
-  private native int get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, byte[] value,
-      final int valueOffset, final int valueLength, final long cfHandle)
+  private static native void write0(
+      final long handle, final long writeOptHandle, final long wbHandle) throws RocksDBException;
+  private static native void write1(
+      final long handle, final long writeOptHandle, final long wbwiHandle) throws RocksDBException;
+  private static native int get(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
       throws RocksDBException;
-  private native int get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
-      throws RocksDBException;
-  private native int get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
+  private static native int get(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, byte[] value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
-  private native byte[] get(final long handle, byte[] key, final int keyOffset,
+  private static native int get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private static native int get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength, final long cfHandle) throws RocksDBException;
+  private static native byte[] get(final long handle, byte[] key, final int keyOffset,
       final int keyLength) throws RocksDBException;
-  private native byte[] get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle)
-      throws RocksDBException;
-  private native byte[] get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength)
-      throws RocksDBException;
-  private native byte[] get(final long handle,
-      final long readOptHandle, final byte[] key, final int keyOffset,
+  private static native byte[] get(final long handle, final byte[] key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
-  private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
-      final int[] keyOffsets, final int[] keyLengths);
-  private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
-      final int[] keyOffsets, final int[] keyLengths,
-      final long[] columnFamilyHandles);
-  private native byte[][] multiGet(final long dbHandle, final long rOptHandle,
+  private static native byte[] get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength) throws RocksDBException;
+  private static native byte[] get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
+  private static native byte[][] multiGet(
+      final long dbHandle, final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
+  private static native byte[][] multiGet(final long dbHandle, final byte[][] keys,
+      final int[] keyOffsets, final int[] keyLengths, final long[] columnFamilyHandles);
+  private static native byte[][] multiGet(final long dbHandle, final long rOptHandle,
       final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
-  private native byte[][] multiGet(final long dbHandle, final long rOptHandle,
+  private static native byte[][] multiGet(final long dbHandle, final long rOptHandle,
       final byte[][] keys, final int[] keyOffsets, final int[] keyLengths,
       final long[] columnFamilyHandles);
 
-  private native void multiGet(final long dbHandle, final long rOptHandle,
+  private static native void multiGet(final long dbHandle, final long rOptHandle,
       final long[] columnFamilyHandles, final ByteBuffer[] keysArray, final int[] keyOffsets,
       final int[] keyLengths, final ByteBuffer[] valuesArray, final int[] valuesSizeArray,
       final Status[] statusArray);
 
-  private native boolean keyExists(final long handle, final long cfHandle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength);
+  private static native boolean keyExists(final long handle, final long cfHandle,
+      final long readOptHandle, final byte[] key, final int keyOffset, final int keyLength);
 
-  private native boolean keyExistsDirect(final long handle, final long cfHandle,
+  private static native boolean keyExistsDirect(final long handle, final long cfHandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
 
-  private native boolean keyMayExist(
-      final long handle, final long cfHandle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength);
-  private native byte[][] keyMayExistFoundValue(
-      final long handle, final long cfHandle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength);
-  private native void putDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
-      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-      throws RocksDBException;
-  private native long iterator(final long handle, final long cfHandle, final long readOptHandle);
-  private native long[] iterators(final long handle,
-      final long[] columnFamilyHandles, final long readOptHandle)
-      throws RocksDBException;
-  private native long getSnapshot(final long nativeHandle);
-  private native void releaseSnapshot(
-      final long nativeHandle, final long snapshotHandle);
-  private native String getProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
-  private native Map<String, String> getMapProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
-  private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
-      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-      throws RocksDBException;
-  private native boolean keyMayExistDirect(final long handle, final long cfHhandle,
+  private static native boolean keyMayExist(final long handle, final long cfHandle,
+      final long readOptHandle, final byte[] key, final int keyOffset, final int keyLength);
+  private static native byte[][] keyMayExistFoundValue(final long handle, final long cfHandle,
+      final long readOptHandle, final byte[] key, final int keyOffset, final int keyLength);
+  private static native void putDirect(long handle, long writeOptHandle, ByteBuffer key,
+      int keyOffset, int keyLength, ByteBuffer value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
+  private static native long iterator(
+      final long handle, final long cfHandle, final long readOptHandle);
+  private static native long[] iterators(final long handle, final long[] columnFamilyHandles,
+      final long readOptHandle) throws RocksDBException;
+
+  private static native long getSnapshot(final long nativeHandle);
+  private static native void releaseSnapshot(final long nativeHandle, final long snapshotHandle);
+  private static native String getProperty(final long nativeHandle, final long cfHandle,
+      final String property, final int propertyLength) throws RocksDBException;
+  private static native Map<String, String> getMapProperty(final long nativeHandle,
+      final long cfHandle, final String property, final int propertyLength) throws RocksDBException;
+  private static native int getDirect(long handle, long readOptHandle, ByteBuffer key,
+      int keyOffset, int keyLength, ByteBuffer value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
+  private static native boolean keyMayExistDirect(final long handle, final long cfHhandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
-  private native int[] keyMayExistDirectFoundValue(final long handle, final long cfHhandle,
+  private static native int[] keyMayExistDirectFoundValue(final long handle, final long cfHhandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength,
       final ByteBuffer value, final int valueOffset, final int valueLength);
-  private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
-      int keyLength, long cfHandle) throws RocksDBException;
-  private native long getLongProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
-  private native void resetStats(final long nativeHandle)
-      throws RocksDBException;
-  private native long getAggregatedLongProperty(final long nativeHandle,
-      final String property, int propertyLength) throws RocksDBException;
-  private native long[] getApproximateSizes(final long nativeHandle,
-      final long columnFamilyHandle, final long[] rangeSliceHandles,
-      final byte includeFlags);
-  private native long[] getApproximateMemTableStats(final long nativeHandle,
+  private static native void deleteDirect(long handle, long optHandle, ByteBuffer key,
+      int keyOffset, int keyLength, long cfHandle) throws RocksDBException;
+  private static native long getLongProperty(final long nativeHandle, final long cfHandle,
+      final String property, final int propertyLength) throws RocksDBException;
+  private static native void resetStats(final long nativeHandle) throws RocksDBException;
+  private static native long getAggregatedLongProperty(
+      final long nativeHandle, final String property, int propertyLength) throws RocksDBException;
+  private static native long[] getApproximateSizes(final long nativeHandle,
+      final long columnFamilyHandle, final long[] rangeSliceHandles, final byte includeFlags);
+  private static native long[] getApproximateMemTableStats(final long nativeHandle,
       final long columnFamilyHandle, final long rangeStartSliceHandle,
       final long rangeLimitSliceHandle);
-  private native void compactRange(final long handle,
+  private static native void compactRange(final long handle,
       /* @Nullable */ final byte[] begin, final int beginLen,
-      /* @Nullable */ final byte[] end, final int endLen,
-      final long compactRangeOptHandle, final long cfHandle)
-      throws RocksDBException;
-  private native void setOptions(final long handle, final long cfHandle,
-      final String[] keys, final String[] values) throws RocksDBException;
-  private native String getOptions(final long handle, final long cfHandle);
-  private native void setDBOptions(final long handle,
-      final String[] keys, final String[] values) throws RocksDBException;
-  private native String getDBOptions(final long handle);
-  private native void setPerfLevel(final byte level);
-  private native byte getPerfLevelNative();
+      /* @Nullable */ final byte[] end, final int endLen, final long compactRangeOptHandle,
+      final long cfHandle) throws RocksDBException;
+  private static native void setOptions(final long handle, final long cfHandle, final String[] keys,
+      final String[] values) throws RocksDBException;
+  private static native String getOptions(final long handle, final long cfHandle);
+  private static native void setDBOptions(
+      final long handle, final String[] keys, final String[] values) throws RocksDBException;
+  private static native String getDBOptions(final long handle);
+  private static native void setPerfLevel(final byte level);
+  private static native byte getPerfLevelNative();
 
-  private native long getPerfContextNative();
+  private static native long getPerfContextNative();
 
-  private native String[] compactFiles(final long handle,
-      final long compactionOptionsHandle,
-      final long columnFamilyHandle,
-      final String[] inputFileNames,
-      final int outputLevel,
-      final int outputPathId,
-      final long compactionJobInfoHandle) throws RocksDBException;
-  private native void cancelAllBackgroundWork(final long handle,
-      final boolean wait);
-  private native void pauseBackgroundWork(final long handle)
-      throws RocksDBException;
-  private native void continueBackgroundWork(final long handle)
-      throws RocksDBException;
-  private native void enableAutoCompaction(final long handle,
-      final long[] columnFamilyHandles) throws RocksDBException;
-  private native int numberLevels(final long handle,
-      final long columnFamilyHandle);
-  private native int maxMemCompactionLevel(final long handle,
-      final long columnFamilyHandle);
-  private native int level0StopWriteTrigger(final long handle,
-      final long columnFamilyHandle);
-  private native String getName(final long handle);
-  private native long getEnv(final long handle);
-  private native void flush(final long handle, final long flushOptHandle,
-      /* @Nullable */ final long[] cfHandles) throws RocksDBException;
-  private native void flushWal(final long handle, final boolean sync)
-      throws RocksDBException;
-  private native void syncWal(final long handle) throws RocksDBException;
-  private native long getLatestSequenceNumber(final long handle);
-  private native void disableFileDeletions(long handle) throws RocksDBException;
-  private native void enableFileDeletions(long handle, boolean force)
-      throws RocksDBException;
-  private native String[] getLiveFiles(final long handle,
-      final boolean flushMemtable) throws RocksDBException;
-  private native LogFile[] getSortedWalFiles(final long handle)
-      throws RocksDBException;
-  private native long getUpdatesSince(final long handle,
-      final long sequenceNumber) throws RocksDBException;
-  private native void deleteFile(final long handle, final String name)
-      throws RocksDBException;
-  private native LiveFileMetaData[] getLiveFilesMetaData(final long handle);
-  private native ColumnFamilyMetaData getColumnFamilyMetaData(
+  private static native String[] compactFiles(final long handle, final long compactionOptionsHandle,
+      final long columnFamilyHandle, final String[] inputFileNames, final int outputLevel,
+      final int outputPathId, final long compactionJobInfoHandle) throws RocksDBException;
+  private static native void cancelAllBackgroundWork(final long handle, final boolean wait);
+  private static native void pauseBackgroundWork(final long handle) throws RocksDBException;
+  private static native void continueBackgroundWork(final long handle) throws RocksDBException;
+  private static native void enableAutoCompaction(
+      final long handle, final long[] columnFamilyHandles) throws RocksDBException;
+  private static native int numberLevels(final long handle, final long columnFamilyHandle);
+  private static native int maxMemCompactionLevel(final long handle, final long columnFamilyHandle);
+  private static native int level0StopWriteTrigger(
       final long handle, final long columnFamilyHandle);
-  private native void ingestExternalFile(final long handle,
-      final long columnFamilyHandle,  final String[] filePathList,
-      final int filePathListLen, final long ingestExternalFileOptionsHandle)
+  private static native String getName(final long handle);
+  private static native long getEnv(final long handle);
+  private static native void flush(final long handle, final long flushOptHandle,
+      /* @Nullable */ final long[] cfHandles) throws RocksDBException;
+  private static native void flushWal(final long handle, final boolean sync)
       throws RocksDBException;
-  private native void verifyChecksum(final long handle) throws RocksDBException;
-  private native long getDefaultColumnFamily(final long handle);
-  private native Map<String, TableProperties> getPropertiesOfAllTables(
+  private static native void syncWal(final long handle) throws RocksDBException;
+  private static native long getLatestSequenceNumber(final long handle);
+  private static native void disableFileDeletions(long handle) throws RocksDBException;
+  private static native void enableFileDeletions(long handle) throws RocksDBException;
+  private static native String[] getLiveFiles(final long handle, final boolean flushMemtable)
+      throws RocksDBException;
+  private static native LogFile[] getSortedWalFiles(final long handle) throws RocksDBException;
+  private static native long getUpdatesSince(final long handle, final long sequenceNumber)
+      throws RocksDBException;
+  private static native void deleteFile(final long handle, final String name)
+      throws RocksDBException;
+  private static native LiveFileMetaData[] getLiveFilesMetaData(final long handle);
+  private static native ColumnFamilyMetaData getColumnFamilyMetaData(
+      final long handle, final long columnFamilyHandle);
+  private static native void ingestExternalFile(final long handle, final long columnFamilyHandle,
+      final String[] filePathList, final int filePathListLen,
+      final long ingestExternalFileOptionsHandle) throws RocksDBException;
+  private static native void verifyChecksum(final long handle) throws RocksDBException;
+  private static native long getDefaultColumnFamily(final long handle);
+  private static native Map<String, TableProperties> getPropertiesOfAllTables(
       final long handle, final long columnFamilyHandle) throws RocksDBException;
-  private native Map<String, TableProperties> getPropertiesOfTablesInRange(
-      final long handle, final long columnFamilyHandle,
-      final long[] rangeSliceHandles);
-  private native long[] suggestCompactRange(final long handle,
-      final long columnFamilyHandle) throws RocksDBException;
-  private native void promoteL0(final long handle,
-      final long columnFamilyHandle, final int tragetLevel)
+  private static native Map<String, TableProperties> getPropertiesOfTablesInRange(
+      final long handle, final long columnFamilyHandle, final long[] rangeSliceHandles);
+  private static native long[] suggestCompactRange(final long handle, final long columnFamilyHandle)
       throws RocksDBException;
-  private native void startTrace(final long handle, final long maxTraceFileSize,
+  private static native void promoteL0(final long handle, final long columnFamilyHandle,
+      final int tragetLevel) throws RocksDBException;
+  private static native void startTrace(final long handle, final long maxTraceFileSize,
       final long traceWriterHandle) throws RocksDBException;
-  private native void endTrace(final long handle) throws RocksDBException;
-  private native void tryCatchUpWithPrimary(final long handle) throws RocksDBException;
-  private native void deleteFilesInRanges(long handle, long cfHandle, final byte[][] ranges,
+  private static native void endTrace(final long handle) throws RocksDBException;
+  private static native void tryCatchUpWithPrimary(final long handle) throws RocksDBException;
+  private static native void deleteFilesInRanges(long handle, long cfHandle, final byte[][] ranges,
       boolean include_end) throws RocksDBException;
 
   private static native void destroyDB(final String path, final long optionsHandle)

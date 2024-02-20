@@ -163,7 +163,7 @@ std::string TableProperties::ToString(const std::string& prop_delim,
                  kv_delim);
 
   SeqnoToTimeMapping seq_time_mapping;
-  s = seq_time_mapping.Add(seqno_to_time_mapping);
+  s = seq_time_mapping.DecodeFrom(seqno_to_time_mapping);
   AppendProperty(result, "Sequence number to time mapping",
                  s.ok() ? seq_time_mapping.ToHumanString() : "N/A", prop_delim,
                  kv_delim);

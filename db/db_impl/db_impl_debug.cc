@@ -208,11 +208,11 @@ void DBImpl::TEST_SignalAllBgCv() { bg_cv_.SignalAll(); }
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer();
   write_thread_.EnterUnbatched(w, &mutex_);
-  return reinterpret_cast<void*>(w);
+  return static_cast<void*>(w);
 }
 
 void DBImpl::TEST_EndWrite(void* w) {
-  auto writer = reinterpret_cast<WriteThread::Writer*>(w);
+  auto writer = static_cast<WriteThread::Writer*>(w);
   write_thread_.ExitUnbatched(writer);
   delete writer;
 }

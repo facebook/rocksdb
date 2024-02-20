@@ -8,11 +8,13 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <iterator>
 #include <string>
 
+#include "db/dbformat.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -20,6 +22,22 @@ namespace ROCKSDB_NAMESPACE {
 
 constexpr uint64_t kUnknownTimeBeforeAll = 0;
 constexpr SequenceNumber kUnknownSeqnoBeforeAll = 0;
+
+// Maximum number of entries can be encoded into SST. The data is delta encode
+// so the maximum data usage for each SST is < 0.3K
+constexpr uint64_t kMaxSeqnoTimePairsPerSST = 100;
+
+// Maximum number of entries per CF. If there's only CF with this feature on,
+// the max span divided by this number, so for example, if
+// preclude_last_level_data_seconds = 100000 (~1day), then it will sample the
+// seqno -> time every 1000 seconds (~17minutes). Then the maximum entry it
+// needs is 100.
+// When there are multiple CFs having this feature on, the sampling cadence is
+// determined by the smallest setting, the capacity is determined the largest
+// setting, also it's caped by kMaxSeqnoTimePairsPerCF * 10.
+constexpr uint64_t kMaxSeqnoTimePairsPerCF = 100;
+
+constexpr uint64_t kMaxSeqnoToTimeEntries = kMaxSeqnoTimePairsPerCF * 10;
 
 // SeqnoToTimeMapping stores a sampled mapping from sequence numbers to
 // unix times (seconds since epoch). This information provides rough bounds
@@ -39,27 +57,16 @@ constexpr SequenceNumber kUnknownSeqnoBeforeAll = 0;
 //   20 -> 600
 //   30 -> 700
 //
-// In typical operation, the list is sorted, both among seqnos and among times,
-// with a bounded number of entries, but some public working states violate
-// these constraints.
+// In typical operation, the list is in "enforced" operation to maintain
+// invariants on sortedness, capacity, and time span of entries. However, some
+// operations will put the object into "unenforced" mode where those invariants
+// are relaxed until explicitly or implicitly re-enforced (which will sort and
+// filter the data).
 //
-// NOT thread safe - requires external synchronization.
+// NOT thread safe - requires external synchronization, except a const
+// object allows concurrent reads.
 class SeqnoToTimeMapping {
  public:
-  // Maximum number of entries can be encoded into SST. The data is delta encode
-  // so the maximum data usage for each SST is < 0.3K
-  static constexpr uint64_t kMaxSeqnoTimePairsPerSST = 100;
-
-  // Maximum number of entries per CF. If there's only CF with this feature on,
-  // the max duration divided by this number, so for example, if
-  // preclude_last_level_data_seconds = 100000 (~1day), then it will sample the
-  // seqno -> time every 1000 seconds (~17minutes). Then the maximum entry it
-  // needs is 100.
-  // When there are multiple CFs having this feature on, the sampling cadence is
-  // determined by the smallest setting, the capacity is determined the largest
-  // setting, also it's caped by kMaxSeqnoTimePairsPerCF * 10.
-  static constexpr uint64_t kMaxSeqnoTimePairsPerCF = 100;
-
   // A simple struct for sequence number to time pair
   struct SeqnoTimePair {
     SequenceNumber seqno = 0;
@@ -86,6 +93,12 @@ class SeqnoToTimeMapping {
       time += delta_or_base.time;
     }
 
+    // If another pair can be combined into this one (for optimizing
+    // normal SeqnoToTimeMapping behavior), then this mapping is modified
+    // and true is returned, indicating the other mapping can be discarded.
+    // Otherwise false is returned and nothing is changed.
+    bool Merge(const SeqnoTimePair& other);
+
     // Ordering used for Sort()
     bool operator<(const SeqnoTimePair& other) const {
       return std::tie(seqno, time) < std::tie(other.seqno, other.time);
@@ -104,27 +117,78 @@ class SeqnoToTimeMapping {
     }
   };
 
-  // constractor of SeqnoToTimeMapping
-  // max_time_duration is the maximum time it should track. For example, if
-  // preclude_last_level_data_seconds is 1 day, then if an entry is older than 1
-  // day, then it can be removed.
-  // max_capacity is the maximum number of entry it can hold. For single CF,
-  // it's caped at 100 (kMaxSeqnoTimePairsPerCF), otherwise
-  // kMaxSeqnoTimePairsPerCF * 10.
-  // If it's set to 0, means it won't truncate any old data.
-  explicit SeqnoToTimeMapping(uint64_t max_time_duration = 0,
-                              uint64_t max_capacity = 0)
-      : max_time_duration_(max_time_duration), max_capacity_(max_capacity) {}
+  // Construct an empty SeqnoToTimeMapping with no limits.
+  SeqnoToTimeMapping() {}
 
-  // Both seqno range and time range are inclusive. ... TODO
-  //
+  // ==== Configuration for enforced state ==== //
+  // Set a time span beyond which old entries can be deleted. Specifically,
+  // under enforcement mode, the structure will maintian only one entry older
+  // than the newest entry time minus max_time_span, so that
+  // GetProximalSeqnoBeforeTime queries back to that time return a good result.
+  // UINT64_MAX == unlimited. 0 == retain just one latest entry. Returns *this.
+  SeqnoToTimeMapping& SetMaxTimeSpan(uint64_t max_time_span);
+
+  // Set the nominal capacity under enforcement mode. The structure is allowed
+  // to grow some reasonable fraction larger but will automatically compact
+  // down to this size. UINT64_MAX == unlimited. 0 == retain nothing.
+  // Returns *this.
+  SeqnoToTimeMapping& SetCapacity(uint64_t capacity);
+
+  // ==== Modifiers, enforced ==== //
+  // Adds a series of mappings interpolating from from_seqno->from_time to
+  // to_seqno->to_time. This can only be called on an empty object and both
+  // seqno range and time range are inclusive.
   bool PrePopulate(SequenceNumber from_seqno, SequenceNumber to_seqno,
                    uint64_t from_time, uint64_t to_time);
 
-  // Append a new entry to the list. The new entry should be newer than the
-  // existing ones. It maintains the internal sorted status.
+  // Append a new entry to the list. The `seqno` should be >= all previous
+  // entries. This operation maintains enforced mode invariants, and will
+  // automatically (re-)enter enforced mode if not already in that state.
+  // Returns false if the entry was merged into the most recent entry
+  // rather than creating a new entry.
   bool Append(SequenceNumber seqno, uint64_t time);
 
+  // Clear all entries and (re-)enter enforced mode if not already in that
+  // state. Enforced limits are unchanged.
+  void Clear() {
+    pairs_.clear();
+    enforced_ = true;
+  }
+
+  // Enters the "enforced" state if not already in that state, which is
+  // useful before copying or querying. This will
+  //  * Sort the entries
+  //  * Discard any obsolete entries, which is aided if the caller specifies
+  // the `now` time so that entries older than now minus the max time span can
+  // be discarded.
+  //  * Compact the entries to the configured capacity.
+  // Returns *this.
+  SeqnoToTimeMapping& Enforce(uint64_t now = 0);
+
+  // ==== Modifiers, unenforced ==== //
+  // Add a new random entry and enter "unenforced" state. Unlike Append(), it
+  // can be any historical data.
+  void AddUnenforced(SequenceNumber seqno, uint64_t time);
+
+  // Decode and add the entries to this mapping object. Unless starting from
+  // an empty mapping with no configured enforcement limits, this operation
+  // enters the unenforced state.
+  Status DecodeFrom(const std::string& pairs_str);
+
+  // Copies entries from the src mapping object to this one, limited to entries
+  // needed to answer GetProximalTimeBeforeSeqno() queries for the given
+  // *inclusive* seqno range. The source structure must be in enforced
+  // state as a precondition. Unless starting with this object as empty mapping
+  // with no configured enforcement limits, this object enters the unenforced
+  // state.
+  void CopyFromSeqnoRange(const SeqnoToTimeMapping& src,
+                          SequenceNumber from_seqno,
+                          SequenceNumber to_seqno = kMaxSequenceNumber);
+  void CopyFrom(const SeqnoToTimeMapping& src) {
+    CopyFromSeqnoRange(src, kUnknownSeqnoBeforeAll, kMaxSequenceNumber);
+  }
+
+  // ==== Accessors ==== //
   // Given a sequence number, return the best (largest / newest) known time
   // that is no later than the write time of that given sequence number.
   // If no such specific time is known, returns kUnknownTimeBeforeAll.
@@ -133,11 +197,9 @@ class SeqnoToTimeMapping {
   //  GetProximalTimeBeforeSeqno(11) -> 500
   //  GetProximalTimeBeforeSeqno(20) -> 500
   //  GetProximalTimeBeforeSeqno(21) -> 600
+  // Because this is a const operation depending on sortedness, the structure
+  // must be in enforced state as a precondition.
   uint64_t GetProximalTimeBeforeSeqno(SequenceNumber seqno) const;
-
-  // Remove any entries not needed for GetProximalSeqnoBeforeTime queries of
-  // times older than `now - max_time_duration_`
-  void TruncateOldEntries(uint64_t now);
 
   // Given a time, return the best (largest) sequence number whose write time
   // is no later than that given time. If no such specific sequence number is
@@ -147,74 +209,54 @@ class SeqnoToTimeMapping {
   //  GetProximalSeqnoBeforeTime(500) -> 10
   //  GetProximalSeqnoBeforeTime(599) -> 10
   //  GetProximalSeqnoBeforeTime(600) -> 20
-  SequenceNumber GetProximalSeqnoBeforeTime(uint64_t time);
+  // Because this is a const operation depending on sortedness, the structure
+  // must be in enforced state as a precondition.
+  SequenceNumber GetProximalSeqnoBeforeTime(uint64_t time) const;
 
-  // Encode to a binary string. start and end seqno are both inclusive.
-  void Encode(std::string& des, SequenceNumber start, SequenceNumber end,
-              uint64_t now,
-              uint64_t output_size = kMaxSeqnoTimePairsPerSST) const;
-
-  // Add a new random entry, unlike Append(), it can be any data, but also makes
-  // the list un-sorted.
-  void Add(SequenceNumber seqno, uint64_t time);
-
-  // Decode and add the entries to the current obj. The list will be unsorted
-  Status Add(const std::string& pairs_str);
+  // Encode to a binary string by appending to `dest`.
+  // Because this is a const operation depending on sortedness, the structure
+  // must be in enforced state as a precondition.
+  void EncodeTo(std::string& dest) const;
 
   // Return the number of entries
   size_t Size() const { return pairs_.size(); }
 
-  // Reduce the size of internal list
-  bool Resize(uint64_t min_time_duration, uint64_t max_time_duration);
-
-  // Override the max_time_duration_
-  void SetMaxTimeDuration(uint64_t max_time_duration) {
-    max_time_duration_ = max_time_duration;
-  }
-
-  uint64_t GetCapacity() const { return max_capacity_; }
-
-  // Sort the list, which also remove the redundant entries, useless entries,
-  // which makes sure the seqno is sorted, but also the time
-  Status Sort();
-
-  // copy the current obj from the given smallest_seqno.
-  SeqnoToTimeMapping Copy(SequenceNumber smallest_seqno) const;
+  uint64_t GetCapacity() const { return capacity_; }
 
   // If the internal list is empty
   bool Empty() const { return pairs_.empty(); }
-
-  // clear all entries
-  void Clear() { pairs_.clear(); }
 
   // return the string for user message
   // Note: Not efficient, okay for print
   std::string ToHumanString() const;
 
 #ifndef NDEBUG
+  const SeqnoTimePair& TEST_GetLastEntry() const { return pairs_.back(); }
   const std::deque<SeqnoTimePair>& TEST_GetInternalMapping() const {
     return pairs_;
   }
+  bool TEST_IsEnforced() const { return enforced_; }
 #endif
 
  private:
-  static constexpr uint64_t kMaxSeqnoToTimeEntries =
-      kMaxSeqnoTimePairsPerCF * 10;
-
-  uint64_t max_time_duration_;
-  uint64_t max_capacity_;
+  uint64_t max_time_span_ = UINT64_MAX;
+  uint64_t capacity_ = UINT64_MAX;
 
   std::deque<SeqnoTimePair> pairs_;
 
-  bool is_sorted_ = true;
+  // Whether this object is in the "enforced" state. Between calls to public
+  // functions, enforced_==true means that
+  // * `pairs_` is sorted
+  // * The capacity limit (non-strict) is met
+  // * The time span limit is met
+  // However, some places within the implementation (Append()) will temporarily
+  // violate those last two conditions while enforced_==true. See also the
+  // Enforce*() and Sort*() private functions below.
+  bool enforced_ = true;
 
-  static uint64_t CalculateMaxCapacity(uint64_t min_time_duration,
-                                       uint64_t max_time_duration);
-
-  SeqnoTimePair& Last() {
-    assert(!Empty());
-    return pairs_.back();
-  }
+  void EnforceMaxTimeSpan(uint64_t now = 0);
+  void EnforceCapacity(bool strict);
+  void SortAndMerge();
 
   using pair_const_iterator =
       std::deque<SeqnoToTimeMapping::SeqnoTimePair>::const_iterator;

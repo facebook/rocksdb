@@ -357,15 +357,16 @@ class HashSkipListRepFactory : public MemTableRepFactory {
   }
 
   using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, Allocator* allocator,
-      const SliceTransform* transform, Logger* logger) override;
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& compare,
+                                 Allocator* allocator,
+                                 const SliceTransform* transform,
+                                 Logger* logger) override;
 
   static const char* kClassName() { return "HashSkipListRepFactory"; }
   static const char* kNickName() { return "prefix_hash"; }
 
-  virtual const char* Name() const override { return kClassName(); }
-  virtual const char* NickName() const override { return kNickName(); }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
 
  private:
   HashSkipListRepOptions options_;

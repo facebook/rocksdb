@@ -217,7 +217,7 @@ class CompactionJobTestBase : public testing::Test {
             /*block_cache_tracer=*/nullptr,
             /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
             /*daily_offpeak_time_utc=*/"",
-            /*error_handler=*/nullptr)),
+            /*error_handler=*/nullptr, /*read_only=*/false)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
@@ -295,11 +295,14 @@ class CompactionJobTestBase : public testing::Test {
     Status s = WritableFileWriter::Create(fs_, table_name, FileOptions(),
                                           &file_writer, nullptr);
     ASSERT_OK(s);
+    const ReadOptions read_options;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
             TableBuilderOptions(*cfd_->ioptions(), mutable_cf_options_,
+                                read_options, write_options,
                                 cfd_->internal_comparator(),
-                                cfd_->int_tbl_prop_collector_factories(),
+                                cfd_->internal_tbl_prop_coll_factories(),
                                 CompressionType::kNoCompression,
                                 CompressionOptions(), 0 /* column_family_id */,
                                 kDefaultColumnFamilyName, -1 /* level */),
@@ -394,7 +397,7 @@ class CompactionJobTestBase : public testing::Test {
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, &edit, &mutex_, nullptr));
+        read_options_, write_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 
@@ -547,9 +550,9 @@ class CompactionJobTestBase : public testing::Test {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     compaction_job_stats_.Reset();
-    ASSERT_OK(SetIdentityFile(env_, dbname_));
+    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);
@@ -568,11 +571,11 @@ class CompactionJobTestBase : public testing::Test {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
       new_db.EncodeTo(&record);
-      s = log.AddRecord(record);
+      s = log.AddRecord(WriteOptions(), record);
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
 
     ASSERT_OK(s);
 
@@ -736,6 +739,7 @@ class CompactionJobTestBase : public testing::Test {
   MutableCFOptions mutable_cf_options_;
   MutableDBOptions mutable_db_options_;
   const ReadOptions read_options_;
+  const WriteOptions write_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -1748,23 +1752,9 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   }
 }
 
-class CompactionJobDynamicFileSizeTest
-    : public CompactionJobTestBase,
-      public ::testing::WithParamInterface<bool> {
- public:
-  CompactionJobDynamicFileSizeTest()
-      : CompactionJobTestBase(
-            test::PerThreadDBPath("compaction_job_dynamic_file_size_test"),
-            BytewiseComparator(), [](uint64_t /*ts*/) { return ""; },
-            /*test_io_priority=*/false, TableTypeForTest::kMockTable) {}
-};
-
-TEST_P(CompactionJobDynamicFileSizeTest, CutForMaxCompactionBytes) {
+TEST_F(CompactionJobTest, CutForMaxCompactionBytes) {
   // dynamic_file_size option should have no impact on cutting for max
   // compaction bytes.
-  bool enable_dyanmic_file_size = GetParam();
-  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
-
   NewDB();
   mutable_cf_options_.target_file_size_base = 80;
   mutable_cf_options_.max_compaction_bytes = 21;
@@ -1838,10 +1828,7 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutForMaxCompactionBytes) {
                 {expected_file1, expected_file2});
 }
 
-TEST_P(CompactionJobDynamicFileSizeTest, CutToSkipGrandparentFile) {
-  bool enable_dyanmic_file_size = GetParam();
-  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
-
+TEST_F(CompactionJobTest, CutToSkipGrandparentFile) {
   NewDB();
   // Make sure the grandparent level file size (10) qualifies skipping.
   // Currently, it has to be > 1/8 of target file size.
@@ -1876,28 +1863,15 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToSkipGrandparentFile) {
       mock::MakeMockFile({{KeyStr("x", 4U, kTypeValue), "val"},
                           {KeyStr("z", 6U, kTypeValue), "val3"}});
 
-  auto expected_file_disable_dynamic_file_size =
-      mock::MakeMockFile({{KeyStr("a", 5U, kTypeValue), "val2"},
-                          {KeyStr("c", 3U, kTypeValue), "val"},
-                          {KeyStr("x", 4U, kTypeValue), "val"},
-                          {KeyStr("z", 6U, kTypeValue), "val3"}});
-
   SetLastSequence(6U);
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-  if (enable_dyanmic_file_size) {
     RunCompaction({lvl0_files, lvl1_files}, input_levels,
                   {expected_file1, expected_file2});
-  } else {
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file_disable_dynamic_file_size});
-  }
 }
 
-TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
-  bool enable_dyanmic_file_size = GetParam();
-  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
+TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
   NewDB();
 
   // MockTable has 1 byte per entry by default and each file is 10 bytes.
@@ -1964,40 +1938,15 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
   }
   expected_file2.emplace_back(KeyStr("s", 4U, kTypeValue), "val");
 
-  mock::KVVector expected_file_disable_dynamic_file_size1;
-  for (char i = 0; i < 10; i++) {
-    expected_file_disable_dynamic_file_size1.emplace_back(
-        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
-        "val" + std::to_string(i));
-  }
-
-  mock::KVVector expected_file_disable_dynamic_file_size2;
-  for (char i = 10; i < 12; i++) {
-    expected_file_disable_dynamic_file_size2.emplace_back(
-        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
-        "val" + std::to_string(i));
-  }
-
-  expected_file_disable_dynamic_file_size2.emplace_back(
-      KeyStr("s", 4U, kTypeValue), "val");
-
   SetLastSequence(22U);
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-  if (enable_dyanmic_file_size) {
     RunCompaction({lvl0_files, lvl1_files}, input_levels,
                   {expected_file1, expected_file2});
-  } else {
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file_disable_dynamic_file_size1,
-                   expected_file_disable_dynamic_file_size2});
-  }
 }
 
-TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundarySameKey) {
-  bool enable_dyanmic_file_size = GetParam();
-  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
+TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
   NewDB();
 
   // MockTable has 1 byte per entry by default and each file is 10 bytes.
@@ -2034,13 +1983,9 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundarySameKey) {
   AddMockFile(file5, 2);
 
   mock::KVVector expected_file1;
-  mock::KVVector expected_file_disable_dynamic_file_size;
-
   for (int i = 0; i < 8; i++) {
     expected_file1.emplace_back(KeyStr("a", 100 - i, kTypeValue),
                                 "val" + std::to_string(100 - i));
-    expected_file_disable_dynamic_file_size.emplace_back(
-        KeyStr("a", 100 - i, kTypeValue), "val" + std::to_string(100 - i));
   }
 
   // make sure `b` is cut in a separated file (so internally it's not using
@@ -2048,9 +1993,6 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundarySameKey) {
   // than "b:85" on L2.)
   auto expected_file2 =
       mock::MakeMockFile({{KeyStr("b", 90U, kTypeValue), "valb"}});
-
-  expected_file_disable_dynamic_file_size.emplace_back(
-      KeyStr("b", 90U, kTypeValue), "valb");
 
   SetLastSequence(122U);
   const std::vector<int> input_levels = {0, 1};
@@ -2062,20 +2004,13 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundarySameKey) {
   for (int i = 80; i <= 100; i++) {
     snapshots.emplace_back(i);
   }
-  if (enable_dyanmic_file_size) {
     RunCompaction({lvl0_files, lvl1_files}, input_levels,
                   {expected_file1, expected_file2}, snapshots);
-  } else {
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file_disable_dynamic_file_size}, snapshots);
-  }
 }
 
-TEST_P(CompactionJobDynamicFileSizeTest, CutForMaxCompactionBytesSameKey) {
+TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {
   // dynamic_file_size option should have no impact on cutting for max
   // compaction bytes.
-  bool enable_dyanmic_file_size = GetParam();
-  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
 
   NewDB();
   mutable_cf_options_.target_file_size_base = 80;
@@ -2131,9 +2066,6 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutForMaxCompactionBytesSameKey) {
   RunCompaction({lvl0_files, lvl1_files}, input_levels,
                 {expected_file1, expected_file2, expected_file3}, snapshots);
 }
-
-INSTANTIATE_TEST_CASE_P(CompactionJobDynamicFileSizeTest,
-                        CompactionJobDynamicFileSizeTest, testing::Bool());
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {
  public:

@@ -65,7 +65,7 @@ class PointLockTracker : public LockTracker {
 
   void Clear() override;
 
-  virtual LockTracker* GetTrackedLocksSinceSavePoint(
+  LockTracker* GetTrackedLocksSinceSavePoint(
       const LockTracker& save_point_tracker) const override;
 
   PointLockStatus GetPointLockStatus(ColumnFamilyId column_family_id,

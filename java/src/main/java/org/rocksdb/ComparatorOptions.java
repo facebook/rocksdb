@@ -120,14 +120,17 @@ public class ComparatorOptions extends RocksObject {
   }
 
   private static native long newComparatorOptions();
-  private native byte reusedSynchronisationType(final long handle);
-  private native void setReusedSynchronisationType(final long handle,
-      final byte reusedSynchronisationType);
-  private native boolean useDirectBuffer(final long handle);
-  private native void setUseDirectBuffer(final long handle,
-      final boolean useDirectBuffer);
-  private native int maxReusedBufferSize(final long handle);
-  private native void setMaxReusedBufferSize(final long handle,
-      final int maxReuseBufferSize);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native byte reusedSynchronisationType(final long handle);
+  private static native void setReusedSynchronisationType(
+      final long handle, final byte reusedSynchronisationType);
+  private static native boolean useDirectBuffer(final long handle);
+  private static native void setUseDirectBuffer(final long handle, final boolean useDirectBuffer);
+  private static native int maxReusedBufferSize(final long handle);
+  private static native void setMaxReusedBufferSize(
+      final long handle, final int maxReuseBufferSize);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

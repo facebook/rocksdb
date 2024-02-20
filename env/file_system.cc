@@ -180,19 +180,20 @@ FileOptions FileSystem::OptimizeForBlobFileRead(
 }
 
 IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
-                           const std::string& fname, bool should_sync) {
+                           const std::string& fname, bool should_sync,
+                           const IOOptions& io_options) {
   std::unique_ptr<FSWritableFile> file;
   EnvOptions soptions;
   IOStatus s = fs->NewWritableFile(fname, soptions, &file, nullptr);
   if (!s.ok()) {
     return s;
   }
-  s = file->Append(data, IOOptions(), nullptr);
+  s = file->Append(data, io_options, nullptr);
   if (s.ok() && should_sync) {
-    s = file->Sync(IOOptions(), nullptr);
+    s = file->Sync(io_options, nullptr);
   }
   if (!s.ok()) {
-    fs->DeleteFile(fname, IOOptions(), nullptr);
+    fs->DeleteFile(fname, io_options, nullptr);
   }
   return s;
 }

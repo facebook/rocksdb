@@ -76,12 +76,14 @@ class BlockFetcherTest : public testing::Test {
     InternalKeyComparator comparator(options_.comparator);
     ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
-    IntTblPropCollectorFactories factories;
+    InternalTblPropCollFactories factories;
+    const ReadOptions read_options;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
-        TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, CompressionOptions(),
-                            0 /* column_family_id */, kDefaultColumnFamilyName,
-                            -1 /* level */),
+        TableBuilderOptions(ioptions, moptions, read_options, write_options,
+                            comparator, &factories, compression_type,
+                            CompressionOptions(), 0 /* column_family_id */,
+                            kDefaultColumnFamilyName, -1 /* level */),
         writer.get()));
 
     // Build table.
@@ -105,11 +107,16 @@ class BlockFetcherTest : public testing::Test {
 
     // Get handle of the index block.
     Footer footer;
-    ReadFooter(file.get(), &footer);
-    const BlockHandle& index_handle = footer.index_handle();
-    // FIXME: index handle will need to come from metaindex for
-    // format_version >= 6 when that becomes the default
-    ASSERT_FALSE(index_handle.IsNull());
+    uint64_t file_size = 0;
+    ReadFooter(file.get(), &footer, &file_size);
+
+    // Index handle comes from metaindex for format_version >= 6
+    ASSERT_TRUE(footer.index_handle().IsNull());
+
+    BlockHandle index_handle;
+    ASSERT_OK(FindMetaBlockInFile(
+        file.get(), file_size, kBlockBasedTableMagicNumber,
+        ImmutableOptions(options_), {}, kIndexBlockName, &index_handle));
 
     CompressionType compression_type;
     FetchBlock(file.get(), index_handle, BlockType::kIndex,
@@ -276,7 +283,7 @@ class BlockFetcherTest : public testing::Test {
                                     0 /* block_protection_bytes_per_key */,
                                     &table_reader, 0 /* tail_size */));
 
-    table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
+    table->reset(static_cast<BlockBasedTable*>(table_reader.release()));
   }
 
   std::string ToInternalKey(const std::string& key) {
@@ -284,13 +291,17 @@ class BlockFetcherTest : public testing::Test {
     return internal_key.Encode().ToString();
   }
 
-  void ReadFooter(RandomAccessFileReader* file, Footer* footer) {
+  void ReadFooter(RandomAccessFileReader* file, Footer* footer,
+                  uint64_t* file_size_out = nullptr) {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
     IOOptions opts;
     ASSERT_OK(ReadFooterFromFile(opts, file, *fs_,
                                  nullptr /* prefetch_buffer */, file_size,
                                  footer, kBlockBasedTableMagicNumber));
+    if (file_size_out) {
+      *file_size_out = file_size;
+    }
   }
 
   // NOTE: compression_type returns the compression type of the fetched block

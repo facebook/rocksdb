@@ -97,7 +97,15 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
 
   if (ingestion_options_.ingest_behind && files_overlap_) {
-    return Status::NotSupported("Files have overlapping ranges");
+    return Status::NotSupported(
+        "Files with overlapping ranges cannot be ingested with ingestion "
+        "behind mode.");
+  }
+
+  if (ucmp->timestamp_size() > 0 && files_overlap_) {
+    return Status::NotSupported(
+        "Files with overlapping ranges cannot be ingested to column "
+        "family with user-defined timestamp enabled.");
   }
 
   // Copy/Move external files into DB
@@ -142,7 +150,7 @@ Status ExternalSstFileIngestionJob::Prepare(
         // Original file is on a different FS, use copy instead of hard linking.
         f.copy_file = true;
         ROCKS_LOG_INFO(db_options_.info_log,
-                       "Triy to link file %s but it's not supported : %s",
+                       "Tried to link file %s but it's not supported : %s",
                        path_outside_db.c_str(), status.ToString().c_str());
       }
     } else {
@@ -188,7 +196,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   // Generate and check the sst file checksum. Note that, if
   // IngestExternalFileOptions::write_global_seqno is true, we will not update
   // the checksum information in the files_to_ingests_ here, since the file is
-  // upadted with the new global_seqno. After global_seqno is updated, DB will
+  // updated with the new global_seqno. After global_seqno is updated, DB will
   // generate the new checksum and store it in the Manifest. In all other cases
   // if ingestion_options_.write_global_seqno == true and
   // verify_file_checksum is false, we only check the checksum function name.
@@ -299,8 +307,7 @@ Status ExternalSstFileIngestionJob::Prepare(
           }
         }
       } else if (files_checksums.size() != files_checksum_func_names.size() ||
-                 (files_checksums.size() == files_checksum_func_names.size() &&
-                  files_checksums.size() != 0)) {
+                 files_checksums.size() != 0) {
         // The checksum or checksum function name vector are not both empty
         // and they are incomplete.
         status = Status::InvalidArgument(
@@ -316,59 +323,32 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
   }
 
-  // TODO: The following is duplicated with Cleanup().
-  if (!status.ok()) {
-    IOOptions io_opts;
-    // We failed, remove all files that we copied into the db
-    for (IngestedFileInfo& f : files_to_ingest_) {
-      if (f.internal_file_path.empty()) {
-        continue;
-      }
-      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "AddFile() clean up for file %s failed : %s",
-                       f.internal_file_path.c_str(), s.ToString().c_str());
-      }
-    }
-  }
-
   return status;
 }
 
 Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                                                SuperVersion* super_version) {
-  autovector<Range> ranges;
-  autovector<std::string> keys;
-  size_t ts_sz = cfd_->user_comparator()->timestamp_size();
-  if (ts_sz) {
-    // Check all ranges [begin, end] inclusively. Add maximum
-    // timestamp to include all `begin` keys, and add minimal timestamp to
-    // include all `end` keys.
-    for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-      std::string begin_str;
-      std::string end_str;
-      AppendUserKeyWithMaxTimestamp(
-          &begin_str, file_to_ingest.smallest_internal_key.user_key(), ts_sz);
-      AppendUserKeyWithMinTimestamp(
-          &end_str, file_to_ingest.largest_internal_key.user_key(), ts_sz);
-      keys.emplace_back(std::move(begin_str));
-      keys.emplace_back(std::move(end_str));
-    }
-    for (size_t i = 0; i < files_to_ingest_.size(); ++i) {
-      ranges.emplace_back(keys[2 * i], keys[2 * i + 1]);
-    }
-  } else {
-    for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-      ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
-                          file_to_ingest.largest_internal_key.user_key());
-    }
+  size_t n = files_to_ingest_.size();
+  autovector<UserKeyRange> ranges;
+  ranges.reserve(n);
+  for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
+    ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
+                        file_to_ingest.largest_internal_key.user_key());
   }
   Status status = cfd_->RangesOverlapWithMemtables(
       ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
-  if (status.ok() && *flush_needed &&
-      !ingestion_options_.allow_blocking_flush) {
-    status = Status::InvalidArgument("External file requires flush");
+  if (status.ok() && *flush_needed) {
+    if (!ingestion_options_.allow_blocking_flush) {
+      status = Status::InvalidArgument("External file requires flush");
+    }
+    auto ucmp = cfd_->user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      status = Status::InvalidArgument(
+          "Column family enables user-defined timestamps, please make "
+          "sure the key range (without timestamp) of external file does not "
+          "overlap with key range in the memtables.");
+    }
   }
   return status;
 }
@@ -387,7 +367,7 @@ Status ExternalSstFileIngestionJob::Run() {
     return status;
   }
   if (need_flush) {
-    return Status::TryAgain();
+    return Status::TryAgain("need_flush");
   }
   assert(status.ok() && need_flush == false);
 #endif
@@ -431,25 +411,25 @@ Status ExternalSstFileIngestionJob::Run() {
     if (!status.ok()) {
       return status;
     }
-    if (smallest_parsed.sequence == 0) {
+    if (smallest_parsed.sequence == 0 && assigned_seqno != 0) {
       UpdateInternalKey(f.smallest_internal_key.rep(), assigned_seqno,
                         smallest_parsed.type);
     }
-    if (largest_parsed.sequence == 0) {
+    if (largest_parsed.sequence == 0 && assigned_seqno != 0) {
       UpdateInternalKey(f.largest_internal_key.rep(), assigned_seqno,
                         largest_parsed.type);
     }
 
     status = AssignGlobalSeqnoForIngestedFile(&f, assigned_seqno);
-    TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
-                             &assigned_seqno);
-    if (assigned_seqno > last_seqno) {
-      assert(assigned_seqno == last_seqno + 1);
-      last_seqno = assigned_seqno;
-      ++consumed_seqno_count_;
-    }
     if (!status.ok()) {
       return status;
+    }
+    TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
+                             &assigned_seqno);
+    assert(assigned_seqno == 0 || assigned_seqno == last_seqno + 1);
+    if (assigned_seqno > last_seqno) {
+      last_seqno = assigned_seqno;
+      ++consumed_seqno_count_;
     }
 
     status = GenerateChecksumForIngestedFile(&f);
@@ -631,17 +611,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
   if (!status.ok()) {
     // We failed to add the files to the database
     // remove all the files we copied
-    for (IngestedFileInfo& f : files_to_ingest_) {
-      if (f.internal_file_path.empty()) {
-        continue;
-      }
-      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "AddFile() clean up for file %s failed : %s",
-                       f.internal_file_path.c_str(), s.ToString().c_str());
-      }
-    }
+    DeleteInternalFiles();
     consumed_seqno_count_ = 0;
     files_overlap_ = false;
   } else if (status.ok() && ingestion_options_.move_files) {
@@ -655,6 +625,21 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
             "file link : %s",
             f.external_file_path.c_str(), s.ToString().c_str());
       }
+    }
+  }
+}
+
+void ExternalSstFileIngestionJob::DeleteInternalFiles() {
+  IOOptions io_opts;
+  for (IngestedFileInfo& f : files_to_ingest_) {
+    if (f.internal_file_path.empty()) {
+      continue;
+    }
+    Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "AddFile() clean up for file %s failed : %s",
+                     f.internal_file_path.c_str(), s.ToString().c_str());
     }
   }
 }
@@ -710,7 +695,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // If customized readahead size is needed, we can pass a user option
     // all the way to here. Right now we just rely on the default readahead
     // to keep things simple.
-    // TODO: plumb Env::IOActivity
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     ReadOptions ro;
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
@@ -764,7 +749,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->num_range_deletions = props->num_range_deletions;
 
   ParsedInternalKey key;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
@@ -886,23 +871,26 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     SequenceNumber* assigned_seqno) {
   Status status;
   *assigned_seqno = 0;
-  if (force_global_seqno) {
+  auto ucmp = cfd_->user_comparator();
+  const size_t ts_sz = ucmp->timestamp_size();
+  if (force_global_seqno || files_overlap_) {
     *assigned_seqno = last_seqno + 1;
-    if (compaction_style == kCompactionStyleUniversal || files_overlap_) {
+    // If files overlap, we have to ingest them at level 0.
+    if (files_overlap_) {
+      assert(ts_sz == 0);
+      file_to_ingest->picked_level = 0;
       if (ingestion_options_.fail_if_not_bottommost_level) {
         status = Status::TryAgain(
             "Files cannot be ingested to Lmax. Please make sure key range of "
             "Lmax does not overlap with files to ingest.");
-        return status;
       }
-      file_to_ingest->picked_level = 0;
       return status;
     }
   }
 
   bool overlap_with_db = false;
   Arena arena;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   ro.total_order_seek = true;
   int target_level = 0;
@@ -937,26 +925,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         overlap_with_db = true;
         break;
       }
-
-      if (compaction_style == kCompactionStyleUniversal && lvl != 0) {
-        const std::vector<FileMetaData*>& level_files =
-            vstorage->LevelFiles(lvl);
-        const SequenceNumber level_largest_seqno =
-            (*std::max_element(level_files.begin(), level_files.end(),
-                               [](FileMetaData* f1, FileMetaData* f2) {
-                                 return f1->fd.largest_seqno <
-                                        f2->fd.largest_seqno;
-                               }))
-                ->fd.largest_seqno;
-        // should only assign seqno to current level's largest seqno when
-        // the file fits
-        if (level_largest_seqno != 0 &&
-            IngestedFileFitInLevel(file_to_ingest, lvl)) {
-          *assigned_seqno = level_largest_seqno;
-        } else {
-          continue;
-        }
-      }
     } else if (compaction_style == kCompactionStyleUniversal) {
       continue;
     }
@@ -966,12 +934,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
-  }
-  // If files overlap, we have to ingest them at level 0 and assign the newest
-  // sequence number
-  if (files_overlap_) {
-    target_level = 0;
-    *assigned_seqno = last_seqno + 1;
   }
 
   if (ingestion_options_.fail_if_not_bottommost_level &&
@@ -987,8 +949,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
       &overlap_with_db);
   file_to_ingest->picked_level = target_level;
-  if (overlap_with_db && *assigned_seqno == 0) {
-    *assigned_seqno = last_seqno + 1;
+  if (overlap_with_db) {
+    if (ts_sz > 0) {
+      status = Status::InvalidArgument(
+          "Column family enables user-defined timestamps, please make sure the "
+          "key range (without timestamp) of external file does not overlap "
+          "with key range (without timestamp) in the db");
+    }
+    if (*assigned_seqno == 0) {
+      *assigned_seqno = last_seqno + 1;
+    }
   }
   return status;
 }
@@ -1027,7 +997,8 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     return Status::OK();
   } else if (!ingestion_options_.allow_global_seqno) {
     return Status::InvalidArgument("Global seqno is required, but disabled");
-  } else if (file_to_ingest->global_seqno_offset == 0) {
+  } else if (ingestion_options_.write_global_seqno &&
+             file_to_ingest->global_seqno_offset == 0) {
     return Status::InvalidArgument(
         "Trying to set global seqno for a file that don't have a global seqno "
         "field");
@@ -1099,8 +1070,8 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   if (!io_s.ok()) {
     return io_s;
   }
-  file_to_ingest->file_checksum = file_checksum;
-  file_to_ingest->file_checksum_func_name = file_checksum_func_name;
+  file_to_ingest->file_checksum = std::move(file_checksum);
+  file_to_ingest->file_checksum_func_name = std::move(file_checksum_func_name);
   return IOStatus::OK();
 }
 

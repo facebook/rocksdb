@@ -909,7 +909,7 @@ class FSRandomAccessFile {
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;  // Default implementation to prevent issues with backwards
                // compatibility.
-  };
+  }
 
   enum AccessPattern { kNormal, kRandom, kSequential, kWillNeed, kWontNeed };
 
@@ -962,10 +962,10 @@ class FSRandomAccessFile {
   // AbortIO API.
   //
   // Default implementation is to read the data synchronously.
-  virtual IOStatus ReadAsync(
-      FSReadRequest& req, const IOOptions& opts,
-      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-      void** /*io_handle*/, IOHandleDeleter* /*del_fn*/, IODebugContext* dbg) {
+  virtual IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                             std::function<void(FSReadRequest&, void*)> cb,
+                             void* cb_arg, void** /*io_handle*/,
+                             IOHandleDeleter* /*del_fn*/, IODebugContext* dbg) {
     req.status =
         Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
     cb(req, cb_arg);
@@ -1144,9 +1144,7 @@ class FSWritableFile {
    * Get the size of valid data in the file.
    */
   virtual uint64_t GetFileSize(const IOOptions& /*options*/,
-                               IODebugContext* /*dbg*/) {
-    return 0;
-  }
+                               IODebugContext* /*dbg*/) = 0;
 
   /*
    * Get and set the default pre-allocation block size for writes to
@@ -1595,16 +1593,16 @@ class FileSystemWrapper : public FileSystem {
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
 
-  virtual IOStatus Poll(std::vector<void*>& io_handles,
-                        size_t min_completions) override {
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t min_completions) override {
     return target_->Poll(io_handles, min_completions);
   }
 
-  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
   }
 
-  virtual void SupportedOps(int64_t& supported_ops) override {
+  void SupportedOps(int64_t& supported_ops) override {
     return target_->SupportedOps(supported_ops);
   }
 
@@ -1679,7 +1677,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
-  };
+  }
   void Hint(AccessPattern pattern) override { target_->Hint(pattern); }
   bool use_direct_io() const override { return target_->use_direct_io(); }
   size_t GetRequiredBufferAlignment() const override {
@@ -1689,7 +1687,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
     return target_->InvalidateCache(offset, length);
   }
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
+                     std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override {
     return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
@@ -1916,12 +1914,12 @@ class FSDirectoryWrapper : public FSDirectory {
 };
 
 // A utility routine: write "data" to the named file.
-extern IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
-                                  const std::string& fname,
-                                  bool should_sync = false);
+IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
+                           const std::string& fname, bool should_sync = false,
+                           const IOOptions& io_options = IOOptions());
 
 // A utility routine: read contents of named file into *data
-extern IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
-                                 std::string* data);
+IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
+                          std::string* data);
 
 }  // namespace ROCKSDB_NAMESPACE

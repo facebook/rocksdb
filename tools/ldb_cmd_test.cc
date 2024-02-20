@@ -14,6 +14,7 @@
 #include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_checksum.h"
@@ -208,7 +209,8 @@ class FileChecksumTestHelper {
     ImmutableDBOptions immutable_db_options(options_);
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
                         &wc, nullptr, nullptr, "", "",
-                        options_.daily_offpeak_time_utc, nullptr);
+                        options_.daily_offpeak_time_utc, nullptr,
+                        /*read_only=*/false);
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,
@@ -269,7 +271,7 @@ class FileChecksumTestHelper {
         break;
       }
     }
-    EXPECT_OK(db_->EnableFileDeletions(/*force=*/false));
+    EXPECT_OK(db_->EnableFileDeletions());
     return cs;
   }
 };
@@ -701,7 +703,7 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
-          std::string* out_str = reinterpret_cast<std::string*>(arg);
+          std::string* out_str = static_cast<std::string*>(arg);
 
           // Count number of tombstones printed
           int num_tb = 0;
@@ -734,7 +736,7 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
-          std::string* out_str = reinterpret_cast<std::string*>(arg);
+          std::string* out_str = static_cast<std::string*>(arg);
 
           // Count number of tombstones printed
           int num_tb = 0;
@@ -794,7 +796,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "Version::PrepareAppend:forced_check", [&](void* arg) {
-          bool* forced = reinterpret_cast<bool*>(arg);
+          bool* forced = static_cast<bool*>(arg);
           ASSERT_TRUE(*forced);
         });
     SyncPoint::GetInstance()->EnableProcessing();
@@ -814,7 +816,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "Version::PrepareAppend:forced_check", [&](void* arg) {
-          bool* forced = reinterpret_cast<bool*>(arg);
+          bool* forced = static_cast<bool*>(arg);
           ASSERT_TRUE(*forced);
         });
     SyncPoint::GetInstance()->EnableProcessing();
@@ -835,8 +837,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
 
     SyncPoint::GetInstance()->SetCallBack(
         "ColumnFamilyData::ColumnFamilyData", [&](void* arg) {
-          ColumnFamilyOptions* cfo =
-              reinterpret_cast<ColumnFamilyOptions*>(arg);
+          ColumnFamilyOptions* cfo = static_cast<ColumnFamilyOptions*>(arg);
           ASSERT_FALSE(cfo->force_consistency_checks);
         });
     SyncPoint::GetInstance()->EnableProcessing();
@@ -1205,6 +1206,51 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
   ASSERT_EQ(
       0, LDBCommandRunner::RunCommand(5, argv5, opts, LDBOptions(), nullptr));
   ASSERT_OK(DestroyDB(new_dbname, opts));
+}
+
+class MyComparator : public Comparator {
+ public:
+  int Compare(const Slice& a, const Slice& b) const override {
+    return a.compare(b);
+  }
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
+  const char* Name() const override { return "my_comparator"; }
+};
+
+TEST_F(LdbCmdTest, CustomComparator) {
+  Env* env = TryLoadCustomOrDefaultEnv();
+  MyComparator my_comparator;
+  Options opts;
+  opts.env = env;
+  opts.create_if_missing = true;
+  opts.create_missing_column_families = true;
+  opts.comparator = &my_comparator;
+
+  std::string dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
+  DB* db = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cfds = {
+      {kDefaultColumnFamilyName, opts}, {"cf1", opts}, {"cf2", opts}};
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(DestroyDB(dbname, opts));
+  ASSERT_OK(DB::Open(opts, dbname, cfds, &handles, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "k1", "v1"));
+
+  for (auto& h : handles) {
+    ASSERT_OK(db->DestroyColumnFamilyHandle(h));
+  }
+  delete db;
+
+  char arg1[] = "./ldb";
+  std::string arg2 = "--db=" + dbname;
+  char arg3[] = "get";
+  char arg4[] = "k1";
+  char* argv[] = {arg1, const_cast<char*>(arg2.c_str()), arg3, arg4};
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), &cfds));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

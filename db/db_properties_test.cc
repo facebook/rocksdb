@@ -7,9 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdio.h>
-
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
 #include "db/db_test_util.h"
@@ -107,12 +106,18 @@ TEST_F(DBPropertiesTest, Empty) {
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
+    ASSERT_OK(db_->EnableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions(/*force=*/true));
+    ASSERT_OK(db_->EnableFileDeletions());
+    ASSERT_TRUE(
+        dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
+    ASSERT_EQ("0", num);
+    // File deletion enabled after `EnableFileDeletions` called as many times
+    // as `DisableFileDeletions`.
+    ASSERT_OK(db_->EnableFileDeletions());
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("1", num);
@@ -1744,7 +1749,7 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   ASSERT_EQ(obsolete_sst_size, sst_size);
 
   // Let the obsolete files be deleted.
-  ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
+  ASSERT_OK(db_->EnableFileDeletions());
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
                                   &obsolete_sst_size));
   ASSERT_EQ(obsolete_sst_size, 0);

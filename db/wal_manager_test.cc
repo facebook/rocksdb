@@ -55,7 +55,7 @@ class WalManagerTest : public testing::Test {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
 
     wal_manager_.reset(
         new WalManager(db_options_, env_options_, nullptr /*IOTracer*/));
@@ -73,8 +73,8 @@ class WalManagerTest : public testing::Test {
     WriteBatch batch;
     ASSERT_OK(batch.Put(key, value));
     WriteBatchInternal::SetSequence(&batch, seq);
-    ASSERT_OK(
-        current_log_writer_->AddRecord(WriteBatchInternal::Contents(&batch)));
+    ASSERT_OK(current_log_writer_->AddRecord(
+        WriteOptions(), WriteBatchInternal::Contents(&batch)));
     versions_->SetLastAllocatedSequence(seq);
     versions_->SetLastPublishedSequence(seq);
     versions_->SetLastSequence(seq);
@@ -146,7 +146,8 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
   WriteBatch batch;
   ASSERT_OK(batch.Put("foo", "bar"));
   WriteBatchInternal::SetSequence(&batch, 10);
-  ASSERT_OK(writer.AddRecord(WriteBatchInternal::Contents(&batch)));
+  ASSERT_OK(
+      writer.AddRecord(WriteOptions(), WriteBatchInternal::Contents(&batch)));
 
   // TODO(icanadi) move SpecialEnv outside of db_test, so we can reuse it here.
   // Waiting for lei to finish with db_test

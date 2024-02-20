@@ -102,5 +102,9 @@ public class LRUCache extends Cache {
   private static native long newLRUCache(final long capacity, final int numShardBits,
       final boolean strictCapacityLimit, final double highPriPoolRatio,
       final double lowPriPoolRatio);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

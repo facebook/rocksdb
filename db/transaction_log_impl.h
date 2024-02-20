@@ -63,13 +63,13 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
       const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer);
 
-  virtual bool Valid() override;
+  bool Valid() override;
 
-  virtual void Next() override;
+  void Next() override;
 
-  virtual Status status() override;
+  Status status() override;
 
-  virtual BatchResult GetBatch() override;
+  BatchResult GetBatch() override;
 
  private:
   const std::string& dir_;
@@ -98,7 +98,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
-    virtual void Corruption(size_t bytes, const Status& s) override {
+    void Corruption(size_t bytes, const Status& s) override {
       ROCKS_LOG_ERROR(info_log, "dropping %" ROCKSDB_PRIszt " bytes; %s", bytes,
                       s.ToString().c_str());
     }

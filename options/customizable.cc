@@ -73,7 +73,7 @@ bool Customizable::AreEquivalent(const ConfigOptions& config_options,
                                  std::string* mismatch) const {
   if (config_options.sanity_level > ConfigOptions::kSanityLevelNone &&
       this != other) {
-    const Customizable* custom = reinterpret_cast<const Customizable*>(other);
+    const Customizable* custom = static_cast<const Customizable*>(other);
     if (custom == nullptr) {  // Cast failed
       return false;
     } else if (GetId() != custom->GetId()) {

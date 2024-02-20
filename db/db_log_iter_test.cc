@@ -236,7 +236,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
     ASSERT_OK(test::TruncateFile(env_, logfile_path,
                                  wal_files.front()->SizeFileBytes() / 2));
 
-    ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
+    ASSERT_OK(db_->EnableFileDeletions());
 
     // Insert a new entry to a new log file
     ASSERT_OK(Put("key1025", DummyString(10)));

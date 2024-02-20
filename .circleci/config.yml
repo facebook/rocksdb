@@ -146,9 +146,12 @@ commands:
   install-maven:
     steps:
       - run:
-          name: Install maven
+          name: Install Maven
           command: |
-            sudo apt-get update -y && sudo apt-get install -y maven
+            wget --no-check-certificate https://dlcdn.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
+            tar zxf apache-maven-3.9.6-bin.tar.gz
+            echo "export M2_HOME=$(pwd)/apache-maven-3.9.6" >> $BASH_ENV
+            echo 'export PATH=$M2_HOME/bin:$PATH' >> $BASH_ENV
 
   setup-folly:
     steps:
@@ -231,6 +234,7 @@ executors:
       - image: zjay437/rocksdb:0.6
   linux-java-docker:
     docker:
+      # This is the Docker Image used for building RocksJava releases, see: https://github.com/evolvedbinary/docker-rocksjava
       - image: evolvedbinary/rocksjava:centos6_x64-be
 
 jobs:
@@ -244,7 +248,7 @@ jobs:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=16 -j16 all
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j16 all
       - post-steps
 
   build-macos-cmake:
@@ -543,7 +547,7 @@ jobs:
     resource_class: large
     steps:
       - pre-steps
-      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000 --use_io_uring=0' blackbox_crash_test_with_atomic_flush
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000' blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-linux-crashtest-tiered-storage-bb:
@@ -553,7 +557,7 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800 --use_io_uring=0' blackbox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800' blackbox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
 
@@ -564,7 +568,7 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800 --use_io_uring=0' whitebox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800' whitebox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
 
@@ -623,7 +627,7 @@ jobs:
       - windows-build-steps
 
   build-linux-java:
-    executor: linux-docker
+    executor: linux-java-docker
     resource_class: large
     steps:
       - pre-steps
@@ -636,17 +640,13 @@ jobs:
             which javac && javac -version
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 jtest'
       - post-steps
 
   build-linux-java-pmd:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-java-docker
     resource_class: large
-    environment:
-      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     steps:
-      - install-maven
       - pre-steps
       - run:
           name: "Set Java Environment"
@@ -655,9 +655,10 @@ jobs:
             echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
+      - install-maven
       - run:
           name: "PMD RocksDBJava"
-          command: make V=1 J=8 -j8 jpmd
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 jpmd'
       - post-pmd-steps
 
   build-linux-java-static:
@@ -877,66 +878,11 @@ jobs:
       - perform-benchmarks
       - post-benchmarks
 
-workflows:
+workflows: # Only jobs that haven't been successfully migrated to GitHub Actions
   version: 2
-  jobs-linux-run-tests:
-    jobs:
-      - build-linux
-      - build-linux-cmake-with-folly
-      - build-linux-cmake-with-folly-lite-no-test
-      - build-linux-gcc-7-with-folly
-      - build-linux-gcc-7-with-folly-lite-no-test
-      - build-linux-cmake-with-folly-coroutines
-      - build-linux-cmake-with-benchmark
-      - build-linux-encrypted_env-no_compression
-  jobs-linux-run-tests-san:
-    jobs:
-      - build-linux-clang10-asan
-      - build-linux-clang10-ubsan
-      - build-linux-clang10-mini-tsan
-      - build-linux-static_lib-alt_namespace-status_checked
-  jobs-linux-no-test-run:
-    jobs:
-      - build-linux-release
-      - build-linux-release-rtti
-      - build-examples
-      - build-fuzzers
-      - build-linux-clang-no_test_run
-      - build-linux-clang-13-no_test_run
-      - build-linux-gcc-8-no_test_run
-      - build-linux-gcc-10-cxx20-no_test_run
-      - build-linux-gcc-11-no_test_run
-      - build-linux-arm-cmake-no_test_run
-  jobs-linux-other-checks:
-    jobs:
-      - build-linux-clang10-clang-analyze
-      - build-linux-unity-and-headers
-      - build-linux-mini-crashtest
-  jobs-windows:
-    jobs:
-      - build-windows-vs2019
-      - build-cmake-mingw
-  jobs-java:
-    jobs:
-      - build-linux-java
-      - build-linux-java-static
-      - build-macos-java
-      - build-macos-java-static
-      - build-macos-java-static-universal
-      - build-linux-java-pmd
-  jobs-macos:
-    jobs:
-      - build-macos
-      - build-macos-cmake:
-          run_even_tests: true
-      - build-macos-cmake:
-          run_even_tests: false
   jobs-linux-arm:
     jobs:
       - build-linux-arm
-  build-fuzzers:
-    jobs:
-      - build-fuzzers
   benchmark-linux:
     triggers:
       - schedule:
@@ -956,11 +902,4 @@ workflows:
               only:
                 - main
     jobs:
-      - build-format-compatible
       - build-linux-arm-test-full
-      - build-linux-run-microbench
-      - build-linux-non-shm
-      - build-linux-clang-13-asan-ubsan-with-folly
-      - build-linux-valgrind
-      - build-windows-vs2022-avx2
-      - build-windows-vs2022

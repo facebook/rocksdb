@@ -118,9 +118,7 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  BlobDBImpl *blob_db_impl() {
-    return reinterpret_cast<BlobDBImpl *>(blob_db_);
-  }
+  BlobDBImpl *blob_db_impl() { return static_cast<BlobDBImpl *>(blob_db_); }
 
   Status Put(const Slice &key, const Slice &value,
              std::map<std::string, std::string> *data = nullptr) {
@@ -2011,40 +2009,36 @@ TEST_F(BlobDBTest, DisableFileDeletions) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
-  for (bool force : {true, false}) {
-    ASSERT_OK(Put("foo", "v", &data));
-    auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-    ASSERT_EQ(1, blob_files.size());
-    auto blob_file = blob_files[0];
-    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
-    blob_db_impl()->TEST_ObsoleteBlobFile(blob_file);
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
-    // Call DisableFileDeletions twice.
-    ASSERT_OK(blob_db_->DisableFileDeletions());
-    ASSERT_OK(blob_db_->DisableFileDeletions());
-    // File deletions should be disabled.
-    blob_db_impl()->TEST_DeleteObsoleteFiles();
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
-    ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
-    VerifyDB(data);
-    // Enable file deletions once. If force=true, file deletion is enabled.
-    // Otherwise it needs to enable it for a second time.
-    ASSERT_OK(blob_db_->EnableFileDeletions(force));
-    blob_db_impl()->TEST_DeleteObsoleteFiles();
-    if (!force) {
-      ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
-      ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
-      VerifyDB(data);
-      // Call EnableFileDeletions a second time.
-      ASSERT_OK(blob_db_->EnableFileDeletions(/*force=*/false));
-      blob_db_impl()->TEST_DeleteObsoleteFiles();
-    }
-    // Regardless of value of `force`, file should be deleted by now.
-    ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
-    ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
-    VerifyDB({});
-  }
+  ASSERT_OK(Put("foo", "v", &data));
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  auto blob_file = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+  blob_db_impl()->TEST_ObsoleteBlobFile(blob_file);
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  // Call DisableFileDeletions twice.
+  ASSERT_OK(blob_db_->DisableFileDeletions());
+  ASSERT_OK(blob_db_->DisableFileDeletions());
+  // File deletions should be disabled.
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  VerifyDB(data);
+  // Enable file deletions once. File deletion will later get enabled when
+  // `EnableFileDeletions` called for a second time.
+  ASSERT_OK(blob_db_->EnableFileDeletions());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  VerifyDB(data);
+  // Call EnableFileDeletions a second time.
+  ASSERT_OK(blob_db_->EnableFileDeletions());
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  // File should be deleted by now.
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
+  ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
+  VerifyDB({});
 }
 
 TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {

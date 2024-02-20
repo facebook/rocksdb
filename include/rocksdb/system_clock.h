@@ -36,7 +36,7 @@ class SystemClock : public Customizable {
                                  const std::string& value,
                                  std::shared_ptr<SystemClock>* result);
   // The name of this system clock
-  virtual const char* Name() const override = 0;
+  const char* Name() const override = 0;
 
   // The name/nickname for the Default SystemClock.  This name can be used
   // to determine if the clock is the default one.
@@ -100,12 +100,12 @@ class SystemClockWrapper : public SystemClock {
 
   uint64_t CPUNanos() override { return target_->CPUNanos(); }
 
-  virtual void SleepForMicroseconds(int micros) override {
+  void SleepForMicroseconds(int micros) override {
     return target_->SleepForMicroseconds(micros);
   }
 
-  virtual bool TimedWait(port::CondVar* cv,
-                         std::chrono::microseconds deadline) override {
+  bool TimedWait(port::CondVar* cv,
+                 std::chrono::microseconds deadline) override {
     return target_->TimedWait(cv, deadline);
   }
 

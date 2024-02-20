@@ -116,7 +116,7 @@ class PosixFileLock : public FileLock {
     filename.clear();
   }
 
-  virtual ~PosixFileLock() override {
+  ~PosixFileLock() override {
     // Check for destruction without UnlockFile
     assert(fd_ == -1);
   }
@@ -806,7 +806,7 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus UnlockFile(FileLock* lock, const IOOptions& /*opts*/,
                       IODebugContext* /*dbg*/) override {
-    PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
+    PosixFileLock* my_lock = static_cast<PosixFileLock*>(lock);
     IOStatus result;
     mutex_locked_files.Lock();
     // If we are unlocking, then verify that we had locked it earlier,
@@ -998,16 +998,14 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
-  // EXPERIMENTAL
-  //
-  // TODO akankshamahajan:
+  // TODO:
   // 1. Update Poll API to take into account min_completions
   // and returns if number of handles in io_handles (any order) completed is
   // equal to atleast min_completions.
   // 2. Currently in case of direct_io, Read API is called because of which call
   // to Poll API fails as it expects IOHandle to be populated.
-  virtual IOStatus Poll(std::vector<void*>& io_handles,
-                        size_t /*min_completions*/) override {
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t /*min_completions*/) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
@@ -1079,7 +1077,7 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
-  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;

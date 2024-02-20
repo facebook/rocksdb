@@ -597,7 +597,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   assert(!IsFragmentedRangeTombstonesConstructed(false));
   // There should be no concurrent Construction
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
-    // TODO: plumb Env::IOActivity
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     auto* unfragmented_iter =
         new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
                              true /* use_range_del_table */);
@@ -905,7 +905,7 @@ struct Saver {
 
 static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
-  Saver* s = reinterpret_cast<Saver*>(arg);
+  Saver* s = static_cast<Saver*>(arg);
   assert(s != nullptr);
   assert(!s->value || !s->columns);
 

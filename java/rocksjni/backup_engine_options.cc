@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_BackupEngineOptions_newBackupEngineOptions(
  * Signature: (J)Ljava/lang/String;
  */
 jstring Java_org_rocksdb_BackupEngineOptions_backupDir(JNIEnv* env,
-                                                       jobject /*jopt*/,
+                                                       jclass /*jcls*/,
                                                        jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -58,7 +58,7 @@ jstring Java_org_rocksdb_BackupEngineOptions_backupDir(JNIEnv* env,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setBackupEnv(
-    JNIEnv* /*env*/, jobject /*jopt*/, jlong jhandle, jlong jrocks_env_handle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle, jlong jrocks_env_handle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
   auto* rocks_env =
@@ -72,7 +72,7 @@ void Java_org_rocksdb_BackupEngineOptions_setBackupEnv(
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setShareTableFiles(JNIEnv* /*env*/,
-                                                             jobject /*jobj*/,
+                                                             jclass /*jcls*/,
                                                              jlong jhandle,
                                                              jboolean flag) {
   auto* bopt =
@@ -86,7 +86,7 @@ void Java_org_rocksdb_BackupEngineOptions_setShareTableFiles(JNIEnv* /*env*/,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_BackupEngineOptions_shareTableFiles(JNIEnv* /*env*/,
-                                                              jobject /*jobj*/,
+                                                              jclass /*jcls*/,
                                                               jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -99,7 +99,7 @@ jboolean Java_org_rocksdb_BackupEngineOptions_shareTableFiles(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setInfoLog(JNIEnv* /*env*/,
-                                                     jobject /*jobj*/,
+                                                     jclass /*jcls*/,
                                                      jlong jhandle,
                                                      jlong /*jlogger_handle*/) {
   auto* bopt =
@@ -116,7 +116,7 @@ void Java_org_rocksdb_BackupEngineOptions_setInfoLog(JNIEnv* /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setSync(JNIEnv* /*env*/,
-                                                  jobject /*jobj*/,
+                                                  jclass /*jcls*/,
                                                   jlong jhandle,
                                                   jboolean flag) {
   auto* bopt =
@@ -130,7 +130,7 @@ void Java_org_rocksdb_BackupEngineOptions_setSync(JNIEnv* /*env*/,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_BackupEngineOptions_sync(JNIEnv* /*env*/,
-                                                   jobject /*jobj*/,
+                                                   jclass /*jcls*/,
                                                    jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -143,7 +143,7 @@ jboolean Java_org_rocksdb_BackupEngineOptions_sync(JNIEnv* /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setDestroyOldData(JNIEnv* /*env*/,
-                                                            jobject /*jobj*/,
+                                                            jclass /*jcls*/,
                                                             jlong jhandle,
                                                             jboolean flag) {
   auto* bopt =
@@ -157,7 +157,7 @@ void Java_org_rocksdb_BackupEngineOptions_setDestroyOldData(JNIEnv* /*env*/,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_BackupEngineOptions_destroyOldData(JNIEnv* /*env*/,
-                                                             jobject /*jobj*/,
+                                                             jclass /*jcls*/,
                                                              jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -170,7 +170,7 @@ jboolean Java_org_rocksdb_BackupEngineOptions_destroyOldData(JNIEnv* /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setBackupLogFiles(JNIEnv* /*env*/,
-                                                            jobject /*jobj*/,
+                                                            jclass /*jcls*/,
                                                             jlong jhandle,
                                                             jboolean flag) {
   auto* bopt =
@@ -184,7 +184,7 @@ void Java_org_rocksdb_BackupEngineOptions_setBackupLogFiles(JNIEnv* /*env*/,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_BackupEngineOptions_backupLogFiles(JNIEnv* /*env*/,
-                                                             jobject /*jobj*/,
+                                                             jclass /*jcls*/,
                                                              jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -197,8 +197,7 @@ jboolean Java_org_rocksdb_BackupEngineOptions_backupLogFiles(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setBackupRateLimit(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jbackup_rate_limit) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle, jlong jbackup_rate_limit) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
   bopt->backup_rate_limit = jbackup_rate_limit;
@@ -210,7 +209,7 @@ void Java_org_rocksdb_BackupEngineOptions_setBackupRateLimit(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_BackupEngineOptions_backupRateLimit(JNIEnv* /*env*/,
-                                                           jobject /*jobj*/,
+                                                           jclass /*jcls*/,
                                                            jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -223,7 +222,7 @@ jlong Java_org_rocksdb_BackupEngineOptions_backupRateLimit(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setBackupRateLimiter(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jlong jrate_limiter_handle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -239,7 +238,7 @@ void Java_org_rocksdb_BackupEngineOptions_setBackupRateLimiter(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setRestoreRateLimit(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jlong jrestore_rate_limit) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -252,7 +251,7 @@ void Java_org_rocksdb_BackupEngineOptions_setRestoreRateLimit(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_BackupEngineOptions_restoreRateLimit(JNIEnv* /*env*/,
-                                                            jobject /*jobj*/,
+                                                            jclass /*jcls*/,
                                                             jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -265,7 +264,7 @@ jlong Java_org_rocksdb_BackupEngineOptions_restoreRateLimit(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setRestoreRateLimiter(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jlong jrate_limiter_handle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -281,7 +280,7 @@ void Java_org_rocksdb_BackupEngineOptions_setRestoreRateLimiter(
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setShareFilesWithChecksum(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jboolean flag) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle, jboolean flag) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
   bopt->share_files_with_checksum = flag;
@@ -293,7 +292,7 @@ void Java_org_rocksdb_BackupEngineOptions_setShareFilesWithChecksum(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_BackupEngineOptions_shareFilesWithChecksum(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
   return bopt->share_files_with_checksum;
@@ -305,7 +304,7 @@ jboolean Java_org_rocksdb_BackupEngineOptions_shareFilesWithChecksum(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setMaxBackgroundOperations(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jint max_background_operations) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -318,7 +317,7 @@ void Java_org_rocksdb_BackupEngineOptions_setMaxBackgroundOperations(
  * Signature: (J)I
  */
 jint Java_org_rocksdb_BackupEngineOptions_maxBackgroundOperations(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
   return static_cast<jint>(bopt->max_background_operations);
@@ -330,7 +329,7 @@ jint Java_org_rocksdb_BackupEngineOptions_maxBackgroundOperations(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_BackupEngineOptions_setCallbackTriggerIntervalSize(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jlong jcallback_trigger_interval_size) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
@@ -344,7 +343,7 @@ void Java_org_rocksdb_BackupEngineOptions_setCallbackTriggerIntervalSize(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_BackupEngineOptions_callbackTriggerIntervalSize(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
   return static_cast<jlong>(bopt->callback_trigger_interval_size);
@@ -355,9 +354,9 @@ jlong Java_org_rocksdb_BackupEngineOptions_callbackTriggerIntervalSize(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_BackupEngineOptions_disposeInternal(JNIEnv* /*env*/,
-                                                          jobject /*jopt*/,
-                                                          jlong jhandle) {
+void Java_org_rocksdb_BackupEngineOptions_disposeInternalJni(JNIEnv* /*env*/,
+                                                             jclass /*jcls*/,
+                                                             jlong jhandle) {
   auto* bopt =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(jhandle);
   assert(bopt != nullptr);

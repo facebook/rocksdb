@@ -120,8 +120,6 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.advise_random_on_open = immutable_db_options.advise_random_on_open;
   options.db_write_buffer_size = immutable_db_options.db_write_buffer_size;
   options.write_buffer_manager = immutable_db_options.write_buffer_manager;
-  options.access_hint_on_compaction_start =
-      immutable_db_options.access_hint_on_compaction_start;
   options.compaction_readahead_size =
       mutable_db_options.compaction_readahead_size;
   options.random_access_max_buffer_size =
@@ -229,8 +227,6 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.level0_slowdown_writes_trigger;
   cf_opts->level0_stop_writes_trigger = moptions.level0_stop_writes_trigger;
   cf_opts->max_compaction_bytes = moptions.max_compaction_bytes;
-  cf_opts->ignore_max_compaction_bytes_for_input =
-      moptions.ignore_max_compaction_bytes_for_input;
   cf_opts->target_file_size_base = moptions.target_file_size_base;
   cf_opts->target_file_size_multiplier = moptions.target_file_size_multiplier;
   cf_opts->max_bytes_for_level_base = moptions.max_bytes_for_level_base;
@@ -266,8 +262,6 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =
       moptions.max_sequential_skip_in_iterations;
-  cf_opts->check_flush_compaction_key_order =
-      moptions.check_flush_compaction_key_order;
   cf_opts->paranoid_file_checks = moptions.paranoid_file_checks;
   cf_opts->report_bg_io_stats = moptions.report_bg_io_stats;
   cf_opts->compression = moptions.compression;
@@ -304,8 +298,6 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->bloom_locality = ioptions.bloom_locality;
   cf_opts->level_compaction_dynamic_level_bytes =
       ioptions.level_compaction_dynamic_level_bytes;
-  cf_opts->level_compaction_dynamic_file_size =
-      ioptions.level_compaction_dynamic_file_size;
   cf_opts->num_levels = ioptions.num_levels;
   cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
   cf_opts->force_consistency_checks = ioptions.force_consistency_checks;

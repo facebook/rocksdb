@@ -2451,7 +2451,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
   ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
-  ASSERT_EQ(new_cf_opt.level_compaction_dynamic_file_size, true);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15.0);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[0], 16);
@@ -3672,8 +3671,8 @@ TEST_F(OptionsParserTest, Readahead) {
   std::vector<std::string> cf_names = {"default", one_mb_string};
   const std::string kOptionsFileName = "test-persisted-options.ini";
 
-  ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
-                                  kOptionsFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), base_db_opt, cf_names,
+                                  base_cf_opts, kOptionsFileName, fs_.get()));
 
   uint64_t file_size = 0;
   ASSERT_OK(
@@ -3747,8 +3746,8 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   const std::string kOptionsFileName = "test-persisted-options.ini";
   // Use default for escaped(true), unknown(false) and check (exact)
   ConfigOptions config_options;
-  ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
-                                  kOptionsFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), base_db_opt, cf_names,
+                                  base_cf_opts, kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(config_options, kOptionsFileName, fs_.get()));
@@ -3808,9 +3807,9 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   ColumnFamilyOptions cf_univ_opts;
   cf_univ_opts.OptimizeUniversalStyleCompaction();
 
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(), {"default", "universal"},
-                                  {cf_level_opts, cf_univ_opts},
-                                  kOptionsFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(
+      WriteOptions(), DBOptions(), {"default", "universal"},
+      {cf_level_opts, cf_univ_opts}, kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), false,
@@ -3953,8 +3952,8 @@ class OptionsSanityCheckTest : public OptionsParserTest,
     if (!s.ok()) {
       return s;
     }
-    return PersistRocksDBOptions(db_opts, {"default"}, {cf_opts},
-                                 kOptionsFileName, fs_.get());
+    return PersistRocksDBOptions(WriteOptions(), db_opts, {"default"},
+                                 {cf_opts}, kOptionsFileName, fs_.get());
   }
 
   Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {

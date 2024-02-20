@@ -18,6 +18,7 @@
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
 #include "port/port.h"
+#include "rocksdb/options.h"
 #include "util/autovector.h"
 #include "util/defer.h"
 
@@ -51,7 +52,7 @@ Status DBImpl::DisableFileDeletions() {
   if (my_disable_delete_obsolete_files == 1) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
   } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "File Deletions Disabled, but already disabled. Counter: %d",
                    my_disable_delete_obsolete_files);
   }
@@ -66,17 +67,14 @@ Status DBImpl::DisableFileDeletionsWithLock() {
   return Status::OK();
 }
 
-Status DBImpl::EnableFileDeletions(bool force) {
+Status DBImpl::EnableFileDeletions() {
   // Job id == 0 means that this is not our background process, but rather
   // user thread
   JobContext job_context(0);
   int saved_counter;  // initialize on all paths
   {
     InstrumentedMutexLock l(&mutex_);
-    if (force) {
-      // if force, we need to enable file deletions right away
-      disable_delete_obsolete_files_ = 0;
-    } else if (disable_delete_obsolete_files_ > 0) {
+    if (disable_delete_obsolete_files_ > 0) {
       --disable_delete_obsolete_files_;
     }
     saved_counter = disable_delete_obsolete_files_;
@@ -91,7 +89,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
       PurgeObsoleteFiles(job_context);
     }
   } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "File Deletions Enable, but not really enabled. Counter: %d",
                    saved_counter);
   }
@@ -510,7 +508,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   // Close WALs before trying to delete them.
   for (const auto w : state.logs_to_free) {
     // TODO: maybe check the return value of Close.
-    auto s = w->Close();
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    auto s = w->Close(WriteOptions());
     s.PermitUncheckedError();
   }
 
@@ -925,7 +924,8 @@ void DBImpl::SetDBId(std::string&& id, bool read_only,
   }
 }
 
-Status DBImpl::SetupDBId(bool read_only, RecoveryContext* recovery_ctx) {
+Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
+                         RecoveryContext* recovery_ctx) {
   Status s;
   // Check for the IDENTITY file and create it if not there or
   // broken or not matching manifest
@@ -958,7 +958,7 @@ Status DBImpl::SetupDBId(bool read_only, RecoveryContext* recovery_ctx) {
   }
   // Persist it to IDENTITY file if allowed
   if (!read_only) {
-    s = SetIdentityFile(env_, dbname_, db_id_);
+    s = SetIdentityFile(write_options, env_, dbname_, db_id_);
   }
   return s;
 }

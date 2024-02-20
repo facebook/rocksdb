@@ -83,8 +83,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       cfd_(cfd),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
-      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
-      auto_readahead_size_(read_options.auto_readahead_size) {
+      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
@@ -202,6 +201,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.fill_cache = fill_cache_;
@@ -395,9 +395,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeValue:
           case kTypeBlobIndex:
           case kTypeWideColumnEntity:
-            if (!iter_.PrepareValue()) {
-              assert(!iter_.status().ok());
-              valid_ = false;
+            if (!PrepareValue()) {
               return false;
             }
             if (timestamp_lb_) {
@@ -428,9 +426,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             return true;
             break;
           case kTypeMerge:
-            if (!iter_.PrepareValue()) {
-              assert(!iter_.status().ok());
-              valid_ = false;
+            if (!PrepareValue()) {
               return false;
             }
             saved_key_.SetUserKey(
@@ -575,8 +571,7 @@ bool DBIter::MergeValuesNewToOld() {
       iter_.Next();
       break;
     }
-    if (!iter_.PrepareValue()) {
-      valid_ = false;
+    if (!PrepareValue()) {
       return false;
     }
 
@@ -747,22 +742,15 @@ bool DBIter::ReverseToBackward() {
   // When current_entry_is_merged_ is true, iter_ may be positioned on the next
   // key, which may not exist or may have prefix different from current.
   // If that's the case, seek to saved_key_.
-  //
-  // In case of auto_readahead_size enabled, index_iter moves forward during
-  // forward scan for block cache lookup and points to different block. If Prev
-  // op is called, it needs to call SeekForPrev to point to right index_iter_ in
-  // BlockBasedTableIterator. This only happens when direction is changed from
-  // forward to backward.
-  if ((current_entry_is_merged_ &&
-       (!expect_total_order_inner_iter() || !iter_.Valid())) ||
-      auto_readahead_size_) {
+  if (current_entry_is_merged_ &&
+      (!expect_total_order_inner_iter() || !iter_.Valid())) {
     IterKey last_key;
     // Using kMaxSequenceNumber and kValueTypeForSeek
     // (not kValueTypeForSeekForPrev) to seek to a key strictly smaller
     // than saved_key_.
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
-    if (!expect_total_order_inner_iter() || auto_readahead_size_) {
+    if (!expect_total_order_inner_iter()) {
       iter_.SeekForPrev(last_key.GetInternalKey());
     } else {
       // Some iterators may not support SeekForPrev(), so we avoid using it
@@ -909,8 +897,7 @@ bool DBIter::FindValueForCurrentKey() {
       return FindValueForCurrentKeyUsingSeek();
     }
 
-    if (!iter_.PrepareValue()) {
-      valid_ = false;
+    if (!PrepareValue()) {
       return false;
     }
 
@@ -1149,8 +1136,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
     return true;
   }
-  if (!iter_.PrepareValue()) {
-    valid_ = false;
+  if (!PrepareValue()) {
     return false;
   }
   if (timestamp_size_ > 0) {
@@ -1215,8 +1201,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         ikey.type == kTypeDeletionWithTimestamp) {
       break;
     }
-    if (!iter_.PrepareValue()) {
-      valid_ = false;
+    if (!PrepareValue()) {
       return false;
     }
 

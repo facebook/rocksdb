@@ -1,0 +1,11 @@
+name: install-maven
+runs:
+  using: composite
+  steps:
+  - name: Install Maven
+    run: |
+      wget --no-check-certificate https://dlcdn.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
+      tar zxf apache-maven-3.9.6-bin.tar.gz
+      echo "export M2_HOME=$(pwd)/apache-maven-3.9.6" >> $GITHUB_ENV
+      echo "$(pwd)/apache-maven-3.9.6/bin" >> $GITHUB_PATH
+    shell: bash

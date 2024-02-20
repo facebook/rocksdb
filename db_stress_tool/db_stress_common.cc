@@ -92,7 +92,7 @@ int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
 
 void PoolSizeChangeThread(void* v) {
   assert(FLAGS_compaction_thread_pool_adjust_interval > 0);
-  ThreadState* thread = reinterpret_cast<ThreadState*>(v);
+  ThreadState* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
   while (true) {
@@ -127,7 +127,7 @@ void PoolSizeChangeThread(void* v) {
 
 void DbVerificationThread(void* v) {
   assert(FLAGS_continuous_verification_interval > 0);
-  auto* thread = reinterpret_cast<ThreadState*>(v);
+  auto* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
   StressTest* stress_test = shared->GetStressTest();
   assert(stress_test != nullptr);
@@ -154,7 +154,7 @@ void DbVerificationThread(void* v) {
 void CompressedCacheSetCapacityThread(void* v) {
   assert(FLAGS_compressed_secondary_cache_size > 0 ||
          FLAGS_compressed_secondary_cache_ratio > 0.0);
-  auto* thread = reinterpret_cast<ThreadState*>(v);
+  auto* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
   while (true) {
     {
@@ -200,7 +200,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         // Lower by upto 50% of usable block cache capacity
         adjustment = (adjustment * thread->rand.Uniform(50)) / 100;
         block_cache->SetCapacity(capacity - adjustment);
-        fprintf(stderr, "New cache capacity = %lu\n",
+        fprintf(stdout, "New cache capacity = %lu\n",
                 block_cache->GetCapacity());
         db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
         block_cache->SetCapacity(capacity);
@@ -210,7 +210,7 @@ void CompressedCacheSetCapacityThread(void* v) {
             (double)thread->rand.Uniform(
                 FLAGS_compressed_secondary_cache_ratio * 100) /
             100;
-        fprintf(stderr, "New comp cache ratio = %f\n", new_comp_cache_ratio);
+        fprintf(stdout, "New comp cache ratio = %f\n", new_comp_cache_ratio);
 
         s = UpdateTieredCache(block_cache, /*capacity*/ -1,
                               new_comp_cache_ratio);
@@ -400,7 +400,7 @@ class MyXXH64Checksum : public FileChecksumGenerator {
     XXH64_reset(state_, 0);
   }
 
-  virtual ~MyXXH64Checksum() override { XXH64_freeState(state_); }
+  ~MyXXH64Checksum() override { XXH64_freeState(state_); }
 
   void Update(const char* data, size_t n) override {
     XXH64_update(state_, data, n);

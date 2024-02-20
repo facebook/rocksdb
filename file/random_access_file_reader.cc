@@ -420,7 +420,8 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           remaining_bytes -= request_bytes;
         }
       }
-      io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts,
+                              /*IODebugContext*=*/nullptr);
       RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
@@ -485,7 +486,7 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
 
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf) {
   IOStatus s;
   // Create a callback and populate info.
@@ -556,7 +557,7 @@ IOStatus RandomAccessFileReader::ReadAsync(
   return s;
 }
 
-void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
+void RandomAccessFileReader::ReadAsyncCallback(FSReadRequest& req,
                                                void* cb_arg) {
   ReadAsyncInfo* read_async_info = static_cast<ReadAsyncInfo*>(cb_arg);
   assert(read_async_info);

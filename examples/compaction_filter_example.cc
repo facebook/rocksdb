@@ -10,8 +10,8 @@
 
 class MyMerge : public ROCKSDB_NAMESPACE::MergeOperator {
  public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     merge_out->new_value.clear();
     if (merge_in.existing_value != nullptr) {
       merge_out->new_value.assign(merge_in.existing_value->data(),

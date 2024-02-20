@@ -209,7 +209,7 @@ const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 // But in the foreseeable future, we will add more and more properties that are
 // specific to block-based table.
 class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
-    : public IntTblPropCollector {
+    : public InternalTblPropColl {
  public:
   explicit BlockBasedTablePropertiesCollector(
       BlockBasedTableOptions::IndexType index_type, bool whole_key_filtering,
@@ -225,9 +225,9 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     return Status::OK();
   }
 
-  virtual void BlockAdd(uint64_t /* block_uncomp_bytes */,
-                        uint64_t /* block_compressed_bytes_fast */,
-                        uint64_t /* block_compressed_bytes_slow */) override {
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
+                uint64_t /* block_compressed_bytes_fast */,
+                uint64_t /* block_compressed_bytes_slow */) override {
     // Intentionally left blank. No interest in collecting stats for
     // blocks.
   }
@@ -264,6 +264,7 @@ struct BlockBasedTableBuilder::Rep {
   // BEGIN from MutableCFOptions
   std::shared_ptr<const SliceTransform> prefix_extractor;
   // END from MutableCFOptions
+  const WriteOptions write_options;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   // Size in bytes for the user-defined timestamps.
@@ -352,7 +353,7 @@ struct BlockBasedTableBuilder::Rep {
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
-  std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
+  std::vector<std::unique_ptr<InternalTblPropColl>> table_properties_collectors;
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
   BlockCreateContext create_context;
@@ -439,6 +440,7 @@ struct BlockBasedTableBuilder::Rep {
       WritableFileWriter* f)
       : ioptions(tbo.ioptions),
         prefix_extractor(tbo.moptions.prefix_extractor),
+        write_options(tbo.write_options),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
         ts_sz(tbo.internal_comparator.user_comparator()->timestamp_size()),
@@ -573,12 +575,12 @@ struct BlockBasedTableBuilder::Rep {
           persist_user_defined_timestamps));
     }
 
-    assert(tbo.int_tbl_prop_collector_factories);
-    for (auto& factory : *tbo.int_tbl_prop_collector_factories) {
+    assert(tbo.internal_tbl_prop_coll_factories);
+    for (auto& factory : *tbo.internal_tbl_prop_coll_factories) {
       assert(factory);
 
-      std::unique_ptr<IntTblPropCollector> collector{
-          factory->CreateIntTblPropCollector(tbo.column_family_id,
+      std::unique_ptr<InternalTblPropColl> collector{
+          factory->CreateInternalTblPropColl(tbo.column_family_id,
                                              tbo.level_at_creation)};
       if (collector) {
         table_properties_collectors.emplace_back(std::move(collector));
@@ -1070,14 +1072,26 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.logger);
 
   } else if (value_type == kTypeRangeDeletion) {
-    // TODO(yuzhangyu): handle range deletion entries for UDT in memtable only.
-    r->range_del_block.Add(key, value);
+    Slice persisted_end = value;
+    // When timestamps should not be persisted, we physically strip away range
+    // tombstone end key's user timestamp before passing it along to block
+    // builder. Physically stripping away start key's user timestamp is
+    // handled at the block builder level in the same way as the other data
+    // blocks.
+    if (r->ts_sz > 0 && !r->persist_user_defined_timestamps) {
+      persisted_end = StripTimestampFromUserKey(value, r->ts_sz);
+    }
+    r->range_del_block.Add(key, persisted_end);
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(key, value, r->get_offset(),
                                       r->table_properties_collectors,
                                       r->ioptions.logger);
   } else {
     assert(false);
+    r->SetStatus(Status::InvalidArgument(
+        "BlockBasedBuilder::Add() received a key with invalid value type " +
+        std::to_string(static_cast<unsigned int>(value_type))));
+    return;
   }
 
   r->props.num_entries++;
@@ -1317,6 +1331,13 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   //    checksum: uint32
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
+  IOOptions io_options;
+  IOStatus io_s =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!io_s.ok()) {
+    r->SetIOStatus(io_s);
+    return;
+  }
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
   const uint64_t offset = r->get_offset();
@@ -1330,7 +1351,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   }
 
   {
-    IOStatus io_s = r->file->Append(block_contents);
+    io_s = r->file->Append(io_options, block_contents);
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
       return;
@@ -1357,7 +1378,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
       "BlockBasedTableBuilder::WriteMaybeCompressedBlock:TamperWithChecksum",
       trailer.data());
   {
-    IOStatus io_s = r->file->Append(Slice(trailer.data(), trailer.size()));
+    io_s = r->file->Append(io_options, Slice(trailer.data(), trailer.size()));
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
       return;
@@ -1394,7 +1415,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         (r->alignment -
          ((block_contents.size() + kBlockTrailerSize) & (r->alignment - 1))) &
         (r->alignment - 1);
-    IOStatus io_s = r->file->Pad(pad_bytes);
+
+    io_s = r->file->Pad(io_options, pad_bytes);
     if (io_s.ok()) {
       r->set_offset(r->get_offset() + pad_bytes);
     } else {
@@ -1800,7 +1822,14 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
     r->SetStatus(s);
     return;
   }
-  IOStatus ios = r->file->Append(footer.GetSlice());
+  IOOptions io_options;
+  IOStatus ios =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!ios.ok()) {
+    r->SetIOStatus(ios);
+    return;
+  }
+  ios = r->file->Append(io_options, footer.GetSlice());
   if (ios.ok()) {
     r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {
@@ -2088,9 +2117,9 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   }
 }
 void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
-    const std::string& encoded_seqno_to_time_mapping,
-    uint64_t oldest_ancestor_time) {
-  rep_->props.seqno_to_time_mapping = encoded_seqno_to_time_mapping;
+    const SeqnoToTimeMapping& relevant_mapping, uint64_t oldest_ancestor_time) {
+  assert(rep_->props.seqno_to_time_mapping.empty());
+  relevant_mapping.EncodeTo(rep_->props.seqno_to_time_mapping);
   rep_->props.creation_time = oldest_ancestor_time;
 }
 
