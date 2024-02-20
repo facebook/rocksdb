@@ -1662,9 +1662,10 @@ Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
   }
   InstrumentedMutexLock l(&mutex_);
   *ts_low = cfd->GetFullHistoryTsLow();
-  
-  if (ts_low->size() ==0)
-	  return Status::NotFound();
+
+  if (ts_low->size() == 0) {
+    return Status::NotFound();
+  }
 
   assert(cfd->user_comparator()->timestamp_size() == ts_low->size());
   return Status::OK();
