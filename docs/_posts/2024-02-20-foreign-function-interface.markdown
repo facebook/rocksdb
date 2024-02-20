@@ -162,11 +162,11 @@ q "select Benchmark,Score from ./plot/jmh-result-fixed.csv where \"Param: keyCou
 
  We can see that for all benchmarks which have equivalent FFI and JNI pairs, the JNI version is only very marginally faster. FFI has successfully optimized away most of the extra safety-checking of the new invocation mechanism.
 
- Our initial implementation of FFI benchmarks lagged the JNI benchmarks quite significantly, but we have received extremely helpful support from Maurizio Cimadamore of the Panama Dev team, to help us optimize the performance of out FFI implementation. We consider that the small remaining performance gap is a feature of the 
+ Our initial implementation of FFI benchmarks lagged the JNI benchmarks quite significantly, but we have received extremely helpful support from Maurizio Cimadamore of the Panama Dev team, to help us optimize the performance of our FFI implementation. We consider that the small remaining performance gap is a feature of the remaining extra bounds checking of FFI.
 
  For basic `get()` the result buffer is allocated by the method, so that there is a cost of allocation associated with each request.
  - `ffiGet` vs `get`
- - The JNI version is ver marginally faster than FFI
+ - The JNI version is very marginally faster than FFI
 
  For preallocated `get()` where the result buffer is supplied to the method, we avoid an allocation of a fresh result buffer on each call, and the test recycles its result buffers. Then the same small difference persists
  - JNI is very marginally faster than FFI
@@ -220,7 +220,7 @@ Panama's *Foreign-Memory Access API* appears to us to be the most significant pa
 We have taken advantage of this mechanism to provide the core `FFIDB.getPinnableSlice()` method in our Panama-based API. The rest of our prototype `get()` API, duplicating the existing *JNI*-based API, is then a *Pure Java* library on top of `FFIDB.getPinnableSlice()` and `FFIPinnableSlice.reset()`.
 
 The common standard for foreign memory opens up the possibility of efficient interoperation between RocksDB and Java clients (e.g. Kafka). We think that this is really the key to higher performing, more integrated Java-based systems:
-- This could result in data never being copied into Java memory, or a significant reduction in copies, as native `MemorySegment`s are handed off between co-operating Java clients of fundamentally native APIs.
+- This could result in data never being copied into Java memory, or a significant reduction in copies, as native `MemorySegment`s are handed off between co-operating Java clients of fundamentally native APIs. This extra potential performance can be extremely useful when 2 or more clients are interoperating; we still need to provide a simplest possible API wrapping these calls (like our prototype `get()`), which operates at a similar level to the current Java API.
 - Some thought should be applied to how this architecture would interact with the cache layer(s) in RocksDB, and whether it can be accommodated within the present RocksDB architecture. How long can 3rd-party applications *pin* pages in the RocksDB cache without disrupting RocksDB normal behaviour (e.g. compaction) ?
 
 ## Summary
