@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "rocksdb/block_cache_trace_writer.h"
-#include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
