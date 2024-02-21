@@ -83,7 +83,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 
   // This is below the fast path, so that the stat is zero when all writes are
   // from the same thread.
-  PERF_TIMER_GUARD(write_thread_wait_nanos);
+  PERF_TIMER_FOR_WAIT_GUARD(write_thread_wait_nanos);
 
   // If we're only going to end up waiting a short period of time,
   // it can be a lot more efficient to call std::this_thread::yield()
