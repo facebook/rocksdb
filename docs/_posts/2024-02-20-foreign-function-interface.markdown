@@ -6,7 +6,9 @@ category: blog
 ---
 # Java Foreign Function Interface (FFI)
 
-Java19 introduces a new [FFI Preview](https://openjdk.org/jeps/424) which is described as *an API by which Java programs can interoperate with code and data outside of the Java runtime. By efficiently invoking foreign functions (i.e., code outside the JVM), and by safely accessing foreign memory (i.e., memory not managed by the JVM), the API enables Java programs to call native libraries and process native data without the brittleness and danger of JNI*.
+Evolved Binary has been working on several aspects of how the Java API to RocksDB can be improved. The recently introduced FFI features in Java provide significant opportunities for improving the API. We have investigated this through a prototype implementation.
+
+Java 19 introduced a new [FFI Preview](https://openjdk.org/jeps/424) which is described as *an API by which Java programs can interoperate with code and data outside of the Java runtime. By efficiently invoking foreign functions (i.e., code outside the JVM), and by safely accessing foreign memory (i.e., memory not managed by the JVM), the API enables Java programs to call native libraries and process native data without the brittleness and danger of JNI*.
 
 If the twin promises of efficiency and safety are realised, then using FFI as a mechanism to support a future RocksDB API may be of significant benefit.
 
@@ -14,10 +16,8 @@ If the twin promises of efficiency and safety are realised, then using FFI as a 
  - Improve RocksDB Java API performance
  - Reduce the opportunity for coding errors in the RocksDB Java API
 
- ## Process
+ Here's what we did. We have
 
- We have
- 
   - created a prototype FFI branch
   - updated the RocksDB Java build to use Java 19
   - implemented an `FFI Preview API` version of core RocksDB feature (`get()`)
@@ -146,9 +146,7 @@ We extended existing RocksDB Java JNI benchmarks with new benchmarks based on FF
 java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
 ```
 
-[Results](./jmh/plot/jmh-result.csv, ./jmh/plot/jmh-result-fixed2.csv)
-![Plot](./jmh/plot/jmh-result-select.png)
-![Plot](./jmh/plot/jmh-result-fixed.png)
+![JNI vs FFI](/static/images/jni-ffi/jmh-result-fixed.png)
 
 ### Discussion
 
@@ -192,7 +190,7 @@ q "select Benchmark,Score from ./plot/jmh-result-fixed.csv where \"Param: keyCou
 
 The second method call over the FFI boundary to release a pinnable slice has a cost. We compared the `ffiGetOutputSlice()` and `ffiGetPinnableSlice()` benchmarks in order to examine this cost. We ran it with a fixed ky size (128 bytes); the key size is likely to be pretty much irrelevant anyway; we varied the value size read from 16 bytes to 16k, and we found a crossover point between 1k and 4k for performance:
 
-![Plot](./jmh/plot/jmh-result-pinnable-vs-output-plot.pdf)
+![Plot](/static/images/jni-ffi/jmh-result-pinnable-vs-output-plot.pdf)
 
 - `ffiGetOutputSlice()` is faster when values read are  1k in size or smaller. The cost of an extra copy in the C++ side from the pinnable slice buffer into the supplied buffer allocated by Java Foreign Memory API is less than the cost of the extra call to release a pinnable slice.
 - `ffiGetPinnableSlice()` is faster when values read are 4k in size, or larger. Consistent with intuition, the advantage grows with larger read values.
@@ -232,9 +230,14 @@ The common standard for foreign memory opens up the possibility of efficient int
 
 ## Appendix
 
+### Code and Data
+
+The [Experimental Pull Request](https://github.com/facebook/rocksdb/pull/11095/files) contains the source code implemented,
+together with further data plots and the source CSV files for all data plots.
+
 ### Running
 
-Edit this to give you what you want...
+This is an example run; the jmh parameters (after `-p`) can be changed to measure performance with varying key counts, and key and value sizes.
 ```bash
 java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks -wi 1 -to 1m -i 1
 ```
@@ -251,7 +254,7 @@ q "select Benchmark,Score,Error from ./plot/jmh-result.csv where keyCount=100000
 
 ### Java 19 installation
 
-I followed the instructions to install [Azul](https://docs.azul.com/core/zulu-openjdk/install/debian). Then you still need to pick the right java locally:
+We followed the instructions to install [Azul](https://docs.azul.com/core/zulu-openjdk/install/debian). Then select the correct instance of java locally:
 ```bash
 sudo update-alternatives --config java
 sudo update-alternatives --config javac
@@ -263,9 +266,13 @@ And set `JAVA_HOME` appropriately. In my case, `sudo update-alternatives --confi
   2            /usr/lib/jvm/java-11-openjdk-amd64/bin/java       1111      manual mode
 * 3            /usr/lib/jvm/zulu19/bin/java                      2193001   manual mode
 ```
-so I did this:
+For our environment, we set this:
 ```bash
 export JAVA_HOME=/usr/lib/jvm/zulu19
 ```
 
-The default maven on ubuntu (3.6.3) is incompatible with Java 19. You will need to install a later [Maven](https://maven.apache.org/install.html), and use it. I used `3.8.7` successfully.
+The default version of Maven avaiable on the Ubuntu package repositories (3.6.3) is incompatible with Java 19. You will need to install a later [Maven](https://maven.apache.org/install.html), and use it. I used `3.8.7` successfully.
+
+### Java 20, 21, 22 and subsequent versions
+
+The FFI version we used was a preview in Java 19, and the interface has changed through to Java 22, where it has been finalized. Future work with this prototype will need to update the code to use the changed interface.
