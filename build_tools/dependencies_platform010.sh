@@ -1,6 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # The file is generated using update_dependencies.sh.
-GCC_BASE=/mnt/gvfs/third-party2/gcc/b30c2e3be652b0135fb3df27fdef5eb4ffc2dc6d/11.x/centos9-native/886b5eb
+GCC_BASE=/mnt/gvfs/third-party2/gcc/62de5a92e5f23c661c3d4b9f322e04eb14e7a5bd/11.x/centos8-native/886b5eb
 CLANG_BASE=/mnt/gvfs/third-party2/llvm-fb/1f6edd1ff15c99c861afc8f3cd69054cd974dd64/15/platform010/72a2ff8
 LIBGCC_BASE=/mnt/gvfs/third-party2/libgcc/d1129753c8361ac8e9453c0f4291337a4507ebe6/11.x/platform010/5684a5a
 GLIBC_BASE=/mnt/gvfs/third-party2/glibc/fed6e93d87571fb162734c86636119d45a398963/2.34/platform010/f259413
@@ -17,6 +17,6 @@ TBB_BASE=/mnt/gvfs/third-party2/tbb/53953ebc4e3eda85ad6fc3e429ba146035e97b90/201
 LIBURING_BASE=/mnt/gvfs/third-party2/liburing/a98e2d137007e3ebf7f33bd6f99c2c56bdaf8488/20210212/platform010/76ebdda
 BENCHMARK_BASE=/mnt/gvfs/third-party2/benchmark/780c7a0f9cf0967961e69ad08e61cddd85d61821/trunk/platform010/76ebdda
 KERNEL_HEADERS_BASE=/mnt/gvfs/third-party2/kernel-headers/624a2f8f6c93c3c1df8aa4a6255d8202631a6c80/fb/platform010/da39a3e
-BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/8dec50d6a10944a2e851f090a3872f9ba0b0b402/2.37/centos9-native/da39a3e
+BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/39579e8603b48b3540f8b0633f43adf29acccb8b/2.37/centos8-native/da39a3e
 VALGRIND_BASE=/mnt/gvfs/third-party2/valgrind/cd9cc656d49ecb53797ce4d055e49fde29fd57ff/3.19.0/platform010/76ebdda
 LUA_BASE=/mnt/gvfs/third-party2/lua/363787fa5cac2a8aa20638909210443278fa138e/5.3.4/platform010/9079c97

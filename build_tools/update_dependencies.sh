@@ -75,7 +75,7 @@ touch "$OUTPUT"
 echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
-GCC_BASE=`readlink -f $TP2_LATEST/gcc/11.x/centos9-native/*/`
+GCC_BASE=`readlink -f $TP2_LATEST/gcc/11.x/centos8-native/*/`
 CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/15/platform010/*/`
 
 log_header
@@ -99,7 +99,7 @@ get_lib_base liburing   LATEST  platform010
 get_lib_base benchmark  LATEST  platform010
 
 get_lib_base kernel-headers fb platform010
-get_lib_base binutils   LATEST centos9-native
+get_lib_base binutils   LATEST centos8-native
 get_lib_base valgrind   LATEST platform010
 get_lib_base lua        5.3.4  platform010
 
