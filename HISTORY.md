@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.11.99 (02/21/2024)
+### Behavior Changes
+* Merge writes will only keep merge operand count within `ColumnFamilyOptions::max_successive_merges` when the key's merge operands are all found in memory, unless `strict_max_successive_merges` is explicitly set.
+
 ## 8.11.2 (02/16/2024)
 * Update zlib to 1.3.1 for Java builds
 
