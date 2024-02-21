@@ -22,7 +22,6 @@
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
-#include "util/stop_watch.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -645,7 +644,8 @@ void ExternalSstFileIngestionJob::DeleteInternalFiles() {
 
 Status ExternalSstFileIngestionJob::ResetTableReader(
     const std::string& external_file, uint64_t new_file_number,
-    SuperVersion* sv, IngestedFileInfo* file_to_ingest,
+    bool user_defined_timestamps_persisted, SuperVersion* sv,
+    IngestedFileInfo* file_to_ingest,
     std::unique_ptr<TableReader>* table_reader) {
   std::unique_ptr<FSRandomAccessFile> sst_file;
   Status status =
@@ -656,10 +656,6 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
   std::unique_ptr<RandomAccessFileReader> sst_file_reader(
       new RandomAccessFileReader(std::move(sst_file), external_file,
                                  nullptr /*Env*/, io_tracer_));
-  // Initially create the `TableReader` with flag
-  // `user_defined_timestamps_persisted` to be true since that's the most common
-  // case.
-  bool initialize_table_reader = !table_reader->get();
   table_reader->reset();
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
@@ -672,10 +668,7 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
           /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
           /*cur_file_num*/ new_file_number,
           /* unique_id */ {}, /* largest_seqno */ 0,
-          /* tail_size */ 0,
-          initialize_table_reader
-              ? true
-              : file_to_ingest->user_defined_timestamps_persisted),
+          /* tail_size */ 0, user_defined_timestamps_persisted),
       std::move(sst_file_reader), file_to_ingest->file_size, table_reader);
   return status;
 }
@@ -762,8 +755,9 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
   assert(ucmp);
   if (ucmp->timestamp_size() > 0 &&
       !file_to_ingest->user_defined_timestamps_persisted) {
-    s = ResetTableReader(external_file, new_file_number, sv, file_to_ingest,
-                         table_reader);
+    s = ResetTableReader(external_file, new_file_number,
+                         file_to_ingest->user_defined_timestamps_persisted, sv,
+                         file_to_ingest, table_reader);
   }
   return s;
 }
@@ -786,8 +780,12 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
-  status = ResetTableReader(external_file, new_file_number, sv, file_to_ingest,
-                            &table_reader);
+  // Initially create the `TableReader` with flag
+  // `user_defined_timestamps_persisted` to be true since that's the most common
+  // case
+  status = ResetTableReader(external_file, new_file_number,
+                            /*user_defined_timestamps_persisted=*/true, sv,
+                            file_to_ingest, &table_reader);
   if (!status.ok()) {
     return status;
   }

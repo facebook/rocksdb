@@ -160,8 +160,9 @@ class ExternalSstFileIngestionJob {
 
  private:
   Status ResetTableReader(const std::string& external_file,
-                          uint64_t new_file_number, SuperVersion* sv,
-                          IngestedFileInfo* file_to_ingest,
+                          uint64_t new_file_number,
+                          bool user_defined_timestamps_persisted,
+                          SuperVersion* sv, IngestedFileInfo* file_to_ingest,
                           std::unique_ptr<TableReader>* table_reader);
 
   // Read the external file's table properties to do various sanity checks and
