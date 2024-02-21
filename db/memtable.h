@@ -54,6 +54,7 @@ struct ImmutableMemTableOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
   size_t max_successive_merges;
+  bool strict_max_successive_merges;
   Statistics* statistics;
   MergeOperator* merge_operator;
   Logger* info_log;
