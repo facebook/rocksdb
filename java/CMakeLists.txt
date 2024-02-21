@@ -795,7 +795,7 @@ if(NOT MINGW)
 endif()
 
 # Javadoc Jar
-set(ROCKSDB_JAVADOC_JAR rocksdb-${CMAKE_PROJECT_VERSION}-javadoc.jar)
+set(ROCKSDB_JAVADOC_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-javadoc.jar)
 create_javadoc(rocksdb
         PACKAGES org.rocksdb org.rocksdb.util
         SOURCEPATH "${PROJECT_SOURCE_DIR}/java/src/main/java"
@@ -811,7 +811,7 @@ add_custom_target(rocksdb_javadocs_jar ALL
 )
 
 # Sources Jar
-set(ROCKSDB_SOURCES_JAR rocksdb-${CMAKE_PROJECT_VERSION}-sources.jar)
+set(ROCKSDB_SOURCES_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-sources.jar)
 add_custom_target(rocksdb_sources_jar ALL
         ${Java_JAR_EXECUTABLE} cvf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR} -C ${PROJECT_SOURCE_DIR}/java/src/main/java/ .
         BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR}
