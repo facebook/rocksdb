@@ -343,6 +343,8 @@ TOOL_LIB_SOURCES =                                              \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
   utilities/blob_db/blob_dump_tool.cc                           \
+  tools/raw_sst_file_reader.cc                                  \
+  tools/raw_sst_file_reader_iterator.cc                         \
 
 ANALYZER_LIB_SOURCES =                                          \
   tools/block_cache_analyzer/block_cache_trace_analyzer.cc      \
