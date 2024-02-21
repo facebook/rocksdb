@@ -807,12 +807,10 @@ add_jar(rocksdb-${CMAKE_PROJECT_VERSION}-javadoc
         SOURCES ${CMAKE_CURRENT_BINARY_DIR}/javadoc/rocksdb/org
 )
 
-set(ROCKSDB_SOURCES_JAR rocksdb-${CMAKE_PROJECT_VERSION}-sources.jar)
-add_custom_target(rocksdbjava_sources_jar
-        ${Java_JAR_EXECUTABLE} cvf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR} -C ${PROJECT_SOURCE_DIR}/java/src/main/java/ .
-        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        )
+# Sources Jar
+add_jar(rocksdb-${CMAKE_PROJECT_VERSION}-sources
+        SOURCES ${PROJECT_SOURCE_DIR}/java/src/main/java/org
+)
 
 set(bitness 32)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
