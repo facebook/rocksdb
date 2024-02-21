@@ -73,6 +73,14 @@ struct IngestedFileInfo {
   Temperature file_temperature = Temperature::kUnknown;
   // Unique id of the file to be ingested
   UniqueId64x2 unique_id{};
+  // Whether the external file should be treated as if it has user-defined
+  // timestamps or not. If this flag is false, and the column family enables
+  // UDT feature, the file will have min-timestamp artificially padded to its
+  // user keys when it's read. Since it will affect how `TableReader` reads a
+  // table file, it's defaulted to optimize for the majority of the case where
+  // the user key's format in the external file matches the column family's
+  // setting.
+  bool user_defined_timestamps_persisted = true;
 };
 
 class ExternalSstFileIngestionJob {
@@ -151,6 +159,23 @@ class ExternalSstFileIngestionJob {
   int ConsumedSequenceNumbersCount() const { return consumed_seqno_count_; }
 
  private:
+  Status ResetTableReader(const std::string& external_file,
+                          uint64_t new_file_number,
+                          bool user_defined_timestamps_persisted,
+                          SuperVersion* sv, IngestedFileInfo* file_to_ingest,
+                          std::unique_ptr<TableReader>* table_reader);
+
+  // Read the external file's table properties to do various sanity checks and
+  // populates certain fields in `IngestedFileInfo` according to some table
+  // properties.
+  // In some cases when sanity check passes, `table_reader` could be reset with
+  // different options. For example: when external file does not contain
+  // timestamps while column family enables UDT in Memtables only feature.
+  Status SanityCheckTableProperties(const std::string& external_file,
+                                    uint64_t new_file_number, SuperVersion* sv,
+                                    IngestedFileInfo* file_to_ingest,
+                                    std::unique_ptr<TableReader>* table_reader);
+
   // Open the external file and populate `file_to_ingest` with all the
   // external information we need to ingest this file.
   Status GetIngestedFileInfo(const std::string& external_file,

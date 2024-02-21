@@ -883,9 +883,8 @@ int main(int argc, char** argv) {
   StartPhase("addfile");
   {
     rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
-    rocksdb_options_t* io_options = rocksdb_options_create();
     rocksdb_sstfilewriter_t* writer =
-        rocksdb_sstfilewriter_create(env_opt, io_options);
+        rocksdb_sstfilewriter_create(env_opt, options);
 
     remove(sstfilename);
     rocksdb_sstfilewriter_open(writer, sstfilename, &err);
@@ -944,7 +943,6 @@ int main(int argc, char** argv) {
 
     rocksdb_ingestexternalfileoptions_destroy(ing_opt);
     rocksdb_sstfilewriter_destroy(writer);
-    rocksdb_options_destroy(io_options);
     rocksdb_envoptions_destroy(env_opt);
 
     // Delete all keys we just ingested
