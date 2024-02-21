@@ -230,6 +230,11 @@ The common standard for foreign memory opens up the possibility of efficient int
 
 ## Appendix
 
+### Code and Data
+
+The [Experimental Pull Request](https://github.com/facebook/rocksdb/pull/11095/files) contains the source code implemented,
+together with further data plots and the source CSV files for all data plots.
+
 ### Running
 
 This is an example run; the jmh parameters (after `-p`) can be changed to measure performance with varying key counts, and key and value sizes.
@@ -249,7 +254,7 @@ q "select Benchmark,Score,Error from ./plot/jmh-result.csv where keyCount=100000
 
 ### Java 19 installation
 
-I followed the instructions to install [Azul](https://docs.azul.com/core/zulu-openjdk/install/debian). Then you still need to pick the right java locally:
+We followed the instructions to install [Azul](https://docs.azul.com/core/zulu-openjdk/install/debian). Then select the correct instance of java locally:
 ```bash
 sudo update-alternatives --config java
 sudo update-alternatives --config javac
