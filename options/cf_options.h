@@ -118,6 +118,7 @@ struct MutableCFOptions {
         memtable_whole_key_filtering(options.memtable_whole_key_filtering),
         memtable_huge_page_size(options.memtable_huge_page_size),
         max_successive_merges(options.max_successive_merges),
+        strict_max_successive_merges(options.strict_max_successive_merges),
         inplace_update_num_locks(options.inplace_update_num_locks),
         prefix_extractor(options.prefix_extractor),
         experimental_mempurge_threshold(
@@ -186,6 +187,7 @@ struct MutableCFOptions {
         memtable_whole_key_filtering(false),
         memtable_huge_page_size(0),
         max_successive_merges(0),
+        strict_max_successive_merges(false),
         inplace_update_num_locks(0),
         prefix_extractor(nullptr),
         experimental_mempurge_threshold(0.0),
@@ -251,6 +253,7 @@ struct MutableCFOptions {
   bool memtable_whole_key_filtering;
   size_t memtable_huge_page_size;
   size_t max_successive_merges;
+  bool strict_max_successive_merges;
   size_t inplace_update_num_locks;
   std::shared_ptr<const SliceTransform> prefix_extractor;
   // [experimental]

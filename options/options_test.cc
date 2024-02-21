@@ -115,6 +115,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"memtable_huge_page_size", "28"},
       {"bloom_locality", "29"},
       {"max_successive_merges", "30"},
+      {"strict_max_successive_merges", "true"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
       {"experimental_mempurge_threshold", "0.003"},
@@ -270,6 +271,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.memtable_huge_page_size, 28U);
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
+  ASSERT_EQ(new_cf_opt.strict_max_successive_merges, true);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
@@ -2333,6 +2335,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"memtable_huge_page_size", "28"},
       {"bloom_locality", "29"},
       {"max_successive_merges", "30"},
+      {"strict_max_successive_merges", "true"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
       {"experimental_mempurge_threshold", "0.003"},
@@ -2484,6 +2487,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.memtable_huge_page_size, 28U);
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
+  ASSERT_EQ(new_cf_opt.strict_max_successive_merges, true);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");

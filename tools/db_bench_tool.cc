@@ -1638,6 +1638,10 @@ DEFINE_int32(max_successive_merges, 0,
              "Maximum number of successive merge operations on a key in the "
              "memtable");
 
+DEFINE_bool(strict_max_successive_merges, false,
+            "Whether to issue filesystem reads to keep within "
+            "`max_successive_merges` limit");
+
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   if (value < 0 || value >= 2000000000) {
     fprintf(stderr, "Invalid value for --%s: %d. 0<= PrefixSize <=2000000000\n",
@@ -4626,6 +4630,7 @@ class Benchmark {
       }
     }
     options.max_successive_merges = FLAGS_max_successive_merges;
+    options.strict_max_successive_merges = FLAGS_strict_max_successive_merges;
     options.report_bg_io_stats = FLAGS_report_bg_io_stats;
 
     // set universal style compaction configurations, if applicable

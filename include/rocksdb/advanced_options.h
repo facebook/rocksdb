@@ -649,17 +649,28 @@ struct AdvancedColumnFamilyOptions {
   TablePropertiesCollectorFactories table_properties_collector_factories;
 
   // Maximum number of successive merge operations on a key in the memtable.
+  // It may be violated when filesystem reads would be needed to stay under the
+  // limit, unless `strict_max_successive_merges` is explicitly set.
   //
   // When a merge operation is added to the memtable and the maximum number of
-  // successive merges is reached, the value of the key will be calculated and
-  // inserted into the memtable instead of the merge operation. This will
-  // ensure that there are never more than max_successive_merges merge
-  // operations in the memtable.
+  // successive merges is reached, RocksDB will attempt to read the value. Upon
+  // success, the value will be inserted into the memtable instead of the merge
+  // operation.
   //
   // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
   size_t max_successive_merges = 0;
+
+  // Whether to allow filesystem reads to stay under the `max_successive_merges`
+  // limit. When true, this can lead to merge writes blocking the write path
+  // waiting on filesystem reads.
+  //
+  // This option is temporary in case the recent change to disallow filesystem
+  // reads during merge writes has a problem and users need to undo it quickly.
+  //
+  // Default: false
+  bool strict_max_successive_merges = false;
 
   // This flag specifies that the implementation should optimize the filters
   // mainly for cases where keys are found rather than also optimize for keys
