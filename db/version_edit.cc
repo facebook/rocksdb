@@ -10,6 +10,7 @@
 #include "db/version_edit.h"
 
 #include "db/blob/blob_index.h"
+#include "db/replication_epoch_edit.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
@@ -116,6 +117,12 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_manifest_update_sequence_) {
     PutVarint32Varint64(dst, kManifestUpdateSequence,
                         manifest_update_sequence_);
+  }
+  for (const auto &replication_epoch_addition: replication_epoch_additions_) {
+    PutVarint32(dst, kReplicationEpochAdd);
+    std::string encoded;
+    replication_epoch_addition.EncodeTo(&encoded);
+    PutLengthPrefixedSlice(dst, encoded);
   }
   if (has_prev_log_number_) {
     PutVarint32Varint64(dst, kPrevLogNumber, prev_log_number_);
@@ -509,7 +516,23 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           msg = "manifest update sequence";
         }
         break;
+      case kReplicationEpochAdd: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "ReplicationAdd not prefixed by length";
+          break;
+        }
 
+        ReplicationEpochAddition replication_epoch_addition;
+        auto s = replication_epoch_addition.DecodeFrom(&encoded);
+        if (!s.ok()) {
+          return s;
+        }
+
+        replication_epoch_additions_.emplace_back(
+            std::move(replication_epoch_addition));
+        break;
+      }
       case kPrevLogNumber:
         if (GetVarint64(&input, &prev_log_number_)) {
           has_prev_log_number_ = true;
@@ -815,6 +838,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (has_manifest_update_sequence_) {
     r.append("\n  ManifestUpdateSequence: ");
     AppendNumberTo(&r, manifest_update_sequence_);
+  }
+  for (const auto& epoch_addition: replication_epoch_additions_) {
+    r.append("\n  ReplicationEpochAddition: ");
+    r.append(epoch_addition.DebugString());
   }
   if (has_prev_log_number_) {
     r.append("\n  PrevLogNumber: ");

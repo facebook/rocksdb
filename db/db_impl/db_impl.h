@@ -1079,9 +1079,8 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status WaitForCompact(bool waitUnscheduled = false);
 
-  void NewManifestOnNextUpdate() override {
-    versions_->NewManifestOnNextUpdate();
-  }
+  void UpdateReplicationEpoch(uint64_t new_replication_epoch) override;
+  void NewManifestOnNextUpdate() override;
 
   uint64_t GetNextFileNumber() const override {
     return versions_->current_next_file_number();

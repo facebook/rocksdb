@@ -509,6 +509,19 @@ class ReplicationLogListener {
   virtual std::string OnReplicationLogRecord(ReplicationLogRecord record) = 0;
 };
 
+// TODO(wei): a temporary hack so that we can get epoch from replication_sequence.
+// Will be removed once we move the replication_sequence serde into RocksdbCloud
+class ReplicationEpochExtractor {
+ public:
+  virtual ~ReplicationEpochExtractor() = default;
+
+  // It's required that replication sequence contains an epoch number, which is
+  // an 8 bytes integer bumped whenever a new leader is elected.
+  //
+  // Returns replication epoch encoded in replication sequence.
+  virtual uint64_t EpochOfReplicationSequence(Slice replication_seq) = 0;
+};
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   // NOT MAINTAINED: This function has not been and is not maintained.
@@ -1466,6 +1479,9 @@ struct DBOptions {
   // See comments above ReplicationLogListener class definition.
   // Status: Experimental.
   std::shared_ptr<ReplicationLogListener> replication_log_listener = nullptr;
+  // See comments above ReplicationEpochExtractor class definition.
+  // Status: Experimental.
+  std::shared_ptr<ReplicationEpochExtractor> replication_epoch_extractor = nullptr;
 
   // If set to false, when compaction or flush sees a SingleDelete followed by
   // a Delete for the same user key, compaction job will not fail.
@@ -1485,6 +1501,21 @@ struct DBOptions {
   //
   // Default: false
   bool disable_delete_obsolete_files_on_open = false;
+
+  // Max number of replication epochs we maintain in manifest files.
+  // We maintain (replication epoch, first manifest update sequence in that
+  // epoch) for all epochs after the persisted replication sequence (including
+  // the epoch of persisted replication sequence). This is used to help detect
+  // divergence when recovering local replication log in leader follower mode.
+  // But it's possible that the replication epoch changes while there is no
+  // manfiest writes which update persisted replication sequence. To avoid
+  // maintaining a lot of replication epochs in manifest file for that case, we
+  // limit the max number of replication epochs.
+  //
+  // NOTE: usually we don't expect too many new replication epochs after
+  // persisted replication sequence, so the max limit here shouldn't be quite
+  // large
+  uint32_t max_num_replication_epochs = 100;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

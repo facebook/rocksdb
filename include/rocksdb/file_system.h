@@ -673,7 +673,7 @@ class FileSystem : public Customizable {
   //
   // Default implementation is to return IOStatus::OK.
 
-  virtual IOStatus Poll(std::vector<void*>& io_handles,
+  virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
                         size_t /*min_completions*/) {
     return IOStatus::OK();
   }

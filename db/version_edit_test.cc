@@ -10,6 +10,7 @@
 #include "db/version_edit.h"
 
 #include "db/blob/blob_index.h"
+#include "db/replication_epoch_edit.h"
 #include "rocksdb/advanced_options.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
@@ -721,6 +722,14 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
                     .IsCorruption());
     ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
+}
+
+TEST_F(VersionEditTest, ReplicationEpochAddition) {
+  VersionEdit edit;
+  edit.addReplicationEpoch(ReplicationEpochAddition{2, 3});
+  edit.addReplicationEpoch(ReplicationEpochAddition{3, 4});
+  edit.addReplicationEpoch(ReplicationEpochAddition{4, 5});
+  TestEncodeDecode(edit);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

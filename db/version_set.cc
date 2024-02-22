@@ -37,9 +37,12 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/replication_epoch_edit.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
+#include "db/version_edit.h"
 #include "db/version_edit_handler.h"
+#include "rocksdb/slice.h"
 #if USE_COROUTINES
 #include "folly/experimental/coro/BlockingWait.h"
 #include "folly/experimental/coro/Collect.h"
@@ -4903,6 +4906,7 @@ void VersionSet::Reset() {
   obsolete_files_.clear();
   obsolete_manifests_.clear();
   wals_.Reset();
+  next_replication_epoch_.reset();
   new_manifest_on_next_update_.store(false, std::memory_order_relaxed);
 }
 
@@ -5112,33 +5116,51 @@ Status VersionSet::ProcessManifestWrites(
 #endif  // NDEBUG
 
   // Assign and verify ManifestUpdateSequences
+  std::optional<std::string> pending_persist_replication_sequence;
+  uint64_t pending_manifest_update_sequence = manifest_update_sequence_;
+  bool is_leader{false};
+  ReplicationEpochAdditions new_replication_epochs;
   {
     Status s;
 
     for (auto& e : batch_edits) {
       if (!db_options_->replication_log_listener &&
-          !e->HasManifestUpdateSequence() && manifest_update_sequence_ == 0) {
+          !e->HasManifestUpdateSequence() && pending_manifest_update_sequence == 0) {
         // No physical replication, skip
         continue;
       }
 
-      ++manifest_update_sequence_;
+      ++pending_manifest_update_sequence;
 
       if (e->HasManifestUpdateSequence()) {
         // Update already has the manifest update sequence, verify that it's
         // correct
-        if (e->GetManifestUpdateSequence() != manifest_update_sequence_) {
+        if (e->GetManifestUpdateSequence() != pending_manifest_update_sequence) {
           std::ostringstream oss;
           oss << "Gap in ManifestUpdateSequence while writing to manifest, "
                  "expected="
-              << manifest_update_sequence_
+              << pending_manifest_update_sequence
               << " got=" << e->GetManifestUpdateSequence();
           s = Status::Corruption(oss.str());
           break;
         }
+
+        // replicating `ReplicationEpoch` additions from leader
+        for (const auto& epoch_addition : e->GetReplicationEpochAdditions()) {
+          new_replication_epochs.push_back(epoch_addition);
+        }
+        if (!s.ok()) {
+          break;
+        }
       } else if (db_options_->replication_log_listener) {
         // No manifest update sequence, this is the leader, set it.
-        e->SetManifestUpdateSequence(manifest_update_sequence_);
+        e->SetManifestUpdateSequence(pending_manifest_update_sequence);
+
+        is_leader = true;
+      }
+
+      if (e->HasReplicationSequence()) {
+        pending_persist_replication_sequence = e->GetReplicationSequence();
       }
     }
     if (!s.ok()) {
@@ -5153,9 +5175,18 @@ Status VersionSet::ProcessManifestWrites(
   assert(pending_manifest_file_number_ == 0);
   auto new_manifest_force =
       new_manifest_on_next_update_.exchange(false, std::memory_order_relaxed);
+
+  // Generate new replication epochs when replication epoch has changed.
+  if (next_replication_epoch_ && is_leader) {
+    auto firstMUS = first_writer.edit_list.front()->GetManifestUpdateSequence();
+    ReplicationEpochAddition epochAddition(*next_replication_epoch_, firstMUS);
+    first_writer.edit_list.front()->AddReplicationEpoch(epochAddition);
+    new_replication_epochs.emplace_back(std::move(epochAddition));
+  }
+
   if (!descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size ||
-      new_manifest_force) {
+      (next_replication_epoch_ || new_manifest_force)) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     TEST_SYNC_POINT_CALLBACK(
         "VersionSet::ProcessManifestWrites:BeforeNewManifest", nullptr);
@@ -5185,10 +5216,12 @@ Status VersionSet::ProcessManifestWrites(
     // If we are writing out a new snapshot make sure to also persist
     // replication sequence and manifest update sequence.
     if (!replication_sequence_.empty() &&
-        !first_writer.edit_list.front()->HasReplicationSequence()) {
+        !first_writer.edit_list.front()->HasReplicationSequence() &&
+        !pending_persist_replication_sequence) {
       first_writer.edit_list.front()->SetReplicationSequence(
           replication_sequence_);
     }
+
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
       curr_state.emplace(std::make_pair(
@@ -5230,6 +5263,11 @@ Status VersionSet::ProcessManifestWrites(
           s = Status::OK();
         }
       }
+    }
+
+    // Verify that the new replication epochs are ordered properly
+    if (s.ok()) {
+      s = replication_epochs_.VerifyNewEpochs(new_replication_epochs);
     }
 
     if (s.ok() && new_descriptor_log) {
@@ -5439,6 +5477,24 @@ Status VersionSet::ProcessManifestWrites(
     manifest_file_number_ = pending_manifest_file_number_;
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = first_writer.edit_list.front()->prev_log_number_;
+
+    replication_epochs_.AddEpochs(new_replication_epochs,
+                                  db_options_->max_num_replication_epochs);
+    if (pending_persist_replication_sequence) {
+      if (db_options_->replication_epoch_extractor) {
+        auto epoch = db_options_->replication_epoch_extractor
+                         ->EpochOfReplicationSequence(
+                             *pending_persist_replication_sequence);
+        bool replication_epoch_set_empty = replication_epochs_.empty();
+        replication_epochs_.DeleteEpochsBefore(epoch);
+        // If replication epoch set is not empty before pruning, then it won't
+        // be empty after pruning
+        assert(replication_epoch_set_empty || !replication_epochs_.empty());
+      }
+      replication_sequence_ = std::move(*pending_persist_replication_sequence);
+    }
+    manifest_update_sequence_ = pending_manifest_update_sequence;
+    next_replication_epoch_.reset();
   } else {
     std::string version_edits;
     for (auto& e : batch_edits) {
@@ -5680,10 +5736,6 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     *max_last_sequence = edit->GetLastSequence();
   } else {
     edit->SetLastSequence(*max_last_sequence);
-  }
-
-  if (edit->HasReplicationSequence()) {
-      replication_sequence_ = edit->GetReplicationSequence();
   }
 
   // The builder can be nullptr only if edit is WAL manipulation,
@@ -6402,6 +6454,22 @@ Status VersionSet::WriteCurrentStateToManifest(
       if (!io_s.ok()) {
         return io_s;
       }
+    }
+  }
+
+  if (!replication_epochs_.empty()) {
+    VersionEdit replication_epoch_additions;
+    for (const auto& addition : replication_epochs_.GetEpochs()) {
+      replication_epoch_additions.AddReplicationEpoch(addition);
+    }
+    std::string record;
+    if (!replication_epoch_additions.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit: " +
+                                replication_epoch_additions.DebugString(true));
+    }
+    io_s = log->AddRecord(record);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
   return Status::OK();

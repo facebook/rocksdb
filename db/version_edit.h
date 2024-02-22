@@ -17,6 +17,7 @@
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
+#include "db/replication_epoch_edit.h"
 #include "db/wal_edit.h"
 #include "memory/arena.h"
 #include "port/malloc.h"
@@ -74,6 +75,9 @@ enum Tag : uint32_t {
   kFullHistoryTsLow,
   kWalAddition2,
   kWalDeletion2,
+
+  // RocksDB-Cloud forward compatible records
+  kReplicationEpochAdd = ((1 << 16) | kTagSafeIgnoreMask)
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -421,6 +425,16 @@ class VersionEdit {
   bool HasManifestUpdateSequence() const { return has_manifest_update_sequence_; }
   uint64_t GetManifestUpdateSequence() const { return manifest_update_sequence_; }
 
+  void AddReplicationEpoch(ReplicationEpochAddition epochAddition) {
+    replication_epoch_additions_.emplace_back(std::move(epochAddition));
+  }
+  const ReplicationEpochAdditions& GetReplicationEpochAdditions() const {
+    return replication_epoch_additions_;
+  }
+  bool HasReplicationEpochAdditions() const {
+    return !replication_epoch_additions_.empty();
+  }
+
   void SetPrevLogNumber(uint64_t num) {
     has_prev_log_number_ = true;
     prev_log_number_ = num;
@@ -690,6 +704,7 @@ class VersionEdit {
   uint64_t log_number_ = 0;
   std::string replication_sequence_ = "";
   uint64_t manifest_update_sequence_ = 0;
+  ReplicationEpochAdditions replication_epoch_additions_;
   uint64_t prev_log_number_ = 0;
   uint64_t next_file_number_ = 0;
   uint32_t max_column_family_ = 0;

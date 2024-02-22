@@ -26,10 +26,18 @@ namespace ROCKSDB_NAMESPACE {
 using LogRecordsVector =
     std::vector<std::pair<ReplicationLogRecord, std::string>>;
 
+class TestReplicationEpochExtractor : public ReplicationEpochExtractor {
+ public:
+  uint64_t EpochOfReplicationSequence(Slice replication_seq) override {
+    uint64_t epoch;
+    assert(GetFixed64(&replication_seq, &epoch));
+    return epoch;
+  }
+};
+
 class Listener : public ReplicationLogListener {
  public:
-  Listener(port::Mutex* log_records_mutex,
-           LogRecordsVector* log_records)
+  Listener(port::Mutex* log_records_mutex, LogRecordsVector* log_records)
       : log_records_mutex_(log_records_mutex), log_records_(log_records) {}
 
   enum State { OPEN, RECOVERY, TAILING };
@@ -46,19 +54,20 @@ class Listener : public ReplicationLogListener {
     {
       MutexLock lock(log_records_mutex_);
       std::string replication_sequence;
-      PutFixed32(&replication_sequence,
-                 static_cast<uint32_t>(log_records_->size()));
-      log_records_->emplace_back(
-        std::move(record),
-        replication_sequence);
+      PutFixed64(&replication_sequence, epoch_);
+      PutFixed64(&replication_sequence, log_records_->size());
+      log_records_->emplace_back(std::move(record), replication_sequence);
       return replication_sequence;
     }
   }
+
+  void UpdateEpoch(uint64_t epoch) { epoch_ = epoch; }
 
  private:
   port::Mutex* log_records_mutex_;
   LogRecordsVector* log_records_;
   State state_{OPEN};
+  uint64_t epoch_{0};
 };
 
 class FollowerEnv : public EnvWrapper {
@@ -95,10 +104,12 @@ int getPersistedSequence(DB* db) {
     return -1;
   }
   auto outSlice = Slice(out);
-  uint32_t val{0};
-  auto ok = GetFixed32(&outSlice, &val);
+  uint64_t epoch{0}, sequence{0};
+  auto ok = GetFixed64(&outSlice, &epoch);
   assert(ok);
-  return (int)val;
+  ok = GetFixed64(&outSlice, &sequence);
+  assert(ok);
+  return (int)sequence;
 }
 
 int getMemtableEntries(DB* db) {
@@ -143,7 +154,8 @@ class ReplicationTest : public testing::Test {
     DestroyDir(base_env, test_dir_ + "/leader");
     DestroyDir(base_env, test_dir_ + "/follower");
     base_env->CreateDirIfMissing(test_dir_);
-    base_env->NewLogger(test::TmpDir(base_env) + "/replication-test.log", &info_log_);
+    base_env->NewLogger(test::TmpDir(base_env) + "/replication-test.log",
+                        &info_log_);
     info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
   }
   ~ReplicationTest() {
@@ -183,19 +195,15 @@ class ReplicationTest : public testing::Test {
     auto* handle = followerCF(name);
     return static_cast_with_check<ColumnFamilyHandleImpl>(handle)->cfd();
   }
-  
-  DB* openLeader() {
-    return openLeader(leaderOptions());
-  }
+
+  DB* openLeader() { return openLeader(leaderOptions()); }
   DB* openLeader(Options options);
   void closeLeader() {
     leader_cfs_.clear();
     leader_db_.reset();
   }
 
-  DB* openFollower() {
-    return openFollower(leaderOptions());
-  }
+  DB* openFollower() { return openFollower(leaderOptions()); }
   DB* openFollower(Options options);
 
   void closeFollower() {
@@ -221,16 +229,16 @@ class ReplicationTest : public testing::Test {
   void createColumnFamily(std::string name);
   void deleteColumnFamily(std::string name);
 
-  DB* currentLeader() const {
-    return leader_db_.get();
-  }
+  DB* currentLeader() const { return leader_db_.get(); }
 
   DBImpl* leaderFull() const {
     return static_cast_with_check<DBImpl>(currentLeader());
   }
 
-  DB* currentFollower() const {
-    return follower_db_.get();
+  DB* currentFollower() const { return follower_db_.get(); }
+
+  DBImpl* followerFull() const {
+    return static_cast_with_check<DBImpl>(currentFollower());
   }
 
   // Check that CFs in leader and follower have the same next_log_num and
@@ -249,25 +257,28 @@ class ReplicationTest : public testing::Test {
               follower_cfd->imm()->NumNotFlushed());
     ASSERT_EQ(leader_cfd->imm()->NumFlushed(),
               follower_cfd->imm()->NumFlushed());
-    auto leader_lognums_and_repl_seq = leader_cfd->imm()->TEST_GetNextLogNumAndReplSeq();
-    auto follower_lognums_and_repl_seq = follower_cfd->imm()->TEST_GetNextLogNumAndReplSeq();
-    ASSERT_EQ(leader_lognums_and_repl_seq.size(), follower_lognums_and_repl_seq.size());
+    auto leader_lognums_and_repl_seq =
+        leader_cfd->imm()->TEST_GetNextLogNumAndReplSeq();
+    auto follower_lognums_and_repl_seq =
+        follower_cfd->imm()->TEST_GetNextLogNumAndReplSeq();
+    ASSERT_EQ(leader_lognums_and_repl_seq.size(),
+              follower_lognums_and_repl_seq.size());
     for (size_t i = 0; i < leader_lognums_and_repl_seq.size(); i++) {
-      ASSERT_EQ(leader_lognums_and_repl_seq[i], follower_lognums_and_repl_seq[i]);
+      ASSERT_EQ(leader_lognums_and_repl_seq[i],
+                follower_lognums_and_repl_seq[i]);
     }
   }
 
   std::vector<std::string> getAllKeys(DB* db, ColumnFamilyHandle* cf) {
-      auto itr = std::unique_ptr<Iterator>(
-          db->NewIterator(ReadOptions(), cf));
-        
-      itr->SeekToFirst();
-      std::vector<std::string> keys;
-      while (itr->Valid()) {
-        keys.push_back(itr->key().ToString());
-        itr->Next();
-      }
-      return keys;
+    auto itr = std::unique_ptr<Iterator>(db->NewIterator(ReadOptions(), cf));
+
+    itr->SeekToFirst();
+    std::vector<std::string> keys;
+    while (itr->Valid()) {
+      keys.push_back(itr->key().ToString());
+      itr->Next();
+    }
+    return keys;
   }
 
   // verify that the current log structured merge tree of two CFs to be the same
@@ -278,36 +289,43 @@ class ReplicationTest : public testing::Test {
         << h1->GetName() << ", " << h2->GetName();
 
     for (int level = 0; level < cf1->NumberLevels(); level++) {
-        auto files1 = cf1->current()->storage_info()->LevelFiles(level),
-             files2 = cf2->current()->storage_info()->LevelFiles(level);
-        ASSERT_EQ(files1.size(), files2.size())
+      auto files1 = cf1->current()->storage_info()->LevelFiles(level),
+           files2 = cf2->current()->storage_info()->LevelFiles(level);
+      ASSERT_EQ(files1.size(), files2.size())
           << "mismatched number of files at level: " << level
-          << " between cf: " << cf1->GetName()
-          << " and cf: " << cf2->GetName();
-        for (size_t i = 0; i < files1.size(); i++) {
-          auto f1 = files1[i], f2 = files2[i];
-          ASSERT_EQ(f1->fd.file_size, f2->fd.file_size);
-          ASSERT_EQ(f1->fd.smallest_seqno, f2->fd.smallest_seqno);
-          ASSERT_EQ(f1->fd.largest_seqno, f2->fd.largest_seqno);
-          ASSERT_EQ(f1->epoch_number, f2->epoch_number);
-          ASSERT_EQ(f1->file_checksum, f2->file_checksum);
-          ASSERT_EQ(f1->unique_id, f2->unique_id);
-        }
+          << " between cf: " << cf1->GetName() << " and cf: " << cf2->GetName();
+      for (size_t i = 0; i < files1.size(); i++) {
+        auto f1 = files1[i], f2 = files2[i];
+        ASSERT_EQ(f1->fd.file_size, f2->fd.file_size);
+        ASSERT_EQ(f1->fd.smallest_seqno, f2->fd.smallest_seqno);
+        ASSERT_EQ(f1->fd.largest_seqno, f2->fd.largest_seqno);
+        ASSERT_EQ(f1->epoch_number, f2->epoch_number);
+        ASSERT_EQ(f1->file_checksum, f2->file_checksum);
+        ASSERT_EQ(f1->unique_id, f2->unique_id);
+      }
     }
+  }
+
+  void verifyReplicationEpochsEqual() {
+    auto leader = leaderFull(), follower = followerFull();
+    auto leaderEpochs = leader->GetVersionSet()->TEST_GetReplicationEpochSet(),
+         followerEpochs =
+             follower->GetVersionSet()->TEST_GetReplicationEpochSet();
+    ASSERT_EQ(leaderEpochs, followerEpochs);
   }
 
   void verifyEqual() {
     ASSERT_EQ(leader_cfs_.size(), follower_cfs_.size());
     auto leader = leader_db_.get(), follower = follower_db_.get();
-    for (auto& [name, cf1]: leader_cfs_) {
+    for (auto& [name, cf1] : leader_cfs_) {
       auto cf2 = followerCF(name);
       verifyNextLogNumAndReplSeqConsistency(name);
       verifyLSMTEqual(cf1.get(), cf2);
 
       auto itrLeader = std::unique_ptr<Iterator>(
           leader->NewIterator(ReadOptions(), cf1.get()));
-      auto itrFollower = std::unique_ptr<Iterator>(
-          follower->NewIterator(ReadOptions(), cf2));
+      auto itrFollower =
+          std::unique_ptr<Iterator>(follower->NewIterator(ReadOptions(), cf2));
       itrLeader->SeekToFirst();
       itrFollower->SeekToFirst();
       while (itrLeader->Valid() && itrFollower->Valid()) {
@@ -320,13 +338,19 @@ class ReplicationTest : public testing::Test {
     }
   }
 
-protected:
+ protected:
+  void UpdateLeaderEpoch(uint64_t epoch) {
+    // assuming leader db is opened
+    assert(leader_db_ && listener_);
+    leader_db_->UpdateReplicationEpoch(epoch);
+    listener_->UpdateEpoch(epoch);
+  }
+
   std::shared_ptr<Logger> info_log_;
   bool replicate_epoch_number_{true};
   bool consistency_check_on_epoch_replication{true};
-  void resetFollowerSequence(int new_seq) {
-    followerSequence_ = new_seq;
-  }
+  void resetFollowerSequence(int new_seq) { followerSequence_ = new_seq; }
+
  private:
   std::string test_dir_;
   FollowerEnv follower_env_;
@@ -339,6 +363,7 @@ protected:
   ColumnFamilyMap leader_cfs_;
   std::unique_ptr<DB> follower_db_;
   ColumnFamilyMap follower_cfs_;
+  std::shared_ptr<Listener> listener_;
 };
 
 Options ReplicationTest::leaderOptions() const {
@@ -352,6 +377,8 @@ Options ReplicationTest::leaderOptions() const {
   options.max_open_files = 500;
   options.max_bytes_for_level_base = 1 << 20;
   options.info_log = info_log_;
+  options.replication_epoch_extractor =
+      std::make_shared<TestReplicationEpochExtractor>();
   return options;
 }
 
@@ -366,11 +393,10 @@ DB* ReplicationTest::openLeader(Options options) {
     cf_names.push_back(kDefaultColumnFamilyName);
   }
 
-  auto listener =
-      std::make_shared<Listener>(&log_records_mutex_, &log_records_);
-  options.replication_log_listener = listener;
+  listener_ = std::make_shared<Listener>(&log_records_mutex_, &log_records_);
+  options.replication_log_listener = listener_;
 
-  listener->setState(firstOpen ? Listener::TAILING : Listener::OPEN);
+  listener_->setState(firstOpen ? Listener::TAILING : Listener::OPEN);
 
   std::vector<ColumnFamilyDescriptor> column_families;
   for (auto& name : cf_names) {
@@ -393,7 +419,7 @@ DB* ReplicationTest::openLeader(Options options) {
 
   if (!firstOpen) {
     MutexLock lock(&log_records_mutex_);
-    listener->setState(Listener::RECOVERY);
+    listener_->setState(Listener::RECOVERY);
     // recover leader
     DB::ApplyReplicationLogRecordInfo info;
     auto leaderSeq = getPersistedSequence(db) + 1;
@@ -402,10 +428,12 @@ DB* ReplicationTest::openLeader(Options options) {
           log_records_[leaderSeq].first, log_records_[leaderSeq].second,
           [this](Slice) { return ColumnFamilyOptions(leaderOptions()); },
           true /* allow_new_manifest_writes */, &info,
-          DB::AR_EVICT_OBSOLETE_FILES);
+          DB::AR_EVICT_OBSOLETE_FILES |
+              DB::AR_EPOCH_BASED_DIVERGENCE_DETECTION);
       assert(s.ok());
+      assert(!info.diverged_manifest_writes);
     }
-    listener->setState(Listener::TAILING);
+    listener_->setState(Listener::TAILING);
   }
 
   return db;
@@ -448,9 +476,8 @@ DB* ReplicationTest::openFollower(Options options) {
   return db;
 }
 
-size_t ReplicationTest::catchUpFollower(
-    std::optional<size_t> num_records,
-    bool allow_new_manifest_writes) {
+size_t ReplicationTest::catchUpFollower(std::optional<size_t> num_records,
+                                        bool allow_new_manifest_writes) {
   MutexLock lock(&log_records_mutex_);
   DB::ApplyReplicationLogRecordInfo info;
   size_t ret = 0;
@@ -711,7 +738,7 @@ TEST_F(ReplicationTest, MultiColumnFamily) {
   // Reopen leader
   closeLeader();
   leader = openLeader();
-  { // expect only one WAL
+  {  // expect only one WAL
     size_t walFileCount{0};
     ASSERT_OK(countWalFiles(Env::Default(), leaderPath(), &walFileCount));
     EXPECT_EQ(1, walFileCount);
@@ -856,31 +883,31 @@ TEST_F(ReplicationTest, MultiCFFlushCorrectReplicationSequence) {
   }
 }
 
-class TestEventListener: public EventListener {
-  public:
-    explicit TestEventListener(ReplicationTest* testInstance): testInstance_(testInstance) { }
-    void OnFlushCompleted(DB*, const FlushJobInfo& info) override {
-      ASSERT_EQ(info.smallest_seqno, info.largest_seqno);
-      if (info.smallest_seqno == seq1) {  // the first memtable is flushed
-        testInstance_->catchUpFollower();
-        ASSERT_EQ(1,
-                  testInstance_->leaderCFD("default")->imm()->NumNotFlushed());
-        ASSERT_EQ(
-            1, testInstance_->followerCFD("default")->imm()->NumNotFlushed());
-        testInstance_->verifyNextLogNumAndReplSeqConsistency();
-      } else if (info.smallest_seqno == seq2) { // the second memtable is flushed
-        testInstance_->catchUpFollower();
-        ASSERT_EQ(0,
-                  testInstance_->leaderCFD("default")->imm()->NumNotFlushed());
-        ASSERT_EQ(
-            0, testInstance_->followerCFD("default")->imm()->NumNotFlushed());
-      }
+class TestEventListener : public EventListener {
+ public:
+  explicit TestEventListener(ReplicationTest* testInstance)
+      : testInstance_(testInstance) {}
+  void OnFlushCompleted(DB*, const FlushJobInfo& info) override {
+    ASSERT_EQ(info.smallest_seqno, info.largest_seqno);
+    if (info.smallest_seqno == seq1) {  // the first memtable is flushed
+      testInstance_->catchUpFollower();
+      ASSERT_EQ(1, testInstance_->leaderCFD("default")->imm()->NumNotFlushed());
+      ASSERT_EQ(1,
+                testInstance_->followerCFD("default")->imm()->NumNotFlushed());
+      testInstance_->verifyNextLogNumAndReplSeqConsistency();
+    } else if (info.smallest_seqno == seq2) {  // the second memtable is flushed
+      testInstance_->catchUpFollower();
+      ASSERT_EQ(0, testInstance_->leaderCFD("default")->imm()->NumNotFlushed());
+      ASSERT_EQ(0,
+                testInstance_->followerCFD("default")->imm()->NumNotFlushed());
     }
+  }
 
-    std::atomic<SequenceNumber> seq1{0};
-    std::atomic<SequenceNumber> seq2{0};
-  private:
-    ReplicationTest* testInstance_;
+  std::atomic<SequenceNumber> seq1{0};
+  std::atomic<SequenceNumber> seq2{0};
+
+ private:
+  ReplicationTest* testInstance_;
 };
 
 // Verifies next_log_num of memtables in `imm` is consistent between leader and
@@ -975,10 +1002,10 @@ TEST_F(ReplicationTest, FileNumConsistency) {
   EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
 
   FlushOptions flushOpts;
-  flushOpts.wait= false;
+  flushOpts.wait = false;
   leader->Flush(flushOpts);
   catchUpFollower();
-  
+
   // file number consistent for mem switch
   EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
 
@@ -993,7 +1020,7 @@ TEST_F(ReplicationTest, FileNumConsistency) {
 
 // Verify that when follower tries to catch up, the file number doesn't
 // go backwards
-TEST_F(ReplicationTest, NextFileNumDoNotGoBackwards){
+TEST_F(ReplicationTest, NextFileNumDoNotGoBackwards) {
   auto leader = openLeader(leaderOptions());
   leader->Put(wo(), "key1", "val1");
   leader->Flush({});
@@ -1038,7 +1065,8 @@ TEST_F(ReplicationTest, LogNumberDontGoBackwards) {
   auto followerFull = static_cast_with_check<DBImpl>(follower);
 
   auto logNum = followerFull->TEST_GetCurrentLogNumber();
-  auto minLogNumberToKeep = followerFull->GetVersionSet()->min_log_number_to_keep();
+  auto minLogNumberToKeep =
+      followerFull->GetVersionSet()->min_log_number_to_keep();
   EXPECT_GE(logNum, minLogNumberToKeep);
 
   leader->Put(wo(), "k3", "v3");
@@ -1172,8 +1200,7 @@ TEST_F(ReplicationTest, Stress) {
       t.join();
     }
 
-    ASSERT_OK(
-      leaderFull()->TEST_WaitForBackgroundWork());
+    ASSERT_OK(leaderFull()->TEST_WaitForBackgroundWork());
   };
 
   auto verifyNextEpochNumber = [&]() {
@@ -1235,7 +1262,6 @@ TEST_F(ReplicationTest, DeleteRange) {
   for (int i = 0; i < kNumKeys / 2; i++) {
     writeKey(std::to_string(i));
   }
-
 
   leader->Flush({});
 
@@ -1360,8 +1386,8 @@ TEST_F(ReplicationTest, SuperSnapshot) {
   keys[0] = "k1";
   std::vector<PinnableSlice> pinnableValues;
   pinnableValues.resize(2);
-  follower->MultiGet(ro, follower->DefaultColumnFamily(), 2,
-                                keys.data(), pinnableValues.data(), statuses.data(), true);
+  follower->MultiGet(ro, follower->DefaultColumnFamily(), 2, keys.data(),
+                     pinnableValues.data(), statuses.data(), true);
   ASSERT_OK(statuses[0]);
   ASSERT_TRUE(statuses[1].IsNotFound());
   ASSERT_EQ(pinnableValues[0], "v1");
@@ -1372,6 +1398,61 @@ TEST_F(ReplicationTest, SuperSnapshot) {
 
   follower->ReleaseSnapshot(snapshots[0]);
   follower->ReleaseSnapshot(snapshots[1]);
+}
+
+TEST_F(ReplicationTest, ReplicationEpochs) {
+  auto options = leaderOptions();
+  options.disable_auto_compactions = true;
+  auto leader = openLeader(options);
+  openFollower();
+
+  ASSERT_TRUE(
+      leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().empty());
+  ASSERT_TRUE(
+      followerFull()->GetVersionSet()->TEST_GetReplicationEpochSet().empty());
+
+  auto cf = [](int i) { return "cf" + std::to_string(i); };
+
+  createColumnFamily(cf(0));
+
+  ASSERT_OK(leader->Put(wo(), leaderCF(cf(0)), "k1", "v1"));
+  ASSERT_OK(leader->Flush(FlushOptions()));
+
+  catchUpFollower();
+
+  ASSERT_TRUE(
+      leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().empty());
+  ASSERT_TRUE(
+      followerFull()->GetVersionSet()->TEST_GetReplicationEpochSet().empty());
+
+  UpdateLeaderEpoch(2);
+
+  ASSERT_TRUE(
+      leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().empty());
+
+  ASSERT_OK(leader->Put(wo(), leaderCF(cf(0)), "k2", "v2"));
+  ASSERT_OK(leader->Flush(FlushOptions()));
+
+  catchUpFollower();
+
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
+            1);
+  verifyReplicationEpochsEqual();
+
+  UpdateLeaderEpoch(3);
+  ASSERT_OK(leader->Put(wo(), leaderCF(cf(0)), "k3", "v3"));
+  ASSERT_OK(leader->Flush(FlushOptions()));
+
+  catchUpFollower();
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
+            1);
+  verifyReplicationEpochsEqual();
+
+  closeLeader();
+  leader = openLeader(options);
+
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
+            1);
 }
 
 }  //  namespace ROCKSDB_NAMESPACE

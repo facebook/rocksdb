@@ -690,6 +690,7 @@ ImmutableDBOptions::ImmutableDBOptions() : ImmutableDBOptions(Options()) {}
 ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
     : create_if_missing(options.create_if_missing),
       replication_log_listener(options.replication_log_listener),
+      replication_epoch_extractor(options.replication_epoch_extractor),
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
@@ -775,7 +776,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service),
       enforce_single_del_contracts(options.enforce_single_del_contracts),
-      disable_delete_obsolete_files_on_open(options.disable_delete_obsolete_files_on_open) {
+      disable_delete_obsolete_files_on_open(options.disable_delete_obsolete_files_on_open),
+      max_num_replication_epochs(options.max_num_replication_epochs) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -951,6 +953,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    enforce_single_del_contracts ? "true" : "false");
   ROCKS_LOG_HEADER(log, "   Options.disable_delete_obsolete_files_on_open: %s",
                    disable_delete_obsolete_files_on_open ? "true" : "false");
+  ROCKS_LOG_HEADER(log, "              Options.max_num_replication_epochs: %d",
+                   max_num_replication_epochs);
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {

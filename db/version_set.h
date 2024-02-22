@@ -41,6 +41,7 @@
 #include "db/log_reader.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
+#include "db/replication_epoch_edit.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit.h"
@@ -1307,6 +1308,18 @@ class VersionSet {
   }
   // REQUIRED: DB mutex must be locked
   std::string GetReplicationSequence() const { return replication_sequence_; }
+  // REQUIRED: DB mutex must be locked
+  bool IsReplicationEpochsEmpty() const {
+    return replication_epochs_.empty();
+  }
+  std::optional<uint64_t> GetReplicationEpochForMUS(uint64_t mus) const {
+    return replication_epochs_.GetEpochForMUS(mus);
+  }
+#ifndef NDEBUG
+  const ReplicationEpochSet& TEST_GetReplicationEpochSet() const {
+    return replication_epochs_;
+  }
+#endif
 
   // Note: memory_order_release must be sufficient
   void SetLastPublishedSequence(uint64_t s) {
@@ -1476,6 +1489,10 @@ class VersionSet {
   // The returned WalSet needs to be accessed with DB mutex held.
   const WalSet& GetWalSet() const { return wals_; }
 
+  // Called when replication epoch has changed
+  void UpdateReplicationEpoch(uint64_t epoch) {
+    next_replication_epoch_.emplace(epoch);
+  }
   void NewManifestOnNextUpdate() {
     new_manifest_on_next_update_.store(true, std::memory_order_relaxed);
   }
@@ -1550,6 +1567,9 @@ class VersionSet {
   Status VerifyFileMetadata(ColumnFamilyData* cfd, const std::string& fpath,
                             int level, const FileMetaData& meta);
 
+  uint64_t GetCurrentReplicationEpoch() const;
+  bool HasReplicationEpochChanged();
+
   // Protected by DB mutex.
   WalSet wals_;
 
@@ -1593,6 +1613,12 @@ class VersionSet {
   std::unique_ptr<log::Writer> descriptor_log_;
   // If true, on next update, we will reset descriptor_log_, and write latest
   // snapshot of VersionSet to a new MANIFEST file
+
+  // Replication epoch we are switching to.  Value is only set when
+  // `UpdateReplicationEpoch` is called, and reset to empty on when first
+  // manifest update is done successfully. Protected by DB mutex
+  std::optional<uint64_t> next_replication_epoch_;
+  // Protected by DB mutex.
   std::atomic_bool new_manifest_on_next_update_{false};
 
   // generates a increasing version number for every new version
@@ -1601,7 +1627,13 @@ class VersionSet {
   // Protected by the DB mutex
   uint64_t manifest_update_sequence_{0};
   // Protected by the DB mutex
+  // Current persisted replication sequence
   std::string replication_sequence_;
+  // Protected by the DB mutex
+  // We maintain all the replication epochs after the
+  // persisted replication sequence, including the epoch
+  // of the persisted replication sequence
+  ReplicationEpochSet replication_epochs_;
 
   // Queue of writers to the manifest file
   std::deque<ManifestWriter*> manifest_writers_;

@@ -22,6 +22,7 @@ struct ImmutableDBOptions {
 
   bool create_if_missing;
   std::shared_ptr<ReplicationLogListener> replication_log_listener;
+  std::shared_ptr<ReplicationEpochExtractor> replication_epoch_extractor;
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
@@ -110,6 +111,7 @@ struct ImmutableDBOptions {
   std::shared_ptr<CompactionService> compaction_service;
   bool enforce_single_del_contracts;
   bool disable_delete_obsolete_files_on_open;
+  uint32_t max_num_replication_epochs;
 
   bool IsWalDirSameAsDBPath() const;
   bool IsWalDirSameAsDBPath(const std::string& path) const;
