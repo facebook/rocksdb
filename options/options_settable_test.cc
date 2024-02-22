@@ -492,6 +492,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "target_file_size_base=4294976376;"
       "memtable_huge_page_size=2557;"
       "max_successive_merges=5497;"
+      "strict_max_successive_merges=true;"
       "max_sequential_skip_in_iterations=4294971408;"
       "arena_block_size=1893;"
       "target_file_size_multiplier=35;"
