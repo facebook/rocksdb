@@ -303,9 +303,6 @@ TEST_P(DBWriteTest, WriteThreadWaitNanosCounter) {
   threads.emplace_back(write_func);
 
   ASSERT_OK(dbfull()->Put(WriteOptions(), "foo", "val1"));
-  // The leader is going to create missing newer links. When the leader
-  // finishes, the next leader is going to delay writes and fail writers with
-  // no_slowdown
 
   for (auto& t : threads) {
     t.join();
