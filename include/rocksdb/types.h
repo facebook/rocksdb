@@ -70,6 +70,15 @@ enum EntryType {
   kEntryOther,
 };
 
+// Structured User-oriented representation of internal key. It includes user
+// key, sequence number, and type.
+// If user-defined timestamp is enabled, user key includes the timestamp.
+struct ParsedEntryInfo {
+  Slice user_key;
+  SequenceNumber sequence;
+  EntryType type;
+};
+
 enum class WriteStallCause {
   // Beginning of CF-scope write stall causes
   //
