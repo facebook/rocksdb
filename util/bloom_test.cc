@@ -290,6 +290,9 @@ TEST_P(FullBloomTest, FullSmall) {
 }
 
 TEST_P(FullBloomTest, FullVaryingLengths) {
+  // Match how this test was originally built
+  table_options_.optimize_filters_for_memory = false;
+
   char buffer[sizeof(int)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -335,6 +338,13 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
 }
 
 TEST_P(FullBloomTest, OptimizeForMemory) {
+  // Verify default option vs. compile time macros
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  EXPECT_EQ(BlockBasedTableOptions().optimize_filters_for_memory, true);
+#else
+  EXPECT_EQ(BlockBasedTableOptions().optimize_filters_for_memory, false);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+
   char buffer[sizeof(int)];
   for (bool offm : {true, false}) {
     table_options_.optimize_filters_for_memory = offm;
@@ -508,6 +518,9 @@ inline uint32_t SelectByCacheLineSize(uint32_t for64, uint32_t for128,
 // ability to read filters generated using other cache line sizes.
 // See RawSchema.
 TEST_P(FullBloomTest, Schema) {
+  // Match how this test was originally built
+  table_options_.optimize_filters_for_memory = false;
+
 #define EXPECT_EQ_Bloom(a, b)               \
   {                                         \
     if (GetParam() != kStandard128Ribbon) { \
