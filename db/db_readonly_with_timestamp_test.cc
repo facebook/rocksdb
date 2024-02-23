@@ -17,7 +17,6 @@ class DBReadOnlyTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_readonly_test_with_timestamp") {}
 
  protected:
-#ifndef ROCKSDB_LITE
   void CheckDBOpenedAsCompactedDBWithOneLevel0File() {
     VersionSet* const versions = dbfull()->GetVersionSet();
     ASSERT_NE(versions, nullptr);
@@ -63,10 +62,8 @@ class DBReadOnlyTestWithTimestamp : public DBBasicTestWithTimestampBase {
     ASSERT_TRUE(
         storage_info->LevelFilesBrief(highest_non_empty_level).num_files > 0);
   }
-#endif  // !ROCKSDB_LITE
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGetReadTimestampSizeMismatch) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -243,6 +240,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
       get_value_and_check(db_, read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     size_t expected_count = kMaxKey - start_keys[i] + 1;
     ASSERT_EQ(expected_count, count);
 
@@ -255,6 +253,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
       get_value_and_check(db_, read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     ASSERT_EQ(static_cast<size_t>(kMaxKey) - start_keys[i] + 1, count);
 
     // SeekToFirst()/SeekToLast() with lower/upper bounds.
@@ -276,6 +275,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
         get_value_and_check(db_, read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(r - std::max(l, start_keys[i]), count);
 
       for (it->SeekToLast(), key = std::min(r, kMaxKey + 1), count = 0;
@@ -285,6 +285,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
         get_value_and_check(db_, read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       l += (kMaxKey / 100);
       r -= (kMaxKey / 100);
     }
@@ -331,11 +332,59 @@ TEST_F(DBReadOnlyTestWithTimestamp, Iterators) {
     CheckIterUserEntry(iters[0], Key1(key), kTypeValue,
                        "value" + std::to_string(key), write_timestamp);
   }
+  ASSERT_OK(iters[0]->status());
 
   size_t expected_count = kMaxKey - 0 + 1;
   ASSERT_EQ(expected_count, count);
   delete iters[0];
 
+  Close();
+}
+
+TEST_F(DBReadOnlyTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  // Use UDT in memtable only feature for this test, so we can control that
+  // newly set `full_history_ts_low` collapse history when Flush happens.
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val1"));
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 3);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                          full_history_ts_low));
+  ASSERT_OK(Flush(0));
+
+  // Reopen the database in read only mode to test its timestamp support.
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  // Reading below full_history_ts_low fails a sanity check.
+  std::string read_ts;
+  PutFixed64(&read_ts, 2);
+  Slice read_ts_slice = read_ts;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+
+  // Get()
+  std::string value;
+  ASSERT_TRUE(db_->Get(read_opts, "foo", &value).IsInvalidArgument());
+  // NewIterator()
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_opts, db_->DefaultColumnFamily()));
+  ASSERT_TRUE(iter->status().IsInvalidArgument());
+
+  // NewIterators()
+  std::vector<ColumnFamilyHandle*> cfhs = {db_->DefaultColumnFamily()};
+  std::vector<Iterator*> iterators;
+  ASSERT_TRUE(
+      db_->NewIterators(read_opts, cfhs, &iterators).IsInvalidArgument());
   Close();
 }
 
@@ -949,7 +998,6 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 
   Close();
 }
-#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

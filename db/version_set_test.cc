@@ -21,6 +21,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/unique_id_impl.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -51,7 +52,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     files_.push_back(f);
   }
 
@@ -129,7 +131,10 @@ class VersionStorageInfoTestBase : public testing::Test {
         mutable_cf_options_(options_),
         vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel,
                   /*src_vstorage=*/nullptr,
-                  /*_force_consistency_checks=*/false) {}
+                  /*_force_consistency_checks=*/false,
+                  EpochNumberRequirement::kMustPresent, ioptions_.clock,
+                  mutable_cf_options_.bottommost_file_compaction_delay,
+                  OffpeakTimeOption()) {}
 
   ~VersionStorageInfoTestBase() override {
     for (int i = 0; i < vstorage_.num_levels(); ++i) {
@@ -163,7 +168,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kNullUniqueId64x2, compensated_range_deletion_size);
+        kNullUniqueId64x2, compensated_range_deletion_size, 0,
+        /* user_defined_timestamps_persisted */ true);
     vstorage_.AddFile(level, f);
   }
 
@@ -454,6 +460,37 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
   ASSERT_EQ(4, vstorage_.CompactionScoreLevel(2));
 }
 
+TEST_F(VersionStorageInfoTest, DrainUnnecessaryLevel) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 1000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+
+  // Create a few unnecessary levels.
+  // See if score is calculated correctly.
+  Add(5, 1U, "1", "2", 2000U);  // target size 1010000
+  Add(4, 2U, "1", "2", 200U);   // target size 101000
+  // Unnecessary levels
+  Add(3, 3U, "1", "2", 100U);  // target size 10100
+  // Level 2: target size 1010
+  Add(1, 4U, "1", "2",
+      10U);  // target size 1000 = max(base_bytes_min + 1, base_bytes_max)
+
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(1, vstorage_.base_level());
+  ASSERT_EQ(1000, vstorage_.MaxBytesForLevel(1));
+  ASSERT_EQ(10100, vstorage_.MaxBytesForLevel(3));
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+
+  // Tests that levels 1 and 3 are eligible for compaction.
+  // Levels 1 and 3 are much smaller than target size,
+  // so size does not contribute to a high compaction score.
+  ASSERT_EQ(1, vstorage_.CompactionScoreLevel(0));
+  ASSERT_GT(vstorage_.CompactionScore(0), 10);
+  ASSERT_EQ(3, vstorage_.CompactionScoreLevel(1));
+  ASSERT_GT(vstorage_.CompactionScore(1), 10);
+}
+
 TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
   // Test whether the overlaps are detected as expected
   Add(1, 1U, "4", "7", 1U);  // Perfect overlap with last level
@@ -549,7 +586,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCEmpty) {
 
   constexpr double age_cutoff = 0.5;
   constexpr double force_threshold = 0.75;
-  vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+  vstorage_.ComputeFilesMarkedForForcedBlobGC(
+      age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
   ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
 }
@@ -633,7 +671,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 0.1;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -644,7 +683,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 0.5;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -655,7 +695,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 1.0;
     constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -666,7 +707,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 1.0;
     constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
     ASSERT_EQ(ssts_to_be_compacted.size(), 1);
@@ -780,7 +822,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.1;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -791,7 +834,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.25;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -802,7 +846,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.5;
     constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -813,7 +858,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.5;
     constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
     ASSERT_EQ(ssts_to_be_compacted.size(), 2);
@@ -842,7 +888,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -853,7 +900,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
     ASSERT_EQ(ssts_to_be_compacted.size(), 2);
@@ -1153,11 +1201,12 @@ class VersionSetTestBase {
     immutable_options_.fs = fs_;
     immutable_options_.clock = env_->GetSystemClock().get();
 
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_, nullptr);
@@ -1188,7 +1237,7 @@ class VersionSetTestBase {
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      impl->GetDbIdentityFromIdentityFile(&db_id);
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
       new_db.SetDBId(db_id);
     }
     new_db.SetLogNumber(0);
@@ -1244,7 +1293,7 @@ class VersionSetTestBase {
   void NewDB() {
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-    SetIdentityFile(env_, dbname_);
+    ASSERT_OK(SetIdentityFile(env_, dbname_));
     PrepareManifest(&column_families_, &last_seqno, &log_writer);
     log_writer.reset();
     // Make "CURRENT" file point to the new manifest file.
@@ -1257,11 +1306,12 @@ class VersionSetTestBase {
   }
 
   void ReopenDB() {
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     EXPECT_OK(versions_->Recover(column_families_, false));
   }
 
@@ -1276,9 +1326,9 @@ class VersionSetTestBase {
 
   Status LogAndApplyToDefaultCF(VersionEdit& edit) {
     mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_, nullptr);
+    Status s = versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        read_options_, &edit, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1290,9 +1340,9 @@ class VersionSetTestBase {
       vedits.push_back(e.get());
     }
     mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, vedits, &mutex_, nullptr);
+    Status s = versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        read_options_, vedits, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1304,7 +1354,7 @@ class VersionSetTestBase {
     VersionEdit dummy;
     ASSERT_OK(versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        &dummy, &mutex_, db_directory, new_descriptor_log));
+        read_options_, &dummy, &mutex_, db_directory, new_descriptor_log));
     mutex_.Unlock();
   }
 
@@ -1316,10 +1366,13 @@ class VersionSetTestBase {
     new_cf.SetColumnFamily(new_id);
     new_cf.SetLogNumber(0);
     new_cf.SetComparatorName(cf_options.comparator->Name());
+    new_cf.SetPersistUserDefinedTimestamps(
+        cf_options.persist_user_defined_timestamps);
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(/*column_family_data=*/nullptr,
-                               MutableCFOptions(cf_options), &new_cf, &mutex_,
+                               MutableCFOptions(cf_options), read_options_,
+                               &new_cf, &mutex_,
                                /*db_directory=*/nullptr,
                                /*new_descriptor_log=*/false, &cf_options);
     mutex_.Unlock();
@@ -1341,6 +1394,7 @@ class VersionSetTestBase {
   ColumnFamilyOptions cf_options_;
   ImmutableOptions immutable_options_;
   MutableCFOptions mutable_cf_options_;
+  const ReadOptions read_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -1364,6 +1418,8 @@ class VersionSetTest : public VersionSetTestBase, public testing::Test {
 TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   NewDB();
   const int kGroupSize = 5;
+  const ReadOptions read_options;
+
   autovector<VersionEdit> edits;
   for (int i = 0; i != kGroupSize; ++i) {
     edits.emplace_back(VersionEdit());
@@ -1390,8 +1446,8 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists,
-                                    &mutex_, nullptr);
+  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, read_options,
+                                    edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
@@ -1591,9 +1647,9 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   edit.AddBlobFileGarbage(blob_file_number, total_blob_count, total_blob_bytes);
 
   mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_, nullptr);
+  Status s = versions_->LogAndApply(
+      versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+      read_options_, &edit, &mutex_, nullptr);
   mutex_.Unlock();
 
   ASSERT_OK(s);
@@ -1763,11 +1819,12 @@ TEST_F(VersionSetTest, WalAddition) {
 
   // Recover a new VersionSet.
   {
-    std::unique_ptr<VersionSet> new_versions(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> new_versions(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     ASSERT_OK(new_versions->Recover(column_families_, /*read_only=*/false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1830,11 +1887,12 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
 
   // Recover a new VersionSet.
   {
-    std::unique_ptr<VersionSet> new_versions(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> new_versions(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 2);
@@ -1883,11 +1941,12 @@ TEST_F(VersionSetTest, WalDeletion) {
 
   // Recover a new VersionSet, only the non-closed WAL should show up.
   {
-    std::unique_ptr<VersionSet> new_versions(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> new_versions(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1921,11 +1980,12 @@ TEST_F(VersionSetTest, WalDeletion) {
 
   // Recover from the new MANIFEST, only the non-closed WAL should show up.
   {
-    std::unique_ptr<VersionSet> new_versions(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> new_versions(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2041,11 +2101,12 @@ TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
 
   // Recover a new VersionSet, WAL0 is deleted, WAL1 is not.
   {
-    std::unique_ptr<VersionSet> new_versions(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> new_versions(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2077,11 +2138,12 @@ TEST_F(VersionSetTest, DeleteAllWals) {
 
   // Recover a new VersionSet, all WALs are deleted.
   {
-    std::unique_ptr<VersionSet> new_versions(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> new_versions(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 0);
@@ -2119,11 +2181,12 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   // Recover a new VersionSet, the min log number and the last WAL should be
   // kept.
   {
-    std::unique_ptr<VersionSet> new_versions(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> new_versions(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     std::string db_id;
     ASSERT_OK(
         new_versions->Recover(column_families_, /*read_only=*/false, &db_id));
@@ -2136,6 +2199,99 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
     ASSERT_TRUE(wals.at(kNumWals).HasSyncedSize());
     ASSERT_EQ(wals.at(kNumWals).GetSyncedSizeInBytes(), kNumWals);
   }
+}
+
+TEST_F(VersionSetTest, OffpeakTimeInfoTest) {
+  Random rnd(test::RandomSeed());
+
+  // Sets off-peak time from 11:30PM to 4:30AM next day.
+  // Starting at 1:30PM, use mock sleep to make time pass
+  // and see if IsNowOffpeak() returns correctly per time changes
+  int now_hour = 13;
+  int now_minute = 30;
+  versions_->ChangeOffpeakTimeOption("23:30-04:30");
+
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  // Add some extra random days to current time
+  int days = rnd.Uniform(100);
+  mock_clock->SetCurrentTime(days * 86400 + now_hour * 3600 + now_minute * 60);
+  int64_t now;
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+
+  // Starting at 1:30PM. It's not off-peak
+  ASSERT_FALSE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Now it's at 4:30PM. Still not off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_FALSE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Now it's at 11:30PM. It's off-peak
+  mock_clock->MockSleepForSeconds(7 * 3600);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Now it's at 2:30AM next day. It's still off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Now it's at 4:30AM. It's still off-peak
+  mock_clock->MockSleepForSeconds(2 * 3600);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Sleep for one more minute. It's at 4:31AM It's no longer off-peak
+  mock_clock->MockSleepForSeconds(60);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_FALSE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Entire day offpeak
+  versions_->ChangeOffpeakTimeOption("00:00-23:59");
+  // It doesn't matter what time it is. It should be just offpeak.
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Mock Sleep for 3 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Mock Sleep for 20 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(20 * 3600);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Mock Sleep for 59 minutes. It's still off-peak
+  mock_clock->MockSleepForSeconds(59 * 60);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Mock Sleep for 59 seconds. It's still off-peak
+  mock_clock->MockSleepForSeconds(59);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+
+  // Mock Sleep for 1 second (exactly 24h passed). It's still off-peak
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
+  // Another second for sanity check
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 }
 
 TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {
@@ -2184,11 +2340,12 @@ class VersionSetWithTimestampTest : public VersionSetTest {
   }
 
   void VerifyFullHistoryTsLow(uint64_t expected_ts_low) {
-    std::unique_ptr<VersionSet> vset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    std::unique_ptr<VersionSet> vset(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     ASSERT_OK(vset->Recover(column_families_, /*read_only=*/false,
                             /*db_id=*/nullptr));
     for (auto* cfd : *(vset->GetColumnFamilySet())) {
@@ -2211,7 +2368,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
-                               edits_, &mutex_, nullptr);
+                               read_options_, edits_, &mutex_, nullptr);
     mutex_.Unlock();
     ASSERT_OK(s);
     VerifyFullHistoryTsLow(*std::max_element(ts_lbs.begin(), ts_lbs.end()));
@@ -2221,6 +2378,9 @@ class VersionSetWithTimestampTest : public VersionSetTest {
   ColumnFamilyData* cfd_{nullptr};
   // edits_ must contain and own pointers to heap-alloc VersionEdit objects.
   autovector<VersionEdit*> edits_;
+
+ private:
+  const ReadOptions read_options_;
 };
 
 const std::string VersionSetWithTimestampTest::kNewCfName("new_cf");
@@ -2649,6 +2809,8 @@ class VersionSetTestDropOneCF : public VersionSetTestBase,
 //  Repeat the test for i = 1, 2, 3 to simulate dropping the first, middle and
 //  last column family in an atomic group.
 TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
+  const ReadOptions read_options;
+
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
@@ -2678,7 +2840,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   mutex_.Lock();
   s = versions_->LogAndApply(cfd_to_drop,
                              *cfd_to_drop->GetLatestMutableCFOptions(),
-                             &drop_cf_edit, &mutex_, nullptr);
+                             read_options, &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
 
@@ -2727,8 +2889,8 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists, &mutex_,
-                             nullptr);
+  s = versions_->LogAndApply(cfds, mutable_cf_options_list, read_options,
+                             edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);
@@ -2818,11 +2980,12 @@ class VersionSetTestEmptyDb
     assert(nullptr != log_writer);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
+      ASSERT_OK(SetIdentityFile(env_, dbname_));
       DBOptions tmp_db_options;
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      impl->GetDbIdentityFromIdentityFile(&db_id);
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
       new_db.SetDBId(db_id);
     }
     const std::string manifest_path = DescriptorFileName(dbname_, 1);
@@ -3152,7 +3315,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      impl->GetDbIdentityFromIdentityFile(&db_id);
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
       new_db.SetDBId(db_id);
     }
     {
@@ -3252,11 +3415,11 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
-      file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
-                               ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
-                               0, info.epoch_number, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-                               0);
+      file_metas->emplace_back(
+          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
+          Temperature::kUnknown, 0, 0, 0, info.epoch_number,
+          kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+          0, 0, /* user_defined_timestamps_persisted */ true);
     }
   }
 
@@ -3278,7 +3441,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     ++last_seqno_;
     assert(log_writer_.get() != nullptr);
     std::string record;
-    ASSERT_TRUE(edit.EncodeTo(&record));
+    ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
     Status s = log_writer_->AddRecord(record);
     ASSERT_OK(s);
   }
@@ -3313,7 +3476,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3374,7 +3538,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3500,7 +3665,6 @@ class ChargeFileMetadataTestWithParam
   ChargeFileMetadataTestWithParam() {}
 };
 
-#ifndef ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     ChargeFileMetadataTestWithParam, ChargeFileMetadataTestWithParam,
     ::testing::Values(CacheEntryRoleOptions::Decision::kEnabled,
@@ -3508,6 +3672,7 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   BlockBasedTableOptions table_options;
   CacheEntryRoleOptions::Decision charge_file_metadata = GetParam();
   table_options.cache_usage_options.options_overrides.insert(
@@ -3611,7 +3776,6 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
     EXPECT_TRUE(s.ok());
   }
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

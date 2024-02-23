@@ -27,6 +27,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/perf_level.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -206,6 +207,18 @@ class IllegalArgumentExceptionJni
     }
 
     return JavaException::ThrowNew(env, s.ToString());
+  }
+
+  /**
+   * Create and throw a Java IllegalArgumentException with the provided message
+   *
+   * @param env A pointer to the Java environment
+   * @param msg The message for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const std::string& msg) {
+    return JavaException::ThrowNew(env, msg);
   }
 };
 
@@ -3561,13 +3574,20 @@ class IteratorJni
   }
 };
 
-// The portal class for org.rocksdb.Filter
-class FilterJni
+// The portal class for org.rocksdb.FilterPolicy
+
+enum FilterPolicyTypeJni {
+  kUnknownFilterPolicy = 0x00,
+  kBloomFilterPolicy = 0x01,
+  kRibbonFilterPolicy = 0x02,
+};
+class FilterPolicyJni
     : public RocksDBNativeClass<
-          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterJni> {
+          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterPolicyJni> {
+ private:
  public:
   /**
-   * Get the Java Class org.rocksdb.Filter
+   * Get the Java Class org.rocksdb.FilterPolicy
    *
    * @param env A pointer to the Java environment
    *
@@ -3576,7 +3596,19 @@ class FilterJni
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Filter");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/FilterPolicy");
+  }
+
+  static jbyte toJavaIndexType(const FilterPolicyTypeJni& filter_policy_type) {
+    return static_cast<jbyte>(filter_policy_type);
+  }
+
+  static FilterPolicyTypeJni getFilterPolicyType(
+      const std::string& policy_class_name) {
+    if (policy_class_name == "rocksdb.BuiltinBloomFilter") {
+      return kBloomFilterPolicy;
+    }
+    return kUnknownFilterPolicy;
   }
 };
 
@@ -4806,8 +4838,6 @@ class TickerTypeJni {
         return 0x6;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT:
         return 0x7;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT:
-        return 0x8;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_MISS:
         return 0x9;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_HIT:
@@ -4816,8 +4846,6 @@ class TickerTypeJni {
         return 0xB;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT:
         return 0xC;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT:
-        return 0xD;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_MISS:
         return 0xE;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_HIT:
@@ -4884,34 +4912,20 @@ class TickerTypeJni {
         return 0x2D;
       case ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ:
         return 0x2E;
-      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_CLOSES:
-        return 0x2F;
       case ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS:
         return 0x30;
       case ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS:
         return 0x31;
-      case ROCKSDB_NAMESPACE::Tickers::STALL_L0_SLOWDOWN_MICROS:
-        return 0x32;
-      case ROCKSDB_NAMESPACE::Tickers::STALL_MEMTABLE_COMPACTION_MICROS:
-        return 0x33;
-      case ROCKSDB_NAMESPACE::Tickers::STALL_L0_NUM_FILES_MICROS:
-        return 0x34;
       case ROCKSDB_NAMESPACE::Tickers::STALL_MICROS:
         return 0x35;
       case ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS:
         return 0x36;
-      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMIT_DELAY_MILLIS:
-        return 0x37;
-      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATORS:
-        return 0x38;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS:
         return 0x39;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ:
         return 0x3A;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ:
         return 0x3B;
-      case ROCKSDB_NAMESPACE::Tickers::NUMBER_FILTERED_DELETES:
-        return 0x3C;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES:
         return 0x3D;
       case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_CHECKED:
@@ -4922,14 +4936,6 @@ class TickerTypeJni {
         return 0x40;
       case ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS:
         return 0x41;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_MISS:
-        return 0x42;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_HIT:
-        return 0x43;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD:
-        return 0x44;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES:
-        return 0x45;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED:
         return 0x46;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:
@@ -4938,8 +4944,6 @@ class TickerTypeJni {
         return 0x48;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER:
         return 0x49;
-      case ROCKSDB_NAMESPACE::Tickers::WRITE_TIMEDOUT:
-        return 0x4A;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL:
         return 0x4B;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES:
@@ -5043,16 +5047,8 @@ class TickerTypeJni {
         return 0x7C;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES:
         return 0x7D;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN:
-        return 0x7E;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED:
-        return 0x7F;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
         return -0x02;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN:
-        return -0x03;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_EXPIRED:
-        return -0x04;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED:
         return -0x05;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED:
@@ -5155,6 +5151,30 @@ class TickerTypeJni {
         return -0x35;
       case ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT:
         return -0x36;
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS:
+        return -0x37;
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS:
+        return -0x38;
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS:
+        return -0x39;
+      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS:
+        return -0x3A;
+      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT:
+        return -0x3B;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT:
+        return -0x3C;
+      case ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED:
+        return -0x3D;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS:
+        return -0x3E;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS:
+        return -0x3F;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES:
+        return -0x40;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL:
+        return -0x41;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS:
+        return -0x42;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5191,8 +5211,6 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_ADD;
       case 0x7:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT;
-      case 0x8:
-        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT;
       case 0x9:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_MISS;
       case 0xA:
@@ -5201,8 +5219,6 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_ADD;
       case 0xC:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT;
-      case 0xD:
-        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT;
       case 0xE:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_MISS;
       case 0xF:
@@ -5269,34 +5285,20 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV_FOUND;
       case 0x2E:
         return ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ;
-      case 0x2F:
-        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_CLOSES;
       case 0x30:
         return ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS;
       case 0x31:
         return ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS;
-      case 0x32:
-        return ROCKSDB_NAMESPACE::Tickers::STALL_L0_SLOWDOWN_MICROS;
-      case 0x33:
-        return ROCKSDB_NAMESPACE::Tickers::STALL_MEMTABLE_COMPACTION_MICROS;
-      case 0x34:
-        return ROCKSDB_NAMESPACE::Tickers::STALL_L0_NUM_FILES_MICROS;
       case 0x35:
         return ROCKSDB_NAMESPACE::Tickers::STALL_MICROS;
       case 0x36:
         return ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS;
-      case 0x37:
-        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMIT_DELAY_MILLIS;
-      case 0x38:
-        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATORS;
       case 0x39:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS;
       case 0x3A:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ;
       case 0x3B:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ;
-      case 0x3C:
-        return ROCKSDB_NAMESPACE::Tickers::NUMBER_FILTERED_DELETES;
       case 0x3D:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES;
       case 0x3E:
@@ -5307,14 +5309,6 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION;
       case 0x41:
         return ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS;
-      case 0x42:
-        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_MISS;
-      case 0x43:
-        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_HIT;
-      case 0x44:
-        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD;
-      case 0x45:
-        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES;
       case 0x46:
         return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED;
       case 0x47:
@@ -5323,8 +5317,6 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF;
       case 0x49:
         return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER;
-      case 0x4A:
-        return ROCKSDB_NAMESPACE::Tickers::WRITE_TIMEDOUT;
       case 0x4B:
         return ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL;
       case 0x4C:
@@ -5429,16 +5421,8 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
       case 0x7D:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES;
-      case 0x7E:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN;
-      case 0x7F:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED;
       case -0x02:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
-      case -0x03:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN;
-      case -0x04:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_EXPIRED;
       case -0x05:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED;
       case -0x06:
@@ -5542,6 +5526,30 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::READ_ASYNC_MICROS;
       case -0x36:
         return ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT;
+      case -0x37:
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS;
+      case -0x38:
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS;
+      case -0x39:
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS;
+      case -0x3A:
+        return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS;
+      case -0x3B:
+        return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT;
+      case -0x3C:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT;
+      case -0x3D:
+        return ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED;
+      case -0x3E:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS;
+      case -0x3F:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS;
+      case -0x40:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES;
+      case -0x41:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL;
+      case -0x42:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5594,16 +5602,6 @@ class HistogramTypeJni {
         return 0xB;
       case ROCKSDB_NAMESPACE::Histograms::WRITE_RAW_BLOCK_MICROS:
         return 0xC;
-      case ROCKSDB_NAMESPACE::Histograms::STALL_L0_SLOWDOWN_COUNT:
-        return 0xD;
-      case ROCKSDB_NAMESPACE::Histograms::STALL_MEMTABLE_COMPACTION_COUNT:
-        return 0xE;
-      case ROCKSDB_NAMESPACE::Histograms::STALL_L0_NUM_FILES_COUNT:
-        return 0xF;
-      case ROCKSDB_NAMESPACE::Histograms::HARD_RATE_LIMIT_DELAY_COUNT:
-        return 0x10;
-      case ROCKSDB_NAMESPACE::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT:
-        return 0x11;
       case ROCKSDB_NAMESPACE::Histograms::NUM_FILES_IN_SINGLE_COMPACTION:
         return 0x12;
       case ROCKSDB_NAMESPACE::Histograms::DB_SEEK:
@@ -5656,8 +5654,6 @@ class HistogramTypeJni {
         return 0x2A;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
         return 0x2B;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GC_MICROS:
-        return 0x2C;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS:
         return 0x2D;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
@@ -5665,8 +5661,6 @@ class HistogramTypeJni {
       case ROCKSDB_NAMESPACE::Histograms::
           NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL:
         return 0x2F;
-      case ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL:
-        return 0x30;
       case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
         return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
@@ -5683,6 +5677,25 @@ class HistogramTypeJni {
         return 0x37;
       case ASYNC_PREFETCH_ABORT_MICROS:
         return 0x38;
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_PREFETCH_TAIL_READ_BYTES:
+        return 0x39;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS:
+        return 0x3A;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS:
+        return 0x3B;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS:
+        return 0x3C;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_GET_MICROS:
+        return 0x3D;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_MULTIGET_MICROS:
+        return 0x3E;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_ITERATOR_MICROS:
+        return 0x3F;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_VERIFY_DB_CHECKSUM_MICROS:
+        return 0x40;
+      case ROCKSDB_NAMESPACE::Histograms::
+          FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS:
+        return 0x41;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5723,16 +5736,6 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_GET_MICROS;
       case 0xC:
         return ROCKSDB_NAMESPACE::Histograms::WRITE_RAW_BLOCK_MICROS;
-      case 0xD:
-        return ROCKSDB_NAMESPACE::Histograms::STALL_L0_SLOWDOWN_COUNT;
-      case 0xE:
-        return ROCKSDB_NAMESPACE::Histograms::STALL_MEMTABLE_COMPACTION_COUNT;
-      case 0xF:
-        return ROCKSDB_NAMESPACE::Histograms::STALL_L0_NUM_FILES_COUNT;
-      case 0x10:
-        return ROCKSDB_NAMESPACE::Histograms::HARD_RATE_LIMIT_DELAY_COUNT;
-      case 0x11:
-        return ROCKSDB_NAMESPACE::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT;
       case 0x12:
         return ROCKSDB_NAMESPACE::Histograms::NUM_FILES_IN_SINGLE_COMPACTION;
       case 0x13:
@@ -5785,8 +5788,6 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
       case 0x2B:
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
-      case 0x2C:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GC_MICROS;
       case 0x2D:
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
       case 0x2E:
@@ -5794,8 +5795,6 @@ class HistogramTypeJni {
       case 0x2F:
         return ROCKSDB_NAMESPACE::Histograms::
             NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL;
-      case 0x30:
-        return ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL;
       case 0x31:
         return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
       case 0x32:
@@ -5813,6 +5812,27 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::NUM_LEVEL_READ_PER_MULTIGET;
       case 0x38:
         return ROCKSDB_NAMESPACE::Histograms::ASYNC_PREFETCH_ABORT_MICROS;
+      case 0x39:
+        return ROCKSDB_NAMESPACE::Histograms::
+            TABLE_OPEN_PREFETCH_TAIL_READ_BYTES;
+      case 0x3A:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS;
+      case 0x3B:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS;
+      case 0x3C:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS;
+      case 0x3D:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_GET_MICROS;
+      case 0x3E:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_MULTIGET_MICROS;
+      case 0x3F:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_ITERATOR_MICROS;
+      case 0x40:
+        return ROCKSDB_NAMESPACE::Histograms::
+            FILE_READ_VERIFY_DB_CHECKSUM_MICROS;
+      case 0x41:
+        return ROCKSDB_NAMESPACE::Histograms::
+            FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -5941,6 +5961,52 @@ class MemoryUsageTypeJni {
       default:
         // undefined/default: use kNumUsageTypes
         return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kNumUsageTypes;
+    }
+  }
+};
+
+class PerfLevelTypeJni {
+ public:
+  static jbyte toJavaPerfLevelType(const ROCKSDB_NAMESPACE::PerfLevel level) {
+    switch (level) {
+      case ROCKSDB_NAMESPACE::PerfLevel::kUninitialized:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::PerfLevel::kDisable:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableCount:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex:
+        return 0x3;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex:
+        return 0x4;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTime:
+        return 0x5;
+      case ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds:
+        return 0x6;
+      default:
+        return 0x6;
+    }
+  }
+
+  static ROCKSDB_NAMESPACE::PerfLevel toCppPerfLevelType(const jbyte level) {
+    switch (level) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::PerfLevel::kUninitialized;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::PerfLevel::kDisable;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableCount;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::PerfLevel::
+            kEnableTimeAndCPUTimeExceptForMutex;
+      case 0x5:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTime;
+      case 0x6:
+        return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;
+      default:
+        return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;
     }
   }
 };
@@ -6707,7 +6773,7 @@ class ChecksumTypeJni {
         return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
       default:
         // undefined/default
-        return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+        return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
     }
   }
 };
@@ -6852,6 +6918,8 @@ class OperationTypeJni {
         return 0x1;
       case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH:
         return 0x2;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN:
+        return 0x3;
       default:
         return 0x7F;  // undefined
     }
@@ -6868,6 +6936,8 @@ class OperationTypeJni {
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_COMPACTION;
       case 0x2:
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_UNKNOWN;
@@ -8757,5 +8827,124 @@ class FileOperationInfoJni : public JavaClass {
                             "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
+
+class CompactRangeOptionsTimestampJni : public JavaClass {
+ public:
+  static jobject fromCppTimestamp(JNIEnv* env, const uint64_t start,
+                                  const uint64_t range) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    return env->NewObject(jclazz, ctor, static_cast<jlong>(start),
+                          static_cast<jlong>(range));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+                                "org/rocksdb/CompactRangeOptions$Timestamp");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(JJ)V");
+  }
+};
+
+// The portal class for org.rocksdb.BlockBasedTableOptions
+class BlockBasedTableOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BlockBasedTableOptions*,
+                                BlockBasedTableOptions> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.BlockBasedTableConfig
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+                                         "org/rocksdb/BlockBasedTableConfig");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.BlockBasedTableConfig object with the
+   * properties as the provided C++ ROCKSDB_NAMESPACE::BlockBasedTableOptions
+   * object
+   *
+   * @param env A pointer to the Java environment
+   * @param cfoptions A pointer to ROCKSDB_NAMESPACE::ColumnFamilyOptions object
+   *
+   * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(
+      JNIEnv* env, const BlockBasedTableOptions* table_factory_options) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID method_id_init =
+        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZBBJD)V");
+    if (method_id_init == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    FilterPolicyTypeJni filter_policy_type =
+        FilterPolicyTypeJni::kUnknownFilterPolicy;
+    jlong filter_policy_handle = 0L;
+    jdouble filter_policy_config_value = 0.0;
+    if (table_factory_options->filter_policy) {
+      auto filter_policy = table_factory_options->filter_policy.get();
+      filter_policy_type = FilterPolicyJni::getFilterPolicyType(
+          filter_policy->CompatibilityName());
+      if (FilterPolicyTypeJni::kUnknownFilterPolicy != filter_policy_type) {
+        filter_policy_handle = GET_CPLUSPLUS_POINTER(filter_policy);
+      }
+    }
+
+    jobject jcfd = env->NewObject(
+        jclazz, method_id_init,
+        table_factory_options->cache_index_and_filter_blocks,
+        table_factory_options->cache_index_and_filter_blocks_with_high_priority,
+        table_factory_options->pin_l0_filter_and_index_blocks_in_cache,
+        table_factory_options->pin_top_level_index_and_filter,
+        IndexTypeJni::toJavaIndexType(table_factory_options->index_type),
+        DataBlockIndexTypeJni::toJavaDataBlockIndexType(
+            table_factory_options->data_block_index_type),
+        table_factory_options->data_block_hash_table_util_ratio,
+        ChecksumTypeJni::toJavaChecksumType(table_factory_options->checksum),
+        table_factory_options->no_block_cache,
+        static_cast<jlong>(table_factory_options->block_size),
+        table_factory_options->block_size_deviation,
+        table_factory_options->block_restart_interval,
+        table_factory_options->index_block_restart_interval,
+        static_cast<jlong>(table_factory_options->metadata_block_size),
+        table_factory_options->partition_filters,
+        table_factory_options->optimize_filters_for_memory,
+        table_factory_options->use_delta_encoding,
+        table_factory_options->whole_key_filtering,
+        table_factory_options->verify_compression,
+        table_factory_options->read_amp_bytes_per_bit,
+        table_factory_options->format_version,
+        table_factory_options->enable_index_compression,
+        table_factory_options->block_align,
+        IndexShorteningModeJni::toJavaIndexShorteningMode(
+            table_factory_options->index_shortening),
+        FilterPolicyJni::toJavaIndexType(filter_policy_type),
+        filter_policy_handle, filter_policy_config_value);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jcfd;
+  }
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

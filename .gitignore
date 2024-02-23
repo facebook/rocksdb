@@ -87,6 +87,7 @@ fbcode
 travis-build/
 buckifier/*.pyc
 buckifier/__pycache__
+.arcconfig
 
 compile_commands.json
 .vscode
@@ -99,3 +100,5 @@ fuzz/crash-*
 
 cmake-build-*
 third-party/folly/
+.cache
+*.sublime-*

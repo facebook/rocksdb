@@ -25,7 +25,6 @@ std::atomic<extent_alloc_t*> JemallocNodumpAllocator::original_alloc_{nullptr};
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 static std::unordered_map<std::string, OptionTypeInfo> jemalloc_type_info = {
-#ifndef ROCKSDB_LITE
     {"limit_tcache_size",
      {offsetof(struct JemallocAllocatorOptions, limit_tcache_size),
       OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -41,7 +40,6 @@ static std::unordered_map<std::string, OptionTypeInfo> jemalloc_type_info = {
     {"num_arenas",
      {offsetof(struct JemallocAllocatorOptions, num_arenas), OptionType::kSizeT,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 bool JemallocNodumpAllocator::IsSupported(std::string* why) {
 #ifndef ROCKSDB_JEMALLOC
@@ -65,7 +63,7 @@ bool JemallocNodumpAllocator::IsSupported(std::string* why) {
 }
 
 JemallocNodumpAllocator::JemallocNodumpAllocator(
-    JemallocAllocatorOptions& options)
+    const JemallocAllocatorOptions& options)
     : options_(options)
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
       ,
@@ -94,7 +92,7 @@ JemallocNodumpAllocator::~JemallocNodumpAllocator() {
 
 size_t JemallocNodumpAllocator::UsableSize(void* p,
                                            size_t /*allocation_size*/) const {
-  return sallocx(p, 0 /* flags */);
+  return malloc_usable_size(static_cast<void*>(p));
 }
 
 void* JemallocNodumpAllocator::Allocate(size_t size) {
@@ -107,8 +105,7 @@ void JemallocNodumpAllocator::Deallocate(void* p) {
   // Obtain tcache.
   size_t size = 0;
   if (options_.limit_tcache_size) {
-    // flags are not used in sallocx, so passing 0 value here
-    size = sallocx(p, 0 /* flags */);
+    size = malloc_usable_size(p);
   }
   int tcache_flag = GetThreadSpecificCache(size);
   // No need to pass arena index to dallocx(). Jemalloc will find arena index
@@ -216,7 +213,7 @@ Status JemallocNodumpAllocator::PrepareOptions(
 }
 
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
-int JemallocNodumpAllocator::GetThreadSpecificCache(size_t size) const {
+int JemallocNodumpAllocator::GetThreadSpecificCache(size_t size) {
   // We always enable tcache. The only corner case is when there are a ton of
   // threads accessing with low frequency, then it could consume a lot of
   // memory (may reach # threads * ~1MB) without bringing too much benefit.
@@ -286,7 +283,7 @@ void JemallocNodumpAllocator::DestroyThreadSpecificCache(void* ptr) {
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 Status NewJemallocNodumpAllocator(
-    JemallocAllocatorOptions& options,
+    const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator) {
   if (memory_allocator == nullptr) {
     return Status::InvalidArgument("memory_allocator must be non-null.");

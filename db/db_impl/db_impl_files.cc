@@ -35,6 +35,11 @@ uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
   return std::numeric_limits<uint64_t>::max();
 }
 
+uint64_t DBImpl::GetObsoleteSstFilesSize() {
+  mutex_.AssertHeld();
+  return versions_->GetObsoleteSstFilesSize();
+}
+
 Status DBImpl::DisableFileDeletions() {
   Status s;
   int my_disable_delete_obsolete_files;
@@ -141,6 +146,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // mutex_ cannot be released. Otherwise, we might see no min_pending_output
   // here but later find newer generated unfinalized files while scanning.
   job_context->min_pending_output = MinObsoleteSstNumberToKeep();
+  job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
 
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
@@ -286,6 +292,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     return;
   }
 
+  bool mutex_unlocked = false;
   if (!alive_log_files_.empty() && !logs_.empty()) {
     uint64_t min_log_number = job_context->log_number;
     size_t num_alive_log_files = alive_log_files_.size();
@@ -315,6 +322,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
     log_write_mutex_.Unlock();
     mutex_.Unlock();
+    mutex_unlocked = true;
     TEST_SYNC_POINT_CALLBACK("FindObsoleteFiles::PostMutexUnlock", nullptr);
     log_write_mutex_.Lock();
     while (!logs_.empty() && logs_.front().number < min_log_number) {
@@ -337,7 +345,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   logs_to_free_.clear();
   log_write_mutex_.Unlock();
-  mutex_.Lock();
+  if (mutex_unlocked) {
+    mutex_.Lock();
+  }
   job_context->log_recycle_files.assign(log_recycle_files_.begin(),
                                         log_recycle_files_.end());
 }
@@ -412,6 +422,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                              state.blob_live.end());
   std::unordered_set<uint64_t> log_recycle_files_set(
       state.log_recycle_files.begin(), state.log_recycle_files.end());
+  std::unordered_set<uint64_t> quarantine_files_set(
+      state.files_to_quarantine.begin(), state.files_to_quarantine.end());
 
   auto candidate_files = state.full_scan_candidate_files;
   candidate_files.reserve(
@@ -450,12 +462,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   std::sort(candidate_files.begin(), candidate_files.end(),
             [](const JobContext::CandidateFileInfo& lhs,
                const JobContext::CandidateFileInfo& rhs) {
-              if (lhs.file_name > rhs.file_name) {
+              if (lhs.file_name < rhs.file_name) {
                 return true;
-              } else if (lhs.file_name < rhs.file_name) {
+              } else if (lhs.file_name > rhs.file_name) {
                 return false;
               } else {
-                return (lhs.file_path > rhs.file_path);
+                return (lhs.file_path < rhs.file_path);
               }
             });
   candidate_files.erase(
@@ -512,6 +524,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     FileType type;
     // Ignore file if we cannot recognize it.
     if (!ParseFileName(to_delete, &number, info_log_prefix.prefix, &type)) {
+      continue;
+    }
+
+    if (quarantine_files_set.find(number) != quarantine_files_set.end()) {
       continue;
     }
 
@@ -599,13 +615,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
               to_delete;
     }
 
-#ifndef ROCKSDB_LITE
     if (type == kWalFile && (immutable_db_options_.WAL_ttl_seconds > 0 ||
                              immutable_db_options_.WAL_size_limit_MB > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;
     }
-#endif  // !ROCKSDB_LITE
 
     // If I do not own these files, e.g. secondary instance with max_open_files
     // = -1, then no need to delete or schedule delete these files since they
@@ -669,9 +683,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       }
     }
   }
-#ifndef ROCKSDB_LITE
   wal_manager_.PurgeObsoleteWALFiles();
-#endif  // ROCKSDB_LITE
   LogFlush(immutable_db_options_.info_log);
   InstrumentedMutexLock l(&mutex_);
   --pending_purge_obsolete_files_;
@@ -992,7 +1004,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
       if (type == kTableFile && number >= next_file_number &&
           recovery_ctx->files_to_delete_.find(normalized_fpath) ==
               recovery_ctx->files_to_delete_.end()) {
-        recovery_ctx->files_to_delete_.emplace(normalized_fpath);
+        recovery_ctx->files_to_delete_.emplace(normalized_fpath, path);
       }
     }
   }

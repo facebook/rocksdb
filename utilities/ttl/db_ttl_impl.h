@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <deque>
 #include <string>
 #include <vector>
@@ -79,7 +78,7 @@ class DBWithTTLImpl : public DBWithTTL {
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   using StackableDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& opts,
+  virtual Iterator* NewIterator(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family) override;
 
   virtual DB* GetBaseDB() override { return db_; }
@@ -242,4 +241,3 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/);
 }  // extern "C"
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

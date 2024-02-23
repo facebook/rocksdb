@@ -2,7 +2,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#ifndef ROCKSDB_LITE
 
 #include "utilities/ttl/db_ttl_impl.h"
 
@@ -20,9 +19,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 static std::unordered_map<std::string, OptionTypeInfo> ttl_merge_op_type_info =
-    {{"user_operator",
-      OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
-          0, OptionVerificationType::kByName, OptionTypeFlags::kNone)}};
+    {{"user_operator", OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
+                           0, OptionVerificationType::kByNameAllowNull,
+                           OptionTypeFlags::kNone)}};
 
 TtlMergeOperator::TtlMergeOperator(
     const std::shared_ptr<MergeOperator>& merge_op, SystemClock* clock)
@@ -452,7 +451,11 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl,
   if (!clock->GetCurrentTime(&curtime).ok()) {
     return false;  // Treat the data as fresh if could not get current time
   }
-  int32_t timestamp_value =
+  /* int32_t may overflow when timestamp_value + ttl
+   * for example ttl = 86400 * 365 * 15
+   * convert timestamp_value to int64_t
+   */
+  int64_t timestamp_value =
       DecodeFixed32(value.data() + value.size() - kTSLength);
   return (timestamp_value + ttl) < curtime;
 }
@@ -591,9 +594,19 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   }
 }
 
-Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
+Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& _read_options,
                                      ColumnFamilyHandle* column_family) {
-  return new TtlIterator(db_->NewIterator(opts, column_family));
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
+  return new TtlIterator(db_->NewIterator(read_options, column_family));
 }
 
 void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {
@@ -607,4 +620,3 @@ void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -3,8 +3,6 @@
 # --> DO NOT EDIT MANUALLY <--
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
-#
-# @noautodeps @nocodemods
 load("//rocks/buckifier:defs.bzl", "cpp_library_wrapper","rocks_cpp_library_wrapper","cpp_binary_wrapper","cpp_unittest_wrapper","fancy_bench_wrapper","add_c_test_wrapper")
 
 
@@ -19,7 +17,6 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "cache/compressed_secondary_cache.cc",
         "cache/lru_cache.cc",
         "cache/secondary_cache.cc",
-        "cache/sharded_cache.cc",
         "cloud/aws/aws_file_system.cc",
         "cloud/aws/aws_kafka.cc",
         "cloud/aws/aws_kinesis.cc",
@@ -35,6 +32,9 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "cloud/db_cloud_impl.cc",
         "cloud/manifest_reader.cc",
         "cloud/purge.cc",
+        "cache/secondary_cache_adapter.cc",
+        "cache/sharded_cache.cc",
+        "cache/tiered_secondary_cache.cc",
         "db/arena_wrapped_db_iter.cc",
         "db/blob/blob_contents.cc",
         "db/blob/blob_fetcher.cc",
@@ -119,9 +119,11 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/wal_manager.cc",
         "db/wide/wide_column_serialization.cc",
         "db/wide/wide_columns.cc",
+        "db/wide/wide_columns_helper.cc",
         "db/write_batch.cc",
         "db/write_batch_base.cc",
         "db/write_controller.cc",
+        "db/write_stall_stats.cc",
         "db/write_thread.cc",
         "env/composite_env.cc",
         "env/env.cc",
@@ -178,6 +180,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "options/configurable.cc",
         "options/customizable.cc",
         "options/db_options.cc",
+        "options/offpeak_time_info.cc",
         "options/options.cc",
         "options/options_helper.cc",
         "options/options_parser.cc",
@@ -217,6 +220,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/block_based/reader_common.cc",
         "table/block_based/uncompression_dict_reader.cc",
         "table/block_fetcher.cc",
+        "table/compaction_merging_iterator.cc",
         "table/cuckoo/cuckoo_table_builder.cc",
         "table/cuckoo/cuckoo_table_factory.cc",
         "table/cuckoo/cuckoo_table_reader.cc",
@@ -264,6 +268,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/concurrent_task_limiter_impl.cc",
         "util/crc32c.cc",
         "util/crc32c_arm64.cc",
+        "util/data_structure.cc",
         "util/dynamic_bloom.cc",
         "util/file_checksum_helper.cc",
         "util/hash.cc",
@@ -277,6 +282,8 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/string_util.cc",
         "util/thread_local.cc",
         "util/threadpool_imp.cc",
+        "util/udt_util.cc",
+        "util/write_batch_util.cc",
         "util/xxhash.cc",
         "utilities/agg_merge/agg_merge.cc",
         "utilities/backup/backup_engine.cc",
@@ -367,6 +374,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "//folly/synchronization:distributed_mutex",
     ], headers=None, link_whole=False, extra_test_libs=False)
 
+<<<<<<< HEAD
 cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
@@ -726,11 +734,14 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "//folly/synchronization:distributed_mutex",
     ], headers=None, link_whole=True, extra_test_libs=False)
 
+cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[], deps=[":rocksdb_lib"], headers=None, link_whole=True, extra_test_libs=False)
+
 cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "db/db_test_util.cc",
         "db/db_with_timestamp_test_util.cc",
         "table/mock_table.cc",
         "test_util/mock_time_env.cc",
+        "test_util/secondary_cache_test_util.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
@@ -760,7 +771,9 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/db_stress_stat.cc",
         "db_stress_tool/db_stress_test_base.cc",
         "db_stress_tool/db_stress_tool.cc",
+        "db_stress_tool/db_stress_wide_merge_operator.cc",
         "db_stress_tool/expected_state.cc",
+        "db_stress_tool/expected_value.cc",
         "db_stress_tool/multi_ops_txns_stress.cc",
         "db_stress_tool/no_batched_ops_stress.cc",
         "test_util/testutil.cc",
@@ -770,6 +783,8 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
 
 
 cpp_binary_wrapper(name="db_stress", srcs=["db_stress_tool/db_stress.cc"], deps=[":rocksdb_stress_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
+
+cpp_binary_wrapper(name="cache_bench", srcs=["cache/cache_bench.cc"], deps=[":rocksdb_cache_bench_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
 
 cpp_binary_wrapper(name="ribbon_bench", srcs=["microbench/ribbon_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
 
@@ -5141,6 +5156,11 @@ cpp_unittest_wrapper(name="db_cloud_test",
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
+cpp_unittest_wrapper(name="db_clip_test",
+            srcs=["db/db_clip_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
 
 cpp_unittest_wrapper(name="db_compaction_filter_test",
             srcs=["db/db_compaction_filter_test.cc"],
@@ -5870,6 +5890,12 @@ cpp_unittest_wrapper(name="tiered_compaction_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="tiered_secondary_cache_test",
+            srcs=["cache/tiered_secondary_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="timer_queue_test",
             srcs=["util/timer_queue_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5906,6 +5932,12 @@ cpp_unittest_wrapper(name="ttl_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="udt_util_test",
+            srcs=["util/udt_util_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="util_merge_operators_test",
             srcs=["utilities/util_merge_operators_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5938,6 +5970,12 @@ cpp_unittest_wrapper(name="wal_manager_test",
 
 cpp_unittest_wrapper(name="wide_column_serialization_test",
             srcs=["db/wide/wide_column_serialization_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="wide_columns_helper_test",
+            srcs=["db/wide/wide_columns_helper_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -5995,3 +6033,5 @@ cpp_unittest_wrapper(name="write_unprepared_transaction_test",
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
+
+export_file(name = "tools/db_crashtest.py")

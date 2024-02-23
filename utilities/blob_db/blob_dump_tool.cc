@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_dump_tool.h"
 
@@ -103,8 +102,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     }
     buffer_.reset(new char[buffer_size_]);
   }
-  Status s = reader_->Read(IOOptions(), offset, size, result, buffer_.get(),
-                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+  Status s =
+      reader_->Read(IOOptions(), offset, size, result, buffer_.get(), nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -278,5 +277,3 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

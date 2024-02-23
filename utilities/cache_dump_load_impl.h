@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <unordered_map>
 
@@ -250,8 +249,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 
     while (to_read > 0) {
       io_s = file_reader_->Read(IOOptions(), offset_, to_read, &result_,
-                                buffer_, nullptr,
-                                Env::IO_TOTAL /* rate_limiter_priority */);
+                                buffer_, nullptr);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -355,4 +353,3 @@ class CacheDumperHelper {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

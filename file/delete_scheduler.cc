@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "file/delete_scheduler.h"
 
@@ -257,6 +256,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
       if (is_complete) {
+        RecordTick(stats_.get(), FILES_DELETED_FROM_TRASH_QUEUE);
         queue_.pop();
       }
 
@@ -408,4 +408,3 @@ void DeleteScheduler::MaybeCreateBackgroundThread() {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -9,15 +9,11 @@ package org.rocksdb;
  * Options while opening a file to read/write
  */
 public class EnvOptions extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * Construct with default Options
    */
   public EnvOptions() {
-    super(newEnvOptions());
+    super(newEnvOptionsInstance());
   }
 
   /**
@@ -31,7 +27,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable memory mapped reads.
-   *
+   * <p>
    * Default: false
    *
    * @param useMmapReads true to enable memory mapped reads, false to disable.
@@ -55,7 +51,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable memory mapped Writes.
-   *
+   * <p>
    * Default: true
    *
    * @param useMmapWrites true to enable memory mapped writes, false to disable.
@@ -79,7 +75,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable direct reads, i.e. {@code O_DIRECT}.
-   *
+   * <p>
    * Default: false
    *
    * @param useDirectReads true to enable direct reads, false to disable.
@@ -103,7 +99,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable direct writes, i.e. {@code O_DIRECT}.
-   *
+   * <p>
    * Default: false
    *
    * @param useDirectWrites true to enable direct writes, false to disable.
@@ -127,9 +123,9 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable fallocate calls.
-   *
+   * <p>
    * Default: true
-   *
+   * <p>
    * If false, {@code fallocate()} calls are bypassed.
    *
    * @param allowFallocate true to enable fallocate calls, false to disable.
@@ -153,7 +149,7 @@ public class EnvOptions extends RocksObject {
 
   /**
    * Enable/Disable the {@code FD_CLOEXEC} bit when opening file descriptors.
-   *
+   * <p>
    * Default: true
    *
    * @param setFdCloexec true to enable the {@code FB_CLOEXEC} bit,
@@ -181,7 +177,7 @@ public class EnvOptions extends RocksObject {
    * Allows OS to incrementally sync files to disk while they are being
    * written, in the background. Issue one request for every
    * {@code bytesPerSync} written.
-   *
+   * <p>
    * Default: 0
    *
    * @param bytesPerSync 0 to disable, otherwise the number of bytes.
@@ -323,8 +319,12 @@ public class EnvOptions extends RocksObject {
     return rateLimiter;
   }
 
-  private native static long newEnvOptions();
-  private native static long newEnvOptions(final long dboptions_handle);
+  private static long newEnvOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newEnvOptions();
+  }
+  private static native long newEnvOptions();
+  private static native long newEnvOptions(final long dboptions_handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setUseMmapReads(final long handle,

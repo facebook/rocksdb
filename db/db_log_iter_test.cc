@@ -10,7 +10,6 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
 #include "env/mock_env.h"
@@ -146,6 +145,41 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
     } while (ChangeCompactOptions());
   }
 }
+
+TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
+  do {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    Options options = OptionsForLogIterTest();
+    DestroyAndReopen(options);
+    ColumnFamilyHandle* cf;
+    auto s = dbfull()->CreateColumnFamily(ColumnFamilyOptions(), "CF", &cf);
+    ASSERT_TRUE(s.ok());
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), cf, "key1", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key2", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key3", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key4", DummyString(1024)));
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "WalManager::PurgeObsoleteFiles:1", [&](void*) {
+          auto iter = OpenTransactionLogIter(0);
+          ExpectRecords(4, iter);
+        });
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_OK(dbfull()->Flush(FlushOptions(), cf));
+
+    delete cf;
+  } while (ChangeCompactOptions());
+}
 #endif
 
 TEST_F(DBTestXactLogIterator, TransactionLogIteratorStallAtLastRecord) {
@@ -202,7 +236,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
     ASSERT_OK(test::TruncateFile(env_, logfile_path,
                                  wal_files.front()->SizeFileBytes() / 2));
 
-    ASSERT_OK(db_->EnableFileDeletions());
+    ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
 
     // Insert a new entry to a new log file
     ASSERT_OK(Put("key1025", DummyString(10)));
@@ -290,16 +324,9 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void)argc;
-  (void)argv;
-  return 0;
-#endif
 }

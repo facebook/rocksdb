@@ -30,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 // arena mutexes.
 class JemallocNodumpAllocator : public BaseMemoryAllocator {
  public:
-  explicit JemallocNodumpAllocator(JemallocAllocatorOptions& options);
+  explicit JemallocNodumpAllocator(const JemallocAllocatorOptions& options);
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   ~JemallocNodumpAllocator();
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
@@ -71,7 +71,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
 
   // Get or create tcache. Return flag suitable to use with `mallocx`:
   // either MALLOCX_TCACHE_NONE or MALLOCX_TCACHE(tc).
-  int GetThreadSpecificCache(size_t size) const;
+  int GetThreadSpecificCache(size_t size);
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   JemallocAllocatorOptions options_;
 
@@ -89,7 +89,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   std::vector<std::unique_ptr<extent_hooks_t>> per_arena_hooks_;
 
   // Hold thread-local tcache index.
-  mutable ThreadLocalPtr tcache_;
+  ThreadLocalPtr tcache_;
 
   std::vector<uint32_t> arena_indexes_;
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR

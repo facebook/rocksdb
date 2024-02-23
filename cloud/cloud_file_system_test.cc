@@ -110,7 +110,7 @@ TEST(CloudFileSystemTest, ConfigureEnv) {
 
   ConfigOptions config_options;
   config_options.invoke_prepare_options = false;
-  ASSERT_OK(CloudFileSystem::CreateFromString(
+  ASSERT_OK(CloudFileSystemEnv::CreateFromString(
       config_options, "keep_local_sst_files=true", &cfs));
   ASSERT_NE(cfs, nullptr);
   ASSERT_STREQ(cfs->Name(), "cloud");
@@ -124,7 +124,7 @@ TEST(CloudFileSystemTest, TestInitialize) {
   BucketOptions bucket;
   ConfigOptions config_options;
   config_options.invoke_prepare_options = false;
-  ASSERT_OK(CloudFileSystem::CreateFromString(
+  ASSERT_OK(CloudFileSystemEnv::CreateFromString(
       config_options, "id=cloud; TEST=cloudenvtest:/test/path", &cfs));
   ASSERT_NE(cfs, nullptr);
   ASSERT_STREQ(cfs->Name(), "cloud");
@@ -134,7 +134,7 @@ TEST(CloudFileSystemTest, TestInitialize) {
   ASSERT_EQ(cfs->GetSrcObjectPath(), "/test/path");
   ASSERT_TRUE(cfs->SrcMatchesDest());
 
-  ASSERT_OK(CloudFileSystem::CreateFromString(
+  ASSERT_OK(CloudFileSystemEnv::CreateFromString(
       config_options, "id=cloud; TEST=cloudenvtest2:/test/path2?here", &cfs));
   ASSERT_NE(cfs, nullptr);
   ASSERT_STREQ(cfs->Name(), "cloud");
@@ -144,7 +144,7 @@ TEST(CloudFileSystemTest, TestInitialize) {
   ASSERT_EQ(cfs->GetCloudFileSystemOptions().src_bucket.GetRegion(), "here");
   ASSERT_TRUE(cfs->SrcMatchesDest());
 
-  ASSERT_OK(CloudFileSystem::CreateFromString(
+  ASSERT_OK(CloudFileSystemEnv::CreateFromString(
       config_options,
       "id=cloud; TEST=cloudenvtest3:/test/path3; "
       "src.bucket=my_bucket; dest.object=/my_path",
@@ -162,7 +162,7 @@ TEST(CloudFileSystemTest, ConfigureAwsEnv) {
   std::unique_ptr<CloudFileSystem> cfs;
 
   ConfigOptions config_options;
-  Status s = CloudFileSystem::CreateFromString(
+  Status s = CloudFileSystemEnv::CreateFromString(
       config_options, "id=aws; keep_local_sst_files=true", &cfs);
 #ifdef USE_AWS
   ASSERT_OK(s);
@@ -185,12 +185,12 @@ TEST(CloudFileSystemTest, ConfigureS3Provider) {
 
   ConfigOptions config_options;
   Status s =
-      CloudFileSystem::CreateFromString(config_options, "provider=s3", &cfs);
+      CloudFileSystemEnv::CreateFromString(config_options, "provider=s3", &cfs);
   ASSERT_NOK(s);
   ASSERT_EQ(cfs, nullptr);
 
 #ifdef USE_AWS
-  ASSERT_OK(CloudFileSystem::CreateFromString(config_options,
+  ASSERT_OK(CloudFileSystemEnv::CreateFromString(config_options,
                                               "id=aws; provider=s3", &cfs));
   ASSERT_STREQ(cfs->Name(), "aws");
   ASSERT_NE(cfs->GetStorageProvider(), nullptr);
@@ -205,13 +205,13 @@ TEST(CloudFileSystemTest, DISABLED_ConfigureKinesisController) {
   std::unique_ptr<CloudFileSystem> cfs;
 
   ConfigOptions config_options;
-  Status s = CloudFileSystem::CreateFromString(
+  Status s = CloudFileSystemEnv::CreateFromString(
       config_options, "provider=mock; controller=kinesis", &cfs);
   ASSERT_NOK(s);
   ASSERT_EQ(cfs, nullptr);
 
 #ifdef USE_AWS
-  ASSERT_OK(CloudFileSystem::CreateFromString(
+  ASSERT_OK(CloudFileSystemEnv::CreateFromString(
       config_options, "id=aws; controller=kinesis; TEST=dbcloud:/test", &cfs));
   ASSERT_STREQ(cfs->Name(), "aws");
   ASSERT_NE(cfs->GetCloudFileSystemOptions().cloud_log_controller, nullptr);
@@ -224,7 +224,7 @@ TEST(CloudFileSystemTest, ConfigureKafkaController) {
   std::unique_ptr<CloudFileSystem> cfs;
 
   ConfigOptions config_options;
-  Status s = CloudFileSystem::CreateFromString(
+  Status s = CloudFileSystemEnv::CreateFromString(
       config_options, "provider=mock; controller=kafka", &cfs);
 #ifdef USE_KAFKA
   ASSERT_OK(s);

@@ -10,7 +10,6 @@
 // inserted.
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <memory>
 #include <string>
@@ -113,13 +112,30 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& ts, const Slice& value) override;
 
+  using WriteBatchBase::TimedPut;
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    return Status::NotSupported(
+        "TimedPut not supported by WriteBatchWithIndex");
+  }
+
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& /* key */,
                    const WideColumns& /* columns */) override {
     if (!column_family) {
       return Status::InvalidArgument(
           "Cannot call this method without a column family handle");
     }
+    return Status::NotSupported(
+        "PutEntity not supported by WriteBatchWithIndex");
+  }
 
+  Status PutEntity(const Slice& /* key */,
+                   const AttributeGroups& attribute_groups) override {
+    if (attribute_groups.empty()) {
+      return Status::InvalidArgument(
+          "Cannot call this method without attribute groups");
+    }
     return Status::NotSupported(
         "PutEntity not supported by WriteBatchWithIndex");
   }
@@ -189,9 +205,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   // Will create a new Iterator that will use WBWIIterator as a delta and
   // base_iterator as base.
-  //
-  // This function is only supported if the WriteBatchWithIndex was
-  // constructed with overwrite_key=true.
   //
   // The returned iterator should be deleted by the caller.
   // The base_iterator is now 'owned' by the returned iterator. Deleting the
@@ -305,5 +318,3 @@ class WriteBatchWithIndex : public WriteBatchBase {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE

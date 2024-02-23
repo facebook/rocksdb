@@ -1,7 +1,6 @@
 //  Copyright (c) 2017-present, Rockset
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -71,4 +70,3 @@ class DBCloud : public StackableDB {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

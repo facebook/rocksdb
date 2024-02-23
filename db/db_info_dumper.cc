@@ -34,6 +34,12 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
   std::string file_info, wal_info;
 
   Header(options.info_log, "DB SUMMARY\n");
+  {
+    std::string hostname;
+    if (env->GetHostNameString(&hostname).ok()) {
+      Header(options.info_log, "Host name (Env):  %s\n", hostname.c_str());
+    }
+  }
   Header(options.info_log, "DB Session ID:  %s\n", session_id.c_str());
 
   Status s;

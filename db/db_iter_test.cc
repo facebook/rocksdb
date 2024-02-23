@@ -275,6 +275,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
     db_iter->Next();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
   // Test to check the SeekToLast() with iterate_upper_bound not set
   {
@@ -1415,6 +1416,7 @@ TEST_F(DBIteratorTest, DBIterator1) {
   ASSERT_EQ(db_iter->key().ToString(), "b");
   db_iter->Next();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator2) {
@@ -1528,6 +1530,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1552,6 +1555,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1576,6 +1580,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1600,6 +1605,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1624,6 +1630,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1648,6 +1655,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1672,6 +1680,7 @@ TEST_F(DBIteratorTest, DBIterator5) {
     ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5,merge_6");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1726,6 +1735,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1750,6 +1760,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1774,6 +1785,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1794,6 +1806,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
         nullptr /* read_callback */));
     db_iter->SeekToLast();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1818,6 +1831,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_4");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1842,6 +1856,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1866,6 +1881,7 @@ TEST_F(DBIteratorTest, DBIterator6) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5,merge_6");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 }
 
@@ -1910,6 +1926,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1952,6 +1969,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -1994,6 +2012,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2041,6 +2060,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2089,6 +2109,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2131,6 +2152,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2179,6 +2201,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2228,6 +2251,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -2271,6 +2295,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 }
 
@@ -2440,6 +2465,7 @@ TEST_F(DBIteratorTest, SeekToLastOccurrenceSeq0) {
   ASSERT_EQ(db_iter->value().ToString(), "2");
   db_iter->Next();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator11) {
@@ -2469,6 +2495,7 @@ TEST_F(DBIteratorTest, DBIterator11) {
   ASSERT_EQ(db_iter->key().ToString(), "b");
   db_iter->Next();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator12) {
@@ -2497,6 +2524,7 @@ TEST_F(DBIteratorTest, DBIterator12) {
   ASSERT_EQ(db_iter->value().ToString(), "1");
   db_iter->Prev();
   ASSERT_FALSE(db_iter->Valid());
+  ASSERT_OK(db_iter->status());
 }
 
 TEST_F(DBIteratorTest, DBIterator13) {
@@ -2635,6 +2663,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIterator1) {
   ASSERT_EQ(db_iter_->value().ToString(), "3");
   db_iter_->Next();
   ASSERT_FALSE(db_iter_->Valid());
+  ASSERT_OK(db_iter_->status());
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIterator2) {

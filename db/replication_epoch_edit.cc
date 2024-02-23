@@ -112,8 +112,8 @@ std::optional<uint64_t> ReplicationEpochSet::GetEpochForMUS(
   }
 
   auto it = std::upper_bound(epochs_.begin(), epochs_.end(), mus,
-                             [&](auto mus, const auto& epoch_addition) {
-                               return mus < epoch_addition.GetFirstMUS();
+                             [&](auto m, const auto& epoch_addition) {
+                               return m < epoch_addition.GetFirstMUS();
                              });
   // mus is smaller than smallest mus in the epoch set, so we can't infer
   // its epoch

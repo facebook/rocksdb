@@ -11,10 +11,14 @@
 #include <assert.h>
 
 #include <atomic>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 
 #include "port/port.h"
+#include "util/fastrange.h"
+#include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -128,10 +132,25 @@ class SpinMutex {
   std::atomic<bool> locked_;
 };
 
-// We want to prevent false sharing
+// For preventing false sharing, especially for mutexes.
+// NOTE: if a mutex is less than half the size of a cache line, it would
+// make more sense for Striped structure below to pack more than one mutex
+// into each cache line, as this would only reduce contention for the same
+// amount of space and cache sharing. However, a mutex is often 40 bytes out
+// of a 64 byte cache line.
 template <class T>
-struct ALIGN_AS(CACHE_LINE_SIZE) LockData {
-  T lock_;
+struct ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedWrapper {
+  T obj_;
+};
+template <class T>
+struct Unwrap {
+  using type = T;
+  static type &Go(T &t) { return t; }
+};
+template <class T>
+struct Unwrap<CacheAlignedWrapper<T>> {
+  using type = T;
+  static type &Go(CacheAlignedWrapper<T> &t) { return t.obj_; }
 };
 
 //
@@ -143,38 +162,28 @@ struct ALIGN_AS(CACHE_LINE_SIZE) LockData {
 // single lock and allowing independent operations to lock different stripes and
 // proceed concurrently, instead of creating contention for a single lock.
 //
-template <class T, class P>
+template <class T, class Key = Slice, class Hash = SliceNPHasher64>
 class Striped {
  public:
-  Striped(size_t stripes, std::function<uint64_t(const P &)> hash)
-      : stripes_(stripes), hash_(hash) {
-    locks_ = reinterpret_cast<LockData<T> *>(
-        port::cacheline_aligned_alloc(sizeof(LockData<T>) * stripes));
-    for (size_t i = 0; i < stripes; i++) {
-      new (&locks_[i]) LockData<T>();
-    }
+  explicit Striped(size_t stripe_count)
+      : stripe_count_(stripe_count), data_(new T[stripe_count]) {}
+
+  using Unwrapped = typename Unwrap<T>::type;
+  Unwrapped &Get(const Key &key, uint64_t seed = 0) {
+    size_t index = FastRangeGeneric(hash_(key, seed), stripe_count_);
+    return Unwrap<T>::Go(data_[index]);
   }
 
-  virtual ~Striped() {
-    if (locks_ != nullptr) {
-      assert(stripes_ > 0);
-      for (size_t i = 0; i < stripes_; i++) {
-        locks_[i].~LockData<T>();
-      }
-      port::cacheline_aligned_free(locks_);
-    }
-  }
-
-  T *get(const P &key) {
-    uint64_t h = hash_(key);
-    size_t index = h % stripes_;
-    return &reinterpret_cast<LockData<T> *>(&locks_[index])->lock_;
+  size_t ApproximateMemoryUsage() const {
+    // NOTE: could use malloc_usable_size() here, but that could count unmapped
+    // pages and could mess up unit test OccLockBucketsTest::CacheAligned
+    return sizeof(*this) + stripe_count_ * sizeof(T);
   }
 
  private:
-  size_t stripes_;
-  LockData<T> *locks_;
-  std::function<uint64_t(const P &)> hash_;
+  size_t stripe_count_;
+  std::unique_ptr<T[]> data_;
+  Hash hash_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

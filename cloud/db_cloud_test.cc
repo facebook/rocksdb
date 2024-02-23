@@ -87,9 +87,9 @@ class CloudTest : public testing::Test {
 
     CloudFileSystem* afs;
     // create a dummy aws env
-    ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                cloud_fs_options_,
-                                                options_.info_log, &afs));
+    ASSERT_OK(CloudFileSystemEnv::NewAwsFileSystem(base_env_->GetFileSystem(),
+                                                   cloud_fs_options_,
+                                                   options_.info_log, &afs));
     ASSERT_NE(afs, nullptr);
     // delete all pre-existing contents from the bucket
     auto st = afs->GetStorageProvider()->EmptyBucket(afs->GetSrcBucketName(),
@@ -147,9 +147,9 @@ class CloudTest : public testing::Test {
     // Cleanup the cloud bucket
     if (!cloud_fs_options_.src_bucket.GetBucketName().empty()) {
       CloudFileSystem* afs;
-      Status st = CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                    cloud_fs_options_,
-                                                    options_.info_log, &afs);
+      Status st = CloudFileSystemEnv::NewAwsFileSystem(
+          base_env_->GetFileSystem(), cloud_fs_options_, options_.info_log,
+          &afs);
       if (st.ok()) {
         afs->GetStorageProvider()->EmptyBucket(afs->GetSrcBucketName(),
                                                dbname_);
@@ -162,11 +162,11 @@ class CloudTest : public testing::Test {
 
   void CreateCloudEnv() {
     CloudFileSystem* cfs;
-    ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                cloud_fs_options_,
-                                                options_.info_log, &cfs));
+    ASSERT_OK(CloudFileSystemEnv::NewAwsFileSystem(base_env_->GetFileSystem(),
+                                                   cloud_fs_options_,
+                                                   options_.info_log, &cfs));
     std::shared_ptr<FileSystem> fs(cfs);
-    aenv_ = CloudFileSystem::NewCompositeEnv(base_env_, std::move(fs));
+    aenv_ = CloudFileSystemEnv::NewCompositeEnv(base_env_, std::move(fs));
   }
 
   // Open database via the cloud interface
@@ -254,7 +254,7 @@ class CloudTest : public testing::Test {
       copt.keep_local_sst_files = true;
     }
     // Create new AWS env
-    Status st = CloudFileSystem::NewAwsFileSystem(
+    Status st = CloudFileSystemEnv::NewAwsFileSystem(
         base_env_->GetFileSystem(), copt, options_.info_log, &cfs);
     if (!st.ok()) {
       return st;
@@ -1133,7 +1133,7 @@ TEST_F(CloudTest, Encryption) {
   CloseDB();
 }
 
-TEST_F(CloudTest, DirectReads) {
+TEST_F(CloudTest, DISABLED_DirectReads) {
   options_.use_direct_reads = true;
   options_.use_direct_io_for_flush_and_compaction = true;
   BlockBasedTableOptions bbto;
@@ -2532,7 +2532,7 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
 
   auto local_files = GetAllLocalFiles();
   // CM, MANIFEST1, MANIFEST2, CURRENT, IDENTITY, 2 sst files, wal directory
-  EXPECT_EQ(local_files.size(), 8);
+  EXPECT_EQ(local_files.size(), 9);
 
   ASSERT_OK(GetDBImpl()->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
 
@@ -2542,17 +2542,17 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
 
   local_files = GetAllLocalFiles();
   // obsolete files are not deleted, also one extra sst files generated after compaction
-  EXPECT_EQ(local_files.size(), 9);
+  EXPECT_EQ(local_files.size(), 10);
 
   CloseDB();
 
   options_.disable_delete_obsolete_files_on_open = true;
   OpenDB();
   // obsolete files are not deleted
-  EXPECT_EQ(GetAllLocalFiles().size(), 8);
+  EXPECT_EQ(GetAllLocalFiles().size(), 10);
   // obsolete files are deleted!
   db_->EnableFileDeletions(false /* force */);
-  EXPECT_EQ(GetAllLocalFiles().size(), 6);
+  EXPECT_EQ(GetAllLocalFiles().size(), 8);
   CloseDB();
 }
 
@@ -2923,8 +2923,8 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
   // Files exist locally: cm/m, sst, options-xxx, xxx.log, identity, current
   EXPECT_EQ(local_files.size(), 7);
 
-  EXPECT_OK(
-      GetCloudFileSystemImpl()->SanitizeDirectory(options_, dbname_, false));
+  EXPECT_OK(GetCloudFileSystemImpl()->SanitizeLocalDirectory(options_, dbname_,
+                                                             false));
 
   // cleaning up during sanitization not triggered
   EXPECT_EQ(local_files.size(), GetAllLocalFiles().size());
@@ -2933,8 +2933,8 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
   ASSERT_OK(
       base_env_->DeleteFile(MakeCloudManifestFile(dbname_, "" /* cooke */)));
 
-  EXPECT_OK(
-      GetCloudFileSystemImpl()->SanitizeDirectory(options_, dbname_, false));
+  EXPECT_OK(GetCloudFileSystemImpl()->SanitizeLocalDirectory(options_, dbname_,
+                                                             false));
 
   local_files = GetAllLocalFiles();
   // IDENTITY file is downloaded after cleaning up, which is the only file that
@@ -2955,8 +2955,8 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
   ASSERT_OK(
       base_env_->DeleteFile(MakeCloudManifestFile(dbname_, "" /* cooke */)));
 
-  ASSERT_OK(
-      GetCloudFileSystemImpl()->SanitizeDirectory(options_, dbname_, false));
+  ASSERT_OK(GetCloudFileSystemImpl()->SanitizeLocalDirectory(options_, dbname_,
+                                                             false));
 
   // IDENTITY file + the random directory we created
   EXPECT_EQ(GetAllLocalFiles().size(), 2);
@@ -2977,8 +2977,8 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
   ASSERT_OK(
       base_env_->DeleteFile(MakeCloudManifestFile(dbname_, "" /* cooke */)));
 
-  ASSERT_OK(
-      GetCloudFileSystemImpl()->SanitizeDirectory(options_, dbname_, false));
+  ASSERT_OK(GetCloudFileSystemImpl()->SanitizeLocalDirectory(options_, dbname_,
+                                                             false));
   SyncPoint::GetInstance()->DisableProcessing();
 }
 

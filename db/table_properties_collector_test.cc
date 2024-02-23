@@ -292,8 +292,9 @@ void TestCustomizedTablePropertiesCollector(
       new RandomAccessFileReader(std::move(source), "test"));
 
   std::unique_ptr<TableProperties> props;
+  const ReadOptions read_options;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props);
+                                 magic_number, ioptions, read_options, &props);
   ASSERT_OK(s);
 
   auto user_collected = props->user_collected_properties;
@@ -355,7 +356,6 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
                                            kBlockBasedTableMagicNumber,
                                            encode_as_internal, options, ikc);
 
-#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
     // test plain table
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 8;
@@ -367,7 +367,6 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
     TestCustomizedTablePropertiesCollector(backward_mode_,
                                            kPlainTableMagicNumber,
                                            encode_as_internal, options, ikc);
-#endif  // !ROCKSDB_LITE
   }
 }
 
@@ -431,8 +430,10 @@ void TestInternalKeyPropertiesCollector(
         new RandomAccessFileReader(std::move(source), "test"));
 
     std::unique_ptr<TableProperties> props;
-    Status s = ReadTableProperties(reader.get(), fwf->contents().size(),
-                                   magic_number, ioptions, &props);
+    const ReadOptions read_options;
+    Status s =
+        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
+                            ioptions, read_options, &props);
     ASSERT_OK(s);
 
     auto user_collected = props->user_collected_properties;
@@ -486,7 +487,6 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
         std::make_shared<BlockBasedTableFactory>());
   }
 
-#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 8;
   plain_table_options.bloom_bits_per_key = 8;
@@ -495,7 +495,6 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
   TestInternalKeyPropertiesCollector(
       backward_mode_, kPlainTableMagicNumber, false /* not sanitize */,
       std::make_shared<PlainTableFactory>(plain_table_options));
-#endif  // !ROCKSDB_LITE
 }
 
 INSTANTIATE_TEST_CASE_P(InternalKeyPropertiesCollector, TablePropertiesTest,

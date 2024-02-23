@@ -95,9 +95,9 @@ class BlobSource {
                                uint64_t* bytes_read);
 
   inline Status GetBlobFileReader(
-      uint64_t blob_file_number,
+      const ReadOptions& read_options, uint64_t blob_file_number,
       CacheHandleGuard<BlobFileReader>* blob_file_reader) {
-    return blob_file_cache_->GetBlobFileReader(blob_file_number,
+    return blob_file_cache_->GetBlobFileReader(read_options, blob_file_number,
                                                blob_file_reader);
   }
 

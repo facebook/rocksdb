@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <cstdint>
 #include <forward_list>
@@ -688,4 +687,3 @@ class BackupEngineReadOnly : public BackupEngineReadOnlyBase {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

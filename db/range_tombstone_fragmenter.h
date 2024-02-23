@@ -148,6 +148,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
       const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
 
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) override {
+    upper_bound_ = read_seqno;
+  }
+
   void SeekToFirst() override;
   void SeekToLast() override;
 
@@ -218,8 +222,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   }
 
   ParsedInternalKey parsed_start_key() const {
-    return ParsedInternalKey(pos_->start_key, kMaxSequenceNumber,
-                             kTypeRangeDeletion);
+    return ParsedInternalKey(pos_->start_key, seq(), kTypeRangeDeletion);
   }
   ParsedInternalKey parsed_end_key() const {
     return ParsedInternalKey(pos_->end_key, kMaxSequenceNumber,

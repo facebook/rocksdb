@@ -211,6 +211,12 @@ struct SuperVersion {
   // Version number of the current SuperVersion
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
+  // Each time `full_history_ts_low` collapses history, a new SuperVersion is
+  // installed. This field tracks the effective `full_history_ts_low` for that
+  // SuperVersion, to be used by read APIs for sanity checks. This field is
+  // immutable once SuperVersion is installed. For column family that doesn't
+  // enable UDT feature, this is an empty string.
+  std::string full_history_ts_low;
 
   // should be called outside the mutex
   SuperVersion() = default;
@@ -335,12 +341,10 @@ class ColumnFamilyData {
   // Validate CF options against DB options
   static Status ValidateOptions(const DBOptions& db_options,
                                 const ColumnFamilyOptions& cf_options);
-#ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
       const DBOptions& db_options,
       const std::unordered_map<std::string, std::string>& options_map);
-#endif  // ROCKSDB_LITE
 
   InternalStats* internal_stats() { return internal_stats_.get(); }
 
@@ -465,12 +469,6 @@ class ColumnFamilyData {
   bool queued_for_flush() { return queued_for_flush_; }
   bool queued_for_compaction() { return queued_for_compaction_; }
 
-  enum class WriteStallCause {
-    kNone,
-    kMemtableLimit,
-    kL0FileCountLimit,
-    kPendingCompactionBytes,
-  };
   static std::pair<WriteStallCondition, WriteStallCause>
   GetWriteStallConditionAndCause(
       int num_unflushed_memtables, int num_l0_files,
@@ -515,14 +513,18 @@ class ColumnFamilyData {
     return full_history_ts_low_;
   }
 
+  // REQUIRES: DB mutex held.
+  // Return true if flushing up to MemTables with ID `max_memtable_id`
+  // should be postponed to retain user-defined timestamps according to the
+  // user's setting. Called by background flush job.
+  bool ShouldPostponeFlushToRetainUDT(uint64_t max_memtable_id);
+
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
   WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
   std::shared_ptr<CacheReservationManager>
   GetFileMetadataCacheReservationManager() {
     return file_metadata_cache_res_mgr_;
   }
-
-  SequenceNumber GetFirstMemtableSequenceNumber() const;
 
   static const uint32_t kDummyColumnFamilyDataId;
 
@@ -714,6 +716,16 @@ class ColumnFamilySet {
                                        Version* dummy_version,
                                        const ColumnFamilyOptions& options);
 
+  const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
+      const {
+    return running_ts_sz_;
+  }
+
+  const UnorderedMap<uint32_t, size_t>&
+  GetColumnFamiliesTimestampSizeForRecord() const {
+    return ts_sz_for_record_;
+  }
+
   iterator begin() { return iterator(dummy_cfd_->next_); }
   iterator end() { return iterator(dummy_cfd_); }
 
@@ -738,6 +750,15 @@ class ColumnFamilySet {
   // 2. accessed from a single-threaded write thread
   UnorderedMap<std::string, uint32_t> column_families_;
   UnorderedMap<uint32_t, ColumnFamilyData*> column_family_data_;
+
+  // Mutating / reading `running_ts_sz_` and `ts_sz_for_record_` follow
+  // the same requirements as `column_families_` and `column_family_data_`.
+  // Mapping from column family id to user-defined timestamp size for all
+  // running column families.
+  UnorderedMap<uint32_t, size_t> running_ts_sz_;
+  // Mapping from column family id to user-defined timestamp size for
+  // column families with non-zero user-defined timestamp size.
+  UnorderedMap<uint32_t, size_t> ts_sz_for_record_;
 
   uint32_t max_column_family_;
   const FileOptions file_options_;
@@ -855,6 +876,9 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
 extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 
 extern const Comparator* GetColumnFamilyUserComparator(
+    ColumnFamilyHandle* column_family);
+
+extern const ImmutableOptions& GetImmutableOptions(
     ColumnFamilyHandle* column_family);
 
 }  // namespace ROCKSDB_NAMESPACE

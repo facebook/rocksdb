@@ -107,7 +107,7 @@ class CompactionOutputs {
 
   // Finish the current output file
   Status Finish(const Status& intput_status,
-                const SeqnoToTimeMapping& seqno_time_mapping);
+                const SeqnoToTimeMapping& seqno_to_time_mapping);
 
   // Update output table properties from table builder
   void UpdateTableProperties() {
@@ -167,9 +167,15 @@ class CompactionOutputs {
     current_output_file_size_ = 0;
   }
 
-  // Add range-dels from the aggregator to the current output file
+  // Add range deletions from the range_del_agg_ to the current output file.
+  // Input parameters, `range_tombstone_lower_bound_` and current output's
+  // metadata determine the bounds on range deletions to add. Updates output
+  // file metadata boundary if extended by range tombstones.
+  //
   // @param comp_start_user_key and comp_end_user_key include timestamp if
-  // user-defined timestamp is enabled.
+  // user-defined timestamp is enabled. Their timestamp should be max timestamp.
+  // @param next_table_min_key internal key lower bound for the next compaction
+  // output.
   // @param full_history_ts_low used for range tombstone garbage collection.
   Status AddRangeDels(const Slice* comp_start_user_key,
                       const Slice* comp_end_user_key,
@@ -200,10 +206,10 @@ class CompactionOutputs {
       // We may only split the output when the cursor is in the range. Split
       if ((!end.has_value() ||
            icmp->user_comparator()->Compare(
-               ExtractUserKey(output_split_key->Encode()), end.value()) < 0) &&
-          (!start.has_value() || icmp->user_comparator()->Compare(
-                                     ExtractUserKey(output_split_key->Encode()),
-                                     start.value()) > 0)) {
+               ExtractUserKey(output_split_key->Encode()), *end) < 0) &&
+          (!start.has_value() ||
+           icmp->user_comparator()->Compare(
+               ExtractUserKey(output_split_key->Encode()), *start) > 0)) {
         local_output_split_key_ = output_split_key;
       }
     }
@@ -314,6 +320,7 @@ class CompactionOutputs {
   std::unique_ptr<SstPartitioner> partitioner_;
 
   // A flag determines if this subcompaction has been split by the cursor
+  // for RoundRobin compaction
   bool is_split_ = false;
 
   // We also maintain the output split key for each subcompaction to avoid
@@ -345,6 +352,19 @@ class CompactionOutputs {
   // for the current output file, how many file boundaries has it crossed,
   // basically number of files overlapped * 2
   size_t grandparent_boundary_switched_num_ = 0;
+
+  // The smallest key of the current output file, this is set when current
+  // output file's smallest key is a range tombstone start key.
+  InternalKey range_tombstone_lower_bound_;
+
+  // Used for calls to compaction->KeyRangeNotExistsBeyondOutputLevel() in
+  // CompactionOutputs::AddRangeDels().
+  // level_ptrs_[i] holds index of the file that was checked during the last
+  // call to compaction->KeyRangeNotExistsBeyondOutputLevel(). This allows
+  // future calls to the function to pick up where it left off, since each
+  // range tombstone added to output file within each subcompaction is in
+  // increasing key range.
+  std::vector<size_t> level_ptrs_;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs

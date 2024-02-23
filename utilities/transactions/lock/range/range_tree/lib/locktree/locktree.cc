@@ -1,6 +1,5 @@
 /* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 // vim: ft=cpp:expandtab:ts=8:sw=2:softtabstop=2:
-#ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 #ident "$Id$"
 /*======
@@ -1020,4 +1019,3 @@ DICTIONARY_ID locktree::get_dict_id() const { return m_dict_id; }
 
 } /* namespace toku */
 #endif  // OS_WIN
-#endif  // ROCKSDB_LITE

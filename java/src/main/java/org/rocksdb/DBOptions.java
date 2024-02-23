@@ -11,38 +11,33 @@ import java.util.*;
 /**
  * DBOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
- *
+ * <p>
  * As a descendent of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class DBOptions extends RocksObject
-    implements DBOptionsInterface<DBOptions>,
-    MutableDBOptionsInterface<DBOptions> {
-  static {
-    RocksDB.loadLibrary();
-  }
-
+    implements DBOptionsInterface<DBOptions>, MutableDBOptionsInterface<DBOptions> {
   /**
    * Construct DBOptions.
-   *
+   * <p>
    * This constructor will create (by allocating a block of memory)
    * an {@code rocksdb::DBOptions} in the c++ side.
    */
   public DBOptions() {
-    super(newDBOptions());
+    super(newDBOptionsInstance());
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
     env_ = Env.getDefault();
   }
 
   /**
    * Copy constructor for DBOptions.
-   *
+   * <p>
    * NOTE: This does a shallow copy, which means env, rate_limiter, sst_file_manager,
    * info_log and other pointers will be cloned!
    *
    * @param other The DBOptions to copy.
    */
-  public DBOptions(DBOptions other) {
+  public DBOptions(final DBOptions other) {
     super(copyDBOptions(other.nativeHandle_));
     this.env_ = other.env_;
     this.numShardBits_ = other.numShardBits_;
@@ -752,6 +747,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public DBOptions setAccessHintOnCompactionStart(final AccessHint accessHint) {
     assert(isOwningHandle());
     setAccessHintOnCompactionStart(nativeHandle_, accessHint.getValue());
@@ -759,6 +755,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public AccessHint accessHintOnCompactionStart() {
     assert(isOwningHandle());
     return AccessHint.getAccessHint(accessHintOnCompactionStart(nativeHandle_));
@@ -1251,7 +1248,12 @@ public class DBOptions extends RocksObject
   private static native long getDBOptionsFromProps(long cfgHandle, String optString);
   private static native long getDBOptionsFromProps(String optString);
 
+  private static long newDBOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newDBOptions();
+  }
   private static native long newDBOptions();
+
   private static native long copyDBOptions(final long handle);
   private static native long newDBOptionsFromOptions(final long optionsHandle);
   @Override protected final native void disposeInternal(final long handle);

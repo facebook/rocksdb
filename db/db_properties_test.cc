@@ -13,6 +13,7 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "db/write_stall_stats.h"
 #include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
@@ -55,7 +56,6 @@ class DBPropertiesTest : public DBTestBase {
   }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, Empty) {
   do {
     Options options;
@@ -107,12 +107,12 @@ TEST_F(DBPropertiesTest, Empty) {
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions(false));
+    ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions());
+    ASSERT_OK(db_->EnableFileDeletions(/*force=*/true));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("1", num);
@@ -188,40 +188,6 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
 }
 
 namespace {
-void ResetTableProperties(TableProperties* tp) {
-  tp->data_size = 0;
-  tp->index_size = 0;
-  tp->filter_size = 0;
-  tp->raw_key_size = 0;
-  tp->raw_value_size = 0;
-  tp->num_data_blocks = 0;
-  tp->num_entries = 0;
-  tp->num_deletions = 0;
-  tp->num_merge_operands = 0;
-  tp->num_range_deletions = 0;
-}
-
-void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
-  double dummy_double;
-  std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
-  std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
-  ResetTableProperties(tp);
-  sscanf(tp_string.c_str(),
-         "# data blocks %" SCNu64 " # entries %" SCNu64 " # deletions %" SCNu64
-         " # merge operands %" SCNu64 " # range deletions %" SCNu64
-         " raw key size %" SCNu64
-         " raw average key size %lf "
-         " raw value size %" SCNu64
-         " raw average value size %lf "
-         " data block size %" SCNu64 " index block size (user-key? %" SCNu64
-         ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
-         &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
-         &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
-         &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
-         &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
-         &tp->index_size, &tp->filter_size);
-}
-
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {
   ASSERT_EQ(a == 0U, b == 0U);
   if (a == 0) {
@@ -1112,19 +1078,20 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   ASSERT_GT(CompressionRatioAtLevel(1), 10.0);
 }
 
-#endif  // ROCKSDB_LITE
 
 class CountingUserTblPropCollector : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "CountingUserTblPropCollector"; }
 
   Status Finish(UserCollectedProperties* properties) override {
+    assert(!finish_called_);
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
         {"CountingUserTblPropCollector", message_},
         {"Count", encoded},
     };
+    finish_called_ = true;
     return Status::OK();
   }
 
@@ -1136,12 +1103,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   }
 
   UserCollectedProperties GetReadableProperties() const override {
+    assert(finish_called_);
     return UserCollectedProperties{};
   }
 
  private:
   std::string message_ = "Rocksdb";
   uint32_t count_ = 0;
+  bool finish_called_ = false;
 };
 
 class CountingUserTblPropCollectorFactory
@@ -1263,7 +1232,6 @@ class BlockCountingTablePropertiesCollectorFactory
   }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1 << 30);
@@ -1303,7 +1271,6 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   Options options = CurrentOptions();
@@ -1365,7 +1332,6 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
   Random rnd(301);
 
@@ -1743,7 +1709,6 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   options.env = CurrentOptions().env;
   options.disable_auto_compactions = true;
   options.listeners.push_back(listener);
-  options.level_compaction_dynamic_level_bytes = true;
   Reopen(options);
 
   for (int i = 0; i < 10; i++) {
@@ -1754,22 +1719,35 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
     ASSERT_OK(Delete("key" + std::to_string(i)));
   }
   ASSERT_OK(Flush());
+
   uint64_t sst_size;
-  bool ok = db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size);
-  ASSERT_TRUE(ok);
-  ASSERT_GT(sst_size, 0);
-  ok = db_->GetIntProperty(DB::Properties::kLiveNonBottommostSstFilesSize,
-                           &sst_size);
-  ASSERT_TRUE(ok);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size));
   ASSERT_GT(sst_size, 0);
   listener->size_before_compaction = sst_size;
+
+  uint64_t obsolete_sst_size;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
+
+  // Hold files from being deleted so we can test property for size of obsolete
+  // SST files.
+  ASSERT_OK(db_->DisableFileDeletions());
+
   // Compact to clean all keys and trigger listener.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_TRUE(listener->callback_triggered);
-  ok = db_->GetIntProperty(DB::Properties::kLiveNonBottommostSstFilesSize,
-                           &sst_size);
-  ASSERT_TRUE(ok);
-  ASSERT_EQ(sst_size, 0);
+
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, sst_size);
+
+  // Let the obsolete files be deleted.
+  ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
 }
 
 TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
@@ -2120,6 +2098,181 @@ TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
   ASSERT_EQ(3 * kNumCacheEntryRoles + 4, values.size());
 }
 
+TEST_F(DBPropertiesTest, WriteStallStatsSanityCheck) {
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
+    WriteStallCause cause = static_cast<WriteStallCause>(i);
+    const std::string& str = WriteStallCauseToHyphenString(cause);
+    ASSERT_TRUE(!str.empty())
+        << "Please ensure mapping from `WriteStallCause` to "
+           "`WriteStallCauseToHyphenString` is complete";
+    if (cause == WriteStallCause::kCFScopeWriteStallCauseEnumMax ||
+        cause == WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
+      ASSERT_EQ(str, InvalidWriteStallHyphenString())
+          << "Please ensure order in `WriteStallCauseToHyphenString` is "
+             "consistent with `WriteStallCause`";
+    }
+  }
+
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCondition::kNormal);
+       ++i) {
+    WriteStallCondition condition = static_cast<WriteStallCondition>(i);
+    const std::string& str = WriteStallConditionToHyphenString(condition);
+    ASSERT_TRUE(!str.empty())
+        << "Please ensure mapping from `WriteStallCondition` to "
+           "`WriteStallConditionToHyphenString` is complete";
+  }
+
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
+    for (uint32_t j = 0;
+         j < static_cast<uint32_t>(WriteStallCondition::kNormal); ++j) {
+      WriteStallCause cause = static_cast<WriteStallCause>(i);
+      WriteStallCondition condition = static_cast<WriteStallCondition>(j);
+
+      if (isCFScopeWriteStallCause(cause)) {
+        ASSERT_TRUE(InternalCFStat(cause, condition) !=
+                    InternalStats::INTERNAL_CF_STATS_ENUM_MAX)
+            << "Please ensure the combination of WriteStallCause(" +
+                   std::to_string(static_cast<uint32_t>(cause)) +
+                   ") + WriteStallCondition(" +
+                   std::to_string(static_cast<uint32_t>(condition)) +
+                   ") is correctly mapped to a valid `InternalStats` or bypass "
+                   "its check in this test";
+      } else if (isDBScopeWriteStallCause(cause)) {
+        InternalStats::InternalDBStatsType internal_db_stat =
+            InternalDBStat(cause, condition);
+        if (internal_db_stat == InternalStats::kIntStatsNumMax) {
+          ASSERT_TRUE(cause == WriteStallCause::kWriteBufferManagerLimit &&
+                      condition == WriteStallCondition::kDelayed)
+              << "Please ensure the combination of WriteStallCause(" +
+                     std::to_string(static_cast<uint32_t>(cause)) +
+                     ") + WriteStallCondition(" +
+                     std::to_string(static_cast<uint32_t>(condition)) +
+                     ") is correctly mapped to a valid `InternalStats` or "
+                     "bypass its check in this test";
+        }
+      } else if (cause != WriteStallCause::kCFScopeWriteStallCauseEnumMax &&
+                 cause != WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
+        ASSERT_TRUE(false) << "Please ensure the WriteStallCause(" +
+                                  std::to_string(static_cast<uint32_t>(cause)) +
+                                  ") is either CF-scope or DB-scope write "
+                                  "stall cause in enum `WriteStallCause`";
+      }
+    }
+  }
+}
+TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"heavy_write_cf"}, options);
+
+  for (auto test_cause : {WriteStallCause::kWriteBufferManagerLimit,
+                          WriteStallCause::kMemtableLimit}) {
+    if (test_cause == WriteStallCause::kWriteBufferManagerLimit) {
+      options.write_buffer_manager.reset(
+          new WriteBufferManager(100000, nullptr, true));
+    } else if (test_cause == WriteStallCause::kMemtableLimit) {
+      options.max_write_buffer_number = 2;
+      options.disable_auto_compactions = true;
+    }
+    ReopenWithColumnFamilies({"default", "heavy_write_cf"}, options);
+
+    // Assert initial write stall stats are all 0
+    std::map<std::string, std::string> db_values;
+    ASSERT_TRUE(dbfull()->GetMapProperty(DB::Properties::kDBWriteStallStats,
+                                         &db_values));
+    ASSERT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::CauseConditionCount(
+                  WriteStallCause::kWriteBufferManagerLimit,
+                  WriteStallCondition::kStopped)]),
+              0);
+
+    for (int cf = 0; cf <= 1; ++cf) {
+      std::map<std::string, std::string> cf_values;
+      ASSERT_TRUE(dbfull()->GetMapProperty(
+          handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
+      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]), 0);
+      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]), 0);
+    }
+
+    // Pause flush thread to help coerce write stall
+    std::unique_ptr<test::SleepingBackgroundTask> sleeping_task(
+        new test::SleepingBackgroundTask());
+    env_->SetBackgroundThreads(1, Env::HIGH);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   sleeping_task.get(), Env::Priority::HIGH);
+    sleeping_task->WaitUntilSleeping();
+
+    // Coerce write stall
+    if (test_cause == WriteStallCause::kWriteBufferManagerLimit) {
+      ASSERT_OK(dbfull()->Put(
+          WriteOptions(), handles_[1], Key(1),
+          DummyString(options.write_buffer_manager->buffer_size())));
+
+      WriteOptions wo;
+      wo.no_slowdown = true;
+      Status s = dbfull()->Put(
+          wo, handles_[1], Key(2),
+          DummyString(options.write_buffer_manager->buffer_size()));
+      ASSERT_TRUE(s.IsIncomplete());
+      ASSERT_TRUE(s.ToString().find("Write stall") != std::string::npos);
+    } else if (test_cause == WriteStallCause::kMemtableLimit) {
+      FlushOptions fo;
+      fo.allow_write_stall = true;
+      fo.wait = false;
+
+      ASSERT_OK(
+          dbfull()->Put(WriteOptions(), handles_[1], Key(1), DummyString(1)));
+      ASSERT_OK(dbfull()->Flush(fo, handles_[1]));
+
+      ASSERT_OK(
+          dbfull()->Put(WriteOptions(), handles_[1], Key(2), DummyString(1)));
+      ASSERT_OK(dbfull()->Flush(fo, handles_[1]));
+    }
+
+    if (test_cause == WriteStallCause::kWriteBufferManagerLimit) {
+      db_values.clear();
+      EXPECT_TRUE(dbfull()->GetMapProperty(DB::Properties::kDBWriteStallStats,
+                                           &db_values));
+      EXPECT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::CauseConditionCount(
+                    WriteStallCause::kWriteBufferManagerLimit,
+                    WriteStallCondition::kStopped)]),
+                1);
+      // `WriteStallCause::kWriteBufferManagerLimit` should not result in any
+      // CF-scope write stall stats changes
+      for (int cf = 0; cf <= 1; ++cf) {
+        std::map<std::string, std::string> cf_values;
+        EXPECT_TRUE(dbfull()->GetMapProperty(
+            handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]),
+                  0);
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]),
+                  0);
+      }
+    } else if (test_cause == WriteStallCause::kMemtableLimit) {
+      for (int cf = 0; cf <= 1; ++cf) {
+        std::map<std::string, std::string> cf_values;
+        EXPECT_TRUE(dbfull()->GetMapProperty(
+            handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]),
+                  cf == 1 ? 1 : 0);
+        EXPECT_EQ(
+            std::stoi(cf_values[WriteStallStatsMapKeys::CauseConditionCount(
+                WriteStallCause::kMemtableLimit,
+                WriteStallCondition::kStopped)]),
+            cf == 1 ? 1 : 0);
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]),
+                  0);
+        EXPECT_EQ(
+            std::stoi(cf_values[WriteStallStatsMapKeys::CauseConditionCount(
+                WriteStallCause::kMemtableLimit,
+                WriteStallCondition::kDelayed)]),
+            0);
+      }
+    }
+
+    sleeping_task->WakeUp();
+    sleeping_task->WaitUntilDone();
+  }
+}
+
 namespace {
 std::string PopMetaIndexKey(InternalIterator* meta_iter) {
   Status s = meta_iter->status();
@@ -2171,8 +2324,9 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
 
     // Read metaindex
     BlockContents bc;
-    ASSERT_OK(ReadMetaIndexBlockInFile(r.get(), file_size, 0U,
-                                       ImmutableOptions(options), &bc));
+    const ReadOptions read_options;
+    ASSERT_OK(ReadMetaIndexBlockInFile(
+        r.get(), file_size, 0U, ImmutableOptions(options), read_options, &bc));
     Block metaindex_block(std::move(bc));
     std::unique_ptr<InternalIterator> meta_iter;
     meta_iter.reset(metaindex_block.NewMetaIterator());
@@ -2198,13 +2352,15 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
         EXPECT_EQ("rocksdb.hashindex.prefixes",
                   PopMetaIndexKey(meta_iter.get()));
       }
+      if (bbto->format_version >= 6) {
+        EXPECT_EQ("rocksdb.index", PopMetaIndexKey(meta_iter.get()));
+      }
     }
     EXPECT_EQ("rocksdb.properties", PopMetaIndexKey(meta_iter.get()));
     EXPECT_EQ("NOT_FOUND", PopMetaIndexKey(meta_iter.get()));
   } while (ChangeOptions());
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

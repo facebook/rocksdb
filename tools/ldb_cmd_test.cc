@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
@@ -208,7 +207,8 @@ class FileChecksumTestHelper {
     WriteBufferManager wb(options_.db_write_buffer_size);
     ImmutableDBOptions immutable_db_options(options_);
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
-                        &wc, nullptr, nullptr, "", "");
+                        &wc, nullptr, nullptr, "", "",
+                        options_.daily_offpeak_time_utc, nullptr);
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,
@@ -269,7 +269,7 @@ class FileChecksumTestHelper {
         break;
       }
     }
-    EXPECT_OK(db_->EnableFileDeletions());
+    EXPECT_OK(db_->EnableFileDeletions(/*force=*/false));
     return cs;
   }
 };
@@ -1215,12 +1215,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as LDBCommand is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

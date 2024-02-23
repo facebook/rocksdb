@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/options_util.h"
 
@@ -14,20 +13,6 @@
 #include "table/block_based/block_based_table_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
-Status LoadOptionsFromFile(const std::string& file_name, Env* env,
-                           DBOptions* db_options,
-                           std::vector<ColumnFamilyDescriptor>* cf_descs,
-                           bool ignore_unknown_options,
-                           std::shared_ptr<Cache>* cache) {
-  ConfigOptions config_options;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.input_strings_escaped = true;
-  config_options.env = env;
-
-  return LoadOptionsFromFile(config_options, file_name, db_options, cf_descs,
-                             cache);
-}
-
 Status LoadOptionsFromFile(const ConfigOptions& config_options,
                            const std::string& file_name, DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
@@ -90,19 +75,6 @@ Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
   return Status::OK();
 }
 
-Status LoadLatestOptions(const std::string& dbpath, Env* env,
-                         DBOptions* db_options,
-                         std::vector<ColumnFamilyDescriptor>* cf_descs,
-                         bool ignore_unknown_options,
-                         std::shared_ptr<Cache>* cache) {
-  ConfigOptions config_options;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.input_strings_escaped = true;
-  config_options.env = env;
-
-  return LoadLatestOptions(config_options, dbpath, db_options, cf_descs, cache);
-}
-
 Status LoadLatestOptions(const ConfigOptions& config_options,
                          const std::string& dbpath, DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
@@ -115,19 +87,6 @@ Status LoadLatestOptions(const ConfigOptions& config_options,
   }
   return LoadOptionsFromFile(config_options, dbpath + "/" + options_file_name,
                              db_options, cf_descs, cache);
-}
-
-Status CheckOptionsCompatibility(
-    const std::string& dbpath, Env* env, const DBOptions& db_options,
-    const std::vector<ColumnFamilyDescriptor>& cf_descs,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options(db_options);
-  config_options.sanity_level = ConfigOptions::kSanityLevelLooselyCompatible;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.input_strings_escaped = true;
-  config_options.env = env;
-  return CheckOptionsCompatibility(config_options, dbpath, db_options,
-                                   cf_descs);
 }
 
 Status CheckOptionsCompatibility(
@@ -156,4 +115,3 @@ Status CheckOptionsCompatibility(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

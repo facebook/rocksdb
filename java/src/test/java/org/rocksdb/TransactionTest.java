@@ -116,7 +116,7 @@ public class TransactionTest extends AbstractTransactionTest {
         txn.commit();
       }
 
-      Transaction txnPrepare;
+      final Transaction txnPrepare;
       txnPrepare = dbContainer.beginTransaction();
       txnPrepare.setName("txnPrepare1");
       txnPrepare.put(k1, v12);
@@ -147,7 +147,7 @@ public class TransactionTest extends AbstractTransactionTest {
         txn.commit();
       }
 
-      Transaction txnPrepare;
+      final Transaction txnPrepare;
       txnPrepare = dbContainer.beginTransaction();
       txnPrepare.setName("txnPrepare1");
       txnPrepare.put(k1, v12);

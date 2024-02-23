@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include <stdlib.h>
 
@@ -576,6 +575,7 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
       ASSERT_OK(itr->status());
       ++count;
     }
+    ASSERT_OK(itr->status());
     ASSERT_EQ(count, 1000);
   }
 
@@ -589,6 +589,7 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
       ASSERT_OK(itr->status());
       ++count;
     }
+    ASSERT_OK(itr->status());
     ASSERT_EQ(count, 1000);
   }
 }
@@ -602,13 +603,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as DBImpl::DeleteFile is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

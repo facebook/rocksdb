@@ -13,8 +13,7 @@ public abstract class MutableOptionValue<T> {
   abstract String asString();
   abstract T asObject();
 
-  private static abstract class MutableOptionValueObject<T>
-      extends MutableOptionValue<T> {
+  private abstract static class MutableOptionValueObject<T> extends MutableOptionValue<T> {
     protected final T value;
 
     protected MutableOptionValueObject(final T value) {

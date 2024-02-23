@@ -13,7 +13,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
@@ -30,7 +30,6 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       blob_file_cache_(blob_file_cache),
       blob_cache_(immutable_options->blob_cache),
       lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {
-#ifndef ROCKSDB_LITE
   auto bbto =
       immutable_options->table_factory->GetOptions<BlockBasedTableOptions>();
   if (bbto &&
@@ -39,7 +38,6 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
     blob_cache_ = SharedCacheInterface{std::make_shared<ChargedCache>(
         immutable_options->blob_cache, bbto->block_cache)};
   }
-#endif  // ROCKSDB_LITE
 }
 
 BlobSource::~BlobSource() = default;
@@ -106,9 +104,9 @@ Status BlobSource::PutBlobIntoCache(
 }
 
 BlobSource::TypedHandle* BlobSource::GetEntryFromCache(const Slice& key) const {
-  return blob_cache_.LookupFull(
-      key, nullptr /* context */, Cache::Priority::BOTTOM,
-      true /* wait_for_cache */, statistics_, lowest_used_cache_tier_);
+  return blob_cache_.LookupFull(key, nullptr /* context */,
+                                Cache::Priority::BOTTOM, statistics_,
+                                lowest_used_cache_tier_);
 }
 
 void BlobSource::PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
@@ -211,7 +209,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   {
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -374,8 +373,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    Status s =
-        blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                                   &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         BlobReadRequest* const req = _blob_reqs[i].first;

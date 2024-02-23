@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <atomic>
@@ -50,7 +49,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/math.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
@@ -1584,7 +1583,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
 
   // we copied all the files, enable file deletions
   if (disabled.ok()) {  // If we successfully disabled file deletions
-    db->EnableFileDeletions(false).PermitUncheckedError();
+    db->EnableFileDeletions(/*force=*/false).PermitUncheckedError();
   }
   auto backup_time = backup_env_->NowMicros() - start_backup;
 
@@ -3354,4 +3353,3 @@ void TEST_SetDefaultRateLimitersClock(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

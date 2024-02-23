@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_type.h"
 #include "table/format.h"
@@ -78,6 +78,10 @@ class BlockFetcher {
   }
   inline size_t GetBlockSizeWithTrailer() const {
     return block_size_with_trailer_;
+  }
+  inline Slice& GetCompressedBlock() {
+    assert(compression_type_ != kNoCompression);
+    return slice_;
   }
 
 #ifndef NDEBUG

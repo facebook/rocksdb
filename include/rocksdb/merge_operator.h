@@ -8,10 +8,13 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,7 +36,7 @@ class Logger;
 //    into rocksdb); numeric addition and string concatenation are examples;
 //
 //  b) MergeOperator - the generic class for all the more abstract / complex
-//    operations; one method (FullMergeV2) to merge a Put/Delete value with a
+//    operations; one method (FullMergeV3) to merge a Put/Delete value with a
 //    merge operand; and another method (PartialMerge) that merges multiple
 //    operands together. this is especially useful if your key values have
 //    complex structures but you would still like to support client-specific
@@ -158,6 +161,54 @@ class MergeOperator : public Customizable {
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const;
 
+  struct MergeOperationInputV3 {
+    using ExistingValue = std::variant<std::monostate, Slice, WideColumns>;
+    using OperandList = std::vector<Slice>;
+
+    explicit MergeOperationInputV3(const Slice& _key,
+                                   ExistingValue&& _existing_value,
+                                   const OperandList& _operand_list,
+                                   Logger* _logger)
+        : key(_key),
+          existing_value(std::move(_existing_value)),
+          operand_list(_operand_list),
+          logger(_logger) {}
+
+    // The user key, including the user-defined timestamp if applicable.
+    const Slice& key;
+    // The base value of the merge operation. Can be one of three things (see
+    // the ExistingValue variant above): no existing value, plain existing
+    // value, or wide-column existing value.
+    ExistingValue existing_value;
+    // The list of operands to apply.
+    const OperandList& operand_list;
+    // The logger to use in case a failure happens during the merge operation.
+    Logger* logger;
+  };
+
+  struct MergeOperationOutputV3 {
+    using NewColumns = std::vector<std::pair<std::string, std::string>>;
+    using NewValue = std::variant<std::string, NewColumns, Slice>;
+
+    // The result of the merge operation. Can be one of three things (see the
+    // NewValue variant above): a new plain value, a new wide-column value, or
+    // an existing merge operand.
+    NewValue new_value;
+    // The scope of the failure if applicable. See above for more details.
+    OpFailureScope op_failure_scope = OpFailureScope::kDefault;
+  };
+
+  // An extended version of FullMergeV2() that supports wide columns on both the
+  // input and the output side, enabling the application to perform general
+  // transformations during merges. For backward compatibility, the default
+  // implementation calls FullMergeV2(). Specifically, if there is no base value
+  // or the base value is a plain key-value, the default implementation falls
+  // back to FullMergeV2(). If the base value is a wide-column entity, the
+  // default implementation invokes FullMergeV2() to perform the merge on the
+  // default column, and leaves any other columns unchanged.
+  virtual bool FullMergeV3(const MergeOperationInputV3& merge_in,
+                           MergeOperationOutputV3* merge_out) const;
+
   // This function performs merge(left_op, right_op)
   // when both the operands are themselves merge operation types
   // that you would have passed to a DB::Merge() call in the same order
@@ -186,7 +237,7 @@ class MergeOperator : public Customizable {
   // TODO: Presently there is no way to differentiate between error/corruption
   // and simply "return false". For now, the client should simply return
   // false in any case it cannot perform partial-merge, regardless of reason.
-  // If there is corruption in the data, handle it in the FullMergeV2() function
+  // If there is corruption in the data, handle it in the FullMergeV3() function
   // and return false there.  The default implementation of PartialMerge will
   // always return false.
   virtual bool PartialMerge(const Slice& /*key*/, const Slice& /*left_operand*/,
@@ -243,8 +294,8 @@ class MergeOperator : public Customizable {
   // Doesn't help with iterators.
   //
   // Note: the merge operands are passed to this function in the reversed order
-  // relative to how they were merged (passed to FullMerge or FullMergeV2)
-  // for performance reasons, see also:
+  // relative to how they were merged (passed to
+  // FullMerge/FullMergeV2/FullMergeV3) for performance reasons, see also:
   // https://github.com/facebook/rocksdb/issues/3865
   virtual bool ShouldMerge(const std::vector<Slice>& /*operands*/) const {
     return false;

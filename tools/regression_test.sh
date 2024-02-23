@@ -113,7 +113,8 @@ DATA_FORMAT+="%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f,%5.0f,"
 DATA_FORMAT+="%5.0f,%5.0f,%5.0f" # time
 DATA_FORMAT+="\n"
 
-MAIN_PATTERN="$1""[[:blank:]]+:.*[[:blank:]]+([0-9\.]+)[[:blank:]]+ops/sec"
+# In case of async_io, $1 is benchmark_asyncio
+MAIN_PATTERN="${1%%_*}""[[:blank:]]+:.*[[:blank:]]+([0-9\.]+)[[:blank:]]+ops/sec"
 PERC_PATTERN="Percentiles: P50: ([0-9\.]+) P75: ([0-9\.]+) "
 PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
 #==============================================================================
@@ -137,6 +138,9 @@ function main {
   fi
   if [ $TEST_MODE -ge 1 ]; then
       build_checkpoint
+      # run_db_bench benchmark_name NUM_OPS NUM_THREADS USED_EXISTING_DB UPDATE_REPORT ASYNC_IO
+      run_db_bench "seekrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
+      run_db_bench "multireadrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
       run_db_bench "readrandom"
       run_db_bench "readwhilewriting"
       run_db_bench "deleterandom"
@@ -199,10 +203,11 @@ function init_arguments {
 }
 
 # $1 --- benchmark name
-# $2 --- number of operations.  Default: $NUM_KEYS
+# $2 --- number of operations.  Default: $NUM_OPS
 # $3 --- number of threads.  Default $NUM_THREADS
 # $4 --- use_existing_db.  Default: 1
 # $5 --- update_report. Default: 1
+# $6 --- async_io. Default: False
 function run_db_bench {
   # Make sure no other db_bench is running. (Make sure command succeeds if pidof
   # command exists but finds nothing.)
@@ -234,6 +239,16 @@ function run_db_bench {
   threads=${3:-$NUM_THREADS}
   USE_EXISTING_DB=${4:-1}
   UPDATE_REPORT=${5:-1}
+  async_io=${6:-false}
+  seek_nexts=$SEEK_NEXTS
+
+  if [ "$async_io" == "true" ]; then
+    if ! [ -z "$SEEK_NEXTS_ASYNC_IO" ]; then
+      seek_nexts=$SEEK_NEXTS_ASYNC_IO
+    fi
+  fi
+
+
   echo ""
   echo "======================================================================="
   echo "Benchmark $1"
@@ -242,9 +257,13 @@ function run_db_bench {
   db_bench_error=0
   options_file_arg=$(setup_options_file)
   echo "$options_file_arg"
+
+  # In case of async_io, benchmark is benchmark_asyncio
+  db_bench_type=${1%%_*}
+
   # use `which time` to avoid using bash's internal time command
   db_bench_cmd="\$(which time) -p $DB_BENCH_DIR/db_bench \
-      --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
+      --benchmarks=$db_bench_type --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
       --perf_level=$PERF_LEVEL \
       --disable_auto_compactions \
@@ -260,7 +279,7 @@ function run_db_bench {
       $options_file_arg \
       --compression_ratio=$COMPRESSION_RATIO \
       --histogram=$HISTOGRAM \
-      --seek_nexts=$SEEK_NEXTS \
+      --seek_nexts=$seek_nexts \
       --stats_per_interval=$STATS_PER_INTERVAL \
       --stats_interval_seconds=$STATS_INTERVAL_SECONDS \
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
@@ -271,7 +290,15 @@ function run_db_bench {
       --seed=$SEED \
       --multiread_batched=true \
       --batch_size=$MULTIREAD_BATCH_SIZE \
-      --multiread_stride=$MULTIREAD_STRIDE 2>&1"
+      --multiread_stride=$MULTIREAD_STRIDE \
+      --async_io=$async_io"
+
+  if [ "$async_io" == "true" ]; then
+    db_bench_cmd="$db_bench_cmd $(set_async_io_parameters) "
+  fi
+
+  db_bench_cmd=" $db_bench_cmd 2>&1"
+
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
     db_bench_cmd="$SSH $REMOTE_USER_AT_HOST '$db_bench_cmd'"
@@ -284,6 +311,24 @@ function run_db_bench {
   if [ $UPDATE_REPORT -ne 0 ]; then
     update_report "$1" "$RESULT_PATH/$1" $ops $threads
   fi
+}
+
+function set_async_io_parameters {
+  options=" --duration=500"
+  # Below parameters are used in case of async_io only.
+  # 1. If you want to run below parameters for all benchmarks, it should be
+  #    specify in OPTIONS_FILE instead of exporting them.
+  # 2. Below exported var takes precedence over OPTIONS_FILE.
+  if ! [ -z "$MAX_READAHEAD_SIZE" ]; then
+    options="$options --max_auto_readahead_size=$MAX_READAHEAD_SIZE "
+  fi
+  if ! [ -z "$INITIAL_READAHEAD_SIZE" ]; then
+    options="$options --initial_auto_readahead_size=$INITIAL_READAHEAD_SIZE "
+  fi
+  if ! [ -z "$NUM_READS_FOR_READAHEAD_SIZE" ]; then
+    options="$options --num_file_reads_for_auto_readahead=$NUM_READS_FOR_READAHEAD_SIZE "
+  fi
+  echo $options
 }
 
 function build_checkpoint {
@@ -317,7 +362,10 @@ function multiply {
 # $1 --- name of the benchmark
 # $2 --- the filename of the output log of db_bench
 function update_report {
-  main_result=`cat $2 | grep $1`
+  # In case of async_io, benchmark is benchmark_asyncio
+  db_bench_type=${1%%_*}
+
+  main_result=`cat $2 | grep $db_bench_type`
   exit_on_error $?
   perc_statement=`cat $2 | grep Percentile`
   exit_on_error $?
@@ -402,7 +450,7 @@ function run_local {
 }
 
 function setup_options_file {
-  if ! [ -z "$OPTIONS_FILE" ]; then
+ if ! [ -z "$OPTIONS_FILE" ]; then
     if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
       options_file="$DB_BENCH_DIR/OPTIONS_FILE"
       run_local "$SCP $OPTIONS_FILE $REMOTE_USER_AT_HOST:$options_file"
@@ -438,8 +486,9 @@ function setup_test_directory {
   run_remote "ls -l $DB_BENCH_DIR"
 
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-      run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
-      run_local "$SCP ./ldb $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/ldb"
+      shopt -s nullglob # allow missing librocksdb*.so* for static lib build
+      run_local "tar cz db_bench ldb librocksdb*.so* | $SSH $REMOTE_USER_AT_HOST 'cd $DB_BENCH_DIR/ && tar xzv'"
+      shopt -u nullglob
   fi
 
   run_local "mkdir -p $RESULT_PATH"

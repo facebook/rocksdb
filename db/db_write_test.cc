@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <memory>
 #include <thread>
@@ -18,6 +19,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -493,7 +495,7 @@ TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
 
   // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
   // DB WAL.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -534,7 +536,7 @@ TEST_P(DBWriteTest, InactiveWalFullySyncedBeforeUntracked) {
 
   // Simulate full loss of unsynced data. This should drop nothing since we did
   // `FlushWAL(true /* sync */)` before `Close()`.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -605,23 +607,137 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   Close();
 }
 
-// Test that db->LockWAL() flushes the WAL after locking.
-TEST_P(DBWriteTest, LockWalInEffect) {
+// Test that db->LockWAL() flushes the WAL after locking, which can fail
+TEST_P(DBWriteTest, LockWALInEffect) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   Options options = GetOptions();
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  options.env = fault_fs_env.get();
+  options.disable_auto_compactions = true;
+  options.paranoid_checks = false;
+  options.max_bgerror_resume_count = 0;  // manual Resume()
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
+  ASSERT_OK(Put("key0", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->LockWAL());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
+  ASSERT_OK(Put("key1", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->LockWAL());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->UnlockWAL());
+
+  // The above `TEST_SwitchWAL()` triggered a flush. That flush needs to finish
+  // before we make the filesystem inactive, otherwise the flush might hit an
+  // unrecoverable error (e.g., failed MANIFEST update).
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
+
+  // Fail the WAL flush if applicable
+  fault_fs->SetFilesystemActive(false);
+  Status s = Put("key2", "value");
+  if (options.manual_wal_flush) {
+    ASSERT_OK(s);
+    // I/O failure
+    ASSERT_NOK(db_->LockWAL());
+    // Should not need UnlockWAL after LockWAL fails
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_OK(db_->LockWAL());
+    ASSERT_OK(db_->UnlockWAL());
+  }
+  fault_fs->SetFilesystemActive(true);
+  ASSERT_OK(db_->Resume());
+  // Writes should work again
+  ASSERT_OK(Put("key3", "value"));
+  ASSERT_EQ(Get("key3"), "value");
+
+  // Should be extraneous, but allowed
+  ASSERT_NOK(db_->UnlockWAL());
+
+  // Close before mock_env destruct.
+  Close();
+}
+
+TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
+  Options options = GetOptions();
+  Reopen(options);
+  ASSERT_OK(Put("k1", "val"));
+  ASSERT_OK(db_->LockWAL());  // 0 -> 1
+  auto frozen_seqno = db_->GetLatestSequenceNumber();
+  std::atomic<bool> t1_completed{false};
+  port::Thread t1{[&]() {
+    // Won't finish until WAL unlocked
+    ASSERT_OK(Put("k1", "val2"));
+    t1_completed = true;
+  }};
+
+  ASSERT_OK(db_->LockWAL());  // 1 -> 2
+  // Read-only ops are OK
+  ASSERT_EQ(Get("k1"), "val");
+  {
+    std::vector<LiveFileStorageInfo> files;
+    LiveFilesStorageInfoOptions lf_opts;
+    // A DB flush could deadlock
+    lf_opts.wal_size_for_flush = UINT64_MAX;
+    ASSERT_OK(db_->GetLiveFilesStorageInfo({lf_opts}, &files));
+  }
+
+  port::Thread t2{[&]() {
+    ASSERT_OK(db_->LockWAL());  // 2 -> 3 or 1 -> 2
+  }};
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1 or 3 -> 2
+  // Give t1 an extra chance to jump in case of bug
+  std::this_thread::yield();
+  t2.join();
+  ASSERT_FALSE(t1_completed.load());
+
+  // Should now have 2 outstanding LockWAL
+  ASSERT_EQ(Get("k1"), "val");
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1
+
+  ASSERT_FALSE(t1_completed.load());
+  ASSERT_EQ(Get("k1"), "val");
+  ASSERT_EQ(frozen_seqno, db_->GetLatestSequenceNumber());
+
+  // Ensure final Unlock is concurrency safe and extra Unlock is safe but
+  // non-OK
+  std::atomic<int> unlock_ok{0};
+  port::Thread t3{[&]() {
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+    ASSERT_OK(db_->LockWAL());
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+  }};
+
+  if (db_->UnlockWAL().ok()) {
+    unlock_ok++;
+  }
+  t3.join();
+
+  // There was one extra unlock, so just one non-ok
+  ASSERT_EQ(unlock_ok.load(), 2);
+
+  // Write can proceed
+  t1.join();
+  ASSERT_TRUE(t1_completed.load());
+  ASSERT_EQ(Get("k1"), "val2");
+  // And new writes
+  ASSERT_OK(Put("k2", "val"));
+  ASSERT_EQ(Get("k2"), "val");
 }
 
 TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
@@ -662,231 +778,6 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
   // written WAL size should less than 100KB (even included HEADER & FOOTER
   // overhead)
   ASSERT_LE(bytes_num, 1024 * 100);
-}
-
-TEST_P(DBWriteTest, DisableWriteStall) {
-  Options options = GetOptions();
-  options.disable_write_stall = true;
-  options.max_write_buffer_number = 2;
-  options.use_options_file = false;
-  Reopen(options);
-  db_->PauseBackgroundWork();
-  ASSERT_OK(Put("k1", "v1"));
-  FlushOptions opts;
-  opts.wait = false;
-  opts.allow_write_stall = true;
-  ASSERT_OK(db_->Flush(opts));
-  ASSERT_OK(Put("k2", "v2"));
-  ASSERT_OK(db_->Flush(opts));
-
-  // no write stall since it's disabled
-  ASSERT_OK(Put("k3", "v3"));
-
-  // now enable write stall
-  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "false"}}));
-
-  WriteOptions wopts;
-  wopts.no_slowdown = true;
-  auto st = db_->Put(wopts, "k4", "v4");
-  EXPECT_TRUE(st.IsIncomplete());
-
-  // now disable again
-  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "true"}}));
-  // no write stall since it's disabled
-  ASSERT_OK(Put("k4", "v4"));
-
-  // verify that disable write stall will unblock writes
-  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "false"}}));
-
-  std::thread t([&]() {
-    // writes will be blocked due to write stall
-    // but once we disable write stall, the writes are unblocked
-    ASSERT_OK(Put("k5", "v5"));
-  });
-  // sleep to make sure t is blocked on write. Not ideal but it works
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "true"}}));
-  t.join();
-
-  Close();
-}
-
-class DummyListener : public ReplicationLogListener {
-   public:
-    std::string OnReplicationLogRecord(
-        ReplicationLogRecord /*record*/) override {
-        seq_ += 1;
-        return std::to_string(seq_);
-    }
-
-   private:
-    std::atomic_int seq_{0};
-};
-
-// verifies that when `disable_write_stall` is the only cf option we set,
-// there won't be manifest updates
-TEST_P(DBWriteTest, DisableWriteStallNotWriteManifest) {
-  // pipelined write is conflicted with atomic flush
-  if (GetParam() == kPipelinedWrite) {
-    return ;
-  }
-  Options options = GetOptions();
-  options.disable_write_stall = false;
-  // make sure manifest update seq is bumped
-  options.replication_log_listener = std::make_shared<DummyListener>();
-  options.atomic_flush = true;
-  Reopen(options);
-
-  uint64_t manifestUpdateSeq;
-  ASSERT_OK(db_->GetManifestUpdateSequence(&manifestUpdateSeq));
-
-  db_->SetOptions({{"disable_write_stall", "true"}});
-
-  uint64_t newManifestUpdateSeq;
-  ASSERT_OK(db_->GetManifestUpdateSequence(&newManifestUpdateSeq));
-
-  EXPECT_EQ(manifestUpdateSeq, newManifestUpdateSeq);
-
-  Close();
-}
-
-void functionTrampoline(void* arg) {
-    (*reinterpret_cast<std::function<void()>*>(arg))();
-}
-
-// Test the case that non-trival compaction is triggered before we disable write stall
-// and make sure compaction job with old mutable_cf_options won't cause write stall
-TEST_P(DBWriteTest, AutoCompactionBeforeDisableWriteStall) {
-  const int kNumKeysPerFile = 100;
-
-  Options options;
-  options.env = env_;
-  options.use_options_file = false;
-
-  // auto flush/compaction enabled so that write stall will be triggered
-  options.disable_auto_compactions = false;
-  options.disable_auto_flush = false;
-
-  // set write buffer number to trigger write stall
-  options.max_write_buffer_number = 2;
-  options.disable_write_stall = false;
-
-  // set compaction trigger to trigger non trival auto compaction
-  options.num_levels = 3;
-  options.level0_file_num_compaction_trigger = 3;
-
-  // large write buffer size so auto flush never triggered
-  options.write_buffer_size = 10 << 20;
-
-  options.max_background_jobs = 2;
-
-  options.info_log = info_log_;
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1])->cfd();
-
-  Random rnd(301);
-
-  for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
-       num++) {
-    std::vector<std::string> values;
-    // Write 100KB (100 values, each 1K)
-    for (int i = 0; i < kNumKeysPerFile; i++) {
-      values.push_back(rnd.RandomString(990));
-      ASSERT_OK(Put(1, Key(i), values[i]));
-    }
-    ASSERT_OK(dbfull()->Flush({}, handles_[1]));
-    ASSERT_EQ(NumTableFilesAtLevel(0, 1), num + 1);
-  }
-
-  // We are trying to simulate following case:
-  // 1. non trival compaction job scheduled but not starting yet
-  // 2. continuous writes trigger flush, which generates too many memtables and
-  // stalls writes
-  // 3. disable write stall through setOption API
-  // 4. compaction job is done. Even though it installs super version with stale
-  // `mutable_cf_options`, which still has `disable_write_stall=false`, the
-  // writes are not stalled since latest `mutable_cf_options` has
-  // `disable_write_stall=true`
-  // 5. flush jobs are done
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
-        "DBWriteTest::CompactionBeforeDisableWriteStall:BeforeDisableWriteStall"},
-        {
-          "DBWriteTest::CompactionBeforeDisableWriteStall:AfterDisableWriteStall",
-          "CompactionJob::Run():Start"
-        }});
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  // Write one more file to trigger auto compaction
-  std::vector<std::string> values;
-  for (int i = 0; i < kNumKeysPerFile; i++) {
-    values.push_back(rnd.RandomString(990));
-    ASSERT_OK(Put(1, Key(i), values[i]));
-  }
-  ASSERT_OK(dbfull()->Flush({}, handles_[1]));
-
-  TEST_SYNC_POINT("DBWriteTest::CompactionBeforeDisableWriteStall:BeforeDisableWriteStall");
-  // writes not stalled yet
-  EXPECT_FALSE(cfd->GetSuperVersion()->mutable_cf_options.disable_write_stall);
-  EXPECT_FALSE(dbfull()
-                   ->GetVersionSet()
-                   ->GetColumnFamilySet()
-                   ->write_controller()
-                   ->IsStopped());
-
-  auto cork = std::make_shared<std::atomic<bool>>();
-  cork->store(true);
-  std::function<void()> corkFunction = [cork]() {
-    while (cork->load()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-  };
-
-  // schedule high priority jobs to block the flush from finishing.
-  // We can't `pauseBackgroundWork` here since that would prevent the compaction
-  // from finishing as well
-  for (int i = 0; i < 2; i++) {
-    env_->Schedule(&functionTrampoline, &corkFunction, rocksdb::Env::Priority::HIGH);
-  }
-
-  ASSERT_OK(Put(1, "k1", "v1"));
-  FlushOptions fopts;
-  fopts.wait = false;
-  fopts.allow_write_stall = true;
-  ASSERT_OK(dbfull()->Flush(fopts, handles_[1]));
-  ASSERT_OK(Put(1, "k2", "v2"));
-  // write stall condition triggered after this flush
-  ASSERT_OK(dbfull()->Flush(fopts, handles_[1]));
-  EXPECT_EQ(cfd->imm()->NumNotFlushed(), 2);
-  EXPECT_TRUE(dbfull()
-                  ->GetVersionSet()
-                  ->GetColumnFamilySet()
-                  ->write_controller()
-                  ->IsStopped());
-
-  ASSERT_OK(db_->SetOptions(
-    handles_[1], {{"disable_write_stall", "true"}}));
-
-  TEST_SYNC_POINT("DBWriteTest::CompactionBeforeDisableWriteStall:AfterDisableWriteStall");
-
-  ASSERT_OK(dbfull()->TEST_WaitForScheduledCompaction());
-  // compaction job installs super version with stale mutable_cf_options
-  EXPECT_FALSE(cfd->GetSuperVersion()->mutable_cf_options.disable_write_stall);
-  // but latest mutable_cf_options should be correctly set
-  EXPECT_TRUE(cfd->GetLatestMutableCFOptions()->disable_write_stall);
-  // and writes are not stalled!
-  EXPECT_FALSE(dbfull()->GetVersionSet()->GetColumnFamilySet()->write_controller()->IsStopped());
-
-  WriteOptions wopts;
-  wopts.no_slowdown = true;
-  EXPECT_OK(db_->Put(wopts, handles_[1], "k3", "v3"));
-
-  cork->store(false);
-  // wait for flush to be done
-  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
-
-  Close();
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
