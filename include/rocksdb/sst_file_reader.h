@@ -24,10 +24,16 @@ class SstFileReader {
   // Prepares to read from the file located at "file_path".
   Status Open(const std::string& file_path);
 
-  // Returns a new iterator over the table contents.
+  // Returns a new iterator over the table contents as a db iterator.
   // Most read options provide the same control as we read from DB.
   // If "snapshot" is nullptr, the iterator returns only the latest keys.
   Iterator* NewIterator(const ReadOptions& options);
+
+  // Returns a new iterator over the table contents as a raw table iterator.
+  // This API is intended to provide a programmatic way to observe SST files
+  // created by a DB, to be used by third party tools. DB optimization
+  // capabilities like filling cache, read ahead are disabled.
+  std::unique_ptr<Iterator> NewTableIterator();
 
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 

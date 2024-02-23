@@ -8,6 +8,7 @@
 
 #include <cinttypes>
 
+#include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -576,6 +577,86 @@ TEST_F(SstFileReaderTest, VerifyNumEntriesCorruption) {
       << " entries when excluding range deletions,"
       << " but scanning the table returned " << num_keys << " entries";
   ASSERT_TRUE(std::strstr(oss.str().c_str(), s.getState()));
+}
+
+class SstFileReaderTableIteratorTest : public DBTestBase {
+ public:
+  SstFileReaderTableIteratorTest()
+      : DBTestBase("sst_file_reader_table_iterator_test",
+                   /*env_do_fsync=*/false) {}
+};
+
+TEST_F(SstFileReaderTableIteratorTest, Basic) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create a L0 sst file with 4 entries, two for each user key.
+  // The file should have these entries in ascending internal key order:
+  // 'bar, seq: 4, type: kTypeValue => val2'
+  // 'bar, seq: 3, type: kTypeDeletion'
+  // 'foo, seq: 2, type: kTypeDeletion'
+  // 'foo, seq: 1, type: kTypeValue => val1'
+  ASSERT_OK(Put("foo", "val1"));
+  const Snapshot* snapshot1 = dbfull()->GetSnapshot();
+  ASSERT_OK(Delete("foo"));
+  ASSERT_OK(Delete("bar"));
+  const Snapshot* snapshot2 = dbfull()->GetSnapshot();
+  ASSERT_OK(Put("bar", "val2"));
+
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_TRUE(files.size() == 1);
+  ASSERT_TRUE(files[0].level == 0);
+  std::string file_name = files[0].directory + "/" + files[0].relative_filename;
+
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(file_name));
+  ASSERT_OK(reader.VerifyChecksum());
+
+  // When iterating the file as a DB iterator, only one data entry for "bar" is
+  // visible.
+  std::unique_ptr<Iterator> db_iter(reader.NewIterator(ReadOptions()));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key(), "bar");
+  ASSERT_EQ(db_iter->value(), "val2");
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+  db_iter.reset();
+
+  // When iterating the file with a raw table iterator, all the data entries are
+  // surfaced in ascending internal key order.
+  std::unique_ptr<Iterator> table_iter = reader.NewTableIterator();
+  auto verify_table_entry = [iter = table_iter.get()](
+                                const std::string& user_key,
+                                ValueType value_type,
+                                std::optional<std::string> expected_value) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(iter->status().ok());
+    ParsedInternalKey pikey;
+    ASSERT_OK(ParseInternalKey(iter->key(), &pikey, /*log_err_key=*/false));
+    ASSERT_EQ(pikey.user_key, user_key);
+    ASSERT_EQ(pikey.type, value_type);
+    if (expected_value.has_value()) {
+      ASSERT_EQ(iter->value(), expected_value.value());
+    }
+    iter->Next();
+  };
+
+  table_iter->SeekToFirst();
+  verify_table_entry("bar", kTypeValue, "val2");
+  verify_table_entry("bar", kTypeDeletion, std::nullopt);
+  verify_table_entry("foo", kTypeDeletion, std::nullopt);
+  verify_table_entry("foo", kTypeValue, "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  dbfull()->ReleaseSnapshot(snapshot1);
+  dbfull()->ReleaseSnapshot(snapshot2);
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
