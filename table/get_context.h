@@ -75,6 +75,7 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
+    kMergeOperatorFailed,
   };
   GetContextStats get_context_stats_;
 
@@ -177,14 +178,31 @@ class GetContext {
 
   bool has_callback() const { return callback_ != nullptr; }
 
+  const Slice& ukey_to_get_blob_value() const {
+    if (!ukey_with_ts_found_.empty()) {
+      return ukey_with_ts_found_;
+    } else {
+      return user_key_;
+    }
+  }
+
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
-  void Merge(const Slice* value);
-  void MergeWithEntity(Slice entity);
-  bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
+  // Helper method that postprocesses the results of merge operations, e.g. it
+  // sets the state correctly upon merge errors.
+  void PostprocessMerge(const Status& merge_status);
+
+  // The following methods perform the actual merge operation for the
+  // no base value/plain base value/wide-column base value cases.
+  void MergeWithNoBaseValue();
+  void MergeWithPlainBaseValue(const Slice& value);
+  void MergeWithWideColumnBaseValue(const Slice& entity);
+
+  bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
+                    PinnableSlice* blob_value);
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -194,6 +212,10 @@ class GetContext {
 
   GetState state_;
   Slice user_key_;
+  // When a blob index is found with the user key containing timestamp,
+  // this copies the corresponding user key on record in the sst file
+  // and is later used for blob verification.
+  PinnableSlice ukey_with_ts_found_;
   PinnableSlice* pinnable_val_;
   PinnableWideColumns* columns_;
   std::string* timestamp_;
@@ -226,6 +248,7 @@ class GetContext {
 // must have been set by calling GetContext::SetReplayLog().
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context,
-                         Cleanable* value_pinner = nullptr);
+                         Cleanable* value_pinner = nullptr,
+                         SequenceNumber seq_no = kMaxSequenceNumber);
 
 }  // namespace ROCKSDB_NAMESPACE

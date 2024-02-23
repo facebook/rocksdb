@@ -99,7 +99,7 @@ public class LRUCache extends Cache {
         capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, lowPriPoolRatio));
   }
 
-  private native static long newLRUCache(final long capacity, final int numShardBits,
+  private static native long newLRUCache(final long capacity, final int numShardBits,
       final boolean strictCapacityLimit, final double highPriPoolRatio,
       final double lowPriPoolRatio);
   @Override protected final native void disposeInternal(final long handle);

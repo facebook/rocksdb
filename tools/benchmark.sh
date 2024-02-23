@@ -6,6 +6,7 @@
 EXIT_INVALID_ARGS=1
 EXIT_NOT_COMPACTION_TEST=2
 EXIT_UNKNOWN_JOB=3
+EXIT_INVALID_PATH=4
 
 # Size Constants
 K=1024
@@ -113,6 +114,11 @@ if [[ "$bench_cmd" == "--help" ]]; then
 fi
 
 job_id=${JOB_ID}
+
+if [ ! -x ./db_bench ]; then
+  echo "./db_bench not found. Please make sure it exists in the current directory."
+  exit $EXIT_INVALID_PATH
+fi
 
 # Make it easier to run only the compaction test. Getting valid data requires
 # a number of iterations and having an ability to run the test separately from

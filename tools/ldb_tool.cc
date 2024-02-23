@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
 
 #include "rocksdb/utilities/ldb_cmd.h"
@@ -94,6 +93,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   BatchPutCommand::Help(ret);
   ScanCommand::Help(ret);
   DeleteCommand::Help(ret);
+  SingleDeleteCommand::Help(ret);
   DeleteRangeCommand::Help(ret);
   DBQuerierCommand::Help(ret);
   ApproxSizeCommand::Help(ret);
@@ -181,5 +181,3 @@ void LDBTool::Run(int argc, char** argv, Options options,
   exit(error_code);
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

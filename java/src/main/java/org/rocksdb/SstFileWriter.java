@@ -13,10 +13,6 @@ import java.nio.ByteBuffer;
  * sequence number = 0.
  */
 public class SstFileWriter extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * SstFileWriter Constructor.
    *
@@ -199,12 +195,13 @@ public class SstFileWriter extends RocksObject {
     return fileSize(nativeHandle_);
   }
 
-  private native static long newSstFileWriter(
-      final long envOptionsHandle, final long optionsHandle,
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
+  // (AP) Should we expose a constructor wrapping this ?
+  private static native long newSstFileWriter(final long envOptionsHandle, final long optionsHandle,
       final long userComparatorHandle, final byte comparatorType);
 
-  private native static long newSstFileWriter(final long envOptionsHandle,
-      final long optionsHandle);
+  private static native long newSstFileWriter(
+      final long envOptionsHandle, final long optionsHandle);
 
   private native void open(final long handle, final String filePath)
       throws RocksDBException;

@@ -5,7 +5,6 @@
 #pragma once
 
 #include "rocksdb/comparator.h"
-#ifndef ROCKSDB_LITE
 
 #include <queue>
 #include <string>
@@ -123,7 +122,7 @@ class ForwardIterator : public InternalIterator {
   void DeleteIterator(InternalIterator* iter, bool is_arena = false);
 
   DBImpl* const db_;
-  const ReadOptions read_options_;
+  ReadOptions read_options_;
   ColumnFamilyData* const cfd_;
   const SliceTransform* const prefix_extractor_;
   const Comparator* user_comparator_;
@@ -165,4 +164,3 @@ class ForwardIterator : public InternalIterator {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

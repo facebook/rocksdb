@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/adaptive/adaptive_table_factory.h"
 
 #include "port/port.h"
@@ -124,4 +123,3 @@ extern TableFactory* NewAdaptiveTableFactory(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

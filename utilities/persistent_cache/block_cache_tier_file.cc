@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
@@ -237,7 +236,7 @@ bool RandomAccessCacheFile::Read(const LBA& lba, Slice* key, Slice* val,
 
   Slice result;
   Status s = freader_->Read(IOOptions(), lba.off_, lba.size_, &result, scratch,
-                            nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+                            nullptr);
   if (!s.ok()) {
     Error(log_, "Error reading from file %s. %s", Path().c_str(),
           s.ToString().c_str());
@@ -606,5 +605,3 @@ void ThreadedWriter::DispatchIO(const IO& io) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif

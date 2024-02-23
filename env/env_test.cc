@@ -1107,7 +1107,6 @@ class IoctlFriendlyTmpdir {
   bool is_supported_ = true;
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(EnvPosixTest, PositionedAppend) {
   std::unique_ptr<WritableFile> writable_file;
   EnvOptions options;
@@ -1141,7 +1140,6 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   ASSERT_EQ('a', result[kBlockSize - 1]);
   ASSERT_EQ('b', result[kBlockSize]);
 }
-#endif  // !ROCKSDB_LITE
 
 // `GetUniqueId()` temporarily returns zero on Windows. `BlockBasedTable` can
 // handle a return value of zero but this test case cannot.
@@ -1551,7 +1549,6 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
   EnvOptions soptions;
   soptions.use_direct_reads = true;
@@ -1622,7 +1619,6 @@ TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // ROCKSDB_LITE
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 void GenerateFilesAndRequest(Env* env, const std::string& fname,
@@ -2470,13 +2466,11 @@ TEST_F(EnvTest, LogvWithInfoLogLevel) {
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
-#if !defined(ROCKSDB_LITE)
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 true)));
-#endif  // !defined(ROCKSDB_LITE)
 
-#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 static Env* GetChrootEnv() {
   static std::unique_ptr<Env> chroot_env(
       NewChrootEnv(Env::Default(), test::TmpDir(Env::Default())));
@@ -2488,7 +2482,7 @@ INSTANTIATE_TEST_CASE_P(ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
 INSTANTIATE_TEST_CASE_P(ChrootEnvWithDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(GetChrootEnv(),
                                                                 true)));
-#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#endif  //  !defined(OS_WIN)
 
 class EnvFSTestWithParam
     : public ::testing::Test,
@@ -2653,7 +2647,6 @@ class CreateEnvTest : public testing::Test {
   ConfigOptions config_options_;
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(CreateEnvTest, LoadCTRProvider) {
   config_options_.invoke_prepare_options = false;
   std::string CTR = CTREncryptionProvider::kClassName();
@@ -2712,7 +2705,6 @@ TEST_F(CreateEnvTest, LoadROT13Cipher) {
   ASSERT_NE(cipher, nullptr);
   ASSERT_STREQ(cipher->Name(), "ROT13");
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
   std::shared_ptr<SystemClock> clock, copy;
@@ -2720,15 +2712,12 @@ TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
                                           SystemClock::kDefaultName(), &clock));
   ASSERT_NE(clock, nullptr);
   ASSERT_EQ(clock, SystemClock::Default());
-#ifndef ROCKSDB_LITE
   std::string opts_str = clock->ToString(config_options_);
   std::string mismatch;
   ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(clock->AreEquivalent(config_options_, copy.get(), &mismatch));
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(CreateEnvTest, CreateMockSystemClock) {
   std::shared_ptr<SystemClock> mock, copy;
 
@@ -2917,6 +2906,13 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
 
   std::string base_opts =
       std::string("provider=1://test; id=") + EncryptedFileSystem::kClassName();
+  // Rewrite the default FileSystem URI if the "TEST_FS_URI" environment
+  // variable is set. This is useful to test customer encryption plugins.
+  const char* uri = getenv("TEST_FS_URI");
+  if (uri != nullptr) {
+    base_opts = uri;
+  }
+
   // The EncryptedFileSystem requires a "provider" option.
   ASSERT_NOK(FileSystem::CreateFromString(
       config_options_, EncryptedFileSystem::kClassName(), &fs));
@@ -2943,7 +2939,6 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
   ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
-#endif  // ROCKSDB_LITE
 
 namespace {
 
@@ -3066,7 +3061,7 @@ TEST_F(EnvTest, PortGenerateRfcUuid) {
   VerifyRfcUuids(t.ids);
 }
 
-// Test the atomic, linear generation of GenerateRawUuid
+// Test the atomic, linear generation of GenerateRawUniqueId
 TEST_F(EnvTest, GenerateRawUniqueId) {
   struct MyStressTest
       : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
@@ -3146,6 +3141,104 @@ TEST_F(EnvTest, SemiStructuredUniqueIdGenTest) {
   t.Run();
 }
 
+TEST_F(EnvTest, SemiStructuredUniqueIdGenTestSmaller) {
+  // For small generated types, will cycle through all the possible values.
+  SemiStructuredUniqueIdGen gen;
+  std::vector<bool> hit(256);
+  for (int i = 0; i < 256; ++i) {
+    auto val = gen.GenerateNext<uint8_t>();
+    ASSERT_FALSE(hit[val]);
+    hit[val] = true;
+  }
+  for (int i = 0; i < 256; ++i) {
+    ASSERT_TRUE(hit[i]);
+  }
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest1) {
+  // Must be thread safe and usable as a static.
+  static UnpredictableUniqueIdGen gen;
+
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest2) {
+  // Even if we completely strip the seeding and entropy of the structure
+  // down to a bare minimum, we still get quality pseudorandom results.
+  static UnpredictableUniqueIdGen gen{
+      UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      // No extra entropy is required to get quality pseudorandom results
+      gen.GenerateNextWithEntropy(&p.first, &p.second, /*no extra entropy*/ 0);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest3) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      thread_local UnpredictableUniqueIdGen gen{
+          UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+      // Even without the counter (reset it to thread id), we get quality
+      // single-threaded results (because part of each result is fed back
+      // into pool).
+      gen.TEST_counter().store(Env::Default()->GetThreadID());
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest4) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      // Even if we reset the state to thread ID each time, RDTSC instruction
+      // suffices for quality single-threaded results.
+      UnpredictableUniqueIdGen gen{
+          UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+      gen.TEST_counter().store(Env::Default()->GetThreadID());
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+#ifdef __SSE4_2__  // Our rough check for RDTSC
+  t.Run();
+#else
+  ROCKSDB_GTEST_BYPASS("Requires IA32 with RDTSC");
+  // because nanosecond time might not be high enough fidelity to have
+  // incremented after a few hundred instructions, especially in cases where
+  // we really only have microsecond fidelity. Also, wall clock might not be
+  // monotonic.
+#endif
+}
+
 TEST_F(EnvTest, FailureToCreateLockFile) {
   auto env = Env::Default();
   auto fs = env->GetFileSystem();
@@ -3191,17 +3284,14 @@ TEST_F(CreateEnvTest, CreateDefaultEnv) {
   ASSERT_EQ(env, Env::Default());
   ASSERT_EQ(guard, nullptr);
 
-#ifndef ROCKSDB_LITE
   std::string opt_str = env->ToString(options);
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env));
   ASSERT_EQ(env, Env::Default());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
   ASSERT_EQ(env, Env::Default());
   ASSERT_EQ(guard, nullptr);
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 class WrappedEnv : public EnvWrapper {
  public:
@@ -3353,7 +3443,6 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
   ASSERT_NE(comp->Inner(), nullptr);
   ASSERT_OK(ValidateOptions(db_opts, cf_opts));
 }
-#endif  // ROCKSDB_LITE
 
 // Forward declaration
 class ReadAsyncFS;
@@ -3456,7 +3545,7 @@ IOStatus ReadAsyncRandomAccessFile::ReadAsync(
         }
       };
 
-  fs_.workers.emplace_back(submit_request, req);
+  fs_.workers.emplace_back(submit_request, std::move(req));
   return IOStatus::OK();
 }
 
@@ -3553,6 +3642,23 @@ TEST_F(TestAsyncRead, ReadAsync) {
     }
   }
 }
+
+struct StaticDestructionTester {
+  bool activated = false;
+  ~StaticDestructionTester() {
+    if (activated && !kMustFreeHeapAllocations) {
+      // Make sure we can still call some things on default Env.
+      std::string hostname;
+      Env::Default()->GetHostNameString(&hostname);
+    }
+  }
+} static_destruction_tester;
+
+TEST(EnvTestMisc, StaticDestruction) {
+  // Check for any crashes during static destruction.
+  static_destruction_tester.activated = true;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

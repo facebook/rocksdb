@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
 (const ReadOptions& options, const InternalKeyComparator& internal_comparator,
  const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
+ uint8_t block_protection_bytes_per_key,
  const std::shared_ptr<const SliceTransform>& prefix_extractor,
  HistogramImpl* file_read_hist, bool skip_filters, bool skip_range_deletions,
  int level, TypedHandle* handle) {
@@ -28,7 +29,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   if (handle != nullptr && t == nullptr) {
     t = cache_.Value(handle);
   }
-#ifndef ROCKSDB_LITE
   autovector<std::string, MultiGetContext::MAX_BATCH_SIZE> row_cache_entries;
   IterKey row_cache_key;
   size_t row_cache_key_prefix_size = 0;
@@ -59,7 +59,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       }
     }
   }
-#endif  // ROCKSDB_LITE
 
   // Check that table_range is not empty. Its possible all keys may have been
   // found in the row cache and thus the range may now be empty
@@ -67,10 +66,10 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     if (t == nullptr) {
       assert(handle == nullptr);
       s = FindTable(options, file_options_, internal_comparator, file_meta,
-                    &handle, prefix_extractor,
+                    &handle, block_protection_bytes_per_key, prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
-                    true /* record_read_stats */, file_read_hist, skip_filters,
-                    level, true /* prefetch_index_and_filter_in_cache */,
+                    file_read_hist, skip_filters, level,
+                    true /* prefetch_index_and_filter_in_cache */,
                     0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       if (s.ok()) {
@@ -96,7 +95,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     }
   }
 
-#ifndef ROCKSDB_LITE
   if (lookup_row_cache) {
     size_t row_idx = 0;
     RowCacheInterface row_cache{ioptions_.row_cache.get()};
@@ -122,7 +120,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       }
     }
   }
-#endif  // ROCKSDB_LITE
 
   if (handle != nullptr) {
     cache_.Release(handle);

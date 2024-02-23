@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <functional>
 #include <limits>
@@ -263,4 +262,3 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

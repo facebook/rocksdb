@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <atomic>
@@ -1346,7 +1345,7 @@ TEST_P(WritePreparedTransactionTest, NewSnapshotLargerThanMax) {
   // Check that the new max has not advanced the last seq
   ASSERT_LT(wp_db->max_evicted_seq_.load(), last_seq);
   for (auto txn : txns) {
-    txn->Rollback();
+    ASSERT_OK(txn->Rollback());
     delete txn;
   }
 }
@@ -4047,14 +4046,3 @@ int main(int argc, char** argv) {
   }
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as Transactions are not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

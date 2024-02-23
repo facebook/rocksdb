@@ -27,6 +27,34 @@ void ThreadStatusUtil::TEST_StateDelay(const ThreadStatus::StateType state) {
   }
 }
 
+Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
+    ThreadStatus::OperationType thread_op) {
+  switch (thread_op) {
+    case ThreadStatus::OperationType::OP_FLUSH:
+      return Env::IOActivity::kFlush;
+    case ThreadStatus::OperationType::OP_COMPACTION:
+      return Env::IOActivity::kCompaction;
+    case ThreadStatus::OperationType::OP_DBOPEN:
+      return Env::IOActivity::kDBOpen;
+    case ThreadStatus::OperationType::OP_GET:
+      return Env::IOActivity::kGet;
+    case ThreadStatus::OperationType::OP_MULTIGET:
+      return Env::IOActivity::kMultiGet;
+    case ThreadStatus::OperationType::OP_DBITERATOR:
+      return Env::IOActivity::kDBIterator;
+    case ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM:
+      return Env::IOActivity::kVerifyDBChecksum;
+    case ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS:
+      return Env::IOActivity::kVerifyFileChecksums;
+    case ThreadStatus::OperationType::OP_GETENTITY:
+      return Env::IOActivity::kGetEntity;
+    case ThreadStatus::OperationType::OP_MULTIGETENTITY:
+      return Env::IOActivity::kMultiGetEntity;
+    default:
+      return Env::IOActivity::kUnknown;
+  }
+}
+
 #endif  // !NDEBUG
 
 }  // namespace ROCKSDB_NAMESPACE

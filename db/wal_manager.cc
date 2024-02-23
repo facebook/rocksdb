@@ -34,7 +34,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   auto s = env_->DeleteFile(wal_dir_ + "/" + fname);
@@ -154,10 +153,11 @@ void WalManager::PurgeObsoleteWALFiles() {
     return;
   }
   uint64_t const now_seconds = static_cast<uint64_t>(current_time);
-  uint64_t const time_to_check = (ttl_enabled && !size_limit_enabled)
-                                     ? db_options_.WAL_ttl_seconds / 2
-                                     : kDefaultIntervalToDeleteObsoleteWAL;
-
+  uint64_t const time_to_check =
+      ttl_enabled
+          ? std::min(kDefaultIntervalToDeleteObsoleteWAL,
+                     std::max(uint64_t{1}, db_options_.WAL_ttl_seconds / 2))
+          : kDefaultIntervalToDeleteObsoleteWAL;
   if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
     return;
   }
@@ -525,5 +525,4 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   return status;
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

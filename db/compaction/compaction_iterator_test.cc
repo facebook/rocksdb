@@ -184,8 +184,9 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
     return supports_per_key_placement;
   }
 
-  bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
-    return (!key.starts_with("unsafe_pb"));
+  bool WithinPenultimateLevelOutputRange(
+      const ParsedInternalKey& key) const override {
+    return (!key.user_key.starts_with("unsafe_pb"));
   }
 
   bool key_not_exists_beyond_output_level = false;
@@ -293,8 +294,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         nullptr /* blob_file_builder */, true /*allow_data_in_errors*/,
         true /*enforce_single_del_contracts*/,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse_,
-        std::move(compaction), filter, &shutting_down_, /*info_log=*/nullptr,
-        full_history_ts_low));
+        std::move(compaction), /*must_count_input_entries=*/false, filter,
+        &shutting_down_, /*info_log=*/nullptr, full_history_ts_low));
   }
 
   void AddSnapshot(SequenceNumber snapshot,

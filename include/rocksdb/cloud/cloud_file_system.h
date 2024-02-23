@@ -205,20 +205,6 @@ class CloudFileSystemOptions {
   // Default:  null
   std::shared_ptr<CloudStorageProvider> storage_provider;
 
-  // Specifies the amount of sst files to be cached in local storage.
-  // If non-null, then the local storage would be used as a file cache.
-  // The Get or a Scan request on the database generates a random read
-  // request on the sst file and such a request causes the sst file to
-  // be inserted into the local file cache.
-  // A compaction request generates a sequential read request on the sst
-  // file and it does not cause the sst file to be inserted into the
-  // local file cache.
-  // A memtable flush generates a write requst to a new sst file and this
-  // sst file is not inserted into the local file cache.
-  // Cannot be set if keep_local_log_files is true.
-  // Default: null (disabled)
-  std::shared_ptr<Cache> sst_file_cache;
-
   // Access credentials
   AwsCloudAccessCredentials credentials;
 
@@ -234,7 +220,6 @@ class CloudFileSystemOptions {
   // If false, then local sst files are created, uploaded to cloud immediately,
   //           and local file is deleted. All reads are satisfied by fetching
   //           data from the cloud.
-  // Cannot be set if sst_file_cache is enabled.
   // Default:  false
   bool keep_local_sst_files;
 
@@ -418,13 +403,11 @@ class CloudFileSystemOptions {
       int _constant_sst_file_size_in_sst_file_manager = -1,
       bool _skip_cloud_files_in_getchildren = false,
       bool _use_direct_io_for_cloud_download = false,
-      std::shared_ptr<Cache> _sst_file_cache = nullptr,
       bool _roll_cloud_manifest_on_open = true,
       std::string _cookie_on_open = "", std::string _new_cookie_on_open = "",
       bool _delete_cloud_invisible_files_on_open = true,
       std::chrono::seconds _cloud_file_deletion_delay = std::chrono::hours(1))
       : log_type(_log_type),
-        sst_file_cache(_sst_file_cache),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
         purger_periodicity_millis(_purger_periodicity_millis),
@@ -468,11 +451,6 @@ class CloudFileSystemOptions {
                    const std::string& opts_str);
   Status Serialize(const ConfigOptions& config_options,
                    std::string* result) const;
-
-  // Is the sst file cache configured?
-  bool hasSstFileCache() const {
-    return sst_file_cache != nullptr && sst_file_cache->GetCapacity() > 0;
-  }
 };
 
 struct CheckpointToCloudOptions {

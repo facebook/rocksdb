@@ -13,7 +13,7 @@
 #include <type_traits>
 
 #include "port/likely.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/cleanable.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -174,22 +174,6 @@ class CachableEntry {
     cache_ = cache;
     cache_handle_ = cache_handle;
     assert(!own_value_);
-  }
-
-  void UpdateCachedValue() {
-    assert(cache_ != nullptr);
-    assert(cache_handle_ != nullptr);
-
-    value_ = static_cast<T*>(cache_->Value(cache_handle_));
-  }
-
-  bool IsReady() {
-    if (!own_value_) {
-      assert(cache_ != nullptr);
-      assert(cache_handle_ != nullptr);
-      return cache_->IsReady(cache_handle_);
-    }
-    return true;
   }
 
   // Since this class is essentially an elaborate pointer, it's sometimes

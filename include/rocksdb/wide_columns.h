@@ -16,6 +16,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class ColumnFamilyHandle;
+
 // Class representing a wide column, which is defined as a pair of column name
 // and column value.
 class WideColumn {
@@ -74,8 +76,19 @@ inline bool operator!=(const WideColumn& lhs, const WideColumn& rhs) {
 inline std::ostream& operator<<(std::ostream& os, const WideColumn& column) {
   const bool hex =
       (os.flags() & std::ios_base::basefield) == std::ios_base::hex;
-  os << column.name().ToString(hex) << ':' << column.value().ToString(hex);
-
+  if (!column.name().empty()) {
+    if (hex) {
+      os << "0x";
+    }
+    os << column.name().ToString(hex);
+  }
+  os << ':';
+  if (!column.value().empty()) {
+    if (hex) {
+      os << "0x";
+    }
+    os << column.value().ToString(hex);
+  }
   return os;
 }
 
@@ -97,15 +110,22 @@ class PinnableWideColumns {
 
   void SetPlainValue(const Slice& value);
   void SetPlainValue(const Slice& value, Cleanable* cleanable);
+  void SetPlainValue(PinnableSlice&& value);
+  void SetPlainValue(std::string&& value);
 
   Status SetWideColumnValue(const Slice& value);
   Status SetWideColumnValue(const Slice& value, Cleanable* cleanable);
+  Status SetWideColumnValue(PinnableSlice&& value);
+  Status SetWideColumnValue(std::string&& value);
 
   void Reset();
 
  private:
   void CopyValue(const Slice& value);
   void PinOrCopyValue(const Slice& value, Cleanable* cleanable);
+  void MoveValue(PinnableSlice&& value);
+  void MoveValue(std::string&& value);
+
   void CreateIndexForPlainValue();
   Status CreateIndexForWideColumns();
 
@@ -127,6 +147,18 @@ inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
   value_.PinSlice(value, cleanable);
 }
 
+inline void PinnableWideColumns::MoveValue(PinnableSlice&& value) {
+  value_ = std::move(value);
+}
+
+inline void PinnableWideColumns::MoveValue(std::string&& value) {
+  std::string* const buf = value_.GetSelf();
+  assert(buf);
+
+  *buf = std::move(value);
+  value_.PinSelf();
+}
+
 inline void PinnableWideColumns::CreateIndexForPlainValue() {
   columns_ = WideColumns{{kDefaultWideColumnName, value_}};
 }
@@ -142,6 +174,16 @@ inline void PinnableWideColumns::SetPlainValue(const Slice& value,
   CreateIndexForPlainValue();
 }
 
+inline void PinnableWideColumns::SetPlainValue(PinnableSlice&& value) {
+  MoveValue(std::move(value));
+  CreateIndexForPlainValue();
+}
+
+inline void PinnableWideColumns::SetPlainValue(std::string&& value) {
+  MoveValue(std::move(value));
+  CreateIndexForPlainValue();
+}
+
 inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value) {
   CopyValue(value);
   return CreateIndexForWideColumns();
@@ -150,6 +192,16 @@ inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value) {
 inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
                                                       Cleanable* cleanable) {
   PinOrCopyValue(value, cleanable);
+  return CreateIndexForWideColumns();
+}
+
+inline Status PinnableWideColumns::SetWideColumnValue(PinnableSlice&& value) {
+  MoveValue(std::move(value));
+  return CreateIndexForWideColumns();
+}
+
+inline Status PinnableWideColumns::SetWideColumnValue(std::string&& value) {
+  MoveValue(std::move(value));
   return CreateIndexForWideColumns();
 }
 
@@ -167,5 +219,62 @@ inline bool operator!=(const PinnableWideColumns& lhs,
                        const PinnableWideColumns& rhs) {
   return !(lhs == rhs);
 }
+
+// Class representing attribute group. Attribute group is a logical grouping of
+// wide-column entities by leveraging Column Families.
+// Used in Write Path
+class AttributeGroup {
+ public:
+  ColumnFamilyHandle* column_family() const { return column_family_; }
+  const WideColumns& columns() const { return columns_; }
+  WideColumns& columns() { return columns_; }
+
+  explicit AttributeGroup(ColumnFamilyHandle* column_family,
+                          const WideColumns& columns)
+      : column_family_(column_family), columns_(columns) {}
+
+ private:
+  ColumnFamilyHandle* column_family_;
+  WideColumns columns_;
+};
+
+// A collection of Attribute Groups.
+using AttributeGroups = std::vector<AttributeGroup>;
+
+// Used in Read Path. Wide-columns returned from the query are pinnable.
+class PinnableAttributeGroup {
+ public:
+  ColumnFamilyHandle* column_family() const { return column_family_; }
+  const Status& status() const { return status_; }
+  const WideColumns& columns() const { return columns_.columns(); }
+
+  explicit PinnableAttributeGroup(ColumnFamilyHandle* column_family)
+      : column_family_(column_family), status_(Status::OK()) {}
+
+  void SetStatus(const Status& status);
+  void SetColumns(PinnableWideColumns&& columns);
+
+  void Reset();
+
+ private:
+  ColumnFamilyHandle* column_family_;
+  Status status_;
+  PinnableWideColumns columns_;
+};
+
+inline void PinnableAttributeGroup::SetStatus(const Status& status) {
+  status_ = status;
+}
+inline void PinnableAttributeGroup::SetColumns(PinnableWideColumns&& columns) {
+  columns_ = std::move(columns);
+}
+
+inline void PinnableAttributeGroup::Reset() {
+  SetStatus(Status::OK());
+  columns_.Reset();
+}
+
+// A collection of Pinnable Attribute Groups.
+using PinnableAttributeGroups = std::vector<PinnableAttributeGroup>;
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -24,7 +24,6 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -283,6 +282,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   Random rnd(301);
 
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.write_buffer_size = 4096;
   options.max_write_buffer_number = 2;
@@ -616,7 +616,6 @@ INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

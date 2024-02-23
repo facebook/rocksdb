@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "options/options_helper.h"
 
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
@@ -30,30 +31,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 ConfigOptions::ConfigOptions()
-#ifndef ROCKSDB_LITE
     : registry(ObjectRegistry::NewInstance())
-#endif
 {
   env = Env::Default();
 }
 
 ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
-#ifndef ROCKSDB_LITE
   registry = ObjectRegistry::NewInstance();
-#endif
 }
 
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
   Status s;
-#ifndef ROCKSDB_LITE
   auto db_cfg = DBOptionsAsConfigurable(db_opts);
   auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
   s = db_cfg->ValidateOptions(db_opts, cf_opts);
   if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
-#else
-  s = cf_opts.table_factory->ValidateOptions(db_opts, cf_opts);
-#endif
   return s;
 }
 
@@ -68,6 +61,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.paranoid_checks = immutable_db_options.paranoid_checks;
   options.flush_verify_memtable_count =
       immutable_db_options.flush_verify_memtable_count;
+  options.compaction_verify_record_count =
+      immutable_db_options.compaction_verify_record_count;
   options.track_and_verify_wals_in_manifest =
       immutable_db_options.track_and_verify_wals_in_manifest;
   options.verify_sst_unique_id_in_manifest =
@@ -154,9 +149,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.wal_recovery_mode = immutable_db_options.wal_recovery_mode;
   options.allow_2pc = immutable_db_options.allow_2pc;
   options.row_cache = immutable_db_options.row_cache;
-#ifndef ROCKSDB_LITE
   options.wal_filter = immutable_db_options.wal_filter;
-#endif  // ROCKSDB_LITE
   options.fail_if_options_file_error =
       immutable_db_options.fail_if_options_file_error;
   options.use_options_file = immutable_db_options.use_options_file;
@@ -190,6 +183,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.enforce_single_del_contracts;
   options.disable_delete_obsolete_files_on_open =
       immutable_db_options.disable_delete_obsolete_files_on_open;
+  options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   return options;
 }
 
@@ -222,6 +216,10 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.experimental_mempurge_threshold;
   cf_opts->memtable_protection_bytes_per_key =
       moptions.memtable_protection_bytes_per_key;
+  cf_opts->block_protection_bytes_per_key =
+      moptions.block_protection_bytes_per_key;
+  cf_opts->bottommost_file_compaction_delay =
+      moptions.bottommost_file_compaction_delay;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
@@ -284,6 +282,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->compression_per_level = moptions.compression_per_level;
   cf_opts->last_level_temperature = moptions.last_level_temperature;
   cf_opts->bottommost_temperature = moptions.last_level_temperature;
+  cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -324,6 +323,9 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
       ioptions.preclude_last_level_data_seconds;
   cf_opts->preserve_internal_time_seconds =
       ioptions.preserve_internal_time_seconds;
+  cf_opts->persist_user_defined_timestamps =
+      ioptions.persist_user_defined_timestamps;
+  cf_opts->default_temperature = ioptions.default_temperature;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
@@ -408,7 +410,6 @@ std::vector<ChecksumType> GetSupportedChecksums() {
                                    checksum_types.end());
 }
 
-#ifndef ROCKSDB_LITE
 static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
                               const std::string& value) {
   switch (opt_type) {
@@ -438,6 +439,10 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       break;
     case OptionType::kSizeT:
       PutUnaligned(static_cast<size_t*>(opt_address), ParseSizeT(value));
+      break;
+    case OptionType::kAtomicInt:
+      static_cast<std::atomic<int>*>(opt_address)
+          ->store(ParseInt(value), std::memory_order_release);
       break;
     case OptionType::kString:
       *static_cast<std::string*>(opt_address) = value;
@@ -527,6 +532,10 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       break;
     case OptionType::kDouble:
       *value = std::to_string(*(static_cast<const double*>(opt_address)));
+      break;
+    case OptionType::kAtomicInt:
+      *value = std::to_string(static_cast<const std::atomic<int>*>(opt_address)
+                                  ->load(std::memory_order_acquire));
       break;
     case OptionType::kString:
       *value =
@@ -676,18 +685,6 @@ Status GetStringFromCompressionType(std::string* compression_str,
 }
 
 Status GetColumnFamilyOptionsFromMap(
-    const ColumnFamilyOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  return GetColumnFamilyOptionsFromMap(config_options, base_options, opts_map,
-                                       new_options);
-}
-
-Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -708,17 +705,6 @@ Status GetColumnFamilyOptionsFromMap(
   }
 }
 
-Status GetColumnFamilyOptionsFromString(
-    const ColumnFamilyOptions& base_options,
-    const std::string& opts_str,
-    ColumnFamilyOptions* new_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  return GetColumnFamilyOptionsFromString(config_options, base_options,
-                                          opts_str, new_options);
-}
-
 Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
                                         const ColumnFamilyOptions& base_options,
                                         const std::string& opts_str,
@@ -731,18 +717,6 @@ Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
   }
   return GetColumnFamilyOptionsFromMap(config_options, base_options, opts_map,
                                        new_options);
-}
-
-Status GetDBOptionsFromMap(
-    const DBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options(base_options);
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  return GetDBOptionsFromMap(config_options, base_options, opts_map,
-                             new_options);
 }
 
 Status GetDBOptionsFromMap(
@@ -761,17 +735,6 @@ Status GetDBOptionsFromMap(
   } else {
     return Status::InvalidArgument(s.getState());
   }
-}
-
-Status GetDBOptionsFromString(const DBOptions& base_options,
-                              const std::string& opts_str,
-                              DBOptions* new_options) {
-  ConfigOptions config_options(base_options);
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-
-  return GetDBOptionsFromString(config_options, base_options, opts_str,
-                                new_options);
 }
 
 Status GetDBOptionsFromString(const ConfigOptions& config_options,
@@ -1222,6 +1185,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
       return (v1 == v2);
     }
+    case OptionType::kAtomicInt:
+      return IsOptionEqual<std::atomic<int>>(this_offset, that_offset);
     case OptionType::kString:
       return IsOptionEqual<std::string>(this_offset, that_offset);
     case OptionType::kDouble:
@@ -1479,6 +1444,5 @@ const OptionTypeInfo* OptionTypeInfo::Find(
   }
   return nullptr;
 }
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

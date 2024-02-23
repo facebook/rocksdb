@@ -2,7 +2,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include <optional>
 
@@ -157,5 +156,3 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   Status status_;
 };
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

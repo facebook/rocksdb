@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include "db/compaction/compaction_picker.h"
 
@@ -29,4 +28,3 @@ class UniversalCompactionPicker : public CompactionPicker {
       const VersionStorageInfo* vstorage) const override;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

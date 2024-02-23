@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <atomic>
 
@@ -23,7 +22,7 @@ class BlobDBListener : public EventListener {
 
   void OnFlushBegin(DB* /*db*/, const FlushJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->SyncBlobFiles();
+    blob_db_impl_->SyncBlobFiles().PermitUncheckedError();
   }
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
@@ -68,4 +67,3 @@ class BlobDBListenerGC : public BlobDBListener {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

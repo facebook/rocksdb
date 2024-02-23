@@ -16,17 +16,10 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
-#include "util/stderr_logger.h"
-#ifdef USE_AWS
-#include <aws/core/Aws.h>
-#include "rocksdb/cloud/cloud_file_system_impl.h"
-#include "rocksdb/cloud/cloud_storage_provider.h"
-#endif
 #include "rocksdb/unique_id.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "table/format.h"
 #include "util/random.h"
-#include "logging/logging.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -68,17 +61,8 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
 }
-#ifdef USE_AWS
-namespace {
-void shutdownAws() { Aws::ShutdownAPI(Aws::SDKOptions()); }
-}  // namespace
-#endif
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
-    : option_env_(kDefaultEnv),
-      mem_env_(nullptr),
-      encrypted_env_(nullptr),
-      option_config_(kDefault),
-      s3_env_(nullptr) {
+    : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
   ConfigOptions config_options;
   EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
@@ -86,7 +70,6 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   if (getenv("MEM_ENV")) {
     mem_env_ = MockEnv::Create(base_env, base_env->GetSystemClock());
   }
-#ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
     std::string provider_id = getenv("ENCRYPTED_ENV");
@@ -98,26 +81,8 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
                                                    &provider));
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
-#endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_
                                        : (mem_env_ ? mem_env_ : base_env));
-#ifndef ROCKSDB_LITE
-#ifdef USE_AWS
-  // Randomize the test path so that multiple tests can run in parallel
-  srand(static_cast<unsigned int>(time(nullptr)));
-  std::string mypath = path + "_" + std::to_string(rand());
-
-  env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
-  info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
-
-  static std::once_flag aws_init;
-  std::call_once(aws_init, []() {
-    Aws::InitAPI(Aws::SDKOptions());
-    std::atexit(shutdownAws);
-  });
-  s3_env_ = CreateNewAwsEnv(mypath, env_);
-#endif
-#endif  // !ROCKSDB_LITE
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->skip_fsync_ = !env_do_fsync;
@@ -154,34 +119,9 @@ DBTestBase::~DBTestBase() {
     EXPECT_OK(DestroyDB(dbname_, options));
   }
   delete env_;
-
-#ifndef ROCKSDB_LITE
-#ifdef USE_AWS
-  auto* cfs = static_cast<CloudFileSystem*>(s3_env_->GetFileSystem().get());
-  cfs->GetStorageProvider()->EmptyBucket(cfs->GetSrcBucketName(),
-                                         cfs->GetSrcObjectPath());
-#endif  // USE_AWS
-#endif  // !ROCKSDB_LITE
-  delete s3_env_;
 }
 
 bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
-#ifdef ROCKSDB_LITE
-  // These options are not supported in ROCKSDB_LITE
-  if (option_config == kHashSkipList ||
-      option_config == kPlainTableFirstBytePrefix ||
-      option_config == kPlainTableCappedPrefix ||
-      option_config == kPlainTableCappedPrefixNonMmap ||
-      option_config == kPlainTableAllBytesPrefix ||
-      option_config == kVectorRep || option_config == kHashLinkList ||
-      option_config == kUniversalCompaction ||
-      option_config == kUniversalCompactionMultiLevel ||
-      option_config == kUniversalSubcompactions ||
-      option_config == kFIFOCompaction ||
-      option_config == kConcurrentSkipList) {
-    return true;
-  }
-#endif
 
   if ((skip_mask & kSkipUniversalCompaction) &&
       (option_config == kUniversalCompaction ||
@@ -217,45 +157,24 @@ bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
   return false;
 }
 
-bool DBTestBase::ShouldSkipAwsOptions(int option_config) {
-  // AWS Env doesn't work with DirectIO
-  return option_config == kDirectIO;
-}
-
 // Switch to a fresh database with the next option configuration to
 // test.  Return false if there are no more configurations to test.
 bool DBTestBase::ChangeOptions(int skip_mask) {
-  while (true) {
-    for (option_config_++; option_config_ < kEnd; option_config_++) {
-      if (ShouldSkipOptions(option_config_, skip_mask)) {
-        continue;
-      }
-      if (option_env_ == kAwsEnv && ShouldSkipAwsOptions(option_config_)) {
-        continue;
-      }
-      break;
+  for (option_config_++; option_config_ < kEnd; option_config_++) {
+    if (ShouldSkipOptions(option_config_, skip_mask)) {
+      continue;
     }
-    if (option_config_ >= kEnd) {
-#ifndef USE_AWS
-      // If not built for AWS, skip it
-      if (option_env_ + 1 == kAwsEnv) {
-        option_env_++;
-      }
-#endif
-      if (option_env_ + 1 >= kEndEnv) {
-        Destroy(last_options_);
-        return false;
-      } else {
-        option_env_++;
-        option_config_ = kDefault;
-        continue;
-      }
-    } else {
-      auto options = CurrentOptions();
-      options.create_if_missing = true;
-      DestroyAndReopen(options);
-      return true;
-    }
+    break;
+  }
+
+  if (option_config_ >= kEnd) {
+    Destroy(last_options_);
+    return false;
+  } else {
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+    return true;
   }
 }
 
@@ -340,7 +259,7 @@ bool DBTestBase::ChangeFilterOptions() {
 
   auto options = CurrentOptions();
   options.create_if_missing = true;
-  TryReopen(options);
+  EXPECT_OK(TryReopen(options));
   return true;
 }
 
@@ -351,34 +270,34 @@ bool DBTestBase::ChangeOptionsForFileIngestionTest() {
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kUniversalCompaction) {
     option_config_ = kUniversalCompactionMultiLevel;
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kUniversalCompactionMultiLevel) {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kLevelSubcompactions) {
     option_config_ = kUniversalSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kUniversalSubcompactions) {
     option_config_ = kDirectIO;
     Destroy(last_options_);
     auto options = CurrentOptions();
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else {
     return false;
@@ -405,6 +324,12 @@ Options DBTestBase::GetDefaultOptions() const {
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
+  // The original default value for this option is false,
+  // and many unit tests assume this value. It also makes
+  // it easier to create desired LSM shape in unit tests.
+  // Unit tests for this option sets level_compaction_dynamic_level_bytes=true
+  // explicitly.
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   if (!env_->skip_fsync_) {
     options.track_and_verify_wals_in_manifest = true;
@@ -440,7 +365,6 @@ Options DBTestBase::GetOptions(
 
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config) {
-#ifndef ROCKSDB_LITE
     case kHashSkipList:
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
       options.memtable_factory.reset(NewHashSkipListRepFactory(16));
@@ -494,7 +418,6 @@ Options DBTestBase::GetOptions(
       SetupSyncPointsToMockDirectIO();
       break;
     }
-#endif  // ROCKSDB_LITE
     case kMergePut:
       options.merge_operator = MergeOperators::CreatePutOperator();
       break;
@@ -542,10 +465,6 @@ Options DBTestBase::GetOptions(
     case kUniversalCompactionMultiLevel:
       options.compaction_style = kCompactionStyleUniversal;
       options.num_levels = 8;
-      break;
-    case kCompressedBlockCache:
-      options.allow_mmap_writes = can_allow_mmap;
-      table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
       break;
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
@@ -648,25 +567,6 @@ Options DBTestBase::GetOptions(
       break;
   }
 
-  switch (option_env_) {
-    case kDefaultEnv: {
-      options.env = env_;
-      break;
-    }
-#ifdef USE_AWS
-    case kAwsEnv: {
-      assert(s3_env_);
-      options.env = s3_env_;
-      options.recycle_log_file_num = 0;  // do not reuse log files
-      options.allow_mmap_reads = false;  // mmap is incompatible with S3
-      break;
-    }
-#endif /* USE_AWS */
-
-    default:
-      break;
-  }
-
   if (options_override.filter_policy) {
     table_options.filter_policy = options_override.filter_policy;
     table_options.partition_filters = options_override.partition_filters;
@@ -675,40 +575,13 @@ Options DBTestBase::GetOptions(
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  options.level_compaction_dynamic_level_bytes =
+      options_override.level_compaction_dynamic_level_bytes;
+  options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;
   return options;
 }
-
-#ifndef ROCKSDB_LITE
-#ifdef USE_AWS
-Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
-  if (!prefix.empty()) {
-    fprintf(stderr, "Creating new cloud env with prefix %s\n", prefix.c_str());
-  }
-
-  // get credentials
-  CloudFileSystemOptions coptions;
-  CloudFileSystem* cfs = nullptr;
-  std::string region;
-  coptions.TEST_Initialize("dbtest.", prefix, region);
-  // Delete cloud files immediately
-  coptions.cloud_file_deletion_delay = std::nullopt;
-  Status st = CloudFileSystemEnv::NewAwsFileSystem(parent->GetFileSystem(),
-                                                   coptions, info_log_, &cfs);
-  auto* cimpl = dynamic_cast<CloudFileSystemImpl*>(cfs);
-  assert(cimpl);
-  cimpl->TEST_DisableCloudManifest();
-  ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
-  if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "%s", st.ToString().c_str());
-  }
-  assert(st.ok() && cfs);
-  std::shared_ptr<FileSystem> cloud_fs(cfs);
-  return new CompositeEnvWrapper(parent, std::move(cloud_fs));
-}
-#endif // USE_AWS
-#endif // ROCKSDB_LITE
 
 void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
                                       const Options& options) {
@@ -817,34 +690,16 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   if (delete_cf_paths) {
     for (size_t i = 0; i < handles_.size(); ++i) {
       ColumnFamilyDescriptor cfdescriptor;
-      // GetDescriptor is not implemented for ROCKSDB_LITE
       handles_[i]->GetDescriptor(&cfdescriptor).PermitUncheckedError();
       column_families.push_back(cfdescriptor);
     }
   }
   Close();
   ASSERT_OK(DestroyDB(dbname_, options, column_families));
-#ifdef USE_AWS
-  if (s3_env_) {
-    auto* cfs = static_cast<CloudFileSystem*>(s3_env_->GetFileSystem().get());
-    auto st = cfs->GetStorageProvider()->EmptyBucket(cfs->GetSrcBucketName(),
-                                                     dbname_);
-    ASSERT_TRUE(st.ok() || st.IsNotFound());
-    for (int r = 0; r < 10; ++r) {
-      // The existance is not propagated atomically, so wait until
-      // IDENTITY file no longer exists.
-      if (cfs->FileExists(dbname_ + "/IDENTITY", IOOptions(), nullptr /*dbg*/)
-              .ok()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10 * (r + 1)));
-        continue;
-      }
-      break;
-    }
-  }
-#endif
 }
 
 Status DBTestBase::ReadOnlyReopen(const Options& options) {
+  Close();
   MaybeInstallTimeElapseOnlySleep(options);
   return DB::OpenForReadOnly(options, dbname_, &db_);
 }
@@ -1088,6 +943,7 @@ std::string DBTestBase::Contents(int cf) {
     EXPECT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
     matched++;
   }
+  EXPECT_OK(iter->status());
   EXPECT_EQ(matched, forward.size());
 
   delete iter;
@@ -1176,7 +1032,6 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   return result;
 }
 
-#ifndef ROCKSDB_LITE
 int DBTestBase::NumSortedRuns(int cf) {
   ColumnFamilyMetaData cf_meta;
   if (cf == 0) {
@@ -1225,6 +1080,24 @@ size_t DBTestBase::TotalLiveFiles(int cf) {
   size_t num_files = 0;
   for (auto& level : cf_meta.levels) {
     num_files += level.files.size();
+  }
+  return num_files;
+}
+
+size_t DBTestBase::TotalLiveFilesAtPath(int cf, const std::string& path) {
+  ColumnFamilyMetaData cf_meta;
+  if (cf == 0) {
+    db_->GetColumnFamilyMetaData(&cf_meta);
+  } else {
+    db_->GetColumnFamilyMetaData(handles_[cf], &cf_meta);
+  }
+  size_t num_files = 0;
+  for (auto& level : cf_meta.levels) {
+    for (auto& f : level.files) {
+      if (f.directory == path) {
+        num_files++;
+      }
+    }
   }
   return num_files;
 }
@@ -1295,7 +1168,6 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   return result;
 }
 
-#endif  // !ROCKSDB_LITE
 
 std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
   VersionSet* const versions = dbfull()->GetVersionSet();
@@ -1413,7 +1285,6 @@ void DBTestBase::MoveFilesToLevel(int level, int cf) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 void DBTestBase::DumpFileCounts(const char* label) {
   fprintf(stderr, "---\n%s:\n", label);
   fprintf(stderr, "maxoverlap: %" PRIu64 "\n",
@@ -1425,7 +1296,6 @@ void DBTestBase::DumpFileCounts(const char* label) {
     }
   }
 }
-#endif  // !ROCKSDB_LITE
 
 std::string DBTestBase::DumpSSTableList() {
   std::string property;
@@ -1496,6 +1366,7 @@ std::string DBTestBase::IterStatus(Iterator* iter) {
   if (iter->Valid()) {
     result = iter->key().ToString() + "->" + iter->value().ToString();
   } else {
+    EXPECT_OK(iter->status());
     result = "(invalid)";
   }
   return result;
@@ -1714,6 +1585,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_iter, true_data.end())
         << iter_cnt << " / " << true_data.size();
     delete iter;
@@ -1737,6 +1609,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_rev, true_data.rend())
         << iter_cnt << " / " << true_data.size();
 
@@ -1751,7 +1624,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
   }
 
   if (tailing_iter) {
-#ifndef ROCKSDB_LITE
     // Tailing iterator
     int iter_cnt = 0;
     ReadOptions ro;
@@ -1780,7 +1652,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     }
 
     delete iter;
-#endif  // ROCKSDB_LITE
   }
 
   if (total_reads_res) {
@@ -1808,7 +1679,6 @@ void DBTestBase::VerifyDBInternal(
   iter->~InternalIterator();
 }
 
-#ifndef ROCKSDB_LITE
 
 uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
     DB* db, std::string column_family_name) {
@@ -1829,7 +1699,6 @@ uint64_t DBTestBase::GetSstSizeHelper(Temperature temperature) {
       &prop));
   return static_cast<uint64_t>(std::atoi(prop.c_str()));
 }
-#endif  // ROCKSDB_LITE
 
 void VerifySstUniqueIds(const TablePropertiesCollection& props) {
   ASSERT_FALSE(props.empty());  // suspicious test if empty
@@ -1852,12 +1721,12 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
-                                                 ObjectPtr value,
-                                                 const CacheItemHelper* helper,
-                                                 size_t charge, Handle** handle,
-                                                 Priority priority) {
-  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+Status TargetCacheChargeTrackingCache<R>::Insert(
+    const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
+    size_t charge, Handle** handle, Priority priority, const Slice& compressed,
+    CompressionType type) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority,
+                             compressed, type);
   if (helper == kCrmHelper) {
     if (last_peak_tracked_) {
       cache_charge_peak_ = 0;

@@ -40,6 +40,15 @@ class RateLimiter {
   // REQUIRED: bytes_per_second > 0
   virtual void SetBytesPerSecond(int64_t bytes_per_second) = 0;
 
+  // This API allows user to dynamically change the max bytes can be granted in
+  // a single refill period (i.e, burst)
+  //
+  // REQUIRED: single_burst_bytes > 0. Otherwise `Status::InvalidArgument` will
+  // be returned.
+  virtual Status SetSingleBurstBytes(int64_t /* single_burst_bytes */) {
+    return Status::NotSupported();
+  }
+
   // Deprecated. New RateLimiter derived classes should override
   // Request(const int64_t, const Env::IOPriority, Statistics*) or
   // Request(const int64_t, const Env::IOPriority, Statistics*, OpType)

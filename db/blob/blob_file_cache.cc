@@ -25,7 +25,7 @@ BlobFileCache::BlobFileCache(Cache* cache,
                              HistogramImpl* blob_file_read_hist,
                              const std::shared_ptr<IOTracer>& io_tracer)
     : cache_(cache),
-      mutex_(kNumberOfMutexStripes, kGetSliceNPHash64UnseededFnPtr),
+      mutex_(kNumberOfMutexStripes),
       immutable_options_(immutable_options),
       file_options_(file_options),
       column_family_id_(column_family_id),
@@ -37,7 +37,7 @@ BlobFileCache::BlobFileCache(Cache* cache,
 }
 
 Status BlobFileCache::GetBlobFileReader(
-    uint64_t blob_file_number,
+    const ReadOptions& read_options, uint64_t blob_file_number,
     CacheHandleGuard<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(blob_file_reader->IsEmpty());
@@ -55,7 +55,7 @@ Status BlobFileCache::GetBlobFileReader(
   TEST_SYNC_POINT("BlobFileCache::GetBlobFileReader:DoubleCheck");
 
   // Check again while holding mutex
-  MutexLock lock(mutex_.get(key));
+  MutexLock lock(&mutex_.Get(key));
 
   handle = cache_.Lookup(key);
   if (handle) {
@@ -73,7 +73,7 @@ Status BlobFileCache::GetBlobFileReader(
   {
     assert(file_options_);
     const Status s = BlobFileReader::Create(
-        *immutable_options_, *file_options_, column_family_id_,
+        *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);

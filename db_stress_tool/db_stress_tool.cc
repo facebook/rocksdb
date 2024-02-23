@@ -31,6 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
@@ -87,11 +88,11 @@ int db_stress_tool(int argc, char** argv) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    if (FLAGS_write_fault_one_in) {
-      fault_fs_guard->SetFilesystemDirectWritable(false);
-    } else {
-      fault_fs_guard->SetFilesystemDirectWritable(true);
-    }
+    // Set it to direct writable here to not lose files created during DB open
+    // when no open fault injection is not enabled.
+    // This will be overwritten in StressTest::Open() for open fault injection
+    // and in RunStressTestImpl() for proper write fault injection setup.
+    fault_fs_guard->SetFilesystemDirectWritable(true);
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
@@ -99,12 +100,16 @@ int db_stress_tool(int argc, char** argv) {
 
   env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
       raw_env, std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem()));
-  if (!env_opts) {
+  if (!env_opts && !FLAGS_use_io_uring) {
     // If using the default Env (Posix), wrap DbStressEnvWrapper with the
-    // legacy EnvWrapper. This is a temporary fix for the ReadAsync interface
-    // not being properly supported with Posix and db_stress. The EnvWrapper
+    // legacy EnvWrapper. This is a workaround to prevent MultiGet and scans
+    // from failing when IO uring is disabled. The EnvWrapper
     // has a default implementation of ReadAsync that redirects to Read.
-    env_wrapper_guard = std::make_shared<EnvWrapper>(env_wrapper_guard);
+    legacy_env_wrapper_guard = std::make_shared<EnvWrapper>(raw_env);
+    env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
+        legacy_env_wrapper_guard,
+        std::make_shared<DbStressFSWrapper>(
+            legacy_env_wrapper_guard->GetFileSystem()));
   }
   db_stress_env = env_wrapper_guard.get();
 
@@ -235,10 +240,10 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (FLAGS_best_efforts_recovery && !FLAGS_skip_verifydb &&
-      !FLAGS_disable_wal) {
+  if (FLAGS_best_efforts_recovery &&
+      !(FLAGS_skip_verifydb && FLAGS_disable_wal)) {
     fprintf(stderr,
-            "With best-efforts recovery, either skip_verifydb or disable_wal "
+            "With best-efforts recovery, skip_verifydb and disable_wal "
             "should be set to true.\n");
     exit(1);
   }
@@ -269,6 +274,14 @@ int db_stress_tool(int argc, char** argv) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
   }
 
+  if (!FLAGS_use_txn && FLAGS_use_optimistic_txn) {
+    fprintf(
+        stderr,
+        "You cannot set use_optimistic_txn true while use_txn is false. Please "
+        "set use_txn true if you want to use OptimisticTransactionDB\n");
+    exit(1);
+  }
+
   if (FLAGS_create_timestamped_snapshot_one_in > 0) {
     if (!FLAGS_use_txn) {
       fprintf(stderr, "timestamped snapshot supported only in TransactionDB\n");
@@ -286,8 +299,8 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (FLAGS_use_txn && FLAGS_sync_fault_injection &&
-      FLAGS_txn_write_policy != 0) {
+  if (FLAGS_use_txn && !FLAGS_use_optimistic_txn &&
+      FLAGS_sync_fault_injection && FLAGS_txn_write_policy != 0) {
     fprintf(stderr,
             "For TransactionDB, correctness testing with unsync data loss is "
             "currently compatible with only write committed policy\n");
@@ -295,12 +308,11 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   if (FLAGS_use_put_entity_one_in > 0 &&
-      (FLAGS_ingest_external_file_one_in > 0 || FLAGS_use_merge ||
-       FLAGS_use_full_merge_v1 || FLAGS_use_txn || FLAGS_test_multi_ops_txns ||
+      (FLAGS_use_full_merge_v1 || FLAGS_use_txn || FLAGS_test_multi_ops_txns ||
        FLAGS_user_timestamp_size > 0)) {
     fprintf(stderr,
-            "PutEntity is currently incompatible with SstFileWriter, Merge,"
-            " transactions, and user-defined timestamps\n");
+            "Wide columns are incompatible with V1 Merge, transactions, and "
+            "user-defined timestamps\n");
     exit(1);
   }
 

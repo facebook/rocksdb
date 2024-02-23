@@ -17,7 +17,6 @@
 #include "util/random.h"
 #include "utilities/persistent_cache/hash_table_evictable.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -154,7 +153,6 @@ TEST_F(EvictableHashTableTest, TestEvict) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

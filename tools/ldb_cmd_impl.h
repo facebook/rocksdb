@@ -403,6 +403,22 @@ class GetCommand : public LDBCommand {
   std::string key_;
 };
 
+class GetEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "get_entity"; }
+
+  GetEntityCommand(const std::vector<std::string>& params,
+                   const std::map<std::string, std::string>& options,
+                   const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string key_;
+};
+
 class ApproxSizeCommand : public LDBCommand {
  public:
   static std::string Name() { return "approxsize"; }
@@ -528,6 +544,26 @@ class PutCommand : public LDBCommand {
  private:
   std::string key_;
   std::string value_;
+};
+
+class PutEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "put_entity"; }
+
+  PutEntityCommand(const std::vector<std::string>& params,
+                   const std::map<std::string, std::string>& options,
+                   const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+  void OverrideBaseOptions() override;
+
+ private:
+  std::string key_;
+  std::vector<std::string> column_names_;
+  std::vector<std::string> column_values_;
 };
 
 /**

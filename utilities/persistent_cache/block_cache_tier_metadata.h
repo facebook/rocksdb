@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <functional>
 #include <string>
@@ -121,4 +120,3 @@ class BlockCacheTierMetadata {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif

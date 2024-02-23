@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * Bloom filter policy that uses a bloom filter with approximately
  * the specified number of bits per key.
@@ -33,6 +35,9 @@ public class BloomFilter extends Filter {
     this(DEFAULT_BITS_PER_KEY);
   }
 
+  // record this for comparison of filters.
+  private final double bitsPerKey;
+
   /**
    * BloomFilter constructor
    *
@@ -47,7 +52,17 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    */
   public BloomFilter(final double bitsPerKey) {
-    super(createNewBloomFilter(bitsPerKey));
+    this(createNewBloomFilter(bitsPerKey), bitsPerKey);
+  }
+
+  /**
+   *
+   * @param nativeHandle handle to existing bloom filter at RocksDB C++ side
+   * @param bitsPerKey number of bits to use - recorded for comparison
+   */
+  BloomFilter(final long nativeHandle, final double bitsPerKey) {
+    super(nativeHandle);
+    this.bitsPerKey = bitsPerKey;
   }
 
   /**
@@ -65,9 +80,25 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    * @param IGNORED_useBlockBasedMode obsolete, ignored parameter
    */
+  @SuppressWarnings("PMD.UnusedFormalParameter")
   public BloomFilter(final double bitsPerKey, final boolean IGNORED_useBlockBasedMode) {
     this(bitsPerKey);
   }
 
-  private native static long createNewBloomFilter(final double bitsKeyKey);
+  @SuppressWarnings("PMD.")
+  @Override
+  public boolean equals(Object o) {
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
+    return bitsPerKey == ((BloomFilter) o).bitsPerKey;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(bitsPerKey);
+  }
+
+  private static native long createNewBloomFilter(final double bitsKeyKey);
 }

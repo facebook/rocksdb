@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 #include "utilities/transactions/write_unprepared_txn.h"
@@ -28,7 +27,7 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
   struct IteratorState;
 
   using WritePreparedTxnDB::NewIterator;
-  Iterator* NewIterator(const ReadOptions& options,
+  Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family,
                         WriteUnpreparedTxn* txn);
 
@@ -105,4 +104,3 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

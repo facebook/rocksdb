@@ -143,7 +143,7 @@ class CacheEntryStatsCollector {
       }
     }
     // If we reach here, shared entry is in cache with handle `h`.
-    assert(cache.get()->GetCacheItemHelper(h) == &cache.kBasicHelper);
+    assert(cache.get()->GetCacheItemHelper(h) == cache.GetBasicHelper());
 
     // Build an aliasing shared_ptr that keeps `ptr` in cache while there
     // are references.

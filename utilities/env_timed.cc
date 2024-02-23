@@ -12,7 +12,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 TimedFileSystem::TimedFileSystem(const std::shared_ptr<FileSystem>& base)
     : FileSystemWrapper(base) {}
 IOStatus TimedFileSystem::NewSequentialFile(
@@ -178,10 +177,5 @@ Env* NewTimedEnv(Env* base_env) {
   return new CompositeEnvWrapper(base_env, timed_fs);
 }
 
-#else  // ROCKSDB_LITE
-
-Env* NewTimedEnv(Env* /*base_env*/) { return nullptr; }
-
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

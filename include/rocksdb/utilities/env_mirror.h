@@ -18,7 +18,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <iostream>
@@ -178,4 +177,3 @@ class EnvMirror : public EnvWrapper {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

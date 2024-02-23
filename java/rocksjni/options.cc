@@ -3904,6 +3904,29 @@ jbyte Java_org_rocksdb_Options_prepopulateBlobCache(JNIEnv*, jobject,
       opts->prepopulate_blob_cache);
 }
 
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMemtableMaxRangeDeletions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMemtableMaxRangeDeletions(
+    JNIEnv*, jobject, jlong jhandle, jint jmemtable_max_range_deletions) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->memtable_max_range_deletions =
+      static_cast<int32_t>(jmemtable_max_range_deletions);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    memtableMaxRangeDeletions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_memtableMaxRangeDeletions(JNIEnv*, jobject,
+                                                        jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jint>(opts->memtable_max_range_deletions);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ColumnFamilyOptions
 
@@ -3990,9 +4013,13 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps__Ljav
   }
 
   auto* cf_options = new ROCKSDB_NAMESPACE::ColumnFamilyOptions();
+  ROCKSDB_NAMESPACE::ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ROCKSDB_NAMESPACE::Status status =
       ROCKSDB_NAMESPACE::GetColumnFamilyOptionsFromString(
-          ROCKSDB_NAMESPACE::ColumnFamilyOptions(), opt_string, cf_options);
+          config_options, ROCKSDB_NAMESPACE::ColumnFamilyOptions(), opt_string,
+          cf_options);
 
   env->ReleaseStringUTFChars(jopt_string, opt_string);
 
@@ -5766,6 +5793,30 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_prepopulateBlobCache(JNIEnv*,
       opts->prepopulate_blob_cache);
 }
 
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMemtableMaxRangeDeletions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMemtableMaxRangeDeletions(
+    JNIEnv*, jobject, jlong jhandle, jint jmemtable_max_range_deletions) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->memtable_max_range_deletions = jmemtable_max_range_deletions;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    memtableMaxRangeDeletions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_memtableMaxRangeDeletions(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jint>(opts->memtable_max_range_deletions);
+}
+
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DBOptions
 
@@ -5848,9 +5899,13 @@ jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps__Ljava_lang_String_2(
     return 0;
   }
 
+  const ROCKSDB_NAMESPACE::DBOptions base_options;
   auto* db_options = new ROCKSDB_NAMESPACE::DBOptions();
+  ROCKSDB_NAMESPACE::ConfigOptions config_options(base_options);
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ROCKSDB_NAMESPACE::Status status = ROCKSDB_NAMESPACE::GetDBOptionsFromString(
-      ROCKSDB_NAMESPACE::DBOptions(), opt_string, db_options);
+      config_options, base_options, opt_string, db_options);
 
   env->ReleaseStringUTFChars(jopt_string, opt_string);
 

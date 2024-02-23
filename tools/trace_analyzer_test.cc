@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -32,6 +31,8 @@ int main() {
 #include "test_util/testutil.h"
 #include "tools/trace_analyzer_tool.h"
 #include "trace_replay/trace_replay.h"
+#include "utilities/fault_injection_env.h"
+#include "utilities/trace/file_trace_reader_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -336,7 +337,7 @@ TEST_F(TraceAnalyzerTest, Put) {
   CheckFileContent(k_whole_prefix, file_path, true);
 
   // Check the overall qps
-  std::vector<std::string> all_qps = {"0 1 0 0 0 0 0 0 0 1"};
+  std::vector<std::string> all_qps = {"0 1 0 0 0 0 0 0 0 0 1"};
   file_path = output_path + "/test-qps_stats.txt";
   CheckFileContent(all_qps, file_path, true);
 
@@ -786,6 +787,48 @@ TEST_F(TraceAnalyzerTest, Iterator) {
   */
 }
 
+TEST_F(TraceAnalyzerTest, ExistsPreviousTraceWriteError) {
+  DB* db_ = nullptr;
+  Options options;
+  options.create_if_missing = true;
+
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  const std::string trace_path =
+      test_path_ + "/previous_trace_write_error_trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(NewFileTraceWriter(fault_env.get(), env_options_, trace_path,
+                               &trace_writer));
+
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+  ASSERT_OK(db_->StartTrace(TraceOptions(), std::move(trace_writer)));
+
+  // Inject write error on the first trace write.
+  // This trace write is made big enough to actually write to FS for error
+  // injection.
+  const std::string kBigKey(1000000, 'k');
+  const std::string kBigValue(1000000, 'v');
+  fault_env->SetFilesystemActive(false, Status::IOError("Injected"));
+
+  ASSERT_OK(db_->Put(WriteOptions(), kBigKey, kBigValue));
+
+  fault_env->SetFilesystemActive(true);
+
+  // Without proper handling of the previous trace write error,
+  // this trace write will continue and crash the db (in DEBUG_LEVEL > 0)
+  // due to writing to the trace file that has seen error.
+  ASSERT_OK(db_->Put(WriteOptions(), kBigKey, kBigValue));
+
+  // Verify `EndTrace()` returns the previous write trace error if any
+  Status s = db_->EndTrace();
+  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.ToString().find("Tracing has seen error") != std::string::npos);
+  ASSERT_TRUE(s.ToString().find("Injected") != std::string::npos);
+
+  delete db_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+}
+
 // Test analyzing of multiget
 TEST_F(TraceAnalyzerTest, MultiGet) {
   std::string trace_path = test_path_ + "/trace";
@@ -879,12 +922,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 #endif  // GFLAG
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "Trace_analyzer test is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE  return RUN_ALL_TESTS();

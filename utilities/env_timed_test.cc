@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/env.h"
 #include "rocksdb/perf_context.h"
@@ -33,12 +32,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else  // ROCKSDB_LITE
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as TimedEnv is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

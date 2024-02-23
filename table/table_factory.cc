@@ -16,7 +16,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 static void RegisterTableFactories(const std::string& /*arg*/) {
-#ifndef ROCKSDB_LITE
   static std::once_flag loaded;
   std::call_once(loaded, []() {
     auto library = ObjectLibrary::Default();
@@ -42,24 +41,12 @@ static void RegisterTableFactories(const std::string& /*arg*/) {
           return guard->get();
         });
   });
-#endif  // ROCKSDB_LITE
-}
-
-static bool LoadFactory(const std::string& name,
-                        std::shared_ptr<TableFactory>* factory) {
-  if (name == TableFactory::kBlockBasedTableName()) {
-    factory->reset(new BlockBasedTableFactory());
-    return true;
-  } else {
-    return false;
-  }
 }
 
 Status TableFactory::CreateFromString(const ConfigOptions& config_options,
                                       const std::string& value,
                                       std::shared_ptr<TableFactory>* factory) {
   RegisterTableFactories("");
-  return LoadSharedObject<TableFactory>(config_options, value, LoadFactory,
-                                        factory);
+  return LoadSharedObject<TableFactory>(config_options, value, factory);
 }
 }  // namespace ROCKSDB_NAMESPACE

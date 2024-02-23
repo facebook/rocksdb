@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * A ByteBuffer containing fetched data, together with a result for the fetch
  * and the total size of the object fetched.
- *
+ * <p>
  * Used for the individual results of
  * {@link RocksDB#multiGetByteBuffers(List, List)}
  * {@link RocksDB#multiGetByteBuffers(List, List, List)}
@@ -42,6 +42,7 @@ public class ByteBufferGetStatus {
    *
    * @param status the status of the request to fetch into the buffer
    */
+  @SuppressWarnings("PMD.NullAssignment")
   ByteBufferGetStatus(final Status status) {
     this.status = status;
     this.requiredSize = 0;

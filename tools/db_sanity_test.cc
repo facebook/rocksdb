@@ -198,7 +198,6 @@ class SanityTestZSTDCompression : public SanityTest {
   Options options_;
 };
 
-#ifndef ROCKSDB_LITE
 class SanityTestPlainTableFactory : public SanityTest {
  public:
   explicit SanityTestPlainTableFactory(const std::string& path)
@@ -214,7 +213,6 @@ class SanityTestPlainTableFactory : public SanityTest {
  private:
   Options options_;
 };
-#endif  // ROCKSDB_LITE
 
 class SanityTestBloomFilter : public SanityTest {
  public:
@@ -244,9 +242,7 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
       new SanityTestLZ4Compression(path),
       new SanityTestLZ4HCCompression(path),
       new SanityTestZSTDCompression(path),
-#ifndef ROCKSDB_LITE
       new SanityTestPlainTableFactory(path),
-#endif  // ROCKSDB_LITE
       new SanityTestBloomFilter(path)};
 
   if (command == "create") {

@@ -23,6 +23,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -230,7 +231,6 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
   }
 };
 
-// EXPERIMENTAL
 // Comparator with 64-bit integer timestamp.
 // We did not performance test this yet.
 template <typename TComparator>
@@ -249,6 +249,12 @@ class ComparatorWithU64TsImpl : public Comparator {
   }
 
   const char* Name() const override { return kClassName(); }
+
+  // The comparator that compares the user key without timestamp part is treated
+  // as the root comparator.
+  const Comparator* GetRootComparator() const override {
+    return &cmp_without_ts_;
+  }
 
   void FindShortSuccessor(std::string*) const override {}
   void FindShortestSeparator(std::string*, const Slice&) const override {}
@@ -316,37 +322,71 @@ const Comparator* BytewiseComparatorWithU64Ts() {
   return &comp_with_u64_ts;
 }
 
-#ifndef ROCKSDB_LITE
+const Comparator* ReverseBytewiseComparatorWithU64Ts() {
+  STATIC_AVOID_DESTRUCTION(
+      ComparatorWithU64TsImpl<ReverseBytewiseComparatorImpl>, comp_with_u64_ts);
+  return &comp_with_u64_ts;
+}
+
+Status DecodeU64Ts(const Slice& ts, uint64_t* int_ts) {
+  if (ts.size() != sizeof(uint64_t)) {
+    return Status::InvalidArgument("U64Ts timestamp size mismatch.");
+  }
+  *int_ts = DecodeFixed64(ts.data());
+  return Status::OK();
+}
+
+Slice EncodeU64Ts(uint64_t ts, std::string* ts_buf) {
+  char buf[sizeof(ts)];
+  EncodeFixed64(buf, ts);
+  ts_buf->assign(buf, sizeof(buf));
+  return Slice(*ts_buf);
+}
+
+Slice MaxU64Ts() {
+  static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff";
+  return Slice(kTsMax, sizeof(uint64_t));
+}
+
+Slice MinU64Ts() {
+  static constexpr char kTsMin[] = "\x00\x00\x00\x00\x00\x00\x00\x00";
+  return Slice(kTsMin, sizeof(uint64_t));
+}
+
 static int RegisterBuiltinComparators(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
   library.AddFactory<const Comparator>(
       BytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return BytewiseComparator(); });
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return BytewiseComparator(); });
   library.AddFactory<const Comparator>(
       ReverseBytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return ReverseBytewiseComparator(); });
   library.AddFactory<const Comparator>(
       ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return BytewiseComparatorWithU64Ts(); });
-  return 3;
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return BytewiseComparatorWithU64Ts(); });
+  library.AddFactory<const Comparator>(
+      ComparatorWithU64TsImpl<ReverseBytewiseComparatorImpl>::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) {
+        return ReverseBytewiseComparatorWithU64Ts();
+      });
+  return 4;
 }
-#endif  // ROCKSDB_LITE
 
 Status Comparator::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& value,
                                     const Comparator** result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinComparators(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
   Status status = Customizable::GetOptionsMap(config_options, *result, value,
@@ -361,6 +401,9 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
   } else if (id ==
              ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName()) {
     *result = BytewiseComparatorWithU64Ts();
+  } else if (id == ComparatorWithU64TsImpl<
+                       ReverseBytewiseComparatorImpl>::kClassName()) {
+    *result = ReverseBytewiseComparatorWithU64Ts();
   } else if (value.empty()) {
     // No Id and no options.  Clear the object
     *result = nullptr;
@@ -368,11 +411,7 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
   } else if (id.empty()) {  // We have no Id but have options.  Not good
     return Status::NotSupported("Cannot reset object ", id);
   } else {
-#ifndef ROCKSDB_LITE
     status = config_options.registry->NewStaticObject(id, result);
-#else
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
     if (!status.ok()) {
       if (config_options.ignore_unsupported_options &&
           status.IsNotSupported()) {

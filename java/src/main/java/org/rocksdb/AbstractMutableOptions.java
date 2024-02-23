@@ -3,11 +3,17 @@ package org.rocksdb;
 
 import java.util.*;
 
-public abstract class AbstractMutableOptions {
-
+/**
+ * This class is not strictly abstract in Java language terms, so we do not declare it as such.
+ * The name remains {@code AbstractMutableOptions} to reflect the underlying C++ name.
+ * The constructor is protected, so it will always be used as a base class.
+ */
+public class AbstractMutableOptions {
   protected static final String KEY_VALUE_PAIR_SEPARATOR = ";";
   protected static final char KEY_VALUE_SEPARATOR = '=';
   static final String INT_ARRAY_INT_SEPARATOR = ":";
+
+  private static final String HAS_NOT_BEEN_SET = " has not been set";
 
   protected final String[] keys;
   private final String[] values;
@@ -18,15 +24,18 @@ public abstract class AbstractMutableOptions {
    * @param keys the keys
    * @param values the values
    */
+  @SuppressWarnings("PMD.ArrayIsStoredDirectly")
   protected AbstractMutableOptions(final String[] keys, final String[] values) {
     this.keys = keys;
     this.values = values;
   }
 
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   String[] getKeys() {
     return keys;
   }
 
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   String[] getValues() {
     return values;
   }
@@ -53,25 +62,23 @@ public abstract class AbstractMutableOptions {
     return buffer.toString();
   }
 
-  public static abstract class AbstractMutableOptionsBuilder<
-      T extends AbstractMutableOptions,
-      U extends AbstractMutableOptionsBuilder<T, U, K>,
-      K extends MutableOptionKey> {
-
+  public abstract static class AbstractMutableOptionsBuilder<
+      T extends AbstractMutableOptions, U extends AbstractMutableOptionsBuilder<T, U, K>, K
+          extends MutableOptionKey> {
     private final Map<K, MutableOptionValue<?>> options = new LinkedHashMap<>();
     private final List<OptionString.Entry> unknown = new ArrayList<>();
 
     protected abstract U self();
 
     /**
-     * Get all of the possible keys
+     * Get all the possible keys
      *
      * @return A map of all keys, indexed by name.
      */
     protected abstract Map<String, K> allKeys();
 
     /**
-     * Construct a sub-class instance of {@link AbstractMutableOptions}.
+     * Construct a subclass instance of {@link AbstractMutableOptions}.
      *
      * @param keys the keys
      * @param values the values
@@ -108,7 +115,7 @@ public abstract class AbstractMutableOptions {
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(key.name() + " has not been set");
+        throw new NoSuchElementException(key.name() + HAS_NOT_BEEN_SET);
       }
       return value.asDouble();
     }
@@ -127,7 +134,7 @@ public abstract class AbstractMutableOptions {
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(key.name() + " has not been set");
+        throw new NoSuchElementException(key.name() + HAS_NOT_BEEN_SET);
       }
       return value.asLong();
     }
@@ -146,7 +153,7 @@ public abstract class AbstractMutableOptions {
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(key.name() + " has not been set");
+        throw new NoSuchElementException(key.name() + HAS_NOT_BEEN_SET);
       }
       return value.asInt();
     }
@@ -165,7 +172,7 @@ public abstract class AbstractMutableOptions {
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(key.name() + " has not been set");
+        throw new NoSuchElementException(key.name() + HAS_NOT_BEEN_SET);
       }
       return value.asBoolean();
     }
@@ -184,7 +191,7 @@ public abstract class AbstractMutableOptions {
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(key.name() + " has not been set");
+        throw new NoSuchElementException(key.name() + HAS_NOT_BEEN_SET);
       }
       return value.asIntArray();
     }
@@ -204,7 +211,7 @@ public abstract class AbstractMutableOptions {
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
       if (value == null) {
-        throw new NoSuchElementException(key.name() + " has not been set");
+        throw new NoSuchElementException(key.name() + HAS_NOT_BEEN_SET);
       }
 
       if (!(value instanceof MutableOptionValue.MutableOptionEnumValue)) {
@@ -224,10 +231,10 @@ public abstract class AbstractMutableOptions {
     private long parseAsLong(final String value) {
       try {
         return Long.parseLong(value);
-      } catch (NumberFormatException nfe) {
+      } catch (final NumberFormatException nfe) {
         final double doubleValue = Double.parseDouble(value);
         if (doubleValue != Math.round(doubleValue))
-          throw new IllegalArgumentException("Unable to parse or round " + value + " to long");
+          throw new IllegalArgumentException("Unable to parse or round " + value + " to long", nfe);
         return Math.round(doubleValue);
       }
     }
@@ -242,10 +249,10 @@ public abstract class AbstractMutableOptions {
     private int parseAsInt(final String value) {
       try {
         return Integer.parseInt(value);
-      } catch (NumberFormatException nfe) {
+      } catch (final NumberFormatException nfe) {
         final double doubleValue = Double.parseDouble(value);
         if (doubleValue != Math.round(doubleValue))
-          throw new IllegalArgumentException("Unable to parse or round " + value + " to int");
+          throw new IllegalArgumentException("Unable to parse or round " + value + " to int", nfe);
         return (int) Math.round(doubleValue);
       }
     }
@@ -271,7 +278,7 @@ public abstract class AbstractMutableOptions {
             throw new IllegalArgumentException("options string is invalid: " + option);
           }
           fromOptionString(option, ignoreUnknown);
-        } catch (NumberFormatException nfe) {
+        } catch (final NumberFormatException nfe) {
           throw new IllegalArgumentException(
               "" + option.key + "=" + option.value + " - not a valid value for its type", nfe);
         }
@@ -287,8 +294,9 @@ public abstract class AbstractMutableOptions {
      * @param ignoreUnknown if this is not set, throw an exception when a key is not in the known
      *     set
      * @return the same object, after adding options
-     * @throws IllegalArgumentException if the key is unkown, or a value has the wrong type/form
+     * @throws IllegalArgumentException if the key is unknown, or a value has the wrong type/form
      */
+    @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
     private U fromOptionString(final OptionString.Entry option, final boolean ignoreUnknown)
         throws IllegalArgumentException {
       Objects.requireNonNull(option.key);
@@ -299,7 +307,7 @@ public abstract class AbstractMutableOptions {
         unknown.add(option);
         return self();
       } else if (key == null) {
-        throw new IllegalArgumentException("Key: " + key + " is not a known option key");
+        throw new IllegalArgumentException("Key: " + null + " is not a known option key");
       }
 
       if (!option.value.isList()) {
@@ -341,13 +349,13 @@ public abstract class AbstractMutableOptions {
           return setIntArray(key, value);
 
         case ENUM:
-          String optionName = key.name();
-          if (optionName.equals("prepopulate_blob_cache")) {
+          final String optionName = key.name();
+          if ("prepopulate_blob_cache".equals(optionName)) {
             final PrepopulateBlobCache prepopulateBlobCache =
                 PrepopulateBlobCache.getFromInternal(valueStr);
             return setEnum(key, prepopulateBlobCache);
-          } else if (optionName.equals("compression")
-              || optionName.equals("blob_compression_type")) {
+          } else if ("compression".equals(optionName)
+              || "blob_compression_type".equals(optionName)) {
             final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
             return setEnum(key, compressionType);
           } else {

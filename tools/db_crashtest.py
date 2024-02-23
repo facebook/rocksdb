@@ -37,12 +37,13 @@ default_params = {
     "backup_one_in": 100000,
     "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
     "memtable_protection_bytes_per_key": lambda: random.choice([0, 1, 2, 4, 8]),
+    "block_protection_bytes_per_key": lambda: random.choice([0, 1, 2, 4, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice(
         [random.randint(0, 19), random.lognormvariate(2.3, 1.3)]
     ),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
-    "cache_size": 8388608,
+    "cache_size": lambda: random.choice([8388608, 33554432]),
     "charge_compression_dictionary_building_buffer": lambda: random.choice([0, 1]),
     "charge_filter_construction": lambda: random.choice([0, 1]),
     "charge_table_reader": lambda: random.choice([0, 1]),
@@ -64,6 +65,7 @@ default_params = {
     "compression_parallel_threads": 1,
     "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "compression_use_zstd_dict_trainer": lambda: random.randint(0, 1),
+    "compression_checksum": lambda: random.randint(0, 1),
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -88,6 +90,7 @@ default_params = {
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "ingest_external_file_one_in": 1000000,
     "iterpercent": 10,
+    "lock_wal_one_in": 1000000,
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
@@ -121,20 +124,28 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["lru_cache", "hyper_clock_cache"]),
+    "cache_type": lambda: random.choice(
+        ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
+         "auto_hyper_clock_cache", "tiered_lru_cache",
+         "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
+         "tiered_auto_hyper_clock_cache"]
+    ),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     # 999 -> use Bloom API
-    "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
+    "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
     "value_size_mult": 32,
+    "verification_only": 0,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
-    "format_version": lambda: random.choice([2, 3, 4, 5, 5]),
+    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 6]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
+    "use_get_entity": lambda: random.choice([0] * 7 + [1]),
+    "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
@@ -149,12 +160,12 @@ default_params = {
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
     "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
-    # Disable compaction_readahead_size because the test is not passing.
-    # "compaction_readahead_size" : lambda : random.choice(
-    #    [0, 0, 1024 * 1024]),
+    "compaction_readahead_size": lambda: random.choice(
+        [0, 0, 1024 * 1024]),
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
+    "use_write_buffer_manager": lambda: random.randint(0, 1),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "avoid_flush_during_recovery": lambda: random.choice(
@@ -163,13 +174,15 @@ default_params = {
     "max_write_batch_group_size_bytes": lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
-    "level_compaction_dynamic_level_bytes": True,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "verify_checksum_one_in": 1000000,
+    "verify_file_checksums_one_in": 1000000,
     "verify_db_one_in": 100000,
     "continuous_verification_interval": 0,
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
+    "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
@@ -181,6 +194,7 @@ default_params = {
     ),
     "user_timestamp_size": 0,
     "secondary_cache_fault_one_in": lambda: random.choice([0, 0, 32]),
+    "compressed_secondary_cache_size": lambda: random.choice([8388608, 16777216]),
     "prepopulate_block_cache": lambda: random.choice([0, 1]),
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
@@ -192,20 +206,31 @@ default_params = {
     "secondary_cache_uri": lambda: random.choice(
         [
             "",
-            "compressed_secondary_cache://capacity=8388608",
+            "",
+            "",
             "compressed_secondary_cache://capacity=8388608;enable_custom_split_merge=true",
         ]
     ),
     "allow_data_in_errors": True,
+    "enable_thread_tracking": lambda: random.choice([0, 1]),
     "readahead_size": lambda: random.choice([0, 16384, 524288]),
     "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
     "max_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
     "num_file_reads_for_auto_readahead": lambda: random.choice([0, 1, 2]),
     "min_write_buffer_number_to_merge": lambda: random.choice([1, 2]),
     "preserve_internal_time_seconds": lambda: random.choice([0, 60, 3600, 36000]),
+    "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
+    # 0 (disable) is the default and more commonly used value.
+    "bottommost_file_compaction_delay": lambda: random.choice(
+        [0, 0, 0, 600, 3600, 86400]
+    ),
+    "auto_readahead_size" : lambda: random.choice([0, 1]),
+    "verify_iterator_with_expected_state_one_in": 5,
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
+# If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
+_TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
 stress_cmd = "./db_stress"
@@ -228,7 +253,10 @@ def get_dbname(test_name):
             print("Running DB cleanup command - %s\n" % cleanup_cmd)
             # Ignore failure
             os.system(cleanup_cmd)
-        os.mkdir(dbname)
+        try:
+            os.mkdir(dbname)
+        except OSError:
+            pass
     return dbname
 
 
@@ -240,12 +268,18 @@ def setup_expected_values_dir():
     if expected_values_dir is not None:
         return expected_values_dir
     expected_dir_prefix = "rocksdb_crashtest_expected_"
-    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is None or test_tmpdir == "":
+    test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
+
+    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
+    # specified.
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
+        test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         expected_values_dir = tempfile.mkdtemp(prefix=expected_dir_prefix)
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
-        expected_values_dir = test_tmpdir + "/rocksdb_crashtest_expected"
+        expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
         if os.path.exists(expected_values_dir):
             shutil.rmtree(expected_values_dir)
         os.mkdir(expected_values_dir)
@@ -260,16 +294,22 @@ def setup_multiops_txn_key_spaces_file():
     if multiops_txn_key_spaces_file is not None:
         return multiops_txn_key_spaces_file
     key_spaces_file_prefix = "rocksdb_crashtest_multiops_txn_key_spaces"
-    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is None or test_tmpdir == "":
+    test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
+
+    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
+    # specified.
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
+        test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         multiops_txn_key_spaces_file = tempfile.mkstemp(prefix=key_spaces_file_prefix)[
             1
         ]
     else:
-        if not os.path.exists(test_tmpdir):
-            os.mkdir(test_tmpdir)
+        if not os.path.exists(test_exp_tmpdir):
+            os.mkdir(test_exp_tmpdir)
         multiops_txn_key_spaces_file = tempfile.mkstemp(
-            prefix=key_spaces_file_prefix, dir=test_tmpdir
+            prefix=key_spaces_file_prefix, dir=test_exp_tmpdir
         )[1]
     return multiops_txn_key_spaces_file
 
@@ -296,10 +336,14 @@ blackbox_default_params = {
 }
 
 whitebox_default_params = {
-    # TODO: enable this once we figure out how to adjust kill odds for WAL-
-    # disabled runs, and either (1) separate full `db_stress` runs out of
-    # whitebox crash or (2) support verification at end of `db_stress` runs
-    # that ran with WAL disabled.
+    # TODO: enable this at random once we figure out two things. First, we need
+    # to ensure the kill odds in WAL-disabled runs result in regular crashing
+    # before the fifteen minute timeout. When WAL is disabled there are very few
+    # calls to write functions since writes to SST files are buffered and other
+    # writes (e.g., MANIFEST) are infrequent. Crashing in reasonable time might
+    # currently assume killpoints in write functions are reached frequently.
+    #
+    # Second, we need to make sure disabling WAL works with `-reopen > 0`.
     "disable_wal": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
@@ -320,9 +364,8 @@ simple_default_params = {
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
-    "level_compaction_dynamic_level_bytes": False,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
-    "verify_iterator_with_expected_state_one_in": 5,  # this locks a range of keys
 }
 
 blackbox_simple_default_params = {
@@ -345,10 +388,14 @@ cf_consistency_params = {
     "enable_compaction_filter": 0,
     # `CfConsistencyStressTest::TestIngestExternalFile()` is not implemented.
     "ingest_external_file_one_in": 0,
+    # `CfConsistencyStressTest::TestIterateAgainstExpected()` is not implemented.
+    "verify_iterator_with_expected_state_one_in": 0,
 }
 
+# For pessimistic transaction db
 txn_params = {
     "use_txn": 1,
+    "use_optimistic_txn": 0,
     # Avoid lambda to set it once for the entire test
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
@@ -361,7 +408,18 @@ txn_params = {
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
     # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
+}
+
+# For optimistic transaction db
+optimistic_txn_params = {
+    "use_txn": 1,
+    "use_optimistic_txn": 1,
+    "occ_validation_policy": random.randint(0, 1),
+    "share_occ_lock_buckets": random.randint(0, 1),
+    "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in": 0,
 }
 
 best_efforts_recovery_params = {
@@ -369,6 +427,8 @@ best_efforts_recovery_params = {
     "atomic_flush": 0,
     "disable_wal": 1,
     "column_families": 1,
+    "skip_verifydb": 1,
+    "verify_db_one_in": 0
 }
 
 blob_params = {
@@ -401,11 +461,9 @@ ts_params = {
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
-    "enable_blob_files": 0,
-    "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
     # PutEntity with timestamps is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
 }
 
 tiered_params = {
@@ -460,8 +518,15 @@ multiops_txn_default_params = {
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
+    # This test has aggressive flush frequency and small write buffer size.
+    # Disabling write fault to avoid writes being stopped.
+    "write_fault_one_in": 0,
     # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
+    "use_get_entity": 0,
+    "use_multi_get_entity": 0,
+    # `MultiOpsTxnsStressTest::TestIterateAgainstExpected()` is not implemented.
+    "verify_iterator_with_expected_state_one_in": 0,
 }
 
 multiops_wc_txn_params = {
@@ -527,12 +592,16 @@ def finalize_and_sanitize(src_params):
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
-    if (dest_params.get("test_batches_snapshots") == 1 or
-        dest_params.get("use_txn") == 1 or
-        dest_params.get("user_timestamp_size") > 0):
+    if (
+        dest_params.get("test_batches_snapshots") == 1
+        or dest_params.get("use_txn") == 1
+        or dest_params.get("user_timestamp_size") > 0
+    ):
         dest_params["ingest_external_file_one_in"] = 0
-    if (dest_params.get("test_batches_snapshots") == 1 or
-        dest_params.get("use_txn") == 1):
+    if (
+        dest_params.get("test_batches_snapshots") == 1
+        or dest_params.get("use_txn") == 1
+    ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
     if (
@@ -603,9 +672,8 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
-    if dest_params["secondary_cache_uri"] != "":
-        # Currently the only cache type compatible with a secondary cache is LRUCache
-        dest_params["cache_type"] = "lru_cache"
+        dest_params["skip_verifydb"] = 1
+        dest_params["verify_db_one_in"] = 0
     # Remove the following once write-prepared/write-unprepared with/without
     # unordered write supports timestamped snapshots
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
@@ -613,15 +681,37 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
-    # PutEntity is currently not supported by SstFileWriter or in conjunction with Merge
+    # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
-        dest_params["ingest_external_file_one_in"] = 0
-        dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
-
+    if dest_params["file_checksum_impl"] == "none":
+        dest_params["verify_file_checksums_one_in"] = 0
+    if dest_params["write_fault_one_in"] > 0:
+        # background work may be disabled while DB is resuming after some error
+        dest_params["max_write_buffer_number"] = max(dest_params["max_write_buffer_number"], 10)
+    if dest_params["secondary_cache_uri"].find("compressed_secondary_cache") >= 0:
+        dest_params["compressed_secondary_cache_size"] = 0
+        dest_params["compressed_secondary_cache_ratio"] = 0.0
+    if dest_params["cache_type"].find("tiered_") >= 0:
+        if dest_params["compressed_secondary_cache_size"] > 0:
+            dest_params["compressed_secondary_cache_ratio"] = \
+                    float(dest_params["compressed_secondary_cache_size"]/ \
+                    (dest_params["cache_size"] + dest_params["compressed_secondary_cache_size"]))
+            dest_params["compressed_secondary_cache_size"] = 0
+        else:
+            dest_params["compressed_secondary_cache_ratio"] = 0.0
+            dest_params["cache_type"] = dest_params["cache_type"].replace("tiered_", "")
+    else:
+        if dest_params["secondary_cache_uri"]:
+            dest_params["compressed_secondary_cache_size"] = 0
+            dest_params["compressed_secondary_cache_ratio"] = 0.0
+    if dest_params["use_write_buffer_manager"]:
+        if (dest_params["cache_size"] <= 0
+            or dest_params["db_write_buffer_size"] <= 0):
+            dest_params["use_write_buffer_manager"] = 0
     return dest_params
 
 
@@ -643,6 +733,8 @@ def gen_cmd_params(args):
         params.update(cf_consistency_params)
     if args.txn:
         params.update(txn_params)
+    if args.optimistic_txn:
+        params.update(optimistic_txn_params)
     if args.test_best_efforts_recovery:
         params.update(best_efforts_recovery_params)
     if args.enable_ts:
@@ -656,12 +748,11 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery, user defined timestamp, tiered storage are currently
-    # incompatible with BlobDB. Test BE recovery if specified on the command
-    # line; otherwise, apply BlobDB related overrides with a 10% chance.
+    # Best-effort recovery, tiered storage are currently incompatible with BlobDB.
+    # Test BE recovery if specified on the command line; otherwise, apply BlobDB
+    # related overrides with a 10% chance.
     if (
         not args.test_best_efforts_recovery
-        and not args.enable_ts
         and not args.test_tiered_storage
         and random.choice([0] * 9 + [1]) == 1
     ):
@@ -689,6 +780,7 @@ def gen_cmd(params, unknown_params):
                 "random_kill_odd",
                 "cf_consistency",
                 "txn",
+                "optimistic_txn",
                 "test_best_efforts_recovery",
                 "enable_ts",
                 "test_multiops_txn",
@@ -696,6 +788,7 @@ def gen_cmd(params, unknown_params):
                 "stress_cmd",
                 "test_tiered_storage",
                 "cleanup_cmd",
+                "skip_tmpdir_check",
             }
             and v is not None
         ]
@@ -704,7 +797,7 @@ def gen_cmd(params, unknown_params):
     return cmd
 
 
-def execute_cmd(cmd, timeout):
+def execute_cmd(cmd, timeout=None):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     print("Running db_stress with pid=%d: %s\n\n" % (child.pid, " ".join(cmd)))
 
@@ -758,9 +851,50 @@ def blackbox_crash_main(args, unknown_args):
                 print("stderr has error message:")
                 print("***" + line + "***")
 
+        stderrdata = errs.lower()
+        errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
+        print("#times error occurred in output is " + str(errorcount) + "\n")
+
+        if errorcount > 0:
+            print("TEST FAILED. Output has 'error'!!!\n")
+            sys.exit(2)
+        if stderrdata.find("fail") >= 0:
+            print("TEST FAILED. Output has 'fail'!!!\n")
+            sys.exit(2)
+
         time.sleep(1)  # time to stabilize before the next run
 
         time.sleep(1)  # time to stabilize before the next run
+
+    # We should run the test one more time with VerifyOnly setup and no-timeout
+    # Only do this if the tests are not failed for total-duration
+    print("Running final time for verification")
+    cmd_params.update({"verification_only": 1})
+    cmd_params.update({"skip_verifydb": 0})
+
+    cmd = gen_cmd(
+        dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
+    )
+    hit_timeout, retcode, outs, errs = execute_cmd(cmd)
+
+    # Print stats of the final run
+    print("stdout:", outs)
+
+    for line in errs.split("\n"):
+        if line != "" and not line.startswith("WARNING"):
+            print("stderr has error message:")
+            print("***" + line + "***")
+
+    stderrdata = errs.lower()
+    errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
+    print("#times error occurred in output is " + str(errorcount) + "\n")
+
+    if errorcount > 0:
+        print("TEST FAILED. Output has 'error'!!!\n")
+        sys.exit(2)
+    if stderrdata.find("fail") >= 0:
+        print("TEST FAILED. Output has 'fail'!!!\n")
+        sys.exit(2)
 
     # we need to clean up after ourselves -- only do this on test success
     shutil.rmtree(dbname, True)
@@ -861,9 +995,17 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params["ops_per_thread"],
             }
 
-        cur_compaction_style = additional_opts.get("compaction_style", cmd_params.get("compaction_style", 0))
-        if prev_compaction_style != -1 and prev_compaction_style != cur_compaction_style:
-            print("`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style." + "\n")
+        cur_compaction_style = additional_opts.get(
+            "compaction_style", cmd_params.get("compaction_style", 0)
+        )
+        if (
+            prev_compaction_style != -1
+            and prev_compaction_style != cur_compaction_style
+        ):
+            print(
+                "`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style."
+                + "\n"
+            )
             additional_opts["destroy_db_initially"] = 1
         prev_compaction_style = cur_compaction_style
 
@@ -937,8 +1079,11 @@ def whitebox_crash_main(args, unknown_args):
                 if ret != 0:
                     print("TEST FAILED. DB cleanup returned error %d\n" % ret)
                     sys.exit(1)
-            os.mkdir(dbname)
-            if (expected_values_dir is not None):
+            try:
+                os.mkdir(dbname)
+            except OSError:
+                pass
+            if expected_values_dir is not None:
                 shutil.rmtree(expected_values_dir, True)
                 os.mkdir(expected_values_dir)
 
@@ -959,6 +1104,7 @@ def main():
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--cf_consistency", action="store_true")
     parser.add_argument("--txn", action="store_true")
+    parser.add_argument("--optimistic_txn", action="store_true")
     parser.add_argument("--test_best_efforts_recovery", action="store_true")
     parser.add_argument("--enable_ts", action="store_true")
     parser.add_argument("--test_multiops_txn", action="store_true")
@@ -966,6 +1112,7 @@ def main():
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
+    parser.add_argument("--skip_tmpdir_check", action="store_true")
 
     all_params = dict(
         list(default_params.items())
@@ -983,6 +1130,7 @@ def main():
         + list(cf_consistency_params.items())
         + list(tiered_params.items())
         + list(txn_params.items())
+        + list(optimistic_txn_params.items())
     )
 
     for k, v in all_params.items():
@@ -991,12 +1139,18 @@ def main():
     args, unknown_args = parser.parse_known_args()
 
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is not None and not os.path.isdir(test_tmpdir):
-        print(
-            "%s env var is set to a non-existent directory: %s"
-            % (_TEST_DIR_ENV_VAR, test_tmpdir)
-        )
-        sys.exit(1)
+    if test_tmpdir is not None and not args.skip_tmpdir_check:
+        isdir = False
+        try:
+            isdir = os.path.isdir(test_tmpdir)
+            if not isdir:
+                print(
+                    "ERROR: %s env var is set to a non-existent directory: %s. Update it to correct directory path."
+                    % (_TEST_DIR_ENV_VAR, test_tmpdir)
+                )
+                sys.exit(1)
+        except OSError:
+            pass
 
     if args.stress_cmd:
         stress_cmd = args.stress_cmd

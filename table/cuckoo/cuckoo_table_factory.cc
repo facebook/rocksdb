@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "table/cuckoo/cuckoo_table_factory.h"
 
 #include "db/dbformat.h"
@@ -67,7 +66,6 @@ std::string CuckooTableFactory::GetPrintableOptions() const {
 
 static std::unordered_map<std::string, OptionTypeInfo> cuckoo_table_type_info =
     {
-#ifndef ROCKSDB_LITE
         {"hash_table_ratio",
          {offsetof(struct CuckooTableOptions, hash_table_ratio),
           OptionType::kDouble, OptionVerificationType::kNormal,
@@ -88,7 +86,6 @@ static std::unordered_map<std::string, OptionTypeInfo> cuckoo_table_type_info =
          {offsetof(struct CuckooTableOptions, use_module_hash),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 
 CuckooTableFactory::CuckooTableFactory(const CuckooTableOptions& table_options)
@@ -101,4 +98,3 @@ TableFactory* NewCuckooTableFactory(const CuckooTableOptions& table_options) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

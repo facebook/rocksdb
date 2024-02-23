@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <memory>
+
 #include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -10,7 +12,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -27,11 +29,10 @@
 #include "test_util/testutil.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -550,6 +551,7 @@ class TestCompactionReasonListener : public EventListener {
 
 TEST_F(EventListenerTest, CompactionReasonLevel) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(test::NewSpecialSkipListFactory(
@@ -580,7 +582,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   for (int k = 1; k <= 30; k++) {
     ASSERT_OK(Put(Key(k), Key(k)));
     if (k % 10 == 0) {
-      Flush();
+      ASSERT_OK(Flush());
     }
   }
 
@@ -707,27 +709,28 @@ TEST_F(EventListenerTest, CompactionReasonFIFO) {
 
 class TableFileCreationListener : public EventListener {
  public:
-  class TestEnv : public EnvWrapper {
+  class TestFS : public FileSystemWrapper {
    public:
-    explicit TestEnv(Env* t) : EnvWrapper(t) {}
+    explicit TestFS(const std::shared_ptr<FileSystem>& t)
+        : FileSystemWrapper(t) {}
     static const char* kClassName() { return "TestEnv"; }
     const char* Name() const override { return kClassName(); }
 
-    void SetStatus(Status s) { status_ = s; }
+    void SetStatus(IOStatus s) { status_ = s; }
 
-    Status NewWritableFile(const std::string& fname,
-                           std::unique_ptr<WritableFile>* result,
-                           const EnvOptions& options) override {
+    IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSWritableFile>* result,
+                             IODebugContext* dbg) override {
       if (fname.size() > 4 && fname.substr(fname.size() - 4) == ".sst") {
         if (!status_.ok()) {
           return status_;
         }
       }
-      return target()->NewWritableFile(fname, result, options);
+      return target()->NewWritableFile(fname, opts, result, dbg);
     }
 
    private:
-    Status status_;
+    IOStatus status_;
   };
 
   TableFileCreationListener() {
@@ -813,8 +816,10 @@ class TableFileCreationListener : public EventListener {
 TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   auto listener = std::make_shared<TableFileCreationListener>();
   Options options;
-  std::unique_ptr<TableFileCreationListener::TestEnv> test_env(
-      new TableFileCreationListener::TestEnv(CurrentOptions().env));
+  std::shared_ptr<TableFileCreationListener::TestFS> test_fs =
+      std::make_shared<TableFileCreationListener::TestFS>(
+          CurrentOptions().env->GetFileSystem());
+  std::unique_ptr<Env> test_env = NewCompositeEnv(test_fs);
   options.create_if_missing = true;
   options.listeners.push_back(listener);
   options.env = test_env.get();
@@ -827,11 +832,11 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   listener->CheckAndResetCounters(1, 1, 0, 0, 0, 0);
   ASSERT_OK(Put("foo", "aaa1"));
   ASSERT_OK(Put("bar", "bbb1"));
-  test_env->SetStatus(Status::NotSupported("not supported"));
+  test_fs->SetStatus(IOStatus::NotSupported("not supported"));
   ASSERT_NOK(Flush());
   listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
   ASSERT_TRUE(listener->last_failure_.IsNotSupported());
-  test_env->SetStatus(Status::OK());
+  test_fs->SetStatus(IOStatus::OK());
 
   Reopen(options);
   ASSERT_OK(Put("foo", "aaa2"));
@@ -850,7 +855,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(Put("foo", "aaa3"));
   ASSERT_OK(Put("bar", "bbb3"));
   ASSERT_OK(Flush());
-  test_env->SetStatus(Status::NotSupported("not supported"));
+  test_fs->SetStatus(IOStatus::NotSupported("not supported"));
   ASSERT_NOK(
       dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd));
   ASSERT_NOK(dbfull()->TEST_WaitForCompact());
@@ -858,7 +863,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_TRUE(listener->last_failure_.IsNotSupported());
 
   // Reset
-  test_env->SetStatus(Status::OK());
+  test_fs->SetStatus(IOStatus::OK());
   DestroyAndReopen(options);
 
   // Verify that an empty table file that is immediately deleted gives Aborted
@@ -1586,7 +1591,6 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

@@ -16,7 +16,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 // -- AutoRollLogger
 
 AutoRollLogger::AutoRollLogger(const std::shared_ptr<FileSystem>& fs,
@@ -269,7 +268,6 @@ bool AutoRollLogger::LogExpired() {
   ++cached_now_access_count;
   return cached_now >= ctime_ + kLogFileTimeToRoll;
 }
-#endif  // !ROCKSDB_LITE
 
 Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
@@ -312,7 +310,6 @@ Status CreateLoggerFromOptions(const std::string& dbname,
       return s;
     }
   }
-#ifndef ROCKSDB_LITE
   // Currently we only support roll by time-to-roll and log size
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
@@ -327,7 +324,6 @@ Status CreateLoggerFromOptions(const std::string& dbname,
     }
     return s;
   }
-#endif  // !ROCKSDB_LITE
   // Open a log file in the same directory as the db
   s = env->FileExists(fname);
   if (s.ok()) {
