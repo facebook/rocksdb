@@ -267,7 +267,10 @@ TEST_F(ArenaTest, UnmappedAllocation) {
   // Verify that it's possible to get unmapped pages in large allocations,
   // for memory efficiency and to ensure we don't accidentally waste time &
   // space initializing the memory.
-  constexpr size_t kBlockSize = 2U << 20;
+  //
+  // This block size value is smaller than the smallest x86 huge page size,
+  // so should not be fulfilled by a transparent huge page mapping.
+  constexpr size_t kBlockSize = 1U << 20;
   Arena arena(kBlockSize);
 
   // The allocator might give us back recycled memory for a while, but
