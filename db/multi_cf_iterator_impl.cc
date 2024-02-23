@@ -14,7 +14,7 @@ void MultiCfIteratorImpl::SeekToFirst() {
   assert(cfhs_.size() == iterators_.size());
   int i = 0;
   for (auto& iter : iterators_) {
-    auto& cfh = cfhs_[i];
+    auto& cfh = cfhs_.at(i);
     iter->SeekToFirst();
     if (iter->Valid()) {
       assert(iter->status().ok());
