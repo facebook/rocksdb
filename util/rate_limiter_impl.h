@@ -123,7 +123,7 @@ class GenericRateLimiter : public RateLimiter {
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
-  std::atomic<int64_t> refill_period_us_;
+  const int64_t refill_period_us_;
 
   std::atomic<int64_t> rate_bytes_per_sec_;
   std::atomic<int64_t> refill_bytes_per_period_;

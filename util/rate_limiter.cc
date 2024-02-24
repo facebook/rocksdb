@@ -132,8 +132,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     static const int kRefillsPerTune = 100;
     std::chrono::microseconds now(NowMicrosMonotonicLocked());
     if (now - tuned_time_ >=
-        kRefillsPerTune * std::chrono::microseconds(refill_period_us_.load(
-                              std::memory_order_relaxed))) {
+        kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
       Status s = TuneLocked();
       s.PermitUncheckedError();  //**TODO: What to do on error?
     }
@@ -274,8 +273,7 @@ GenericRateLimiter::GeneratePriorityIterationOrderLocked() {
 void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
   TEST_SYNC_POINT_CALLBACK(
       "GenericRateLimiter::RefillBytesAndGrantRequestsLocked", &request_mutex_);
-  next_refill_us_ = NowMicrosMonotonicLocked() +
-                    refill_period_us_.load(std::memory_order_relaxed);
+  next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -316,14 +314,13 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
 
 int64_t GenericRateLimiter::CalculateRefillBytesPerPeriodLocked(
     int64_t rate_bytes_per_sec) {
-  int64_t refill_period_us = refill_period_us_.load(std::memory_order_relaxed);
   if (std::numeric_limits<int64_t>::max() / rate_bytes_per_sec <
-      refill_period_us) {
+      refill_period_us_) {
     // Avoid unexpected result in the overflow case. The result now is still
     // inaccurate but is a number that is large enough.
     return std::numeric_limits<int64_t>::max() / kMicrosecondsPerSecond;
   } else {
-    return rate_bytes_per_sec * refill_period_us / kMicrosecondsPerSecond;
+    return rate_bytes_per_sec * refill_period_us_ / kMicrosecondsPerSecond;
   }
 }
 
@@ -338,11 +335,10 @@ Status GenericRateLimiter::TuneLocked() {
   std::chrono::microseconds prev_tuned_time = tuned_time_;
   tuned_time_ = std::chrono::microseconds(NowMicrosMonotonicLocked());
 
-  int64_t refill_period_us = refill_period_us_.load(std::memory_order_relaxed);
   int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
-                               std::chrono::microseconds(refill_period_us) -
+                               std::chrono::microseconds(refill_period_us_) -
                                std::chrono::microseconds(1)) /
-                              std::chrono::microseconds(refill_period_us);
+                              std::chrono::microseconds(refill_period_us_);
   // We tune every kRefillsPerTune intervals, so the overflow and division-by-
   // zero conditions should never happen.
   assert(num_drains_ <= std::numeric_limits<int64_t>::max() / 100);
