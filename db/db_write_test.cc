@@ -269,6 +269,47 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBWriteTest, WriteThreadWaitNanosCounter) {
+  Options options = GetOptions();
+  std::vector<port::Thread> threads;
+
+  Reopen(options);
+
+  std::function<void()> write_func = [&]() {
+    PerfContext* perf_ctx = get_perf_context();
+    SetPerfLevel(PerfLevel::kEnableWait);
+    perf_ctx->Reset();
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:WriteFunc");
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "bar", "val2"));
+    ASSERT_GT(perf_ctx->write_thread_wait_nanos, 1000000000U);
+  };
+
+  std::function<void()> sleep_func = [&]() {
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:1");
+    sleep(2);
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:2");
+  };
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WriteThread::EnterAsBatchGroupLeader:End",
+        "DBWriteTest::WriteThreadWaitNanosCounter:WriteFunc"},
+       {"WriteThread::AwaitState:BlockingWaiting",
+        "DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:1"},
+       {"DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:2",
+        "WriteThread::ExitAsBatchGroupLeader:Start"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  threads.emplace_back(sleep_func);
+  threads.emplace_back(write_func);
+
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "foo", "val1"));
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   constexpr int kNumThreads = 5;
   std::unique_ptr<FaultInjectionTestEnv> mock_env(

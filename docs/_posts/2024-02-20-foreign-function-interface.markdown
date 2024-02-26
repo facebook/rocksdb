@@ -190,7 +190,7 @@ q "select Benchmark,Score from ./plot/jmh-result-fixed.csv where \"Param: keyCou
 
 The second method call over the FFI boundary to release a pinnable slice has a cost. We compared the `ffiGetOutputSlice()` and `ffiGetPinnableSlice()` benchmarks in order to examine this cost. We ran it with a fixed ky size (128 bytes); the key size is likely to be pretty much irrelevant anyway; we varied the value size read from 16 bytes to 16k, and we found a crossover point between 1k and 4k for performance:
 
-![Plot](/static/images/jni-ffi/jmh-result-pinnable-vs-output-plot.pdf)
+![Plot](/static/images/jni-ffi/jmh-result-pinnable-vs-output-plot.png)
 
 - `ffiGetOutputSlice()` is faster when values read are  1k in size or smaller. The cost of an extra copy in the C++ side from the pinnable slice buffer into the supplied buffer allocated by Java Foreign Memory API is less than the cost of the extra call to release a pinnable slice.
 - `ffiGetPinnableSlice()` is faster when values read are 4k in size, or larger. Consistent with intuition, the advantage grows with larger read values.
