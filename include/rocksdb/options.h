@@ -435,7 +435,7 @@ struct CompactionServiceScheduleResponse {
   CompactionServiceScheduleResponse(std::string scheduled_job_id_,
                                     CompactionServiceJobStatus status_)
       : scheduled_job_id(scheduled_job_id_), status(status_) {}
-  CompactionServiceScheduleResponse(CompactionServiceJobStatus status_)
+  explicit CompactionServiceScheduleResponse(CompactionServiceJobStatus status_)
       : status(status_) {}
 };
 
