@@ -74,24 +74,24 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       compaction_input.output_level, input_files_oss.str().c_str());
   CompactionServiceJobInfo info(dbname_, db_id_, db_session_id_,
                                 GetCompactionId(sub_compact), thread_pri_);
-  CompactionServiceJobStatus compaction_status =
-      db_options_.compaction_service->StartV2(info, compaction_input_binary);
-  switch (compaction_status) {
+  CompactionServiceScheduleResponse response =
+      db_options_.compaction_service->Schedule(info, compaction_input_binary);
+  switch (response.status) {
     case CompactionServiceJobStatus::kSuccess:
       break;
     case CompactionServiceJobStatus::kFailure:
       sub_compact->status = Status::Incomplete(
-          "CompactionService failed to start compaction job.");
+          "CompactionService failed to schedule a remote compaction job.");
       ROCKS_LOG_WARN(db_options_.info_log,
                      "[%s] [JOB %d] Remote compaction failed to start.",
                      compaction_input.column_family.name.c_str(), job_id_);
-      return compaction_status;
+      return response.status;
     case CompactionServiceJobStatus::kUseLocal:
       ROCKS_LOG_INFO(
           db_options_.info_log,
-          "[%s] [JOB %d] Remote compaction fallback to local by API Start.",
+          "[%s] [JOB %d] Remote compaction fallback to local by API (Schedule)",
           compaction_input.column_family.name.c_str(), job_id_);
-      return compaction_status;
+      return response.status;
     default:
       assert(false);  // unknown status
       break;
@@ -101,14 +101,15 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                  "[%s] [JOB %d] Waiting for remote compaction...",
                  compaction_input.column_family.name.c_str(), job_id_);
   std::string compaction_result_binary;
-  compaction_status = db_options_.compaction_service->WaitForCompleteV2(
-      info, &compaction_result_binary);
+  CompactionServiceJobStatus compaction_status =
+      db_options_.compaction_service->Wait(response.scheduled_job_id,
+                                           &compaction_result_binary);
 
   if (compaction_status == CompactionServiceJobStatus::kUseLocal) {
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "[%s] [JOB %d] Remote compaction fallback to local by API "
-                   "WaitForComplete.",
-                   compaction_input.column_family.name.c_str(), job_id_);
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
+        "[%s] [JOB %d] Remote compaction fallback to local by API (Wait)",
+        compaction_input.column_family.name.c_str(), job_id_);
     return compaction_status;
   }
 
@@ -830,4 +831,3 @@ bool CompactionServiceInput::TEST_Equals(CompactionServiceInput* other,
 }
 #endif  // NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
-
