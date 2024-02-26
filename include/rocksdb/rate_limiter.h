@@ -40,8 +40,9 @@ class RateLimiter {
   // REQUIRED: bytes_per_second > 0
   virtual void SetBytesPerSecond(int64_t bytes_per_second) = 0;
 
-  // This API allows user to dynamically change the max bytes can be granted at
-  // once. Zero is a special value meaning the number of bytes per refill.
+  // This API allows user to dynamically change the max bytes can be granted in
+  // a single call to `Request()`. Zero is a special value meaning the number of
+  // bytes per refill.
   //
   // REQUIRED: single_burst_bytes >= 0. Otherwise `Status::InvalidArgument` will
   // be returned.
@@ -93,7 +94,7 @@ class RateLimiter {
                               Env::IOPriority io_priority, Statistics* stats,
                               RateLimiter::OpType op_type);
 
-  // Max bytes can be granted in a single burst
+  // Max bytes can be granted in a single call to `Request()`.
   virtual int64_t GetSingleBurstBytes() const = 0;
 
   // Total bytes that go through rate limiter
