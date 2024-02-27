@@ -35,10 +35,8 @@ struct SstFileReader::Rep {
         soptions(options),
         ioptions(options),
         moptions(ColumnFamilyOptions(options)) {
-    // Checksums should have already been verified when the table reader was
-    // first created in `SstFileReader::Open`.
     roptions_for_table_iter =
-        ReadOptions(/*verify_checksum=*/false, /*fill_cache=*/false);
+        ReadOptions(/*verify_checksum=*/true, /*fill_cache=*/false);
   }
 };
 
@@ -104,13 +102,18 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
 
 std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
   auto r = rep_.get();
-  // TODO(yuzhangyu): add arena support
-  std::unique_ptr<ScopedArenaIterator> iter =
-      std::make_unique<ScopedArenaIterator>(r->table_reader->NewIterator(
-          r->roptions_for_table_iter, r->moptions.prefix_extractor.get(),
-          /*arena*/ nullptr, false /* skip_filters */,
-          TableReaderCaller::kSSTFileReader));
-  return iter;
+  InternalIterator* internal_iter = r->table_reader->NewIterator(
+      r->roptions_for_table_iter, r->moptions.prefix_extractor.get(),
+      /*arena*/ nullptr, false /* skip_filters */,
+      TableReaderCaller::kSSTFileReader);
+  assert(internal_iter);
+  if (internal_iter == nullptr) {
+    // Do not attempt to create a ScopedArenaIterator if we cannot get a valid
+    // InternalIterator.
+    return nullptr;
+  }
+  return std::make_unique<ScopedArenaIterator>(internal_iter,
+                                               /*is_arena_mode=*/false);
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
