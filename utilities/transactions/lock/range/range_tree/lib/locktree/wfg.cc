@@ -91,7 +91,7 @@ void wfg::add_edge(TXNID a_txnid, TXNID b_txnid) {
 // Return false otherwise.
 bool wfg::node_exists(TXNID txnid) {
   node *n = find_node(txnid);
-  return n != NULL;
+  return n != nullptr;
 }
 
 bool wfg::cycle_exists_from_node(node *target, node *head,
