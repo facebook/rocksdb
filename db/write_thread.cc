@@ -464,13 +464,30 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // so we have already received our MarkJoined).
   CreateMissingNewerLinks(newest_writer);
 
+  // This comment illustrates how the rest of the function works using an
+  // example. Notation:
+  //
+  // - Items are `Writer`s
+  // - Items prefixed by "@" have been included in `write_group`
+  // - Items prefixed by "*" have compatible options with `leader`, but have not
+  //   been included in `write_group` yet
+  // - Items after several spaces are in `r_list`. These have incompatible
+  //   options with `leader` and are temporarily separated from the main list.
+  //
+  // Each line below depicts the state of the linked lists at the beginning of
+  // an iteration of the while-loop.
+  //
   // @leader, n1, *n2, n3, *newest_writer
   // @leader, *n2, n3, *newest_writer,    n1
   // @leader, @n2, n3, *newest_writer,    n1
+  //
+  // After the while-loop, the `r_list` is grafted back onto the main list.
+  //
+  // case A: no new `Writer`s arrived
   // @leader, @n2, @newest_writer,        n1, n3
-  // case A
   // @leader, @n2, @newest_writer, n1, n3
-  // case B
+  //
+  // case B: a new `Writer` (n4) arrived
   // @leader, @n2, @newest_writer, n4     n1, n3
   // @leader, @n2, @newest_writer, n1, n3, n4
 
