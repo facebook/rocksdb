@@ -794,20 +794,29 @@ if(NOT MINGW)
   )
 endif()
 
-set(ROCKSDB_JAVADOC_JAR rocksdb-${CMAKE_PROJECT_VERSION}-javadoc.jar)
-add_custom_target(rocksdbjava_javadocs_jar ALL
-        COMMAND ${Java_JAVADOC_EXECUTABLE} -d ${CMAKE_CURRENT_BINARY_DIR}/javadoc -sourcepath ${PROJECT_SOURCE_DIR}/java/src/main/java/ -subpackages org
-        COMMAND ${Java_JAR_EXECUTABLE} -v -c -f ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR} -C ${CMAKE_CURRENT_BINARY_DIR}/javadoc .
-        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+# Javadoc Jar
+set(ROCKSDB_JAVADOC_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-javadoc.jar)
+create_javadoc(rocksdb
+        PACKAGES org.rocksdb org.rocksdb.util
+        SOURCEPATH "${PROJECT_SOURCE_DIR}/java/src/main/java"
+        WINDOWTITLE "RocksDB Java API JavaDoc"
+        AUTHOR FALSE
+        USE FALSE
+        VERSION TRUE
+)
+add_custom_target(rocksdb_javadocs_jar ALL
+  COMMAND ${Java_JAR_EXECUTABLE} cvf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR} -C ${CMAKE_CURRENT_BINARY_DIR}/javadoc/rocksdb .
+  BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAVADOC_JAR}
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-set(ROCKSDB_SOURCES_JAR rocksdb-${CMAKE_PROJECT_VERSION}-sources.jar)
-add_custom_target(rocksdbjava_sources_jar
-        ${Java_JAR_EXECUTABLE} -v -c -f ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR} -C ${PROJECT_SOURCE_DIR}/java/src/main/java/ .
+# Sources Jar
+set(ROCKSDB_SOURCES_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-sources.jar)
+add_custom_target(rocksdb_sources_jar ALL
+        ${Java_JAR_EXECUTABLE} cvf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR} -C ${PROJECT_SOURCE_DIR}/java/src/main/java/ .
         BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_SOURCES_JAR}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        )
+)
 
 set(bitness 32)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
