@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/external_sst_file_ingestion_job.h"
 
 #include <algorithm>
@@ -23,7 +22,7 @@
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
-#include "util/stop_watch.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -465,8 +464,7 @@ Status ExternalSstFileIngestionJob::Run() {
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),
         f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size,
-        static_cast<bool>(
-            f.table_properties.user_defined_timestamps_persisted));
+        f.user_defined_timestamps_persisted);
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -644,38 +642,21 @@ void ExternalSstFileIngestionJob::DeleteInternalFiles() {
   }
 }
 
-Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
+Status ExternalSstFileIngestionJob::ResetTableReader(
     const std::string& external_file, uint64_t new_file_number,
-    IngestedFileInfo* file_to_ingest, SuperVersion* sv) {
-  file_to_ingest->external_file_path = external_file;
-
-  // Get external file size
-  Status status = fs_->GetFileSize(external_file, IOOptions(),
-                                   &file_to_ingest->file_size, nullptr);
-  if (!status.ok()) {
-    return status;
-  }
-
-  // Assign FD with number
-  file_to_ingest->fd =
-      FileDescriptor(new_file_number, 0, file_to_ingest->file_size);
-
-  // Create TableReader for external file
-  std::unique_ptr<TableReader> table_reader;
+    bool user_defined_timestamps_persisted, SuperVersion* sv,
+    IngestedFileInfo* file_to_ingest,
+    std::unique_ptr<TableReader>* table_reader) {
   std::unique_ptr<FSRandomAccessFile> sst_file;
-  std::unique_ptr<RandomAccessFileReader> sst_file_reader;
-
-  status =
+  Status status =
       fs_->NewRandomAccessFile(external_file, env_options_, &sst_file, nullptr);
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(
-      std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
-
-  // TODO(yuzhangyu): User-defined timestamps doesn't support external sst file
-  //  ingestion. Pass in the correct `user_defined_timestamps_persisted` flag
-  //  for creating `TableReaderOptions` when the support is there.
+  std::unique_ptr<RandomAccessFileReader> sst_file_reader(
+      new RandomAccessFileReader(std::move(sst_file), external_file,
+                                 nullptr /*Env*/, io_tracer_));
+  table_reader->reset();
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
@@ -685,28 +666,20 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,
           /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
-          /*cur_file_num*/ new_file_number),
-      std::move(sst_file_reader), file_to_ingest->file_size, &table_reader);
-  if (!status.ok()) {
-    return status;
-  }
+          /*cur_file_num*/ new_file_number,
+          /* unique_id */ {}, /* largest_seqno */ 0,
+          /* tail_size */ 0, user_defined_timestamps_persisted),
+      std::move(sst_file_reader), file_to_ingest->file_size, table_reader);
+  return status;
+}
 
-  if (ingestion_options_.verify_checksums_before_ingest) {
-    // If customized readahead size is needed, we can pass a user option
-    // all the way to here. Right now we just rely on the default readahead
-    // to keep things simple.
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    ReadOptions ro;
-    ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
-    status = table_reader->VerifyChecksum(
-        ro, TableReaderCaller::kExternalSSTIngestion);
-    if (!status.ok()) {
-      return status;
-    }
-  }
-
+Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
+    const std::string& external_file, uint64_t new_file_number,
+    SuperVersion* sv, IngestedFileInfo* file_to_ingest,
+    std::unique_ptr<TableReader>* table_reader) {
   // Get the external file properties
-  auto props = table_reader->GetTableProperties();
+  auto props = table_reader->get()->GetTableProperties();
+  assert(props.get());
   const auto& uprops = props->user_collected_properties;
 
   // Get table version
@@ -744,9 +717,98 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   } else {
     return Status::InvalidArgument("External file version is not supported");
   }
+
+  file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
+  // This assignment works fine even though `table_reader` may later be reset,
+  // since that will not affect how table properties are parsed, and this
+  // assignment is making a copy.
+  file_to_ingest->table_properties = *props;
+
   // Get number of entries in table
   file_to_ingest->num_entries = props->num_entries;
   file_to_ingest->num_range_deletions = props->num_range_deletions;
+
+  // Validate table properties related to comparator name and user defined
+  // timestamps persisted flag.
+  file_to_ingest->user_defined_timestamps_persisted =
+      static_cast<bool>(props->user_defined_timestamps_persisted);
+  bool mark_sst_file_has_no_udt = false;
+  Status s = ValidateUserDefinedTimestampsOptions(
+      cfd_->user_comparator(), props->comparator_name,
+      cfd_->ioptions()->persist_user_defined_timestamps,
+      file_to_ingest->user_defined_timestamps_persisted,
+      &mark_sst_file_has_no_udt);
+  if (s.ok() && mark_sst_file_has_no_udt) {
+    // A column family that enables user-defined timestamps in Memtable only
+    // feature can also ingest external files created by a setting that disables
+    // user-defined timestamps. In that case, we need to re-mark the
+    // user_defined_timestamps_persisted flag for the file.
+    file_to_ingest->user_defined_timestamps_persisted = false;
+  } else if (!s.ok()) {
+    return s;
+  }
+
+  // `TableReader` is initialized with `user_defined_timestamps_persisted` flag
+  // to be true. If its value changed to false after this sanity check, we
+  // need to reset the `TableReader`.
+  auto ucmp = cfd_->user_comparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0 &&
+      !file_to_ingest->user_defined_timestamps_persisted) {
+    s = ResetTableReader(external_file, new_file_number,
+                         file_to_ingest->user_defined_timestamps_persisted, sv,
+                         file_to_ingest, table_reader);
+  }
+  return s;
+}
+
+Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
+    const std::string& external_file, uint64_t new_file_number,
+    IngestedFileInfo* file_to_ingest, SuperVersion* sv) {
+  file_to_ingest->external_file_path = external_file;
+
+  // Get external file size
+  Status status = fs_->GetFileSize(external_file, IOOptions(),
+                                   &file_to_ingest->file_size, nullptr);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Assign FD with number
+  file_to_ingest->fd =
+      FileDescriptor(new_file_number, 0, file_to_ingest->file_size);
+
+  // Create TableReader for external file
+  std::unique_ptr<TableReader> table_reader;
+  // Initially create the `TableReader` with flag
+  // `user_defined_timestamps_persisted` to be true since that's the most common
+  // case
+  status = ResetTableReader(external_file, new_file_number,
+                            /*user_defined_timestamps_persisted=*/true, sv,
+                            file_to_ingest, &table_reader);
+  if (!status.ok()) {
+    return status;
+  }
+
+  status = SanityCheckTableProperties(external_file, new_file_number, sv,
+                                      file_to_ingest, &table_reader);
+  if (!status.ok()) {
+    return status;
+  }
+
+  if (ingestion_options_.verify_checksums_before_ingest) {
+    // If customized readahead size is needed, we can pass a user option
+    // all the way to here. Right now we just rely on the default readahead
+    // to keep things simple.
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    ReadOptions ro;
+    ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
+    status = table_reader->VerifyChecksum(
+        ro, TableReaderCaller::kExternalSSTIngestion);
+    if (!status.ok()) {
+      return status;
+    }
+  }
 
   ParsedInternalKey key;
   // TODO: plumb Env::IOActivity, Env::IOPriority
@@ -820,7 +882,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       table_reader->NewRangeTombstoneIterator(ro));
   // We may need to adjust these key bounds, depending on whether any range
   // deletion tombstones extend past them.
-  const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
+  const Comparator* ucmp = cfd_->user_comparator();
   if (range_del_iter != nullptr) {
     for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
          range_del_iter->Next()) {
@@ -848,13 +910,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     }
   }
 
-  file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
-
-  file_to_ingest->table_properties = *props;
-
-  auto s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
-                                  props->orig_file_number,
-                                  &(file_to_ingest->unique_id));
+  auto s =
+      GetSstInternalUniqueId(file_to_ingest->table_properties.db_id,
+                             file_to_ingest->table_properties.db_session_id,
+                             file_to_ingest->table_properties.orig_file_number,
+                             &(file_to_ingest->unique_id));
   if (!s.ok()) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Failed to get SST unique id for file %s",

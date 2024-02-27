@@ -85,6 +85,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       table_properties_collector_factories(
           options.table_properties_collector_factories),
       max_successive_merges(options.max_successive_merges),
+      strict_max_successive_merges(options.strict_max_successive_merges),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
       force_consistency_checks(options.force_consistency_checks),
@@ -395,6 +396,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         log,
         "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
         max_successive_merges);
+    ROCKS_LOG_HEADER(log,
+                     "            Options.strict_max_successive_merges: %d",
+                     strict_max_successive_merges);
     ROCKS_LOG_HEADER(log,
                      "               Options.optimize_filters_for_hits: %d",
                      optimize_filters_for_hits);

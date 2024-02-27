@@ -358,6 +358,7 @@ public class OptionsUtilTest {
     assertThat(actual.metadataBlockSize()).isEqualTo(expected.metadataBlockSize());
     assertThat(actual.partitionFilters()).isEqualTo(expected.partitionFilters());
     assertThat(actual.optimizeFiltersForMemory()).isEqualTo(expected.optimizeFiltersForMemory());
+    assertThat(actual.useDeltaEncoding()).isEqualTo(expected.useDeltaEncoding());
     assertThat(actual.wholeKeyFiltering()).isEqualTo(expected.wholeKeyFiltering());
     assertThat(actual.verifyCompression()).isEqualTo(expected.verifyCompression());
     assertThat(actual.readAmpBytesPerBit()).isEqualTo(expected.readAmpBytesPerBit());
@@ -370,9 +371,5 @@ public class OptionsUtilTest {
     } else {
       assertThat(expected.filterPolicy().equals(actual.filterPolicy()));
     }
-
-    // not currently persisted - always true when read from options
-    // this test will fail, and need repaired, if and when "useDeltaEncoding" is persisted.
-    assertThat(actual.useDeltaEncoding()).isEqualTo(true);
   }
 }

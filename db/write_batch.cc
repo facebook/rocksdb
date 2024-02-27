@@ -2513,6 +2513,11 @@ class MemTableInserter : public WriteBatch::Handler {
 
       // TODO: plumb Env::IOActivity, Env::IOPriority
       ReadOptions read_options;
+      if (!moptions->strict_max_successive_merges) {
+        // Blocking the write path with read I/O is typically unacceptable, so
+        // only do this merge when the operands are all found in memory.
+        read_options.read_tier = kBlockCacheTier;
+      }
       read_options.snapshot = &read_from_snapshot;
 
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();

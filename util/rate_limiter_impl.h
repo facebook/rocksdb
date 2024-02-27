@@ -28,8 +28,8 @@ class GenericRateLimiter : public RateLimiter {
  public:
   GenericRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
                      int32_t fairness, RateLimiter::Mode mode,
-                     const std::shared_ptr<SystemClock>& clock,
-                     bool auto_tuned);
+                     const std::shared_ptr<SystemClock>& clock, bool auto_tuned,
+                     int64_t single_burst_bytes);
 
   virtual ~GenericRateLimiter();
 
@@ -47,7 +47,12 @@ class GenericRateLimiter : public RateLimiter {
                Statistics* stats) override;
 
   int64_t GetSingleBurstBytes() const override {
-    return refill_bytes_per_period_.load(std::memory_order_relaxed);
+    int64_t raw_single_burst_bytes =
+        raw_single_burst_bytes_.load(std::memory_order_relaxed);
+    if (raw_single_burst_bytes == 0) {
+      return refill_bytes_per_period_.load(std::memory_order_relaxed);
+    }
+    return raw_single_burst_bytes;
   }
 
   int64_t GetTotalBytesThrough(
@@ -108,10 +113,8 @@ class GenericRateLimiter : public RateLimiter {
   void RefillBytesAndGrantRequestsLocked();
   std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
-  int64_t CalculateRefillPeriodUsLocked(int64_t single_burst_bytes);
   Status TuneLocked();
   void SetBytesPerSecondLocked(int64_t bytes_per_second);
-  void SetSingleBurstBytesLocked(int64_t single_burst_bytes);
 
   uint64_t NowMicrosMonotonicLocked() {
     return clock_->NowNanos() / std::milli::den;
@@ -120,10 +123,12 @@ class GenericRateLimiter : public RateLimiter {
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
-  std::atomic<int64_t> refill_period_us_;
+  const int64_t refill_period_us_;
 
   std::atomic<int64_t> rate_bytes_per_sec_;
   std::atomic<int64_t> refill_bytes_per_period_;
+  // This value is validated but unsanitized (may be zero).
+  std::atomic<int64_t> raw_single_burst_bytes_;
   std::shared_ptr<SystemClock> clock_;
 
   bool stop_;

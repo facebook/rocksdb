@@ -1861,6 +1861,14 @@ public class RocksDBTest {
     assertThat(version.getMajor()).isGreaterThan(1);
   }
 
+  @Test
+  public void isClosed() throws RocksDBException {
+    final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+    assertThat(db.isClosed()).isFalse();
+    db.close();
+    assertThat(db.isClosed()).isTrue();
+  }
+
   private static class InMemoryTraceWriter extends AbstractTraceWriter {
     private final List<byte[]> writes = new ArrayList<>();
     private volatile boolean closed = false;

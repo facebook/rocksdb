@@ -460,10 +460,12 @@ function start_stats {
   pspid=$!
 
   while :; do
-    b_gb=$( ls -l $DB_DIR 2> /dev/null | grep blob | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
-    s_gb=$( ls -l $DB_DIR 2> /dev/null | grep sst | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
-    l_gb=$( ls -l $WAL_DIR 2> /dev/null | grep log | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
-    a_gb=$( ls -l $DB_DIR 2> /dev/null | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
+    eval $( ls -l $DB_DIR 2> /dev/null | awk '
+      BEGIN { gb = 1024*1024*1024 }
+      /blob/{ bb += $5 } /sst/{ sb += $5 } { ab += $5 }
+      END { printf "b_gb=%.1f s_gb=%.1f a_gb=%.1f", bb / gb, sb / gb, ab / gb }
+    ')
+    l_gb=$( ls -l $WAL_DIR 2> /dev/null | awk '/log/{ b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
     ts=$( date +%H%M%S )
     echo -e "${a_gb}\t${s_gb}\t${l_gb}\t${b_gb}\t${ts}"
     sleep 10

@@ -295,6 +295,25 @@ class ExternalSSTFileTest
   int last_file_id_ = 0;
 };
 
+TEST_F(ExternalSSTFileTest, ComparatorMismatch) {
+  Options options = CurrentOptions();
+  Options options_diff_ucmp = options;
+
+  options.comparator = BytewiseComparator();
+  options_diff_ucmp.comparator = ReverseBytewiseComparator();
+
+  SstFileWriter sst_file_writer(EnvOptions(), options_diff_ucmp);
+
+  std::string file = sst_files_dir_ + "file.sst";
+  ASSERT_OK(sst_file_writer.Open(file));
+  ASSERT_OK(sst_file_writer.Put("foo", "val"));
+  ASSERT_OK(sst_file_writer.Put("bar", "val1"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  DestroyAndReopen(options);
+  ASSERT_NOK(DeprecatedAddFile({file}));
+}
+
 TEST_F(ExternalSSTFileTest, Basic) {
   do {
     Options options = CurrentOptions();
@@ -3340,6 +3359,252 @@ TEST_F(ExternalSSTFileWithTimestampTest, SanityCheck) {
   ASSERT_TRUE(db_->IngestExternalFile({file1}, opts).IsNotSupported());
 
   DestroyAndRecreateExternalSSTFilesDir();
+}
+
+TEST_F(ExternalSSTFileWithTimestampTest, UDTSettingsCompatibilityCheck) {
+  Options options = CurrentOptions();
+  Options disable_udt_options = options;
+  Options not_persist_udt_options = options;
+  Options persist_udt_options = options;
+  disable_udt_options.comparator = BytewiseComparator();
+  not_persist_udt_options.comparator =
+      test::BytewiseComparatorWithU64TsWrapper();
+  not_persist_udt_options.persist_user_defined_timestamps = false;
+  not_persist_udt_options.allow_concurrent_memtable_write = false;
+  persist_udt_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  persist_udt_options.persist_user_defined_timestamps = true;
+
+  EnvOptions env_options = EnvOptions();
+
+  SstFileWriter disable_udt_sst_writer(env_options, disable_udt_options);
+  SstFileWriter not_persist_udt_sst_writer(env_options,
+                                           not_persist_udt_options);
+  SstFileWriter persist_udt_sst_writer(env_options, persist_udt_options);
+
+  // File1: [0, 50), contains no timestamps
+  // comparator name: leveldb.BytewiseComparator
+  // user_defined_timestamps_persisted: true
+  std::string disable_udt_sst_file = sst_files_dir_ + "file1.sst";
+  ASSERT_OK(disable_udt_sst_writer.Open(disable_udt_sst_file));
+  for (int k = 0; k < 50; k++) {
+    ASSERT_NOK(
+        disable_udt_sst_writer.Put(Key(k), EncodeAsUint64(1), Key(k) + "_val"));
+    ASSERT_OK(disable_udt_sst_writer.Put(Key(k), Key(k) + "_val"));
+  }
+  ASSERT_OK(disable_udt_sst_writer.Finish());
+
+  // File2: [50, 100), contains no timestamps
+  // comparator name: leveldb.BytewiseComparator.u64ts
+  // user_defined_timestamps_persisted: false
+  std::string not_persist_udt_sst_file = sst_files_dir_ + "file2.sst";
+  ASSERT_OK(not_persist_udt_sst_writer.Open(not_persist_udt_sst_file));
+  for (int k = 50; k < 100; k++) {
+    ASSERT_NOK(not_persist_udt_sst_writer.Put(Key(k), Key(k) + "_val"));
+    ASSERT_NOK(not_persist_udt_sst_writer.Put(Key(k), EncodeAsUint64(k),
+                                              Key(k) + "_val"));
+    ASSERT_OK(not_persist_udt_sst_writer.Put(Key(k), EncodeAsUint64(0),
+                                             Key(k) + "_val"));
+  }
+  ASSERT_OK(not_persist_udt_sst_writer.Finish());
+
+  // File3: [100, 150), contains timestamp
+  // comparator name: leveldb.BytewiseComparator.u64ts
+  // user_defined_timestamps_persisted: true
+  std::string persist_udt_sst_file = sst_files_dir_ + "file3.sst";
+  ASSERT_OK(persist_udt_sst_writer.Open(persist_udt_sst_file));
+  for (int k = 100; k < 150; k++) {
+    ASSERT_NOK(persist_udt_sst_writer.Put(Key(k), Key(k) + "_val"));
+    ASSERT_OK(
+        persist_udt_sst_writer.Put(Key(k), EncodeAsUint64(k), Key(k) + "_val"));
+  }
+  ASSERT_OK(persist_udt_sst_writer.Finish());
+
+  DestroyAndReopen(disable_udt_options);
+  ASSERT_OK(
+      IngestExternalUDTFile({disable_udt_sst_file, not_persist_udt_sst_file}));
+  ASSERT_NOK(IngestExternalUDTFile({persist_udt_sst_file}));
+  for (int k = 0; k < 100; k++) {
+    ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+  }
+
+  DestroyAndReopen(not_persist_udt_options);
+  ASSERT_OK(
+      IngestExternalUDTFile({disable_udt_sst_file, not_persist_udt_sst_file}));
+  ASSERT_NOK(IngestExternalUDTFile({persist_udt_sst_file}));
+  for (int k = 0; k < 100; k++) {
+    VerifyValueAndTs(Key(k), EncodeAsUint64(0), Key(k) + "_val",
+                     EncodeAsUint64(0));
+  }
+
+  DestroyAndReopen(persist_udt_options);
+  ASSERT_NOK(
+      IngestExternalUDTFile({disable_udt_sst_file, not_persist_udt_sst_file}));
+  ASSERT_OK(IngestExternalUDTFile({persist_udt_sst_file}));
+  for (int k = 100; k < 150; k++) {
+    VerifyValueAndTs(Key(k), EncodeAsUint64(k), Key(k) + "_val",
+                     EncodeAsUint64(k));
+  }
+
+  DestroyAndRecreateExternalSSTFilesDir();
+}
+
+TEST_F(ExternalSSTFileWithTimestampTest, TimestampsNotPersistedBasic) {
+  do {
+    Options options = CurrentOptions();
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    options.persist_user_defined_timestamps = false;
+    options.allow_concurrent_memtable_write = false;
+
+    DestroyAndReopen(options);
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // file1.sst [0, 50)
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    for (int k = 0; k < 50; k++) {
+      // Attempting to write 2 versions of values for each key, only the version
+      // with timestamp 0 goes through.
+      for (int version = 1; version >= 0; version--) {
+        if (version == 1) {
+          ASSERT_NOK(
+              sst_file_writer.Put(Key(k), EncodeAsUint64(version),
+                                  Key(k) + "_val" + std::to_string(version)));
+        } else {
+          ASSERT_OK(
+              sst_file_writer.Put(Key(k), EncodeAsUint64(version),
+                                  Key(k) + "_val" + std::to_string(version)));
+        }
+      }
+    }
+
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    // sst_file_writer already finished, cannot add this value
+    ASSERT_NOK(sst_file_writer.Put(Key(100), EncodeAsUint64(0), "bad_val"));
+
+    ASSERT_EQ(file1_info.file_path, file1);
+    ASSERT_EQ(file1_info.num_entries, 50);
+    ASSERT_EQ(file1_info.smallest_key, Key(0));
+    ASSERT_EQ(file1_info.largest_key, Key(49));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    // Add file using file path
+    ASSERT_OK(IngestExternalUDTFile({file1}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+
+    // Read ingested file: all data contain minimum timestamps.
+    for (int k = 0; k < 50; k++) {
+      VerifyValueAndTs(Key(k), EncodeAsUint64(0),
+                       Key(k) + "_val" + std::to_string(0), EncodeAsUint64(0));
+    }
+
+    // file2.sst [50, 200)
+    // Put [key=k, ts=0, value=k_val0] for k in [50, 200)
+    // RangeDelete[start_key=75, end_key=125, ts=0]
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    int range_del_begin = 75, range_del_end = 125;
+    ASSERT_OK(sst_file_writer.Open(file2));
+    for (int k = 50; k < 200; k++) {
+      // All these timestamps will later be effectively 0
+      ASSERT_OK(
+          sst_file_writer.Put(Key(k), EncodeAsUint64(0), Key(k) + "_val0"));
+    }
+    ASSERT_OK(sst_file_writer.DeleteRange(
+        Key(range_del_begin), Key(range_del_end), EncodeAsUint64(0)));
+
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file2_info.file_path, file2);
+    ASSERT_EQ(file2_info.num_entries, 150);
+    ASSERT_EQ(file2_info.smallest_key, Key(50));
+    ASSERT_EQ(file2_info.largest_key, Key(199));
+    ASSERT_EQ(file2_info.num_range_del_entries, 1);
+    ASSERT_EQ(file2_info.smallest_range_del_key, Key(range_del_begin));
+    ASSERT_EQ(file2_info.largest_range_del_key, Key(range_del_end));
+    // Add file using file path
+    ASSERT_OK(IngestExternalUDTFile({file2}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+
+    // Range deletion covering point data in the same file is over-written.
+    for (int k = 50; k < 200; k++) {
+      VerifyValueAndTs(Key(k), EncodeAsUint64(0), Key(k) + "_val0",
+                       EncodeAsUint64(0));
+    }
+
+    // file3.sst [100, 200), key range overlap with db
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    for (int k = 100; k < 200; k++) {
+      ASSERT_OK(
+          sst_file_writer.Put(Key(k), EncodeAsUint64(0), Key(k) + "_val0"));
+    }
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    ASSERT_EQ(file3_info.file_path, file3);
+    ASSERT_EQ(file3_info.num_entries, 100);
+    ASSERT_EQ(file3_info.smallest_key, Key(100));
+    ASSERT_EQ(file3_info.largest_key, Key(199));
+
+    // In UDT mode, file with overlapping key range cannot be ingested.
+    ASSERT_NOK(IngestExternalUDTFile({file3}));
+    ASSERT_NOK(IngestExternalUDTFile({file3}, /*allow_global_seqno*/ false));
+
+    // Write [0, 50)
+    // Write to DB newer versions to cover ingested data and move sequence
+    // number forward.
+    for (int k = 0; k < 50; k++) {
+      for (int version = 1; version < 3; version++) {
+        ASSERT_OK(dbfull()->Put(WriteOptions(), Key(k), EncodeAsUint64(version),
+                                Key(k) + "_val" + std::to_string(version)));
+      }
+    }
+
+    // Read three versions (1 from ingested, 2 from live writes)
+    for (int k = 0; k < 50; k++) {
+      for (int version = 0; version < 3; version++) {
+        VerifyValueAndTs(Key(k), EncodeAsUint64(version),
+                         Key(k) + "_val" + std::to_string(version),
+                         EncodeAsUint64(version));
+      }
+    }
+    SequenceNumber seq_num_before_ingestion = db_->GetLatestSequenceNumber();
+    ASSERT_GT(seq_num_before_ingestion, 0U);
+
+    // file4.sst [200, 250)
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    for (int k = 200; k < 250; k++) {
+      ASSERT_OK(
+          sst_file_writer.Put(Key(k), EncodeAsUint64(0), Key(k) + "_val"));
+    }
+
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file4_info.file_path, file4);
+    ASSERT_EQ(file4_info.num_entries, 50);
+    ASSERT_EQ(file4_info.smallest_key, Key(200));
+    ASSERT_EQ(file4_info.largest_key, Key(249));
+    ASSERT_EQ(file4_info.num_range_del_entries, 0);
+    ASSERT_EQ(file4_info.smallest_range_del_key, "");
+    ASSERT_EQ(file4_info.largest_range_del_key, "");
+
+    ASSERT_OK(IngestExternalUDTFile({file4}));
+
+    // Ingested files do not overlap with db, they can always have global seqno
+    // 0 assigned.
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), seq_num_before_ingestion);
+
+    DestroyAndRecreateExternalSSTFilesDir();
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
