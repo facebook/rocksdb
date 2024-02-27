@@ -79,7 +79,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   options.compaction_style = kCompactionStyleUniversal;
   options.preclude_last_level_data_seconds = 10000;
   options.env = mock_env_.get();
-  options.bottommost_temperature = Temperature::kCold;
+  options.last_level_temperature = Temperature::kCold;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
@@ -181,7 +181,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 10000;
   options.env = mock_env_.get();
-  options.bottommost_temperature = Temperature::kCold;
+  options.last_level_temperature = Temperature::kCold;
   options.num_levels = kNumLevels;
   options.level_compaction_dynamic_level_bytes = true;
   // TODO(zjay): for level compaction, auto-compaction may stuck in deadloop, if

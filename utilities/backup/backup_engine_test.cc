@@ -4184,7 +4184,7 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   SetEnvsFromFileSystems();
 
   // Use temperatures
-  options_.bottommost_temperature = Temperature::kWarm;
+  options_.last_level_temperature = Temperature::kWarm;
   options_.level0_file_num_compaction_trigger = 2;
   // set dynamic_level to true so the compaction would compact the data to the
   // last level directly which will have the last_level_temperature

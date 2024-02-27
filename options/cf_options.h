@@ -163,10 +163,7 @@ struct MutableCFOptions {
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
-        last_level_temperature(options.last_level_temperature ==
-                                       Temperature::kUnknown
-                                   ? options.bottommost_temperature
-                                   : options.last_level_temperature),
+        last_level_temperature(options.last_level_temperature),
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
