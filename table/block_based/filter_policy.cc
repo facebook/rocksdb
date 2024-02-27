@@ -1040,8 +1040,8 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     if (len_with_metadata <= kMetadataLen) {
       return keys > 0 ? 1.0 : 0.0;
     }
-    return LegacyBloomImpl::EstimatedFpRate(keys, len_with_metadata - kMetadataLen,
-                                            num_probes_);
+    return LegacyBloomImpl::EstimatedFpRate(
+        keys, len_with_metadata - kMetadataLen, num_probes_);
   }
 
   size_t ApproximateNumEntries(size_t bytes) override;
