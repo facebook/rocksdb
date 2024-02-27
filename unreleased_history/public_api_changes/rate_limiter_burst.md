@@ -1,0 +1,1 @@
+* `RateLimiter`'s API no longer requires the burst size to be the refill size. Users of `NewGenericRateLimiter()` can now provide burst size in `single_burst_bytes`. Implementors of `RateLimiter::SetSingleBurstBytes()` need to adapt their implementations to match the changed API doc.
