@@ -803,10 +803,10 @@ struct AdvancedColumnFamilyOptions {
   uint64_t sample_for_compression = 0;
 
   // EXPERIMENTAL
-  // The feature is still in development and is incomplete.
   // If this option is set, when creating the last level files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
+  // When using FIFO compaction, this option is ignored.
   //
   // Note: the feature is changed from `bottommost_temperature` to
   //  `last_level_temperature` which now only apply for the last level files.
@@ -819,11 +819,19 @@ struct AdvancedColumnFamilyOptions {
   Temperature last_level_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
+  // When no other option such as last_level_temperature determines the
+  // temperature of a new SST file, it will be written with this temperature,
+  // which can vary by ColumnFamily.
+  //
+  // Dynamically changeable through the SetOptions() API
+  Temperature default_write_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
   // When this field is set, all SST files without an explicitly set temperature
   // will be treated as if they have this temperature for file reading
   // accounting purpose, such as io statistics, io perf context.
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Not dynamically changeable; change requires DB restart.
   Temperature default_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
