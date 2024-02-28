@@ -93,7 +93,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
       sample_for_compression(options.sample_for_compression),
-      bottommost_temperature(options.bottommost_temperature),
       last_level_temperature(options.last_level_temperature),
       default_write_temperature(options.default_write_temperature),
       default_temperature(options.default_temperature),

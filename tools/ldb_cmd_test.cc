@@ -1071,7 +1071,7 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
   auto test_fs = std::make_shared<FileTemperatureTestFS>(FileSystem::Default());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(Env::Default(), test_fs));
   Options opts;
-  opts.bottommost_temperature = Temperature::kWarm;
+  opts.last_level_temperature = Temperature::kWarm;
   opts.level0_file_num_compaction_trigger = 10;
   opts.create_if_missing = true;
   opts.env = env.get();

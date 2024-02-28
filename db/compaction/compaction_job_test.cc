@@ -1473,7 +1473,7 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
 }
 
 TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
-  cf_options_.bottommost_temperature = Temperature::kCold;
+  cf_options_.last_level_temperature = Temperature::kCold;
   SyncPoint::GetInstance()->SetCallBack(
       "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
         auto supports_per_key_placement = static_cast<bool*>(arg);
