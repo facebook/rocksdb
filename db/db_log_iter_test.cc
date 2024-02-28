@@ -179,6 +179,8 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
 
     delete cf;
   } while (ChangeCompactOptions());
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  Close();
 }
 #endif
 
