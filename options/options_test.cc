@@ -2505,13 +2505,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
-<<<<<<< HEAD
-  ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.default_write_temperature, Temperature::kCold);
-||||||| a43481b3d
-  ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
-=======
->>>>>>> origin/main
   ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
   ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
