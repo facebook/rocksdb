@@ -411,6 +411,13 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
           "periodic_compaction_seconds does not support FIFO compaction. You"
           "may want to set option TTL instead.");
     }
+    if (result.last_level_temperature != Temperature::kUnknown) {
+      ROCKS_LOG_WARN(
+          db_options.info_log.get(),
+          "last_level_temperature is ignored with FIFO compaction. Consider "
+          "CompactionOptionsFIFO::file_temperature_age_thresholds.");
+      result.last_level_temperature = Temperature::kUnknown;
+    }
   }
 
   // For universal compaction, `ttl` and `periodic_compaction_seconds` mean the

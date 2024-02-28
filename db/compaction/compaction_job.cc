@@ -1850,13 +1850,14 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   // Pass temperature of the last level files to FileSystem.
   FileOptions fo_copy = file_options_;
   Temperature temperature = sub_compact->compaction->output_temperature();
-  // only set for the last level compaction and also it's not output to
-  // penultimate level (when preclude_last_level feature is enabled)
-  if (temperature == Temperature::kUnknown &&
+  Temperature last_level_temp =
+      sub_compact->compaction->mutable_cf_options()->last_level_temperature;
+  // Here last_level_temperature supersedes default_write_temperature, when
+  // enabled and applicable
+  if (last_level_temp != Temperature::kUnknown &&
       sub_compact->compaction->is_last_level() &&
       !sub_compact->IsCurrentPenultimateLevel()) {
-    temperature =
-        sub_compact->compaction->mutable_cf_options()->last_level_temperature;
+    temperature = last_level_temp;
   }
   fo_copy.temperature = temperature;
 

@@ -160,6 +160,8 @@ Status ExternalSstFileIngestionJob::Prepare(
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
       // CopyFile also sync the new file.
+      // FIXME: use sv->mutable_cf_options.default_write_temperature and
+      // sort out exact temperature handling
       status =
           CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
                    db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
@@ -515,7 +517,8 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
         ,
         LLONG_MAX /* max compaction bytes, not applicable */,
         0 /* output path ID, not applicable */, mutable_cf_options.compression,
-        mutable_cf_options.compression_opts, Temperature::kUnknown,
+        mutable_cf_options.compression_opts,
+        mutable_cf_options.default_write_temperature,
         0 /* max_subcompaction, not applicable */,
         {} /* grandparents, not applicable */, false /* is manual */,
         "" /* trim_ts */, -1 /* score, not applicable */,

@@ -164,6 +164,7 @@ struct MutableCFOptions {
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
         last_level_temperature(options.last_level_temperature),
+        default_write_temperature(options.default_write_temperature),
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
@@ -218,6 +219,7 @@ struct MutableCFOptions {
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
         bottommost_compression(kDisableCompressionOption),
         last_level_temperature(Temperature::kUnknown),
+        default_write_temperature(Temperature::kUnknown),
         memtable_protection_bytes_per_key(0),
         block_protection_bytes_per_key(0),
         sample_for_compression(0),
@@ -309,6 +311,7 @@ struct MutableCFOptions {
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
   Temperature last_level_temperature;
+  Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;
   uint8_t block_protection_bytes_per_key;
 
