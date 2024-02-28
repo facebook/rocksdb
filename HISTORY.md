@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.11.3 (02/27/2024)
+* Correct CMake Javadoc and source jar builds
+
 ## 8.11.2 (02/16/2024)
 * Update zlib to 1.3.1 for Java builds
 
