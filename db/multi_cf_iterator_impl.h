@@ -5,7 +5,9 @@
 
 #pragma once
 
-#include "rocksdb/multi_cf_iterator.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
 #include "util/heap.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -15,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 // When the same key exists in more than one column families, the iterator
 // selects the value from the first column family containing the key, in the
 // order provided in the `column_families` parameter.
-class MultiCfIteratorImpl : public MultiCfIterator {
+class MultiCfIteratorImpl : public Iterator {
  public:
   MultiCfIteratorImpl(const Comparator* comparator,
                       const std::vector<ColumnFamilyHandle*>& column_families,
@@ -114,34 +116,6 @@ class MultiCfIteratorImpl : public MultiCfIterator {
     // TODO - Lazily populate attribute groups from child iterators
     return attribute_groups_;
   }
-};
-
-class EmptyMultiCfIterator : public MultiCfIterator {
- public:
-  explicit EmptyMultiCfIterator(const Status& s) : status_(s) {}
-  bool Valid() const override { return false; }
-  void Seek(const Slice& /*target*/) override {}
-  void SeekForPrev(const Slice& /*target*/) override {}
-  void SeekToFirst() override {}
-  void SeekToLast() override {}
-  void Next() override { assert(false); }
-  void Prev() override { assert(false); }
-  Slice key() const override {
-    assert(false);
-    return Slice();
-  }
-  Slice value() const override {
-    assert(false);
-    return Slice();
-  }
-  const AttributeGroups& attribute_groups() const override {
-    assert(false);
-    return kNoAttributeGroups;
-  }
-  Status status() const override { return status_; }
-
- private:
-  Status status_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

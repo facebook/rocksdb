@@ -354,7 +354,7 @@ class DBImpl : public DB {
 
   // UNDER CONSTRUCTION - DO NOT USE
   // Return a cross-column-family iterator from a consistent database state.
-  std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
+  std::unique_ptr<Iterator> NewMultiCfIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
 

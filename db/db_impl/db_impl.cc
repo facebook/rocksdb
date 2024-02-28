@@ -8,8 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#include <cstdint>
 #include <stdint.h>
+
+#include <cstdint>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -81,7 +82,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/multi_cf_iterator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/status.h"
@@ -3737,20 +3737,20 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   return db_iter;
 }
 
-std::unique_ptr<MultiCfIterator> DBImpl::NewMultiCfIterator(
+std::unique_ptr<Iterator> DBImpl::NewMultiCfIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
-  if (column_families.size() < 2) {
-    return std::make_unique<EmptyMultiCfIterator>(
-        Status::InvalidArgument("Less than 2 CFs were provided"));
+  if (column_families.size() == 0) {
+    return std::unique_ptr<Iterator>(NewErrorIterator(
+        Status::InvalidArgument("No Column Family was provided")));
   }
   const Comparator* first_comparator = column_families[0]->GetComparator();
   for (size_t i = 1; i < column_families.size(); ++i) {
     const Comparator* cf_comparator = column_families[i]->GetComparator();
     if (first_comparator != cf_comparator &&
         first_comparator->GetId().compare(cf_comparator->GetId()) != 0) {
-      return std::make_unique<EmptyMultiCfIterator>(Status::InvalidArgument(
-          "Different comparators are being used across CFs"));
+      return std::unique_ptr<Iterator>(NewErrorIterator(Status::InvalidArgument(
+          "Different comparators are being used across CFs")));
     }
   }
   std::vector<Iterator*> child_iterators;
@@ -3759,7 +3759,7 @@ std::unique_ptr<MultiCfIterator> DBImpl::NewMultiCfIterator(
     return std::make_unique<MultiCfIteratorImpl>(
         first_comparator, column_families, std::move(child_iterators));
   }
-  return std::make_unique<EmptyMultiCfIterator>(s);
+  return std::unique_ptr<Iterator>(NewErrorIterator(s));
 }
 
 Status DBImpl::NewIterators(

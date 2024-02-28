@@ -23,7 +23,7 @@ class MultiCfIteratorTest : public DBTestBase {
       const std::optional<std::vector<AttributeGroups>>&
           expected_attribute_groups = std::nullopt) {
     int i = 0;
-    std::unique_ptr<MultiCfIterator> iter =
+    std::unique_ptr<Iterator> iter =
         db_->NewMultiCfIterator(ReadOptions(), cfhs);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(expected_keys[i], iter->key());
@@ -66,16 +66,10 @@ TEST_F(MultiCfIteratorTest, InvalidArguments) {
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
 
     // Invalid - No CF is provided
-    std::unique_ptr<MultiCfIterator> iter_with_no_cf =
+    std::unique_ptr<Iterator> iter_with_no_cf =
         db_->NewMultiCfIterator(ReadOptions(), {});
     ASSERT_NOK(iter_with_no_cf->status());
     ASSERT_TRUE(iter_with_no_cf->status().IsInvalidArgument());
-
-    // Invalid - Only one CF is provided
-    std::unique_ptr<MultiCfIterator> iter_with_one_cf =
-        db_->NewMultiCfIterator(ReadOptions(), {handles_[0]});
-    ASSERT_NOK(iter_with_one_cf->status());
-    ASSERT_TRUE(iter_with_one_cf->status().IsInvalidArgument());
   }
 }
 
@@ -233,7 +227,7 @@ TEST_F(MultiCfIteratorTest, DifferentComparatorsInMultiCFs) {
   verifyExpectedKeys(handles_[0], {"key_1", "key_2", "key_3"});
   verifyExpectedKeys(handles_[1], {"key_3", "key_2", "key_1"});
 
-  std::unique_ptr<MultiCfIterator> iter =
+  std::unique_ptr<Iterator> iter =
       db_->NewMultiCfIterator(ReadOptions(), handles_);
   ASSERT_NOK(iter->status());
   ASSERT_TRUE(iter->status().IsInvalidArgument());
@@ -286,7 +280,7 @@ TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
                                         "value_0_4", "value_0_5", "value_0_6",
                                         "value_1_4", "value_1_5", "value_1_6"};
   int i = 0;
-  std::unique_ptr<MultiCfIterator> iter =
+  std::unique_ptr<Iterator> iter =
       db_->NewMultiCfIterator(ReadOptions(), handles_);
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ASSERT_EQ(expected_keys[i], iter->key());

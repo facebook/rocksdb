@@ -21,7 +21,6 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
-#include "rocksdb/multi_cf_iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
@@ -961,7 +960,7 @@ class DB {
   // When the same key is present in multiple column families, the iterator
   // selects the value or columns from the first column family containing the
   // key, in the order specified by the `column_families` parameter.
-  virtual std::unique_ptr<MultiCfIterator> NewMultiCfIterator(
+  virtual std::unique_ptr<Iterator> NewMultiCfIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
