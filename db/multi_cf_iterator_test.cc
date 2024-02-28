@@ -13,25 +13,55 @@ class MultiCfIteratorTest : public DBTestBase {
  public:
   MultiCfIteratorTest()
       : DBTestBase("multi_cf_iterator_test", /*env_do_fsync=*/true) {}
-};
 
-TEST_F(MultiCfIteratorTest, SimpleValues) {
-  Options options = GetDefaultOptions();
-  auto verify = [&](const std::vector<ColumnFamilyHandle*>& cfhs,
-                    const std::vector<Slice>& expected_keys,
-                    const std::vector<Slice>& expected_values) {
+  void verifyMultiCfIterator(
+      const std::vector<ColumnFamilyHandle*>& cfhs,
+      const std::vector<Slice>& expected_keys,
+      const std::optional<std::vector<Slice>>& expected_values = std::nullopt,
+      const std::optional<std::vector<WideColumns>>& expected_wide_columns =
+          std::nullopt,
+      const std::optional<std::vector<AttributeGroups>>&
+          expected_attribute_groups = std::nullopt) {
     int i = 0;
     std::unique_ptr<MultiCfIterator> iter =
         db_->NewMultiCfIterator(ReadOptions(), cfhs);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(expected_keys[i], iter->key());
-      ASSERT_EQ(expected_values[i], iter->value());
+      if (expected_values.has_value()) {
+        ASSERT_EQ(expected_values.value()[i], iter->value());
+      }
+      if (expected_wide_columns.has_value()) {
+        ASSERT_EQ(expected_wide_columns.value()[i], iter->columns());
+      }
+      if (expected_attribute_groups.has_value()) {
+        ASSERT_EQ(expected_attribute_groups.value()[i],
+                  iter->attribute_groups());
+      }
+      if (expected_values.has_value()) {
+        ASSERT_EQ(expected_values.value()[i], iter->value());
+      }
       ++i;
     }
-    ASSERT_OK(iter->status());
     ASSERT_EQ(expected_keys.size(), i);
-  };
+    ASSERT_OK(iter->status());
+  }
 
+  void verifyExpectedKeys(ColumnFamilyHandle* cfh,
+                          const std::vector<Slice>& expected_keys) {
+    int i = 0;
+    Iterator* iter = db_->NewIterator(ReadOptions(), cfh);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(expected_keys[i], iter->key());
+      ++i;
+    }
+    ASSERT_EQ(expected_keys.size(), i);
+    ASSERT_OK(iter->status());
+    delete iter;
+  }
+};
+
+TEST_F(MultiCfIteratorTest, SimpleValues) {
+  Options options = GetDefaultOptions();
   {
     // Case 1: Unique key per CF
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
@@ -48,14 +78,14 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
     // Test for iteration over CF default->1->2->3
     std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
         handles_[0], handles_[1], handles_[2], handles_[3]};
-    verify(cfhs_order_0_1_2_3, expected_keys, expected_values);
+    verifyMultiCfIterator(cfhs_order_0_1_2_3, expected_keys, expected_values);
 
     // Test for iteration over CF 3->1->default_cf->2
     std::vector<ColumnFamilyHandle*> cfhs_order_3_1_0_2 = {
         handles_[3], handles_[1], handles_[0], handles_[2]};
     // Iteration order and the return values should be the same since keys are
     // unique per CF
-    verify(cfhs_order_3_1_0_2, expected_keys, expected_values);
+    verifyMultiCfIterator(cfhs_order_3_1_0_2, expected_keys, expected_values);
   }
   {
     // Case 2: Same key in multiple CFs
@@ -78,13 +108,13 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
         handles_[0], handles_[1], handles_[2], handles_[3]};
     std::vector<Slice> expected_values = {"key_1_cf_0_val", "key_2_cf_1_val",
                                           "key_3_cf_0_val"};
-    verify(cfhs_order_0_1_2_3, expected_keys, expected_values);
+    verifyMultiCfIterator(cfhs_order_0_1_2_3, expected_keys, expected_values);
 
     // Test for iteration over CFs 3->2->default_cf->1
     std::vector<ColumnFamilyHandle*> cfhs_order_3_2_0_1 = {
         handles_[3], handles_[2], handles_[0], handles_[1]};
     expected_values = {"key_1_cf_3_val", "key_2_cf_2_val", "key_3_cf_3_val"};
-    verify(cfhs_order_3_2_0_1, expected_keys, expected_values);
+    verifyMultiCfIterator(cfhs_order_3_2_0_1, expected_keys, expected_values);
   }
 }
 
@@ -141,23 +171,6 @@ TEST_F(MultiCfIteratorTest, WideColumns) {
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_3, key_3_attribute_groups));
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_4, key_4_attribute_groups));
 
-  auto verify = [&](const std::vector<ColumnFamilyHandle*>& cfhs,
-                    const std::vector<Slice>& expected_keys,
-                    const std::vector<Slice>& expected_values,
-                    const std::vector<WideColumns>& expected_wide_columns) {
-    int i = 0;
-    std::unique_ptr<MultiCfIterator> iter =
-        db_->NewMultiCfIterator(ReadOptions(), cfhs);
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(expected_keys[i], iter->key());
-      ASSERT_EQ(expected_values[i], iter->value());
-      ASSERT_EQ(expected_wide_columns[i], iter->columns());
-      ++i;
-    }
-    ASSERT_OK(iter->status());
-    ASSERT_EQ(expected_keys.size(), i);
-  };
-
   // Test for iteration over CF default->1->2->3
   std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
       handles_[0], handles_[1], handles_[2], handles_[3]};
@@ -176,11 +189,11 @@ TEST_F(MultiCfIteratorTest, WideColumns) {
       {{"cf_1_col_name_1", "cf_1_col_val_1_key_2"}},
       {{"cf_1_col_name_1", "cf_1_col_val_1_key_3"}},
       {{"cf_0_col_name_1", "cf_0_col_val_1_key_4"}}};
-  verify(cfhs_order_0_1_2_3, expected_keys, expected_values,
-         expected_wide_columns);
+  verifyMultiCfIterator(cfhs_order_0_1_2_3, expected_keys, expected_values,
+                        expected_wide_columns);
 }
 
-TEST_F(MultiCfIteratorTest, DifferentComparatorsinMultiCFs) {
+TEST_F(MultiCfIteratorTest, DifferentComparatorsInMultiCFs) {
   // This test creates two column families with two different comparators.
   // Attempting to create the MultiCFIterator should fail.
   Options options = GetDefaultOptions();
@@ -198,20 +211,8 @@ TEST_F(MultiCfIteratorTest, DifferentComparatorsinMultiCFs) {
   ASSERT_OK(Put(1, "key_2", "value_2"));
   ASSERT_OK(Put(1, "key_3", "value_3"));
 
-  auto verify = [&](ColumnFamilyHandle* cfh,
-                    const std::vector<Slice>& expected_keys) {
-    int i = 0;
-    Iterator* iter = db_->NewIterator(ReadOptions(), cfh);
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(expected_keys[i], iter->key());
-      ++i;
-    }
-    ASSERT_EQ(expected_keys.size(), i);
-    ASSERT_OK(iter->status());
-    delete iter;
-  };
-  verify(handles_[0], {"key_1", "key_2", "key_3"});
-  verify(handles_[1], {"key_3", "key_2", "key_1"});
+  verifyExpectedKeys(handles_[0], {"key_1", "key_2", "key_3"});
+  verifyExpectedKeys(handles_[1], {"key_3", "key_2", "key_1"});
 
   std::unique_ptr<MultiCfIterator> iter =
       db_->NewMultiCfIterator(ReadOptions(), handles_);
@@ -221,18 +222,22 @@ TEST_F(MultiCfIteratorTest, DifferentComparatorsinMultiCFs) {
 
 TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
   // This test creates two column families with the same custom test
-  // comparators (but instantiated differently). Attempting to create the
+  // comparators (but instantiated independently). Attempting to create the
   // MultiCFIterator should not fail.
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  Comparator* comparator_1 = new test::SimpleSuffixReverseComparator();
-  Comparator* comparator_2 = new test::SimpleSuffixReverseComparator();
+  static auto comparator_1 =
+      std::make_unique<test::SimpleSuffixReverseComparator>(
+          test::SimpleSuffixReverseComparator());
+  static auto comparator_2 =
+      std::make_unique<test::SimpleSuffixReverseComparator>(
+          test::SimpleSuffixReverseComparator());
   ASSERT_NE(comparator_1, comparator_2);
 
-  options.comparator = comparator_1;
+  options.comparator = comparator_1.get();
   CreateColumnFamilies({"cf_1"}, options);
-  options.comparator = comparator_2;
+  options.comparator = comparator_2.get();
   CreateColumnFamilies({"cf_2"}, options);
 
   ASSERT_OK(Put(0, "key_001_001", "value_0_3"));
@@ -248,22 +253,12 @@ TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
   ASSERT_OK(Put(1, "key_003_005", "value_1_5"));
   ASSERT_OK(Put(1, "key_003_006", "value_1_4"));
 
-  auto verify = [&](ColumnFamilyHandle* cfh,
-                    const std::vector<Slice>& expected_keys) {
-    int i = 0;
-    Iterator* iter = db_->NewIterator(ReadOptions(), cfh);
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(expected_keys[i], iter->key());
-      ++i;
-    }
-    ASSERT_TRUE(iter->status().ok());
-    ASSERT_EQ(expected_keys.size(), i);
-    delete iter;
-  };
-  verify(handles_[0], {"key_001_003", "key_001_002", "key_001_001",
-                       "key_002_003", "key_002_002", "key_002_001"});
-  verify(handles_[1], {"key_001_003", "key_001_002", "key_001_001",
-                       "key_003_006", "key_003_005", "key_003_004"});
+  verifyExpectedKeys(
+      handles_[0], {"key_001_003", "key_001_002", "key_001_001", "key_002_003",
+                    "key_002_002", "key_002_001"});
+  verifyExpectedKeys(
+      handles_[1], {"key_001_003", "key_001_002", "key_001_001", "key_003_006",
+                    "key_003_005", "key_003_004"});
 
   std::vector<Slice> expected_keys = {
       "key_001_003", "key_001_002", "key_001_001", "key_002_003", "key_002_002",
@@ -280,12 +275,6 @@ TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
     ++i;
   }
   ASSERT_OK(iter->status());
-  if (comparator_1) {
-    delete comparator_1;
-  }
-  if (comparator_2) {
-    delete comparator_2;
-  }
 }
 
 TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
@@ -340,23 +329,6 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_3, key_3_attribute_groups));
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_4, key_4_attribute_groups));
 
-  auto verify =
-      [&](const std::vector<ColumnFamilyHandle*>& cfhs,
-          const std::vector<Slice>& expected_keys,
-          const std::vector<AttributeGroups>& expected_attribute_groups) {
-        int i = 0;
-        std::unique_ptr<MultiCfIterator> iter =
-            db_->NewMultiCfIterator(ReadOptions(), cfhs);
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-          ASSERT_EQ(expected_keys[i], iter->key());
-          ASSERT_EQ(expected_attribute_groups[i], iter->attribute_groups());
-          ++i;
-        }
-        ASSERT_OK(iter->status());
-        // TODO - Check when implementation is done
-        // ASSERT_EQ(expected_keys.size(), i);
-      };
-
   // Test for iteration over CF default->1->2->3
   std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
       handles_[0], handles_[1], handles_[2], handles_[3]};
@@ -364,7 +336,9 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
   std::vector<AttributeGroups> expected_attribute_groups = {
       key_1_attribute_groups, key_2_attribute_groups, key_3_attribute_groups,
       key_4_attribute_groups};
-  verify(cfhs_order_0_1_2_3, expected_keys, expected_attribute_groups);
+  verifyMultiCfIterator(
+      cfhs_order_0_1_2_3, expected_keys, std::nullopt /* expected_values */,
+      std::nullopt /* expected_wide_columns */, expected_attribute_groups);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -17,26 +17,20 @@ namespace ROCKSDB_NAMESPACE {
 // order provided in the `column_families` parameter.
 class MultiCfIteratorImpl : public MultiCfIterator {
  public:
-  MultiCfIteratorImpl() {}
   MultiCfIteratorImpl(const Comparator* comparator,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       const std::vector<Iterator*>& child_iterators)
       : comparator_(comparator),
         min_heap_(MultiCfMinHeapItemComparator(comparator_)) {
-    assert(column_families.size() > 0);
-    assert(column_families.size() == child_iterators.size());
-
-    cfhs_.reserve(column_families.size());
-    iterators_.reserve(column_families.size());
+    assert(column_families.size() > 0 &&
+           column_families.size() == child_iterators.size());
+    cfh_iter_pairs_.reserve(column_families.size());
     for (size_t i = 0; i < column_families.size(); ++i) {
-      cfhs_.push_back(column_families[i]);
-      iterators_.push_back(child_iterators[i]);
+      cfh_iter_pairs_.emplace_back(
+          column_families[i], std::unique_ptr<Iterator>(child_iterators[i]));
     }
   }
   ~MultiCfIteratorImpl() override {
-    for (auto iter : iterators_) {
-      delete iter;
-    }
     status_.PermitUncheckedError();
   }
 
@@ -45,8 +39,8 @@ class MultiCfIteratorImpl : public MultiCfIterator {
   MultiCfIteratorImpl& operator=(const MultiCfIteratorImpl&) = delete;
 
  private:
-  std::vector<ColumnFamilyHandle*> cfhs_;
-  std::vector<Iterator*> iterators_;
+  std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>
+      cfh_iter_pairs_;
   ReadOptions read_options_;
   Status status_;
 
@@ -60,11 +54,11 @@ class MultiCfIteratorImpl : public MultiCfIterator {
 
   class MultiCfMinHeapItemComparator {
    public:
-    MultiCfMinHeapItemComparator() {}
     explicit MultiCfMinHeapItemComparator(const Comparator* comparator)
         : comparator_(comparator) {}
 
-    bool operator()(MultiCfIteratorInfo a, MultiCfIteratorInfo b) const {
+    bool operator()(const MultiCfIteratorInfo& a,
+                    const MultiCfIteratorInfo& b) const {
       assert(a.iterator);
       assert(b.iterator);
       assert(a.iterator->Valid());

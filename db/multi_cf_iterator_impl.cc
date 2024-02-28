@@ -11,14 +11,14 @@ namespace ROCKSDB_NAMESPACE {
 
 void MultiCfIteratorImpl::SeekToFirst() {
   Reset();
-  assert(cfhs_.size() == iterators_.size());
   int i = 0;
-  for (auto& iter : iterators_) {
-    auto& cfh = cfhs_.at(i);
+  for (auto& cfh_iter_pair : cfh_iter_pairs_) {
+    auto& cfh = cfh_iter_pair.first;
+    auto& iter = cfh_iter_pair.second;
     iter->SeekToFirst();
     if (iter->Valid()) {
       assert(iter->status().ok());
-      min_heap_.push(MultiCfIteratorInfo{iter, cfh, i});
+      min_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
     } else {
       considerStatus(iter->status());
     }
