@@ -60,6 +60,25 @@ class MultiCfIteratorTest : public DBTestBase {
   }
 };
 
+TEST_F(MultiCfIteratorTest, InvalidArguments) {
+  Options options = GetDefaultOptions();
+  {
+    CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+    // Invalid - No CF is provided
+    std::unique_ptr<MultiCfIterator> iter_with_no_cf =
+        db_->NewMultiCfIterator(ReadOptions(), {});
+    ASSERT_NOK(iter_with_no_cf->status());
+    ASSERT_TRUE(iter_with_no_cf->status().IsInvalidArgument());
+
+    // Invalid - Only one CF is provided
+    std::unique_ptr<MultiCfIterator> iter_with_one_cf =
+        db_->NewMultiCfIterator(ReadOptions(), {handles_[0]});
+    ASSERT_NOK(iter_with_one_cf->status());
+    ASSERT_TRUE(iter_with_one_cf->status().IsInvalidArgument());
+  }
+}
+
 TEST_F(MultiCfIteratorTest, SimpleValues) {
   Options options = GetDefaultOptions();
   {

@@ -30,9 +30,7 @@ class MultiCfIteratorImpl : public MultiCfIterator {
           column_families[i], std::unique_ptr<Iterator>(child_iterators[i]));
     }
   }
-  ~MultiCfIteratorImpl() override {
-    status_.PermitUncheckedError();
-  }
+  ~MultiCfIteratorImpl() override { status_.PermitUncheckedError(); }
 
   // No copy allowed
   MultiCfIteratorImpl(const MultiCfIteratorImpl&) = delete;

@@ -3740,9 +3740,9 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
 std::unique_ptr<MultiCfIterator> DBImpl::NewMultiCfIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
-  if (column_families.size() == 0) {
+  if (column_families.size() < 2) {
     return std::make_unique<EmptyMultiCfIterator>(
-        Status::InvalidArgument("No column families were provided"));
+        Status::InvalidArgument("Less than 2 CFs were provided"));
   }
   const Comparator* first_comparator = column_families[0]->GetComparator();
   for (size_t i = 1; i < column_families.size(); ++i) {
