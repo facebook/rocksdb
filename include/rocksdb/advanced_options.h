@@ -814,7 +814,7 @@ struct AdvancedColumnFamilyOptions {
   // EXPERIMENTAL
   // When no other option such as last_level_temperature determines the
   // temperature of a new SST file, it will be written with this temperature,
-  // which can vary by ColumnFamily.
+  // which can be set differently for each column family.
   //
   // Dynamically changeable through the SetOptions() API
   Temperature default_write_temperature = Temperature::kUnknown;
