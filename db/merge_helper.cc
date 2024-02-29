@@ -391,6 +391,18 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            stats_, clock_, /* update_num_ops_stats */ false,
                            &op_failure_scope, &merge_result,
                            /* result_operand */ nullptr, &merge_result_type);
+      } else if (ikey.type == kTypeValuePreferredSeqno) {
+        // When a TimedPut is merged with some merge operands, its original
+        // write time info is obsolete and removed, and the merge result is a
+        // kTypeValue.
+        Slice unpacked_value = ParsePackedValueForValue(iter->value());
+        s = TimedFullMerge(user_merge_operator_, ikey.user_key, kPlainBaseValue,
+                           unpacked_value, merge_context_.GetOperands(),
+                           logger_, stats_, clock_,
+                           /* update_num_ops_stats */ false, &op_failure_scope,
+                           &merge_result,
+                           /* result_operand */ nullptr, &merge_result_type);
+
       } else if (ikey.type == kTypeBlobIndex) {
         BlobIndex blob_index;
 

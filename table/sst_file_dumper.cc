@@ -527,6 +527,13 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
           fprintf(stdout, "%s => %s\n",
                   ikey.DebugString(true, output_hex_).c_str(),
                   oss.str().c_str());
+        } else if (ikey.type == kTypeValuePreferredSeqno) {
+          auto [unpacked_value, preferred_seqno] =
+              ParsePackedValueWithSeqno(value);
+          fprintf(stdout, "%s => %s, %llu\n",
+                  ikey.DebugString(true, output_hex_).c_str(),
+                  unpacked_value.ToString(output_hex_).c_str(),
+                  static_cast<unsigned long long>(preferred_seqno));
         } else {
           fprintf(stdout, "%s => %s\n",
                   ikey.DebugString(true, output_hex_).c_str(),

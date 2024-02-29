@@ -18,8 +18,17 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+std::string ValueWithWriteTime(std::string value, uint64_t write_time) {
+  std::string result;
+  result = value;
+  PutFixed64(&result, write_time);
+  return result;
+}
+}  // namespace
 
 class MemTableListTest : public testing::Test {
  public:
@@ -255,6 +264,7 @@ TEST_F(MemTableListTest, GetTest) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
   ImmutableOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
@@ -270,6 +280,9 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", "value1",
                      nullptr /* kv_prot_info */));
   ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2",
+                     nullptr /* kv_prot_info */));
+  ASSERT_OK(mem->Add(++seq, kTypeValuePreferredSeqno, "key3",
+                     ValueWithWriteTime("value3.1", 20),
                      nullptr /* kv_prot_info */));
 
   // Fetch the newly written keys
@@ -297,7 +310,15 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value2.2");
 
-  ASSERT_EQ(4, mem->num_entries());
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key3", seq), &value, /*columns*/ nullptr,
+                   /*timestamp*/ nullptr, &s, &merge_context,
+                   &max_covering_tombstone_seq, ReadOptions(),
+                   false /* immutable_memtable */);
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value3.1");
+
+  ASSERT_EQ(5, mem->num_entries());
   ASSERT_EQ(1, mem->num_deletes());
 
   // Add memtable to list
@@ -317,6 +338,8 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_OK(
       mem2->Add(++seq, kTypeDeletion, "key1", "", nullptr /* kv_prot_info */));
   ASSERT_OK(mem2->Add(++seq, kTypeValue, "key2", "value2.3",
+                      nullptr /* kv_prot_info */));
+  ASSERT_OK(mem2->Add(++seq, kTypeMerge, "key3", "value3.2",
                       nullptr /* kv_prot_info */));
 
   // Add second memtable to list
@@ -354,6 +377,14 @@ TEST_F(MemTableListTest, GetTest) {
                               /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, ReadOptions());
   ASSERT_FALSE(found);
+
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key3", seq), &value, /*columns=*/nullptr,
+                          /*timestamp=*/nullptr, &s, &merge_context,
+                          &max_covering_tombstone_seq, ReadOptions());
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value3.1,value3.2");
 
   ASSERT_EQ(2, list.NumNotFlushed());
 
