@@ -431,7 +431,7 @@ class SstFileReaderTimestampNotPersistedTest
     sst_name_ = test::PerThreadDBPath("sst_file_ts_not_persisted");
   }
 
-  ~SstFileReaderTimestampNotPersistedTest() {}
+  ~SstFileReaderTimestampNotPersistedTest() = default;
 };
 
 TEST_F(SstFileReaderTimestampNotPersistedTest, Basic) {

@@ -267,7 +267,7 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
 void AssertIterEqual(WBWIIteratorImpl* wbwii,
                      const std::vector<std::string>& keys) {
   wbwii->SeekToFirst();
-  for (auto k : keys) {
+  for (const auto& k : keys) {
     ASSERT_TRUE(wbwii->Valid());
     ASSERT_EQ(wbwii->Entry().key, k);
     wbwii->NextKey();
@@ -410,7 +410,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       } else {
         iter->Seek("");
       }
-      for (auto pair : data_map) {
+      for (const auto& pair : data_map) {
         for (auto v : pair.second) {
           ASSERT_OK(iter->status());
           ASSERT_TRUE(iter->Valid());
@@ -451,7 +451,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       } else {
         iter->Seek("");
       }
-      for (auto pair : index_map) {
+      for (const auto& pair : index_map) {
         for (auto v : pair.second) {
           ASSERT_OK(iter->status());
           ASSERT_TRUE(iter->Valid());
@@ -536,7 +536,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
   {
     ASSERT_EQ(entries.size(), handler.seen[data.GetID()].size());
     size_t i = 0;
-    for (auto e : handler.seen[data.GetID()]) {
+    for (const auto& e : handler.seen[data.GetID()]) {
       auto write_entry = entries[i++];
       ASSERT_EQ(e.type, write_entry.type);
       ASSERT_EQ(e.key, write_entry.key);
@@ -550,7 +550,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
   {
     ASSERT_EQ(entries.size(), handler.seen[index.GetID()].size());
     size_t i = 0;
-    for (auto e : handler.seen[index.GetID()]) {
+    for (const auto& e : handler.seen[index.GetID()]) {
       auto write_entry = entries[i++];
       ASSERT_EQ(e.key, write_entry.value);
       if (write_entry.type != kDeleteRecord) {
@@ -823,7 +823,7 @@ TEST_P(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
 
     KVMap map;
     KVMap merged_map;
-    for (auto key : source_strings) {
+    for (const auto& key : source_strings) {
       std::string value = key + key;
       int type = rnd.Uniform(6);
       switch (type) {
@@ -2371,7 +2371,7 @@ TEST_P(WriteBatchWithIndexTest, GetAfterMergeDelete) {
 TEST_F(WBWIOverwriteTest, TestBadMergeOperator) {
   class FailingMergeOperator : public MergeOperator {
    public:
-    FailingMergeOperator() {}
+    FailingMergeOperator() = default;
 
     bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
                      MergeOperationOutput* /*merge_out*/) const override {

@@ -12,8 +12,7 @@
 #include "util/coding.h"
 #include "util/random.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace crc32c {
+namespace ROCKSDB_NAMESPACE::crc32c {
 
 class CRC {};
 
@@ -170,8 +169,7 @@ TEST(CRC, Crc32cCombineBigSizeTest) {
   ASSERT_EQ(crc1_2, crc1_2_combine);
 }
 
-}  // namespace crc32c
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::crc32c
 
 // copied from folly
 const uint64_t FNV_64_HASH_START = 14695981039346656037ULL;

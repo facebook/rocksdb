@@ -119,7 +119,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -199,7 +199,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -285,7 +285,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -371,7 +371,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -538,7 +538,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();

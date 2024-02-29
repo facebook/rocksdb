@@ -78,7 +78,7 @@ class DBBloomFilterTestWithParam
   DBBloomFilterTestWithParam()
       : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
-  ~DBBloomFilterTestWithParam() override {}
+  ~DBBloomFilterTestWithParam() override = default;
 
   void SetUp() override {
     bfp_impl_ = std::get<0>(GetParam());
@@ -2051,7 +2051,7 @@ class DBBloomFilterTestVaryPrefixAndFormatVer
   DBBloomFilterTestVaryPrefixAndFormatVer()
       : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
-  ~DBBloomFilterTestVaryPrefixAndFormatVer() override {}
+  ~DBBloomFilterTestVaryPrefixAndFormatVer() override = default;
 
   void SetUp() override {
     use_prefix_ = std::get<0>(GetParam());
@@ -2126,8 +2126,9 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
       values[i] = PinnableSlice();
     }
 
-    db_->MultiGet(ropts, Q, &column_families[0], &key_slices[0], &values[0],
-                  /*timestamps=*/nullptr, &statuses[0], true);
+    db_->MultiGet(ropts, Q, column_families.data(), key_slices.data(),
+                  values.data(),
+                  /*timestamps=*/nullptr, statuses.data(), true);
 
     // Confirm correct status results
     uint32_t number_not_found = 0;
@@ -2177,8 +2178,9 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
       values[i] = PinnableSlice();
     }
 
-    db_->MultiGet(ropts, Q, &column_families[0], &key_slices[0], &values[0],
-                  /*timestamps=*/nullptr, &statuses[0], true);
+    db_->MultiGet(ropts, Q, column_families.data(), key_slices.data(),
+                  values.data(),
+                  /*timestamps=*/nullptr, statuses.data(), true);
 
     // Confirm correct status results
     uint32_t number_not_found = 0;

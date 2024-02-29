@@ -970,7 +970,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.smallest_seqno = file_meta->fd.smallest_seqno;
     info.largest_seqno = file_meta->fd.largest_seqno;
     info.flush_reason = flush_reason;
-    for (auto listener : immutable_db_options_.listeners) {
+    for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnFlushBegin(this, info);
     }
   }
@@ -1002,7 +1002,7 @@ void DBImpl::NotifyOnFlushCompleted(
     for (auto& info : *flush_jobs_info) {
       info->triggered_writes_slowdown = triggered_writes_slowdown;
       info->triggered_writes_stop = triggered_writes_stop;
-      for (auto listener : immutable_db_options_.listeners) {
+      for (const auto& listener : immutable_db_options_.listeners) {
         listener->OnFlushCompleted(this, *info);
       }
       TEST_SYNC_POINT(
@@ -1609,9 +1609,9 @@ Status DBImpl::CompactFilesImpl(
   }
   if (status.ok()) {
     assert(compaction_job.io_status().ok());
-    InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                       &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        *c->mutable_cf_options());
   }
   // status above captures any error during compaction_job.Install, so its ok
   // not check compaction_job.io_status() explicitly if we're not calling
@@ -1731,7 +1731,7 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   {
     CompactionJobInfo info{};
     BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, &info);
-    for (auto listener : immutable_db_options_.listeners) {
+    for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
     }
     info.status.PermitUncheckedError();
@@ -1760,7 +1760,7 @@ void DBImpl::NotifyOnCompactionCompleted(
   {
     CompactionJobInfo info{};
     BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, &info);
-    for (auto listener : immutable_db_options_.listeners) {
+    for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
     }
   }
@@ -3221,7 +3221,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         column_families_not_to_flush.push_back(cfd);
         continue;
       }
-      superversion_contexts.emplace_back(SuperVersionContext(true));
+      superversion_contexts.emplace_back(true);
       bg_flush_args.emplace_back(cfd, max_memtable_id,
                                  &(superversion_contexts.back()), flush_reason);
     }
@@ -3726,9 +3726,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           compaction_released = true;
         });
     io_s = versions_->io_status();
-    InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                       &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        *c->mutable_cf_options());
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -3801,9 +3801,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         });
     io_s = versions_->io_status();
     // Use latest MutableCFOptions
-    InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                       &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -3896,9 +3896,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         compaction_job.Install(*c->mutable_cf_options(), &compaction_released);
     io_s = compaction_job.io_status();
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                         &job_context->superversion_contexts[0],
-                                         *c->mutable_cf_options());
+      InstallSuperVersionAndScheduleWork(
+          c->column_family_data(), job_context->superversion_contexts.data(),
+          *c->mutable_cf_options());
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -4045,7 +4045,6 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompactionState* m) {
     ++it;
   }
   assert(false);
-  return;
 }
 
 bool DBImpl::ShouldntRunManualCompaction(ManualCompactionState* m) {

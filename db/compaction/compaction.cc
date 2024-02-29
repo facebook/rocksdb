@@ -160,7 +160,9 @@ std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
     AtomicCompactionUnitBoundary cur_boundary;
     size_t first_atomic_idx = 0;
     auto add_unit_boundary = [&](size_t to) {
-      if (first_atomic_idx == to) return;
+      if (first_atomic_idx == to) {
+        return;
+      }
       for (size_t k = first_atomic_idx; k < to; k++) {
         inputs[i].atomic_compaction_unit_boundaries.push_back(cur_boundary);
       }
@@ -753,7 +755,9 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
     AppendHumanBytes(files.at(i)->fd.GetFileSize(), sztxt, 16);
     ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
                    files.at(i)->fd.GetNumber(), sztxt);
-    if (ret < 0 || ret >= sz) break;
+    if (ret < 0 || ret >= sz) {
+      break;
+    }
     write += ret;
   }
   // if files.size() is non-zero, overwrite the last space

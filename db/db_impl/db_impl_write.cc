@@ -2135,7 +2135,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
   }
 
   mutex_.Unlock();
-  for (auto listener : immutable_db_options_.listeners) {
+  for (const auto& listener : immutable_db_options_.listeners) {
     listener->OnMemTableSealed(mem_table_info);
   }
   mutex_.Lock();
@@ -2252,7 +2252,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       log_empty_ = true;
       log_dir_synced_ = false;
       logs_.emplace_back(logfile_number_, new_log);
-      alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
+      alive_log_files_.emplace_back(logfile_number_);
     }
   }
 

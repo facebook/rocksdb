@@ -355,7 +355,9 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
   TEST_SYNC_POINT("LevelCompactionPicker::RoundRobin");
 
   // Only expand the inputs when we have selected a file in start_level_inputs_
-  if (start_level_inputs_.size() == 0) return;
+  if (start_level_inputs_.size() == 0) {
+    return;
+  }
 
   uint64_t start_lvl_bytes_no_compacting = 0;
   uint64_t curr_bytes_to_compact = 0;

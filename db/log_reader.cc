@@ -18,8 +18,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace log {
+namespace ROCKSDB_NAMESPACE::log {
 
 Reader::Reporter::~Reporter() = default;
 
@@ -937,5 +936,4 @@ bool FragmentBufferedReader::TryReadFragment(
   }
 }
 
-}  // namespace log
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::log

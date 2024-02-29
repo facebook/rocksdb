@@ -50,14 +50,15 @@ static void StartPhase(const char* name) {
 #endif
 static const char* GetTempDir(void) {
   const char* ret = getenv("TEST_TMPDIR");
-  if (ret == NULL || ret[0] == '\0')
+  if (ret == NULL || ret[0] == '\0') {
 #ifdef OS_WIN
     ret = getenv("TEMP");
 #else
     ret = "/tmp";
+  }
 #endif
   return ret;
-}
+  }
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -206,10 +207,11 @@ static int CmpCompare(void* arg, const char* a, size_t alen, const char* b,
   size_t n = (alen < blen) ? alen : blen;
   int r = memcmp(a, b, n);
   if (r == 0) {
-    if (alen < blen)
+    if (alen < blen) {
       r = -1;
-    else if (alen > blen)
+    } else if (alen > blen) {
       r = +1;
+    }
   }
   return r;
 }

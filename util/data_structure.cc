@@ -7,12 +7,10 @@
 
 #include "util/math.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace detail {
+namespace ROCKSDB_NAMESPACE::detail {
 
 int CountTrailingZeroBitsForSmallEnumSet(uint64_t v) {
   return CountTrailingZeroBits(v);
 }
 
-}  // namespace detail
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::detail

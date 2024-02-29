@@ -1368,9 +1368,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   for (int i = 0; i < num_keys; ++i) {
     int cf = i / 3;
     int cf_key = 1 % 3;
-    cf_kv_vec.emplace_back(std::make_tuple(
+    cf_kv_vec.emplace_back(
         cf, "cf" + std::to_string(cf) + "_key_" + std::to_string(cf_key),
-        "cf" + std::to_string(cf) + "_val_" + std::to_string(cf_key)));
+        "cf" + std::to_string(cf) + "_val_" + std::to_string(cf_key));
     ASSERT_OK(Put(std::get<0>(cf_kv_vec[i]), std::get<1>(cf_kv_vec[i]),
                   std::get<2>(cf_kv_vec[i])));
   }
@@ -2607,9 +2607,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   key_strs.push_back(Key(33));
   key_strs.push_back(Key(54));
   key_strs.push_back(Key(102));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
-  keys.push_back(key_strs[2]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
+  keys.emplace_back(key_strs[2]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -2652,9 +2652,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
   key_strs.push_back(Key(33));
   key_strs.push_back(Key(54));
   key_strs.push_back(Key(102));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
-  keys.push_back(key_strs[2]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
+  keys.emplace_back(key_strs[2]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -2717,9 +2717,9 @@ TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   key_strs.push_back(Key(21));
   key_strs.push_back(Key(54));
   key_strs.push_back(Key(102));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
-  keys.push_back(key_strs[2]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
+  keys.emplace_back(key_strs[2]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -2762,9 +2762,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   key_strs.push_back(Key(33));
   key_strs.push_back(Key(56));
   key_strs.push_back(Key(102));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
-  keys.push_back(key_strs[2]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
+  keys.emplace_back(key_strs[2]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -2805,8 +2805,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   // 19 and 26 are in L2, but overlap with L0 and L1 file ranges
   key_strs.push_back(Key(19));
   key_strs.push_back(Key(26));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -2841,8 +2841,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
   // 139 and 163 are in L2, but overlap with a range deletes in L1
   key_strs.push_back(Key(139));
   key_strs.push_back(Key(163));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -2871,9 +2871,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
   key_strs.push_back(Key(139));
   key_strs.push_back(Key(144));
   key_strs.push_back(Key(163));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
-  keys.push_back(key_strs[2]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
+  keys.emplace_back(key_strs[2]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -2904,9 +2904,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   key_strs.push_back(Key(33));
   key_strs.push_back(Key(54));
   key_strs.push_back(Key(102));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
-  keys.push_back(key_strs[2]);
+  keys.emplace_back(key_strs[0]);
+  keys.emplace_back(key_strs[1]);
+  keys.emplace_back(key_strs[2]);
   values.resize(keys.size());
   statuses.resize(keys.size());
 
@@ -3285,9 +3285,9 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
 
   // Warm up the cache first
   key_data.emplace_back(Key(0));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   key_data.emplace_back(Key(50));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   statuses.resize(keys.size());
 
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
@@ -3661,10 +3661,10 @@ TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
   DestroyAndReopen(options);
   std::vector<std::thread> workers;
   for (int i = 0; i < 10; i++) {
-    workers.push_back(std::thread([&]() {
+    workers.emplace_back([&]() {
       auto s = db_->Close();
       ASSERT_OK(s);
-    }));
+    });
   }
   for (auto& w : workers) {
     w.join();
@@ -3938,9 +3938,9 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 
   // Warm up the cache first
   key_data.emplace_back(Key(0));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   key_data.emplace_back(Key(50));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   statuses.resize(keys.size());
 
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
@@ -4119,9 +4119,9 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
 
   // Warm up the cache first
   key_data.emplace_back(Key(0));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   key_data.emplace_back(Key(50));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   statuses.resize(keys.size());
 
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
@@ -4189,9 +4189,9 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
 
   // Warm up the cache first
   key_data.emplace_back(Key(0));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   key_data.emplace_back(Key(50));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   statuses.resize(keys.size());
 
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
@@ -4237,9 +4237,9 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
 
   // Warm up the cache first
   key_data.emplace_back(Key(0));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   key_data.emplace_back(Key(50));
-  keys.emplace_back(Slice(key_data.back()));
+  keys.emplace_back(key_data.back());
   statuses.resize(keys.size());
 
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
@@ -4743,7 +4743,7 @@ TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
   uint64_t number;
   FileType type;
   ASSERT_OK(env_->GetChildren(dbname_, &filenames));
-  for (auto name : filenames) {
+  for (const auto& name : filenames) {
     if (ParseFileName(name, &number, &type)) {
       if (type == kTableFile) {
         sst_cnt++;
