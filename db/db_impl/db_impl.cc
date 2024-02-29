@@ -3618,9 +3618,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
   }
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh != nullptr);
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     const Status s =
@@ -3636,8 +3636,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
-        cfh);
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        nullptr /* read_callback */, cfh);
   } else {
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
@@ -3646,7 +3646,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
                              (read_options.snapshot != nullptr)
                                  ? read_options.snapshot->GetSequenceNumber()
                                  : kMaxSequenceNumber,
-                             read_callback);
+                             nullptr /* read_callback */);
   }
   return result;
 }
@@ -3769,7 +3769,6 @@ Status DBImpl::NewIterators(
     }
   }
 
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
   autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
@@ -3800,7 +3799,7 @@ Status DBImpl::NewIterators(
           env_, read_options, *cfh->cfd()->ioptions(), sv->mutable_cf_options,
           cfh->cfd()->user_comparator(), iter, sv->current, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          read_callback, cfh));
+          nullptr /*read_callback*/, cfh));
     }
   } else {
     // Note: no need to consider the special case of
@@ -3810,8 +3809,8 @@ Status DBImpl::NewIterators(
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
     for (auto [cfh, sv] : cfh_to_sv) {
-      iterators->push_back(
-          NewIteratorImpl(read_options, cfh, sv, snapshot, read_callback));
+      iterators->push_back(NewIteratorImpl(read_options, cfh, sv, snapshot,
+                                           nullptr /*read_callback*/));
     }
   }
 

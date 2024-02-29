@@ -497,8 +497,8 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
 
   Iterator* result = nullptr;
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh != nullptr);
   auto cfd = cfh->cfd();
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
     return NewErrorIterator(Status::NotSupported(
         "tailing iterator not supported in secondary mode"));
@@ -517,7 +517,8 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
         return NewErrorIterator(s);
       }
     }
-    result = NewIteratorImpl(read_options, cfh, sv, snapshot, read_callback);
+    result = NewIteratorImpl(read_options, cfh, sv, snapshot,
+                             nullptr /*read_callback*/);
   }
   return result;
 }
