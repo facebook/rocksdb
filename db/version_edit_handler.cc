@@ -45,6 +45,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     ColumnFamilyData* cfd = nullptr;
     if (edit.IsInAtomicGroup()) {
       if (read_buffer_.IsFull()) {
+        OnAtomicGroupReplayBegin();
         for (auto& e : read_buffer_.replay_buffer()) {
           s = ApplyVersionEdit(e, &cfd);
           if (!s.ok()) {
@@ -52,6 +53,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
           }
           ++recovered_edits;
         }
+        OnAtomicGroupReplayEnd();
         if (!s.ok()) {
           break;
         }
@@ -741,6 +743,40 @@ VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   versions_.clear();
 }
 
+void VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
+  assert(!in_atomic_group_);
+
+  if (!atomic_update_versions_.empty()) {
+    // An existing AtomicGroup has not been completed yet. The situation is not
+    // hopeless however because `MaybeCreateVersion()` creates versions that lag
+    // behind the builder state. We can force it to catchup by applying empty
+    // edits for the missing column families.
+    if (!atomic_update_versions_.empty()) {
+      // The situation is now hopeless. Throw away the versions that failed to
+      // complete the last AtomicGroup. They must not be used for completing the
+      // upcoming AtomicGroup since they are too old.
+    }
+  }
+
+  in_atomic_group_ = true;
+  // We lazily assume the column families that exist at this point are all
+  // involved in the AtomicGroup. Overestimating the scope of the AtomicGroup
+  // will sometimes cause less data to be recovered, which is fine for
+  // best-effort recovery.
+  // atomic_update_versions_ <- builders_.keys()
+}
+
+void VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
+  assert(in_atomic_group_);
+
+#ifndef NDEBUG
+  // The AtomicGroup must not have changed the column families. We don't support
+  // CF adds or drops in an AtomicGroup.
+  // atomic_update_versions_ == builders_.keys()
+#endif
+  in_atomic_group_ = false;
+}
+
 void VersionEditHandlerPointInTime::CheckIterationResult(
     const log::Reader& reader, Status* s) {
   VersionEditHandler::CheckIterationResult(reader, s);
@@ -874,12 +910,13 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   // A new version will created if:
   // 1) no error has occurred so far, and
   // 2) log_number_, next_file_number_ and last_sequence_ are known, and
-  // 3) any of the following:
+  // 3) not in an AtomicGroup
+  // 4) any of the following:
   //   a) no missing file before, but will have missing file(s) after applying
   //      this version edit.
   //   b) no missing file after applying the version edit, and the caller
   //      explicitly request that a new version be created.
-  if (s.ok() && !missing_info &&
+  if (s.ok() && !missing_info && !in_atomic_group_ &&
       ((has_missing_files && !prev_has_missing_files) ||
        (!has_missing_files && force_create_version))) {
     if (!builder) {
@@ -911,6 +948,9 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       version->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(), read_options_,
           !version_set_->db_options_->skip_stats_update_on_db_open);
+      // When there's an incomplete AtomicGroup, apply it to
+      // `atomic_update_versions_`. If the AtomicGroup is now complete, apply it
+      // to `versions_`.
       auto v_iter = versions_.find(cfd->GetID());
       if (v_iter != versions_.end()) {
         delete v_iter->second;

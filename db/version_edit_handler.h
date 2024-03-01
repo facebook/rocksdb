@@ -40,6 +40,9 @@ class VersionEditHandlerBase {
   virtual Status ApplyVersionEdit(VersionEdit& edit,
                                   ColumnFamilyData** cfd) = 0;
 
+  virtual void OnAtomicGroupReplayBegin() {}
+  virtual void OnAtomicGroupReplayEnd() {}
+
   virtual void CheckIterationResult(const log::Reader& /*reader*/,
                                     Status* /*s*/) {}
 
@@ -237,7 +240,10 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ~VersionEditHandlerPointInTime() override;
 
  protected:
+  void OnAtomicGroupReplayBegin() override;
+  void OnAtomicGroupReplayEnd() override;
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
+
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
@@ -251,6 +257,13 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
                     bool is_initial_load) override;
 
   std::unordered_map<uint32_t, Version*> versions_;
+
+  // `atomic_update_versions_` is for ensuring whole AtomicGroup recoveries.
+  // When `atomic_update_versions_` is nonempty, it serves as a barrier to
+  // updating `versions_` until all its entries are populated with valid
+  // `Version`s.
+  std::unordered_map<uint32_t, Version*> atomic_update_versions_;
+  bool in_atomic_group_ = false;
 };
 
 class ManifestTailer : public VersionEditHandlerPointInTime {
