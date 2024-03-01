@@ -190,7 +190,7 @@ void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType /*state*/) {}
 void ThreadStatusUtil::NewColumnFamilyInfo(const DB* /*db*/,
                                            const ColumnFamilyData* /*cfd*/,
                                            const std::string& /*cf_name*/,
-                                           const Env* env) {}
+                                           const Env* /*env*/) {}
 
 void ThreadStatusUtil::EraseColumnFamilyInfo(const ColumnFamilyData* /*cfd*/) {}
 
