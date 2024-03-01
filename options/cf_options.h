@@ -118,6 +118,7 @@ struct MutableCFOptions {
         memtable_whole_key_filtering(options.memtable_whole_key_filtering),
         memtable_huge_page_size(options.memtable_huge_page_size),
         max_successive_merges(options.max_successive_merges),
+        strict_max_successive_merges(options.strict_max_successive_merges),
         inplace_update_num_locks(options.inplace_update_num_locks),
         prefix_extractor(options.prefix_extractor),
         experimental_mempurge_threshold(
@@ -162,10 +163,8 @@ struct MutableCFOptions {
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
-        last_level_temperature(options.last_level_temperature ==
-                                       Temperature::kUnknown
-                                   ? options.bottommost_temperature
-                                   : options.last_level_temperature),
+        last_level_temperature(options.last_level_temperature),
+        default_write_temperature(options.default_write_temperature),
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
@@ -186,6 +185,7 @@ struct MutableCFOptions {
         memtable_whole_key_filtering(false),
         memtable_huge_page_size(0),
         max_successive_merges(0),
+        strict_max_successive_merges(false),
         inplace_update_num_locks(0),
         prefix_extractor(nullptr),
         experimental_mempurge_threshold(0.0),
@@ -219,6 +219,7 @@ struct MutableCFOptions {
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
         bottommost_compression(kDisableCompressionOption),
         last_level_temperature(Temperature::kUnknown),
+        default_write_temperature(Temperature::kUnknown),
         memtable_protection_bytes_per_key(0),
         block_protection_bytes_per_key(0),
         sample_for_compression(0),
@@ -251,6 +252,7 @@ struct MutableCFOptions {
   bool memtable_whole_key_filtering;
   size_t memtable_huge_page_size;
   size_t max_successive_merges;
+  bool strict_max_successive_merges;
   size_t inplace_update_num_locks;
   std::shared_ptr<const SliceTransform> prefix_extractor;
   // [experimental]
@@ -309,6 +311,7 @@ struct MutableCFOptions {
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
   Temperature last_level_temperature;
+  Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;
   uint8_t block_protection_bytes_per_key;
 

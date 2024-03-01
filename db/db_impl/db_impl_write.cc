@@ -325,7 +325,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (w.ShouldWriteToMemtable()) {
       PERF_TIMER_STOP(write_pre_and_post_process_time);
-      PERF_TIMER_GUARD(write_memtable_time);
+      PERF_TIMER_FOR_WAIT_GUARD(write_memtable_time);
 
       ColumnFamilyMemTablesImpl column_family_memtables(
           versions_->GetColumnFamilySet());
@@ -557,7 +557,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
 
     if (status.ok()) {
-      PERF_TIMER_GUARD(write_memtable_time);
+      PERF_TIMER_FOR_WAIT_GUARD(write_memtable_time);
 
       if (!parallel) {
         // w.sequence will be set inside InsertInto
@@ -797,7 +797,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   WriteThread::WriteGroup memtable_write_group;
 
   if (w.state == WriteThread::STATE_MEMTABLE_WRITER_LEADER) {
-    PERF_TIMER_GUARD(write_memtable_time);
+    PERF_TIMER_FOR_WAIT_GUARD(write_memtable_time);
     assert(w.ShouldWriteToMemtable());
     write_thread_.EnterAsMemTableWriter(&w, &memtable_write_group);
     if (memtable_write_group.size > 1 &&
@@ -820,7 +820,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     PERF_TIMER_STOP(write_pre_and_post_process_time);
-    PERF_TIMER_GUARD(write_memtable_time);
+    PERF_TIMER_FOR_WAIT_GUARD(write_memtable_time);
 
     assert(w.ShouldWriteToMemtable());
     ColumnFamilyMemTablesImpl column_family_memtables(
@@ -868,7 +868,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
 
     PERF_TIMER_STOP(write_pre_and_post_process_time);
-    PERF_TIMER_GUARD(write_memtable_time);
+    PERF_TIMER_FOR_WAIT_GUARD(write_memtable_time);
 
     ColumnFamilyMemTablesImpl column_family_memtables(
         versions_->GetColumnFamilySet());
@@ -954,7 +954,7 @@ Status DBImpl::WriteImplWALOnly(
     }
   } else {
     PERF_TIMER_STOP(write_pre_and_post_process_time);
-    PERF_TIMER_GUARD(write_delay_time);
+    PERF_TIMER_FOR_WAIT_GUARD(write_delay_time);
     InstrumentedMutexLock lock(&mutex_);
     Status status =
         DelayWrite(/*num_bytes=*/0ull, *write_thread, write_options);
@@ -1228,7 +1228,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
                                write_controller_.NeedsDelay()))) {
     PERF_TIMER_STOP(write_pre_and_post_process_time);
-    PERF_TIMER_GUARD(write_delay_time);
+    PERF_TIMER_FOR_WAIT_GUARD(write_delay_time);
     // We don't know size of curent batch so that we always use the size
     // for previous one. It might create a fairness issue that expiration
     // might happen for smaller writes but larger writes can go through.
@@ -2000,7 +2000,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
       // is that in case the write is heavy, low pri writes may never have
       // a chance to run. Now we guarantee we are still slowly making
       // progress.
-      PERF_TIMER_GUARD(write_delay_time);
+      PERF_TIMER_FOR_WAIT_GUARD(write_delay_time);
       auto data_size = my_batch->GetDataSize();
       while (data_size > 0) {
         size_t allowed = write_controller_.low_pri_rate_limiter()->RequestToken(

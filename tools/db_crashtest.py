@@ -836,15 +836,15 @@ def execute_cmd(cmd, timeout=None):
     return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
 
 
-def exit_if_stderr_has_errors(stderr, print_stderr_separately=False):
+def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):
+    print("stdout:\n", stdout)
     if len(stderr) == 0:
         return
 
     if print_stderr_separately:
-        print("stderr has error message: \n", file=sys.stderr)
-        print(stderr, file=sys.stderr)
+        print("stderr:\n", stderr, file=sys.stderr)
     else:
-        print("stderr has error message: \n" + stderr)
+        print("stderr:\n", stderr)
 
     sys.exit(2)
 
@@ -883,12 +883,10 @@ def blackbox_crash_main(args, unknown_args):
 
         if not hit_timeout:
             print("Exit Before Killing")
-            print("stdout:")
-            print(outs)
-            exit_if_stderr_has_errors(errs, args.print_stderr_separately)
+            print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
             sys.exit(2)
 
-        exit_if_stderr_has_errors(errs, args.print_stderr_separately)
+        print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -905,11 +903,8 @@ def blackbox_crash_main(args, unknown_args):
     )
     hit_timeout, retcode, outs, errs = execute_cmd(cmd)
 
-    # Print stats of the final run
-    print("stdout:", outs)
-
-    # Print stderr of the final run
-    exit_if_stderr_has_errors(errs, args.print_stderr_separately)
+    # For the final run
+    print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
@@ -1053,8 +1048,7 @@ def whitebox_crash_main(args, unknown_args):
         )
 
         print(msg)
-        print(stdoutdata)
-        exit_if_stderr_has_errors(stderrdata, args.print_stderr_separately)
+        print_output_and_exit_on_error(stdoutdata, stderrdata, args.print_stderr_separately)
 
         if hit_timeout:
             print("Killing the run for running too long")

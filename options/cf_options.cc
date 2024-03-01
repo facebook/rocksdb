@@ -339,6 +339,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, max_successive_merges),
           OptionType::kSizeT, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"strict_max_successive_merges",
+         {offsetof(struct MutableCFOptions, strict_max_successive_merges),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"memtable_huge_page_size",
          {offsetof(struct MutableCFOptions, memtable_huge_page_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -443,6 +447,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"last_level_temperature",
          {offsetof(struct MutableCFOptions, last_level_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"default_write_temperature",
+         {offsetof(struct MutableCFOptions, default_write_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"enable_blob_files",
@@ -1053,6 +1061,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                    max_successive_merges: %" ROCKSDB_PRIszt,
                  max_successive_merges);
+  ROCKS_LOG_INFO(log, "             strict_max_successive_merges: %d",
+                 strict_max_successive_merges);
   ROCKS_LOG_INFO(log,
                  "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
                  inplace_update_num_locks);

@@ -1863,7 +1863,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
 TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   Options options = CurrentOptions();
   const ImmutableCFOptions ioptions(options);
-  options.bottommost_temperature = Temperature::kWarm;
+  options.last_level_temperature = Temperature::kWarm;
   SstFileWriter sst_file_writer(EnvOptions(), options);
   options.level0_file_num_compaction_trigger = 2;
   Reopen(options);

@@ -247,6 +247,7 @@ bool StressTest::BuildOptionsTable() {
        }},
       {"memtable_huge_page_size", {"0", std::to_string(2 * 1024 * 1024)}},
       {"max_successive_merges", {"0", "2", "4"}},
+      {"strict_max_successive_merges", {"false", "true"}},
       {"inplace_update_num_locks", {"100", "200", "300"}},
       // TODO: re-enable once internal task T124324915 is fixed.
       // {"experimental_mempurge_threshold", {"0.0", "1.0"}},
@@ -3444,7 +3445,7 @@ void InitializeOptionsFromFlags(
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
   if (FLAGS_enable_tiered_storage) {
-    options.bottommost_temperature = Temperature::kCold;
+    options.last_level_temperature = Temperature::kCold;
   }
   options.preclude_last_level_data_seconds =
       FLAGS_preclude_last_level_data_seconds;

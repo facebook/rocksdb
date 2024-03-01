@@ -1,0 +1,2 @@
+*Add sanity checks for ingesting external files that currently checks if the user key comparator used to create the file is compatible with the column family's user key comparator.
+*Support ingesting external files for column family that has user-defined timestamps in memtable only enabled.

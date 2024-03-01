@@ -83,7 +83,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 
   // This is below the fast path, so that the stat is zero when all writes are
   // from the same thread.
-  PERF_TIMER_GUARD(write_thread_wait_nanos);
+  PERF_TIMER_FOR_WAIT_GUARD(write_thread_wait_nanos);
 
   // If we're only going to end up waiting a short period of time,
   // it can be a lot more efficient to call std::this_thread::yield()
@@ -464,62 +464,101 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // so we have already received our MarkJoined).
   CreateMissingNewerLinks(newest_writer);
 
+  // This comment illustrates how the rest of the function works using an
+  // example. Notation:
+  //
+  // - Items are `Writer`s
+  // - Items prefixed by "@" have been included in `write_group`
+  // - Items prefixed by "*" have compatible options with `leader`, but have not
+  //   been included in `write_group` yet
+  // - Items after several spaces are in `r_list`. These have incompatible
+  //   options with `leader` and are temporarily separated from the main list.
+  //
+  // Each line below depicts the state of the linked lists at the beginning of
+  // an iteration of the while-loop.
+  //
+  // @leader, n1, *n2, n3, *newest_writer
+  // @leader, *n2, n3, *newest_writer,    n1
+  // @leader, @n2, n3, *newest_writer,    n1
+  //
+  // After the while-loop, the `r_list` is grafted back onto the main list.
+  //
+  // case A: no new `Writer`s arrived
+  // @leader, @n2, @newest_writer,        n1, n3
+  // @leader, @n2, @newest_writer, n1, n3
+  //
+  // case B: a new `Writer` (n4) arrived
+  // @leader, @n2, @newest_writer, n4     n1, n3
+  // @leader, @n2, @newest_writer, n1, n3, n4
+
   // Tricky. Iteration start (leader) is exclusive and finish
   // (newest_writer) is inclusive. Iteration goes from old to new.
   Writer* w = leader;
+  // write_group end
+  Writer* we = leader;
+  // declare r_list
+  Writer* rb = nullptr;
+  Writer* re = nullptr;
+
   while (w != newest_writer) {
     assert(w->link_newer);
     w = w->link_newer;
 
-    if (w->sync && !leader->sync) {
-      // Do not include a sync write into a batch handled by a non-sync write.
-      break;
+    if ((w->sync && !leader->sync) ||
+        // Do not include a sync write into a batch handled by a non-sync write.
+        (w->no_slowdown != leader->no_slowdown) ||
+        // Do not mix writes that are ok with delays with the ones that request
+        // fail on delays.
+        (w->disable_wal != leader->disable_wal) ||
+        // Do not mix writes that enable WAL with the ones whose WAL disabled.
+        (w->protection_bytes_per_key != leader->protection_bytes_per_key) ||
+        // Do not mix writes with different levels of integrity protection.
+        (w->rate_limiter_priority != leader->rate_limiter_priority) ||
+        // Do not mix writes with different rate limiter priorities.
+        (w->batch == nullptr) ||
+        // Do not include those writes with nullptr batch. Those are not writes
+        // those are something else. They want to be alone
+        (w->callback != nullptr && !w->callback->AllowWriteBatching()) ||
+        // dont batch writes that don't want to be batched
+        (size + WriteBatchInternal::ByteSize(w->batch) > max_size)
+        // Do not make batch too big
+    ) {
+      // remove from list
+      w->link_older->link_newer = w->link_newer;
+      if (w->link_newer != nullptr) {
+        w->link_newer->link_older = w->link_older;
+      }
+      // insert into r_list
+      if (re == nullptr) {
+        rb = re = w;
+        w->link_older = nullptr;
+      } else {
+        w->link_older = re;
+        re->link_newer = w;
+        re = w;
+      }
+    } else {
+      // grow up
+      we = w;
+      w->write_group = write_group;
+      size += WriteBatchInternal::ByteSize(w->batch);
+      write_group->last_writer = w;
+      write_group->size++;
     }
-
-    if (w->no_slowdown != leader->no_slowdown) {
-      // Do not mix writes that are ok with delays with the ones that
-      // request fail on delays.
-      break;
-    }
-
-    if (w->disable_wal != leader->disable_wal) {
-      // Do not mix writes that enable WAL with the ones whose
-      // WAL disabled.
-      break;
-    }
-
-    if (w->protection_bytes_per_key != leader->protection_bytes_per_key) {
-      // Do not mix writes with different levels of integrity protection.
-      break;
-    }
-
-    if (w->rate_limiter_priority != leader->rate_limiter_priority) {
-      // Do not mix writes with different rate limiter priorities.
-      break;
-    }
-
-    if (w->batch == nullptr) {
-      // Do not include those writes with nullptr batch. Those are not writes,
-      // those are something else. They want to be alone
-      break;
-    }
-
-    if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
-      // don't batch writes that don't want to be batched
-      break;
-    }
-
-    auto batch_size = WriteBatchInternal::ByteSize(w->batch);
-    if (size + batch_size > max_size) {
-      // Do not make batch too big
-      break;
-    }
-
-    w->write_group = write_group;
-    size += batch_size;
-    write_group->last_writer = w;
-    write_group->size++;
   }
+  // append r_list after write_group end
+  if (rb != nullptr) {
+    rb->link_older = we;
+    re->link_newer = nullptr;
+    we->link_newer = rb;
+    if (!newest_writer_.compare_exchange_weak(w, re)) {
+      while (w->link_older != newest_writer) {
+        w = w->link_older;
+      }
+      w->link_older = re;
+    }
+  }
+
   TEST_SYNC_POINT_CALLBACK("WriteThread::EnterAsBatchGroupLeader:End", w);
   return size;
 }

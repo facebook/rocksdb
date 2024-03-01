@@ -1471,6 +1471,9 @@ DEFINE_bool(rate_limiter_auto_tuned, false,
             "Enable dynamic adjustment of rate limit according to demand for "
             "background I/O");
 
+DEFINE_int64(rate_limiter_single_burst_bytes, 0,
+             "Set single burst bytes on background I/O rate limiter.");
+
 DEFINE_bool(sine_write_rate, false, "Use a sine wave write_rate_limit");
 
 DEFINE_uint64(
@@ -1637,6 +1640,10 @@ DEFINE_int32(num_deletion_threads, 1,
 DEFINE_int32(max_successive_merges, 0,
              "Maximum number of successive merge operations on a key in the "
              "memtable");
+
+DEFINE_bool(strict_max_successive_merges, false,
+            "Whether to issue filesystem reads to keep within "
+            "`max_successive_merges` limit");
 
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   if (value < 0 || value >= 2000000000) {
@@ -4563,7 +4570,7 @@ class Benchmark {
         FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
     if (FLAGS_simulate_hybrid_fs_file != "") {
-      options.bottommost_temperature = Temperature::kWarm;
+      options.last_level_temperature = Temperature::kWarm;
     }
     options.preclude_last_level_data_seconds =
         FLAGS_preclude_last_level_data_seconds;
@@ -4626,6 +4633,7 @@ class Benchmark {
       }
     }
     options.max_successive_merges = FLAGS_max_successive_merges;
+    options.strict_max_successive_merges = FLAGS_strict_max_successive_merges;
     options.report_bg_io_stats = FLAGS_report_bg_io_stats;
 
     // set universal style compaction configurations, if applicable
@@ -4778,7 +4786,8 @@ class Benchmark {
             // Get()/MultiGet()
             FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                       : RateLimiter::Mode::kWritesOnly,
-            FLAGS_rate_limiter_auto_tuned));
+            FLAGS_rate_limiter_auto_tuned,
+            FLAGS_rate_limiter_single_burst_bytes));
       }
     }
 

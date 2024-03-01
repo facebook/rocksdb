@@ -1,1 +1,0 @@
-Removed deprecated option `ColumnFamilyOptions::level_compaction_dynamic_file_size`

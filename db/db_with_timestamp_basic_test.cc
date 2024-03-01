@@ -2610,10 +2610,10 @@ TEST_F(DataVisibilityTest, MultiGetWithoutSnapshot) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::MultiGet:AfterGetSeqNum1",
+      {"DBImpl::MultiCFSnapshot:AfterGetSeqNum1",
        "DataVisibilityTest::MultiGetWithoutSnapshot:BeforePut"},
       {"DataVisibilityTest::MultiGetWithoutSnapshot:AfterPut",
-       "DBImpl::MultiGet:AfterGetSeqNum2"},
+       "DBImpl::MultiCFSnapshot:AfterGetSeqNum2"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
   port::Thread writer_thread([this]() {

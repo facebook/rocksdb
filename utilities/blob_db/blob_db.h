@@ -138,7 +138,8 @@ class BlobDB : public StackableDB {
 
   using ROCKSDB_NAMESPACE::StackableDB::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override = 0;
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override = 0;
 
   // Get value and expiration.
   virtual Status Get(const ReadOptions& options,
@@ -147,36 +148,6 @@ class BlobDB : public StackableDB {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      PinnableSlice* value, uint64_t* expiration) {
     return Get(options, DefaultColumnFamily(), key, value, expiration);
-  }
-
-  using ROCKSDB_NAMESPACE::StackableDB::MultiGet;
-  std::vector<Status> MultiGet(const ReadOptions& options,
-                               const std::vector<Slice>& keys,
-                               std::vector<std::string>* values) override = 0;
-  std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override {
-    for (auto column_family : column_families) {
-      if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
-        return std::vector<Status>(
-            column_families.size(),
-            Status::NotSupported(
-                "Blob DB doesn't support non-default column family."));
-      }
-    }
-    return MultiGet(options, keys, values);
-  }
-  void MultiGet(const ReadOptions& /*options*/,
-                ColumnFamilyHandle* /*column_family*/, const size_t num_keys,
-                const Slice* /*keys*/, PinnableSlice* /*values*/,
-                Status* statuses,
-                const bool /*sorted_input*/ = false) override {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] =
-          Status::NotSupported("Blob DB doesn't support batched MultiGet");
-    }
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::SingleDelete;

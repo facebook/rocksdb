@@ -29,6 +29,7 @@ extern thread_local PerfContext perf_context;
 #define PERF_CPU_TIMER_GUARD(metric, clock)
 #define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition, stats, \
                                                ticker_type)
+#define PERF_TIMER_FOR_WAIT_GUARD(metric)
 #define PERF_TIMER_MEASURE(metric)
 #define PERF_COUNTER_ADD(metric, value)
 #define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)
@@ -65,6 +66,11 @@ extern thread_local PerfContext perf_context;
   if (condition) {                                                             \
     perf_step_timer_##metric.Start();                                          \
   }
+
+#define PERF_TIMER_FOR_WAIT_GUARD(metric)                                 \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), nullptr, \
+                                         false, PerfLevel::kEnableWait);  \
+  perf_step_timer_##metric.Start();
 
 // Update metric with time elapsed since last START. start time is reset
 // to current timestamp.

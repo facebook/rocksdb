@@ -157,8 +157,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   // GetBlockBasedTableOptionsFromString().
   bbto = new (bbto_ptr) BlockBasedTableOptions();
   FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoExcluded);
-  // This option is not setable:
-  bbto->use_delta_encoding = true;
 
   char* new_bbto_ptr = new char[sizeof(BlockBasedTableOptions)];
   BlockBasedTableOptions* new_bbto =
@@ -191,6 +189,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "metadata_block_size=1024;"
       "partition_filters=false;"
       "optimize_filters_for_memory=true;"
+      "use_delta_encoding=true;"
       "index_block_restart_interval=4;"
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;detect_filter_"
       "construct_corruption=false;"
@@ -492,6 +491,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "target_file_size_base=4294976376;"
       "memtable_huge_page_size=2557;"
       "max_successive_merges=5497;"
+      "strict_max_successive_merges=true;"
       "max_sequential_skip_in_iterations=4294971408;"
       "arena_block_size=1893;"
       "target_file_size_multiplier=35;"
@@ -553,6 +553,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
+      "default_write_temperature=kCold;"
       "default_temperature=kHot;"
       "preclude_last_level_data_seconds=86400;"
       "preserve_internal_time_seconds=86400;"

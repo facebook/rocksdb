@@ -4277,7 +4277,7 @@ class DeadlineRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
                      const IOOptions& options, IODebugContext* dbg) override;
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
+                     std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override;
 
@@ -4423,7 +4423,7 @@ IOStatus DeadlineRandomAccessFile::Read(uint64_t offset, size_t len,
 
 IOStatus DeadlineRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
   const std::chrono::microseconds deadline = fs_.GetDeadline();
   const std::chrono::microseconds io_timeout = fs_.GetIOTimeout();
@@ -4504,68 +4504,35 @@ TEST_P(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   SetTimeElapseOnlySleepOnReopen(&options);
   ReopenWithColumnFamilies(GetCFNames(), options);
 
-  // Test the non-batched version of MultiGet with multiple column
-  // families
+  // Test batched MultiGet with an IO delay in the first data block read.
+  // Both keys in the first CF should succeed as they're in the same data
+  // block and would form one batch, and we check for deadline between
+  // batches.
   std::vector<std::string> key_str;
   size_t i;
-  for (i = 0; i < 5; ++i) {
+  for (i = 0; i < 10; ++i) {
     key_str.emplace_back(Key(static_cast<int>(i)));
   }
   std::vector<ColumnFamilyHandle*> cfs(key_str.size());
-  ;
   std::vector<Slice> keys(key_str.size());
-  std::vector<std::string> values(key_str.size());
+  std::vector<PinnableSlice> pin_values(keys.size());
+
   for (i = 0; i < key_str.size(); ++i) {
-    cfs[i] = handles_[i];
+    // 2 keys per CF
+    cfs[i] = handles_[i / 2];
     keys[i] = Slice(key_str[i].data(), key_str[i].size());
   }
-
   ReadOptions ro;
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
   ro.async_io = GetParam();
   // Delay the first IO
   fs->SetDelayTrigger(ro.deadline, ro.io_timeout, 0);
 
-  std::vector<Status> statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
-  // The first key is successful because we check after the lookup, but
-  // subsequent keys fail due to deadline exceeded
-  CheckStatus(statuses, 1);
-
-  // Clear the cache
-  cache->SetCapacity(0);
-  cache->SetCapacity(1048576);
-  // Test non-batched Multiget with multiple column families and
-  // introducing an IO delay in one of the middle CFs
-  key_str.clear();
-  for (i = 0; i < 10; ++i) {
-    key_str.emplace_back(Key(static_cast<int>(i)));
-  }
-  cfs.resize(key_str.size());
-  keys.resize(key_str.size());
-  values.resize(key_str.size());
-  for (i = 0; i < key_str.size(); ++i) {
-    // 2 keys per CF
-    cfs[i] = handles_[i / 2];
-    keys[i] = Slice(key_str[i].data(), key_str[i].size());
-  }
-  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelayTrigger(ro.deadline, ro.io_timeout, 1);
-  statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
-  CheckStatus(statuses, 3);
-
-  // Test batched MultiGet with an IO delay in the first data block read.
-  // Both keys in the first CF should succeed as they're in the same data
-  // block and would form one batch, and we check for deadline between
-  // batches.
-  std::vector<PinnableSlice> pin_values(keys.size());
-  cache->SetCapacity(0);
-  cache->SetCapacity(1048576);
-  statuses.clear();
-  statuses.resize(keys.size());
-  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelayTrigger(ro.deadline, ro.io_timeout, 0);
+  std::vector<Status> statuses(key_str.size());
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
+  // The first key is successful because we check after the lookup, but
+  // subsequent keys fail due to deadline exceeded
   CheckStatus(statuses, 2);
 
   // Similar to the previous one, but an IO delay in the third CF data block

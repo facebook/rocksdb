@@ -115,6 +115,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"memtable_huge_page_size", "28"},
       {"bloom_locality", "29"},
       {"max_successive_merges", "30"},
+      {"strict_max_successive_merges", "true"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
       {"experimental_mempurge_threshold", "0.003"},
@@ -130,6 +131,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"default_write_temperature", "kCold"},
       {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
       {"memtable_max_range_deletions", "0"},
@@ -270,6 +272,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.memtable_huge_page_size, 28U);
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
+  ASSERT_EQ(new_cf_opt.strict_max_successive_merges, true);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
@@ -285,7 +288,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
-  ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.default_write_temperature, Temperature::kCold);
   ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
   ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
@@ -2333,6 +2336,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"memtable_huge_page_size", "28"},
       {"bloom_locality", "29"},
       {"max_successive_merges", "30"},
+      {"strict_max_successive_merges", "true"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
       {"experimental_mempurge_threshold", "0.003"},
@@ -2348,6 +2352,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"default_write_temperature", "kCold"},
       {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
       {"memtable_max_range_deletions", "0"},
@@ -2484,6 +2489,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.memtable_huge_page_size, 28U);
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
+  ASSERT_EQ(new_cf_opt.strict_max_successive_merges, true);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
@@ -2499,7 +2505,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
-  ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.default_write_temperature, Temperature::kCold);
   ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
   ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);

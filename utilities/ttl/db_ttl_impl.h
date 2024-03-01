@@ -53,14 +53,14 @@ class DBWithTTLImpl : public DBWithTTL {
 
   using StackableDB::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
 
   using StackableDB::MultiGet;
-  std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+  void MultiGet(const ReadOptions& options, const size_t num_keys,
+                ColumnFamilyHandle** column_families, const Slice* keys,
+                PinnableSlice* values, std::string* timestamps,
+                Status* statuses, const bool sorted_input) override;
 
   using StackableDB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& options,

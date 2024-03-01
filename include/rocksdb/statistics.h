@@ -72,6 +72,42 @@ enum Tickers : uint32_t {
   // # of bytes written into cache.
   BLOCK_CACHE_BYTES_WRITE,
 
+  BLOCK_CACHE_COMPRESSION_DICT_MISS,
+  BLOCK_CACHE_COMPRESSION_DICT_HIT,
+  BLOCK_CACHE_COMPRESSION_DICT_ADD,
+  BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
+
+  // # of blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_ADD_REDUNDANT <= BLOCK_CACHE_ADD
+  BLOCK_CACHE_ADD_REDUNDANT,
+  // # of index blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_INDEX_ADD_REDUNDANT <= BLOCK_CACHE_INDEX_ADD
+  BLOCK_CACHE_INDEX_ADD_REDUNDANT,
+  // # of filter blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_FILTER_ADD_REDUNDANT <= BLOCK_CACHE_FILTER_ADD
+  BLOCK_CACHE_FILTER_ADD_REDUNDANT,
+  // # of data blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_DATA_ADD_REDUNDANT <= BLOCK_CACHE_DATA_ADD
+  BLOCK_CACHE_DATA_ADD_REDUNDANT,
+  // # of dict blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT
+  //           <= BLOCK_CACHE_COMPRESSION_DICT_ADD
+  BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
+
+  // Secondary cache statistics
+  SECONDARY_CACHE_HITS,
+
+  // Fine grained secondary cache stats
+  SECONDARY_CACHE_FILTER_HITS,
+  SECONDARY_CACHE_INDEX_HITS,
+  SECONDARY_CACHE_DATA_HITS,
+
+  // Compressed secondary cache related stats
+  COMPRESSED_SECONDARY_CACHE_DUMMY_HITS,
+  COMPRESSED_SECONDARY_CACHE_HITS,
+  COMPRESSED_SECONDARY_CACHE_PROMOTIONS,
+  COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS,
+
   // # of times bloom filter has avoided file reads, i.e., negatives.
   BLOOM_FILTER_USEFUL,
   // # of times bloom FullFilter has not avoided the reads.
@@ -79,6 +115,16 @@ enum Tickers : uint32_t {
   // # of times bloom FullFilter has not avoided the reads and data actually
   // exist.
   BLOOM_FILTER_FULL_TRUE_POSITIVE,
+  // Prefix filter stats when used for point lookups (Get / MultiGet).
+  // (For prefix filter stats on iterators, see *_LEVEL_SEEK_*.)
+  // Checked: filter was queried
+  BLOOM_FILTER_PREFIX_CHECKED,
+  // Useful: filter returned false so prevented accessing data+index blocks
+  BLOOM_FILTER_PREFIX_USEFUL,
+  // True positive: found a key matching the point query. When another key
+  // with the same prefix matches, it is considered a false positive by
+  // these statistics even though the filter returned a true positive.
+  BLOOM_FILTER_PREFIX_TRUE_POSITIVE,
 
   // # persistent cache hit
   PERSISTENT_CACHE_HIT,
@@ -142,6 +188,15 @@ enum Tickers : uint32_t {
   // The number of uncompressed bytes read from an iterator.
   // Includes size of key and value.
   ITER_BYTES_READ,
+  // Number of internal keys skipped by Iterator
+  NUMBER_ITER_SKIP,
+  // Number of times we had to reseek inside an iteration to skip
+  // over large number of keys with same userkey.
+  NUMBER_OF_RESEEKS_IN_ITERATION,
+
+  NO_ITERATOR_CREATED,  // number of iterators created
+  NO_ITERATOR_DELETED,  // number of iterators deleted
+
   NO_FILE_OPENS,
   NO_FILE_ERRORS,
   // Writer has to wait for compaction or flush to finish.
@@ -154,23 +209,12 @@ enum Tickers : uint32_t {
   NUMBER_MULTIGET_CALLS,
   NUMBER_MULTIGET_KEYS_READ,
   NUMBER_MULTIGET_BYTES_READ,
+  // Number of keys actually found in MultiGet calls (vs number requested by
+  // caller)
+  // NUMBER_MULTIGET_KEYS_READ gives the number requested by caller
+  NUMBER_MULTIGET_KEYS_FOUND,
 
   NUMBER_MERGE_FAILURES,
-
-  // Prefix filter stats when used for point lookups (Get / MultiGet).
-  // (For prefix filter stats on iterators, see *_LEVEL_SEEK_*.)
-  // Checked: filter was queried
-  BLOOM_FILTER_PREFIX_CHECKED,
-  // Useful: filter returned false so prevented accessing data+index blocks
-  BLOOM_FILTER_PREFIX_USEFUL,
-  // True positive: found a key matching the point query. When another key
-  // with the same prefix matches, it is considered a false positive by
-  // these statistics even though the filter returned a true positive.
-  BLOOM_FILTER_PREFIX_TRUE_POSITIVE,
-
-  // Number of times we had to reseek inside an iteration to skip
-  // over large number of keys with same userkey.
-  NUMBER_OF_RESEEKS_IN_ITERATION,
 
   // Record the number of calls to GetUpdatesSince. Useful to keep track of
   // transaction log iterator refreshes
@@ -206,8 +250,35 @@ enum Tickers : uint32_t {
   NUMBER_BLOCK_COMPRESSED,
   NUMBER_BLOCK_DECOMPRESSED,
 
-  // DEPRECATED / unused (see NUMBER_BLOCK_COMPRESSION_*)
-  NUMBER_BLOCK_NOT_COMPRESSED,
+  // Number of input bytes (uncompressed) to compression for SST blocks that
+  // are stored compressed.
+  BYTES_COMPRESSED_FROM,
+  // Number of output bytes (compressed) from compression for SST blocks that
+  // are stored compressed.
+  BYTES_COMPRESSED_TO,
+  // Number of uncompressed bytes for SST blocks that are stored uncompressed
+  // because compression type is kNoCompression, or some error case caused
+  // compression not to run or produce an output. Index blocks are only counted
+  // if enable_index_compression is true.
+  BYTES_COMPRESSION_BYPASSED,
+  // Number of input bytes (uncompressed) to compression for SST blocks that
+  // are stored uncompressed because the compression result was rejected,
+  // either because the ratio was not acceptable (see
+  // CompressionOptions::max_compressed_bytes_per_kb) or found invalid by the
+  // `verify_compression` option.
+  BYTES_COMPRESSION_REJECTED,
+
+  // Like BYTES_COMPRESSION_BYPASSED but counting number of blocks
+  NUMBER_BLOCK_COMPRESSION_BYPASSED,
+  // Like BYTES_COMPRESSION_REJECTED but counting number of blocks
+  NUMBER_BLOCK_COMPRESSION_REJECTED,
+
+  // Number of input bytes (compressed) to decompression in reading compressed
+  // SST blocks from storage.
+  BYTES_DECOMPRESSED_FROM,
+  // Number of output bytes (uncompressed) from decompression in reading
+  // compressed SST blocks from storage.
+  BYTES_DECOMPRESSED_TO,
 
   // Tickers that record cumulative time.
   MERGE_OPERATION_TOTAL_TIME,
@@ -228,9 +299,6 @@ enum Tickers : uint32_t {
 
   // Number of refill intervals where rate limiter's bytes are fully consumed.
   NUMBER_RATE_LIMITER_DRAINS,
-
-  // Number of internal keys skipped by Iterator
-  NUMBER_ITER_SKIP,
 
   // BlobDB specific stats
   // # of Put/PutTTL/PutUntil to BlobDB. Only applicable to legacy BlobDB.
@@ -310,6 +378,20 @@ enum Tickers : uint32_t {
   // applicable to legacy BlobDB.
   BLOB_DB_FIFO_BYTES_EVICTED,
 
+  // Integrated BlobDB specific stats
+  // # of times cache miss when accessing blob from blob cache.
+  BLOB_DB_CACHE_MISS,
+  // # of times cache hit when accessing blob from blob cache.
+  BLOB_DB_CACHE_HIT,
+  // # of data blocks added to blob cache.
+  BLOB_DB_CACHE_ADD,
+  // # of failures when adding blobs to blob cache.
+  BLOB_DB_CACHE_ADD_FAILURES,
+  // # of bytes read from blob cache.
+  BLOB_DB_CACHE_BYTES_READ,
+  // # of bytes written into blob cache.
+  BLOB_DB_CACHE_BYTES_WRITE,
+
   // These counters indicate a performance issue in WritePrepared transactions.
   // We should not seem them ticking them much.
   // # of times prepare_mutex_ is acquired in the fast path.
@@ -322,36 +404,6 @@ enum Tickers : uint32_t {
   TXN_SNAPSHOT_MUTEX_OVERHEAD,
   // # of times ::Get returned TryAgain due to expired snapshot seq
   TXN_GET_TRY_AGAIN,
-
-  // Number of keys actually found in MultiGet calls (vs number requested by
-  // caller)
-  // NUMBER_MULTIGET_KEYS_READ gives the number requested by caller
-  NUMBER_MULTIGET_KEYS_FOUND,
-
-  NO_ITERATOR_CREATED,  // number of iterators created
-  NO_ITERATOR_DELETED,  // number of iterators deleted
-
-  BLOCK_CACHE_COMPRESSION_DICT_MISS,
-  BLOCK_CACHE_COMPRESSION_DICT_HIT,
-  BLOCK_CACHE_COMPRESSION_DICT_ADD,
-  BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
-
-  // # of blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_ADD_REDUNDANT <= BLOCK_CACHE_ADD
-  BLOCK_CACHE_ADD_REDUNDANT,
-  // # of index blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_INDEX_ADD_REDUNDANT <= BLOCK_CACHE_INDEX_ADD
-  BLOCK_CACHE_INDEX_ADD_REDUNDANT,
-  // # of filter blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_FILTER_ADD_REDUNDANT <= BLOCK_CACHE_FILTER_ADD
-  BLOCK_CACHE_FILTER_ADD_REDUNDANT,
-  // # of data blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_DATA_ADD_REDUNDANT <= BLOCK_CACHE_DATA_ADD
-  BLOCK_CACHE_DATA_ADD_REDUNDANT,
-  // # of dict blocks redundantly inserted into block cache.
-  // REQUIRES: BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT
-  //           <= BLOCK_CACHE_COMPRESSION_DICT_ADD
-  BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
 
   // # of files marked as trash by sst file manager and will be deleted
   // later by background thread.
@@ -376,9 +428,6 @@ enum Tickers : uint32_t {
   MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
   // Outdated bytes of data present on memtable at flush time.
   MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
-
-  // Secondary cache statistics
-  SECONDARY_CACHE_HITS,
 
   // Bytes read by `VerifyChecksum()` and `VerifyFileChecksums()` APIs.
   VERIFY_CHECKSUM_READ_BYTES,
@@ -440,29 +489,10 @@ enum Tickers : uint32_t {
 
   MULTIGET_COROUTINE_COUNT,
 
-  // Integrated BlobDB specific stats
-  // # of times cache miss when accessing blob from blob cache.
-  BLOB_DB_CACHE_MISS,
-  // # of times cache hit when accessing blob from blob cache.
-  BLOB_DB_CACHE_HIT,
-  // # of data blocks added to blob cache.
-  BLOB_DB_CACHE_ADD,
-  // # of failures when adding blobs to blob cache.
-  BLOB_DB_CACHE_ADD_FAILURES,
-  // # of bytes read from blob cache.
-  BLOB_DB_CACHE_BYTES_READ,
-  // # of bytes written into blob cache.
-  BLOB_DB_CACHE_BYTES_WRITE,
-
   // Time spent in the ReadAsync file system call
   READ_ASYNC_MICROS,
   // Number of errors returned to the async read callback
   ASYNC_READ_ERROR_COUNT,
-
-  // Fine grained secondary cache stats
-  SECONDARY_CACHE_FILTER_HITS,
-  SECONDARY_CACHE_INDEX_HITS,
-  SECONDARY_CACHE_DATA_HITS,
 
   // Number of lookup into the prefetched tail (see
   // `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
@@ -478,36 +508,6 @@ enum Tickers : uint32_t {
   TIMESTAMP_FILTER_TABLE_CHECKED,
   // # of times timestamps can successfully help skip the table access
   TIMESTAMP_FILTER_TABLE_FILTERED,
-
-  // Number of input bytes (uncompressed) to compression for SST blocks that
-  // are stored compressed.
-  BYTES_COMPRESSED_FROM,
-  // Number of output bytes (compressed) from compression for SST blocks that
-  // are stored compressed.
-  BYTES_COMPRESSED_TO,
-  // Number of uncompressed bytes for SST blocks that are stored uncompressed
-  // because compression type is kNoCompression, or some error case caused
-  // compression not to run or produce an output. Index blocks are only counted
-  // if enable_index_compression is true.
-  BYTES_COMPRESSION_BYPASSED,
-  // Number of input bytes (uncompressed) to compression for SST blocks that
-  // are stored uncompressed because the compression result was rejected,
-  // either because the ratio was not acceptable (see
-  // CompressionOptions::max_compressed_bytes_per_kb) or found invalid by the
-  // `verify_compression` option.
-  BYTES_COMPRESSION_REJECTED,
-
-  // Like BYTES_COMPRESSION_BYPASSED but counting number of blocks
-  NUMBER_BLOCK_COMPRESSION_BYPASSED,
-  // Like BYTES_COMPRESSION_REJECTED but counting number of blocks
-  NUMBER_BLOCK_COMPRESSION_REJECTED,
-
-  // Number of input bytes (compressed) to decompression in reading compressed
-  // SST blocks from storage.
-  BYTES_DECOMPRESSED_FROM,
-  // Number of output bytes (uncompressed) from decompression in reading
-  // compressed SST blocks from storage.
-  BYTES_DECOMPRESSED_TO,
 
   // Number of times readahead is trimmed during scans when
   // ReadOptions.auto_readahead_size is set.
@@ -525,12 +525,6 @@ enum Tickers : uint32_t {
 
   // Number of FS reads avoided due to scan prefetching
   PREFETCH_HITS,
-
-  // Compressed secondary cache related stats
-  COMPRESSED_SECONDARY_CACHE_DUMMY_HITS,
-  COMPRESSED_SECONDARY_CACHE_HITS,
-  COMPRESSED_SECONDARY_CACHE_PROMOTIONS,
-  COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS,
 
   TICKER_ENUM_MAX
 };
@@ -599,8 +593,6 @@ enum Histograms : uint32_t {
   BYTES_PER_WRITE,
   BYTES_PER_MULTIGET,
 
-  BYTES_COMPRESSED,    // DEPRECATED / unused (see BYTES_COMPRESSED_{FROM,TO})
-  BYTES_DECOMPRESSED,  // DEPRECATED / unused (see BYTES_DECOMPRESSED_{FROM,TO})
   COMPRESSION_TIMES_NANOS,
   DECOMPRESSION_TIMES_NANOS,
   // Number of merge operands passed to the merge operator in user read
@@ -640,11 +632,15 @@ enum Histograms : uint32_t {
   FLUSH_TIME,
   SST_BATCH_SIZE,
 
+  // Number of IOs issued in parallel in a MultiGet batch
+  MULTIGET_IO_BATCH_SIZE,
   // MultiGet stats logged per level
   // Num of index and filter blocks read from file system per level.
   NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
   // Num of sst files read from file system per level.
   NUM_SST_READ_PER_LEVEL,
+  // Number of levels requiring IO for MultiGet
+  NUM_LEVEL_READ_PER_MULTIGET,
 
   // Error handler statistics
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
@@ -655,12 +651,6 @@ enum Histograms : uint32_t {
 
   // Number of prefetched bytes discarded by RocksDB.
   PREFETCHED_BYTES_DISCARDED,
-
-  // Number of IOs issued in parallel in a MultiGet batch
-  MULTIGET_IO_BATCH_SIZE,
-
-  // Number of levels requiring IO for MultiGet
-  NUM_LEVEL_READ_PER_MULTIGET,
 
   // Wait time for aborting async read in FilePrefetchBuffer destructor
   ASYNC_PREFETCH_ABORT_MICROS,

@@ -248,7 +248,8 @@ class SstFileReaderTimestampTest : public testing::Test {
         : KeyValueDesc(std::move(k), std::string(ts), std::string(v)) {}
   };
 
-  void CreateFile(const std::vector<InputKeyValueDesc>& descs) {
+  void CreateFile(const std::vector<InputKeyValueDesc>& descs,
+                  ExternalSstFileInfo* file_info = nullptr) {
     SstFileWriter writer(soptions_, options_);
 
     ASSERT_OK(writer.Open(sst_name_));
@@ -276,7 +277,7 @@ class SstFileReaderTimestampTest : public testing::Test {
       }
     }
 
-    ASSERT_OK(writer.Finish());
+    ASSERT_OK(writer.Finish(file_info));
   }
 
   void CheckFile(const std::string& timestamp,
@@ -411,6 +412,119 @@ TEST_F(SstFileReaderTimestampTest, TimestampSizeMismatch) {
   ASSERT_NOK(writer.Delete("yet_another_key_still_no_timestamp"));
   ASSERT_NOK(writer.DeleteRange("begin_key_timestamp_absent",
                                 "end_key_with_a_complete_lack_of_timestamps"));
+}
+
+class SstFileReaderTimestampNotPersistedTest
+    : public SstFileReaderTimestampTest {
+ public:
+  SstFileReaderTimestampNotPersistedTest() {
+    Env* env = Env::Default();
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env, &env_guard_));
+    EXPECT_NE(nullptr, env);
+
+    options_.env = env;
+
+    options_.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+    options_.persist_user_defined_timestamps = false;
+
+    sst_name_ = test::PerThreadDBPath("sst_file_ts_not_persisted");
+  }
+
+  ~SstFileReaderTimestampNotPersistedTest() {}
+};
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, Basic) {
+  std::vector<InputKeyValueDesc> input_descs;
+
+  for (uint64_t k = 0; k < kNumKeys; k++) {
+    input_descs.emplace_back(
+        /* key */ EncodeAsString(k), /* timestamp */ EncodeAsUint64(0),
+        /* value */ EncodeAsString(k), /* is_delete */ false,
+        /* use_contiguous_buffer */ (k % 2) == 0);
+  }
+
+  ExternalSstFileInfo external_sst_file_info;
+
+  CreateFile(input_descs, &external_sst_file_info);
+  std::vector<OutputKeyValueDesc> output_descs;
+
+  for (uint64_t k = 0; k < kNumKeys; k++) {
+    output_descs.emplace_back(/* key */ EncodeAsString(k),
+                              /* timestamp */ EncodeAsUint64(0),
+                              /* value */ EncodeAsString(k));
+  }
+  CheckFile(EncodeAsUint64(0), output_descs);
+  ASSERT_EQ(external_sst_file_info.smallest_key, EncodeAsString(0));
+  ASSERT_EQ(external_sst_file_info.largest_key, EncodeAsString(kNumKeys - 1));
+  ASSERT_EQ(external_sst_file_info.smallest_range_del_key, "");
+  ASSERT_EQ(external_sst_file_info.largest_range_del_key, "");
+}
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, NonMinTimestampNotAllowed) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  ASSERT_NOK(writer.Delete("baz", EncodeAsUint64(2)));
+  ASSERT_OK(writer.Put("baz", EncodeAsUint64(0), "foo_val"));
+
+  ASSERT_NOK(writer.Put("key", EncodeAsUint64(2), "value1"));
+  ASSERT_OK(writer.Put("key", EncodeAsUint64(0), "value2"));
+
+  // The `SstFileWriter::DeleteRange` API documentation specifies that
+  // a range deletion tombstone added in the file does NOT delete point
+  // (Put/Merge/Delete) keys in the same file. While there is no checks in
+  // `SstFileWriter` to ensure this requirement is met, when such a range
+  // deletion does exist, it will get over-written by point data in the same
+  // file after ingestion because they have the same sequence number.
+  // We allow having a point data entry and having a range deletion entry for
+  // a key in the same file when timestamps are removed for the same reason.
+  // After the file is ingested, the range deletion will effectively get
+  // over-written by the point data since they will have the same sequence
+  // number and the same user-defined timestamps.
+  ASSERT_NOK(writer.DeleteRange("bar", "foo", EncodeAsUint64(2)));
+  ASSERT_OK(writer.DeleteRange("bar", "foo", EncodeAsUint64(0)));
+
+  ExternalSstFileInfo external_sst_file_info;
+
+  ASSERT_OK(writer.Finish(&external_sst_file_info));
+  ASSERT_EQ(external_sst_file_info.smallest_key, "baz");
+  ASSERT_EQ(external_sst_file_info.largest_key, "key");
+  ASSERT_EQ(external_sst_file_info.smallest_range_del_key, "bar");
+  ASSERT_EQ(external_sst_file_info.largest_range_del_key, "foo");
+}
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, KeyWithoutTimestampOutOfOrder) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  ASSERT_OK(writer.Put("foo", EncodeAsUint64(0), "value1"));
+  ASSERT_NOK(writer.Put("bar", EncodeAsUint64(0), "value2"));
+}
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, IncompatibleTimestampFormat) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  // Even though in this mode timestamps are not persisted, we require users
+  // to call the timestamp-aware APIs only.
+  ASSERT_TRUE(writer.Put("key", "not_an_actual_64_bit_timestamp", "value")
+                  .IsInvalidArgument());
+  ASSERT_TRUE(writer.Delete("another_key", "timestamp_of_unexpected_size")
+                  .IsInvalidArgument());
+
+  ASSERT_TRUE(writer.Put("key_without_timestamp", "value").IsInvalidArgument());
+  ASSERT_TRUE(writer.Merge("another_key_missing_a_timestamp", "merge_operand")
+                  .IsInvalidArgument());
+  ASSERT_TRUE(
+      writer.Delete("yet_another_key_still_no_timestamp").IsInvalidArgument());
+  ASSERT_TRUE(writer
+                  .DeleteRange("begin_key_timestamp_absent",
+                               "end_key_with_a_complete_lack_of_timestamps")
+                  .IsInvalidArgument());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

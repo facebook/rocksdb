@@ -204,6 +204,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->memtable_whole_key_filtering = moptions.memtable_whole_key_filtering;
   cf_opts->memtable_huge_page_size = moptions.memtable_huge_page_size;
   cf_opts->max_successive_merges = moptions.max_successive_merges;
+  cf_opts->strict_max_successive_merges = moptions.strict_max_successive_merges;
   cf_opts->inplace_update_num_locks = moptions.inplace_update_num_locks;
   cf_opts->prefix_extractor = moptions.prefix_extractor;
   cf_opts->experimental_mempurge_threshold =
@@ -271,7 +272,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->sample_for_compression = moptions.sample_for_compression;
   cf_opts->compression_per_level = moptions.compression_per_level;
   cf_opts->last_level_temperature = moptions.last_level_temperature;
-  cf_opts->bottommost_temperature = moptions.last_level_temperature;
+  cf_opts->default_write_temperature = moptions.default_write_temperature;
   cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
 }
 

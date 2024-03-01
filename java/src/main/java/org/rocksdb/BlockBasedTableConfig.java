@@ -37,7 +37,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     wholeKeyFiltering = true;
     verifyCompression = false;
     readAmpBytesPerBit = 0;
-    formatVersion = 5;
+    formatVersion = 6;
     enableIndexCompression = true;
     blockAlign = false;
     indexShortening = IndexShorteningMode.kShortenSeparators;

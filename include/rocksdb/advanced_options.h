@@ -649,17 +649,28 @@ struct AdvancedColumnFamilyOptions {
   TablePropertiesCollectorFactories table_properties_collector_factories;
 
   // Maximum number of successive merge operations on a key in the memtable.
+  // It may be violated when filesystem reads would be needed to stay under the
+  // limit, unless `strict_max_successive_merges` is explicitly set.
   //
   // When a merge operation is added to the memtable and the maximum number of
-  // successive merges is reached, the value of the key will be calculated and
-  // inserted into the memtable instead of the merge operation. This will
-  // ensure that there are never more than max_successive_merges merge
-  // operations in the memtable.
+  // successive merges is reached, RocksDB will attempt to read the value. Upon
+  // success, the value will be inserted into the memtable instead of the merge
+  // operation.
   //
   // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
   size_t max_successive_merges = 0;
+
+  // Whether to allow filesystem reads to stay under the `max_successive_merges`
+  // limit. When true, this can lead to merge writes blocking the write path
+  // waiting on filesystem reads.
+  //
+  // This option is temporary in case the recent change to disallow filesystem
+  // reads during merge writes has a problem and users need to undo it quickly.
+  //
+  // Default: false
+  bool strict_max_successive_merges = false;
 
   // This flag specifies that the implementation should optimize the filters
   // mainly for cases where keys are found rather than also optimize for keys
@@ -792,27 +803,28 @@ struct AdvancedColumnFamilyOptions {
   uint64_t sample_for_compression = 0;
 
   // EXPERIMENTAL
-  // The feature is still in development and is incomplete.
   // If this option is set, when creating the last level files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
-  //
-  // Note: the feature is changed from `bottommost_temperature` to
-  //  `last_level_temperature` which now only apply for the last level files.
-  //  The option name `bottommost_temperature` is kept only for migration, the
-  //  behavior is the same as `last_level_temperature`. Please stop using
-  //  `bottommost_temperature` and will be removed in next release.
+  // When using FIFO compaction, this option is ignored.
   //
   // Dynamically changeable through the SetOptions() API
-  Temperature bottommost_temperature = Temperature::kUnknown;
   Temperature last_level_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
+  // When no other option such as last_level_temperature determines the
+  // temperature of a new SST file, it will be written with this temperature,
+  // which can be set differently for each column family.
+  //
+  // Dynamically changeable through the SetOptions() API
+  Temperature default_write_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
   // When this field is set, all SST files without an explicitly set temperature
   // will be treated as if they have this temperature for file reading
   // accounting purpose, such as io statistics, io perf context.
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Not dynamically changeable; change requires DB restart.
   Temperature default_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
