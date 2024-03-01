@@ -2506,6 +2506,9 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
   VersionSetAtomicGroupTest()
       : VersionSetTestBase("version_set_atomic_group_test") {}
 
+  explicit VersionSetAtomicGroupTest(const std::string& name)
+      : VersionSetTestBase(name) {}
+
   void SetUp() override {
     PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
     SetupTestSyncPoints();
@@ -2870,6 +2873,51 @@ TEST_F(VersionSetAtomicGroupTest,
   mu.Unlock();
   EXPECT_EQ(edits_[1].DebugString(),
             edit_with_incorrect_group_size_.DebugString());
+}
+
+class AtomicGroupBestEffortRecoveryTest : public VersionSetAtomicGroupTest {
+ public:
+  AtomicGroupBestEffortRecoveryTest()
+      : VersionSetAtomicGroupTest("atomic_group_best_effort_recovery_test") {}
+};
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupUpdatesValidInitially) {
+  // One AtomicGroup contains updates that are valid at the outset.
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesValidLater) {
+  // One AtomicGroup contains updates that become valid after applying further
+  // updates.
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesInvalid) {
+  // One AtomicGroup contains updates that never become valid.
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupUpdatesValidTooLate) {
+  // One AtomicGroup contains updates that become valid after the next
+  // AtomicGroup is reached, which is too late.
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupUpdatesInDuplicateInvalid) {
+  // One AtomicGroup has multiple updates for the same CF. One of the earlier
+  // updates for this CF can lead to a valid state if applied. But the last
+  // update for this CF is invalid so the AtomicGroup must not be recovered.
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupMadeWholeByDeletingCf) {
+  // One AtomicGroup contains an update that becomes valid when its column
+  // family is deleted, making it irrelevant.
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupMadeWholeAfterNewCf) {
+  // One AtomicGroup contains updates that become valid after a new column
+  // family is added.
 }
 
 class VersionSetTestDropOneCF : public VersionSetTestBase,
