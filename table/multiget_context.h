@@ -6,6 +6,7 @@
 #pragma once
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <string>
 
 #include "db/dbformat.h"
@@ -96,16 +97,15 @@ struct KeyContext {
 //  }
 class MultiGetContext {
  public:
-  // Limit the number of keys in a batch to this number. Benchmarks show that
-  // there is negligible benefit for batches exceeding this. Keeping this < 32
-  // simplifies iteration, as well as reduces the amount of stack allocations
-  // that need to be performed
-  static const int MAX_BATCH_SIZE = 32;
+  // RocksDB-Cloud contributions below. Summary:
+  // Changed to use std::bitset as a mask and increased MAX_BATCH_SIZE to 128.
+
+  // Limit the number of keys in a batch to this number.
+  static const int MAX_BATCH_SIZE = 128;
 
   // A bitmask of at least MAX_BATCH_SIZE - 1 bits, so that
   // Mask{1} << MAX_BATCH_SIZE is well defined
-  using Mask = uint64_t;
-  static_assert(MAX_BATCH_SIZE < sizeof(Mask) * 8);
+  using Mask = std::bitset<MAX_BATCH_SIZE>;
 
   MultiGetContext(autovector<KeyContext*, MAX_BATCH_SIZE>* sorted_keys,
                   size_t begin, size_t num_keys, SequenceNumber snapshot,
@@ -200,11 +200,11 @@ class MultiGetContext {
 
       Iterator(const Range* range, size_t idx)
           : range_(range), ctx_(range->ctx_), index_(idx) {
-        while (index_ < range_->end_ &&
-               (Mask{1} << index_) &
-                   (range_->ctx_->value_mask_ | range_->skip_mask_ |
-                    range_->invalid_mask_))
+        Mask combinedMask = range_->ctx_->value_mask_ | range_->skip_mask_ |
+                            range_->invalid_mask_;
+        while (index_ < range_->end_ && combinedMask[index_]) {
           index_++;
+        }
       }
 
       Iterator(const Iterator&) = default;
@@ -216,11 +216,10 @@ class MultiGetContext {
       Iterator& operator=(const Iterator&) = default;
 
       Iterator& operator++() {
-        while (++index_ < range_->end_ &&
-               (Mask{1} << index_) &
-                   (range_->ctx_->value_mask_ | range_->skip_mask_ |
-                    range_->invalid_mask_))
-          ;
+        Mask combinedMask = range_->ctx_->value_mask_ | range_->skip_mask_ |
+                            range_->invalid_mask_;
+        while (++index_ < range_->end_ && combinedMask[index_]) {
+        }
         return *this;
       }
 
@@ -267,8 +266,8 @@ class MultiGetContext {
       }
       skip_mask_ = mget_range.skip_mask_;
       invalid_mask_ = mget_range.invalid_mask_;
-      assert(start_ < 64);
-      assert(end_ < 64);
+      assert(start_ <= MAX_BATCH_SIZE);
+      assert(end_ <= MAX_BATCH_SIZE);
     }
 
     Range() = default;
@@ -277,27 +276,25 @@ class MultiGetContext {
 
     Iterator end() const { return Iterator(this, end_); }
 
-    bool empty() const { return RemainingMask() == 0; }
+    bool empty() const { return RemainingMask().none(); }
 
-    void SkipIndex(size_t index) { skip_mask_ |= Mask{1} << index; }
+    void SkipIndex(size_t index) { skip_mask_.set(index); }
 
     void SkipKey(const Iterator& iter) { SkipIndex(iter.index_); }
 
     bool IsKeySkipped(const Iterator& iter) const {
-      return skip_mask_ & (Mask{1} << iter.index_);
+      return skip_mask_[iter.index_];
     }
 
     // Update the value_mask_ in MultiGetContext so its
     // immediately reflected in all the Range Iterators
-    void MarkKeyDone(Iterator& iter) {
-      ctx_->value_mask_ |= (Mask{1} << iter.index_);
-    }
+    void MarkKeyDone(Iterator& iter) { ctx_->value_mask_.set(iter.index_); }
 
     bool CheckKeyDone(Iterator& iter) const {
-      return ctx_->value_mask_ & (Mask{1} << iter.index_);
+      return ctx_->value_mask_[iter.index_];
     }
 
-    uint64_t KeysLeft() const { return BitsSetToOne(RemainingMask()); }
+    uint64_t KeysLeft() const { return RemainingMask().count(); }
 
     void AddSkipsFrom(const Range& other) {
       assert(ctx_ == other.ctx_);
@@ -338,8 +335,8 @@ class MultiGetContext {
       skip_mask_ |= rhs.skip_mask_ & RangeMask(rhs.start_, rhs.end_);
       invalid_mask_ |= (rhs.invalid_mask_ | rhs.skip_mask_) &
                        RangeMask(rhs.start_, rhs.end_);
-      assert(start_ < 64);
-      assert(end_ < 64);
+      assert(start_ <= MAX_BATCH_SIZE);
+      assert(end_ <= MAX_BATCH_SIZE);
       return *this;
     }
 
@@ -376,22 +373,27 @@ class MultiGetContext {
           end_(num_keys),
           skip_mask_(0),
           invalid_mask_(0) {
-      assert(num_keys < 64);
+      assert(num_keys <= MAX_BATCH_SIZE);
     }
 
+    // Return a bit mask with bits [start, end) set.
     static Mask RangeMask(size_t start, size_t end) {
-      return (((Mask{1} << (end - start)) - 1) << start);
+      Mask bits;
+      bits.set();  // Set all bits to 1.
+      // shift left/right to zero out unneded bits.
+      bits >>= (bits.size() - end + start);
+      bits <<= start;
+      return bits;
     }
 
     Mask RemainingMask() const {
-      return (((Mask{1} << end_) - 1) & ~((Mask{1} << start_) - 1) &
-              ~(ctx_->value_mask_ | skip_mask_));
+      return RangeMask(start_, end_) & ~(ctx_->value_mask_ | skip_mask_);
     }
 
     size_t FindLastRemaining() const {
       Mask mask = RemainingMask();
-      size_t index = (mask >>= start_) ? start_ : 0;
-      while (mask >>= 1) {
+      size_t index = (mask >>= start_).any() ? start_ : 0;
+      while ((mask >>= 1).any()) {
         index++;
       }
       return index;
