@@ -308,9 +308,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
 
   // Populate a tempfile and then rename it to atomically create "<seqno>.state"
   // with contents from "LATEST.state"
-  Status s = CopyFile(FileSystem::Default(), latest_file_path,
-                      state_file_temp_path, 0 /* size */, false /* use_fsync */,
-                      nullptr /* io_tracer */, Temperature::kUnknown);
+  Status s =
+      CopyFile(FileSystem::Default(), latest_file_path, Temperature::kUnknown,
+               state_file_temp_path, Temperature::kUnknown, 0 /* size */,
+               false /* use_fsync */, nullptr /* io_tracer */);
   if (s.ok()) {
     s = FileSystem::Default()->RenameFile(state_file_temp_path, state_file_path,
                                           IOOptions(), nullptr /* dbg */);
@@ -633,9 +634,9 @@ Status FileExpectedStateManager::Restore(DB* db) {
     // We are going to replay on top of "`seqno`.state" to create a new
     // "LATEST.state". Start off by creating a tempfile so we can later make the
     // new "LATEST.state" appear atomically using `RenameFile()`.
-    s = CopyFile(FileSystem::Default(), state_file_path, latest_file_temp_path,
-                 0 /* size */, false /* use_fsync */, nullptr /* io_tracer */,
-                 Temperature::kUnknown);
+    s = CopyFile(FileSystem::Default(), state_file_path, Temperature::kUnknown,
+                 latest_file_temp_path, Temperature::kUnknown, 0 /* size */,
+                 false /* use_fsync */, nullptr /* io_tracer */);
   }
 
   {

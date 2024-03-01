@@ -126,9 +126,10 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         }
       }
       if (!hardlink_files) {
-        status =
-            CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                     db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
+        // FIXME: temperature handling (like ExternalSstFileIngestionJob)
+        status = CopyFile(fs_.get(), path_outside_db, Temperature::kUnknown,
+                          path_inside_db, Temperature::kUnknown, 0,
+                          db_options_.use_fsync, io_tracer_);
       }
       if (!status.ok()) {
         break;
