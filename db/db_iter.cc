@@ -43,8 +43,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
                uint64_t max_sequential_skip_in_iterations,
-               ReadCallback* read_callback, DBImpl* db_impl,
-               ColumnFamilyData* cfd, bool expose_blob_index)
+               ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
+               bool expose_blob_index)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -79,8 +79,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       is_blob_(false),
       arena_mode_(arena_mode),
       io_activity_(read_options.io_activity),
-      db_impl_(db_impl),
-      cfd_(cfd),
+      cfh_(cfh),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
@@ -1459,7 +1458,7 @@ void DBIter::Seek(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-  if (db_impl_ != nullptr && cfd_ != nullptr) {
+  if (cfh_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
     if (iterate_lower_bound_ != nullptr) {
@@ -1472,7 +1471,9 @@ void DBIter::Seek(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target, lower_bound, upper_bound)
+    cfh_->db()
+        ->TraceIteratorSeek(cfh_->cfd()->GetID(), target, lower_bound,
+                            upper_bound)
         .PermitUncheckedError();
   }
 
@@ -1533,7 +1534,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-  if (db_impl_ != nullptr && cfd_ != nullptr) {
+  if (cfh_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
     if (iterate_lower_bound_ != nullptr) {
@@ -1546,8 +1547,8 @@ void DBIter::SeekForPrev(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    db_impl_
-        ->TraceIteratorSeekForPrev(cfd_->GetID(), target, lower_bound,
+    cfh_->db()
+        ->TraceIteratorSeekForPrev(cfh_->cfd()->GetID(), target, lower_bound,
                                    upper_bound)
         .PermitUncheckedError();
   }
@@ -1711,13 +1712,12 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         InternalIterator* internal_iter, const Version* version,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
-                        ReadCallback* read_callback, DBImpl* db_impl,
-                        ColumnFamilyData* cfd, bool expose_blob_index) {
-  DBIter* db_iter =
-      new DBIter(env, read_options, ioptions, mutable_cf_options,
-                 user_key_comparator, internal_iter, version, sequence, false,
-                 max_sequential_skip_in_iterations, read_callback, db_impl, cfd,
-                 expose_blob_index);
+                        ReadCallback* read_callback,
+                        ColumnFamilyHandleImpl* cfh, bool expose_blob_index) {
+  DBIter* db_iter = new DBIter(
+      env, read_options, ioptions, mutable_cf_options, user_key_comparator,
+      internal_iter, version, sequence, false,
+      max_sequential_skip_in_iterations, read_callback, cfh, expose_blob_index);
   return db_iter;
 }
 

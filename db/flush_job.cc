@@ -856,6 +856,8 @@ Status FlushJob::WriteLevel0Table() {
     seqno_to_time_mapping_.CopyFromSeqnoRange(db_impl_seqno_to_time_mapping_,
                                               smallest_seqno);
   }
+  meta_.temperature = mutable_cf_options_.default_write_temperature;
+  file_options_.temperature = meta_.temperature;
 
   std::vector<BlobFileAddition> blob_file_additions;
 

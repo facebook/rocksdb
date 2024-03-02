@@ -116,7 +116,8 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
       std::move(inputs), 0, 0, 0, 0, kNoCompression,
-      mutable_cf_options.compression_opts, Temperature::kUnknown,
+      mutable_cf_options.compression_opts,
+      mutable_cf_options.default_write_temperature,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true, /* l0_files_might_overlap */ true,
@@ -185,7 +186,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             {comp_inputs}, 0, 16 * 1024 * 1024 /* output file size limit */,
             0 /* max compaction bytes, not applicable */,
             0 /* output path ID */, mutable_cf_options.compression,
-            mutable_cf_options.compression_opts, Temperature::kUnknown,
+            mutable_cf_options.compression_opts,
+            mutable_cf_options.default_write_temperature,
             0 /* max_subcompactions */, {}, /* is manual */ false,
             /* trim_ts */ "", vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
@@ -280,7 +282,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       /* target_file_size */ 0,
       /* max_compaction_bytes */ 0,
       /* output_path_id */ 0, kNoCompression,
-      mutable_cf_options.compression_opts, Temperature::kUnknown,
+      mutable_cf_options.compression_opts,
+      mutable_cf_options.default_write_temperature,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true,
@@ -414,6 +417,7 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
   if (inputs[0].files.empty()) {
     return nullptr;
   }
+  assert(compaction_target_temp != Temperature::kLastTemperature);
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,

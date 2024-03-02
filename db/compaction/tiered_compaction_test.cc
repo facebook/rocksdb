@@ -17,9 +17,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-
-class TieredCompactionTest : public DBTestBase,
-                             public testing::WithParamInterface<bool> {
+class TieredCompactionTest : public DBTestBase {
  public:
   TieredCompactionTest()
       : DBTestBase("tiered_compaction_test", /*env_do_fsync=*/true),
@@ -123,14 +121,8 @@ class TieredCompactionTest : public DBTestBase,
     pl_stats.Clear();
   }
 
-  // bottommost_temperature is renaming to last_level_temperature, set either
-  // of them should have the same effect.
   void SetColdTemperature(Options& options) {
-    if (GetParam()) {
-      options.bottommost_temperature = Temperature::kCold;
-    } else {
-      options.last_level_temperature = Temperature::kCold;
-    }
+    options.last_level_temperature = Temperature::kCold;
   }
 
  private:
@@ -172,7 +164,7 @@ class TieredCompactionTest : public DBTestBase,
   }
 };
 
-TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
+TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -334,7 +326,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
+TEST_F(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -508,7 +500,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
       1);
 }
 
-TEST_P(TieredCompactionTest, LevelColdRangeDelete) {
+TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -614,7 +606,7 @@ class SingleKeySstPartitionerFactory : public SstPartitionerFactory {
   }
 };
 
-TEST_P(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
+TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 3;
   const int kNumKeys = 10;
@@ -743,7 +735,7 @@ TEST_P(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, UniversalRangeDelete) {
+TEST_F(TieredCompactionTest, UniversalRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 10;
@@ -875,7 +867,7 @@ TEST_P(TieredCompactionTest, UniversalRangeDelete) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
+TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -1099,7 +1091,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
+TEST_F(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -1240,10 +1232,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   db_->ReleaseSnapshot(temp_snap);
 }
 
-INSTANTIATE_TEST_CASE_P(TieredCompactionTest, TieredCompactionTest,
-                        testing::Bool());
-
-TEST_P(TieredCompactionTest, CheckInternalKeyRange) {
+TEST_F(TieredCompactionTest, CheckInternalKeyRange) {
   // When compacting keys from the last level to penultimate level,
   // output to penultimate level should be within internal key range
   // of input files from penultimate level.

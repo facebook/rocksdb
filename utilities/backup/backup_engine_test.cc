@@ -2734,12 +2734,14 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
         std::make_shared<GenericRateLimiter>(
             limit.first, 100 * 1000 /* refill_period_us */, 10 /* fairness */,
             RateLimiter::Mode::kWritesOnly /* mode */,
-            special_env->GetSystemClock(), false /* auto_tuned */);
+            special_env->GetSystemClock(), false /* auto_tuned */,
+            0 /* single_burst_bytes */);
     std::shared_ptr<RateLimiter> restore_rate_limiter =
         std::make_shared<GenericRateLimiter>(
             limit.second, 100 * 1000 /* refill_period_us */, 10 /* fairness */,
             RateLimiter::Mode::kWritesOnly /* mode */,
-            special_env->GetSystemClock(), false /* auto_tuned */);
+            special_env->GetSystemClock(), false /* auto_tuned */,
+            0 /* single_burst_bytes */);
     engine_options_->backup_rate_limiter = backup_rate_limiter;
     engine_options_->restore_rate_limiter = restore_rate_limiter;
   } else {
@@ -2807,7 +2809,8 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
         std::make_shared<GenericRateLimiter>(
             backup_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
             10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
-            special_env->GetSystemClock(), false /* auto_tuned */);
+            special_env->GetSystemClock(), false /* auto_tuned */,
+            0 /* single_burst_bytes */);
     engine_options_->backup_rate_limiter = backup_rate_limiter;
   } else {
     engine_options_->backup_rate_limit = backup_rate_limiter_limit;
@@ -3003,7 +3006,8 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
       std::make_shared<GenericRateLimiter>(
           backup_rate_limiter_limit, 1000 * 1000 /* refill_period_us */,
           10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
-          special_env.GetSystemClock(), false /* auto_tuned */));
+          special_env.GetSystemClock(), false /* auto_tuned */,
+          0 /* single_burst_bytes */));
 
   engine_options_->backup_rate_limiter = backup_rate_limiter;
 
@@ -3012,7 +3016,8 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
       std::make_shared<GenericRateLimiter>(
           restore_rate_limiter_limit, 1000 * 1000 /* refill_period_us */,
           10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
-          special_env.GetSystemClock(), false /* auto_tuned */));
+          special_env.GetSystemClock(), false /* auto_tuned */,
+          0 /* single_burst_bytes */));
 
   engine_options_->restore_rate_limiter = restore_rate_limiter;
 
@@ -4179,7 +4184,7 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   SetEnvsFromFileSystems();
 
   // Use temperatures
-  options_.bottommost_temperature = Temperature::kWarm;
+  options_.last_level_temperature = Temperature::kWarm;
   options_.level0_file_num_compaction_trigger = 2;
   // set dynamic_level to true so the compaction would compact the data to the
   // last level directly which will have the last_level_temperature

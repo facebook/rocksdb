@@ -428,6 +428,17 @@ struct CompactionServiceJobInfo {
         priority(priority_) {}
 };
 
+struct CompactionServiceScheduleResponse {
+  std::string scheduled_job_id;  // Generated outside of primary host, unique
+                                 // across different DBs and sessions
+  CompactionServiceJobStatus status;
+  CompactionServiceScheduleResponse(std::string scheduled_job_id_,
+                                    CompactionServiceJobStatus status_)
+      : scheduled_job_id(scheduled_job_id_), status(status_) {}
+  explicit CompactionServiceScheduleResponse(CompactionServiceJobStatus status_)
+      : status(status_) {}
+};
+
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
@@ -437,6 +448,24 @@ class CompactionService : public Customizable {
 
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
+
+  // Schedule compaction to be processed remotely.
+  virtual CompactionServiceScheduleResponse Schedule(
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
+    CompactionServiceScheduleResponse response(
+        CompactionServiceJobStatus::kUseLocal);
+    return response;
+  }
+
+  // Wait for the scheduled compaction to finish from the remote worker
+  virtual CompactionServiceJobStatus Wait(
+      const std::string& /*scheduled_job_id*/, std::string* /*result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  // Deprecated. Please implement Schedule() and Wait() API to handle remote
+  // compaction
 
   // Start the remote compaction with `compaction_service_input`, which can be
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the

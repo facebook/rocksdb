@@ -65,7 +65,7 @@ DBT *toku_init_dbt(DBT *dbt) {
 }
 
 DBT toku_empty_dbt(void) {
-  static const DBT empty_dbt = {.data = 0, .size = 0, .ulen = 0, .flags = 0};
+  static const DBT empty_dbt = {.data = nullptr, .size = 0, .ulen = 0, .flags = 0};
   return empty_dbt;
 }
 
@@ -118,13 +118,13 @@ void toku_sdbt_cleanup(struct simple_dbt *sdbt) {
 
 const DBT *toku_dbt_positive_infinity(void) {
   static DBT positive_infinity_dbt = {
-      .data = 0, .size = 0, .ulen = 0, .flags = 0};  // port
+      .data = nullptr, .size = 0, .ulen = 0, .flags = 0};  // port
   return &positive_infinity_dbt;
 }
 
 const DBT *toku_dbt_negative_infinity(void) {
   static DBT negative_infinity_dbt = {
-      .data = 0, .size = 0, .ulen = 0, .flags = 0};  // port
+      .data = nullptr, .size = 0, .ulen = 0, .flags = 0};  // port
   return &negative_infinity_dbt;
 }
 
