@@ -104,7 +104,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   if (result.recycle_log_file_num &&
       (result.wal_recovery_mode ==
            WALRecoveryMode::kTolerateCorruptedTailRecords ||
-       result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
        result.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
     // - kTolerateCorruptedTailRecords is inconsistent with recycle log file
     //   feature. WAL recycling expects recovery success upon encountering a
@@ -1086,6 +1085,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     Logger* info_log;
     const char* fname;
     Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
+    bool* old_log_record;
     void Corruption(size_t bytes, const Status& s) override {
       ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
                      (status == nullptr ? "(ignoring error) " : ""), fname,
@@ -1094,10 +1094,19 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         *status = s;
       }
     }
+
+    void OldLogRecord(size_t bytes) override {
+      if (old_log_record != nullptr) {
+        *old_log_record = true;
+      }
+      ROCKS_LOG_WARN(info_log, "%s: dropping %d bytes; possibly recycled",
+                     fname, static_cast<int>(bytes));
+    }
   };
 
   mutex_.AssertHeld();
   Status status;
+  bool old_log_record = false;
   std::unordered_map<int, VersionEdit> version_edits;
   // no need to refcount because iteration is under mutex
   for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -1188,6 +1197,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     reporter.env = env_;
     reporter.info_log = immutable_db_options_.info_log.get();
     reporter.fname = fname.c_str();
+    reporter.old_log_record = &old_log_record;
     if (!immutable_db_options_.paranoid_checks ||
         immutable_db_options_.wal_recovery_mode ==
             WALRecoveryMode::kSkipAnyCorruptedRecords) {
@@ -1335,7 +1345,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
     }
 
-    if (!status.ok()) {
+    if (!status.ok() || old_log_record) {
       if (status.IsNotSupported()) {
         // We should not treat NotSupported as corruption. It is rather a clear
         // sign that we are processing a WAL that is produced by an incompatible
@@ -1360,6 +1370,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         }
         // We should ignore the error but not continue replaying
         status = Status::OK();
+        old_log_record = false;
         stop_replay_for_corruption = true;
         corrupted_wal_number = wal_number;
         if (corrupted_wal_found != nullptr) {

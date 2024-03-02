@@ -258,6 +258,10 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
             //  writing a physical record but before completing the next; don't
             //  treat it as a corruption, just ignore the entire logical record.
             scratch->clear();
+          } else {
+            if (wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery) {
+              ReportOldLogRecord(scratch->size());
+            }
           }
           return false;
         }
@@ -402,6 +406,12 @@ void Reader::ReportCorruption(size_t bytes, const char* reason) {
 void Reader::ReportDrop(size_t bytes, const Status& reason) {
   if (reporter_ != nullptr) {
     reporter_->Corruption(bytes, reason);
+  }
+}
+
+void Reader::ReportOldLogRecord(size_t bytes) {
+  if (reporter_ != nullptr) {
+    reporter_->OldLogRecord(bytes);
   }
 }
 

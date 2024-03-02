@@ -1757,7 +1757,8 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
           wal.GetPreSyncSize() > 0) {
         synced_wals->AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
       }
-      if (wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize()) {
+      if (immutable_db_options_.recycle_log_file_num > 0 ||
+          wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize()) {
         // Fully synced
         logs_to_free_.push_back(wal.ReleaseWriter());
         it = logs_.erase(it);
