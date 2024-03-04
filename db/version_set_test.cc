@@ -2985,6 +2985,12 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
 TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesValidLater) {
   // One AtomicGroup contains updates that become valid after applying further
   // updates.
+
+  // `SetupTestSyncPoints()` creates sync points that assume there is only one
+  // AtomicGroup, which is not the case in this test.
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
   std::vector<SstInfo> file_infos;
   for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
     int file_number = 10 + cfid;
@@ -3021,6 +3027,19 @@ TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesValidLater) {
     std::string record;
     ASSERT_TRUE(fixup_edit.EncodeTo(&record, 0 /* ts_sz */));
     ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    // Throw in an impossible AtomicGroup afterwards for extra challenge.
+    VersionEdit broken_edit;
+    broken_edit.SetColumnFamily(0 /* column_family_id */);
+    file_metas[0].fd.packed_number_and_path_id =
+        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
+    broken_edit.AddFile(0 /* level */, file_metas[0]);
+    broken_edit.SetLastSequence(++last_seqno_);
+    broken_edit.MarkAtomicGroup(0 /* remaining_entries */);
+    record.clear();
+    ASSERT_TRUE(broken_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+    assert(log_writer_.get() != nullptr);
   }
 
   {
@@ -3082,6 +3101,74 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
        HandleAtomicGroupUpdatesValidTooLate) {
   // One AtomicGroup contains updates that become valid after the next
   // AtomicGroup is reached, which is too late.
+
+  // `SetupTestSyncPoints()` creates sync points that assume there is only one
+  // AtomicGroup, which is not the case in this test.
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    if (cfid == kNumColumnFamilies - 1) {
+      // Corrupt the number of the last file.
+      file_metas[cfid].fd.packed_number_and_path_id =
+          PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+    }
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(edits_.size());
+
+  {
+    // Delete the file with the corrupted number. But bundle it in an
+    // AtomicGroup with an update that can never be applied.
+    VersionEdit broken_edit;
+    broken_edit.SetColumnFamily(0 /* column_family_id */);
+    file_metas[0].fd.packed_number_and_path_id =
+        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
+    broken_edit.AddFile(0 /* level */, file_metas[0]);
+    broken_edit.SetLastSequence(++last_seqno_);
+    broken_edit.MarkAtomicGroup(1 /* remaining_entries */);
+    std::string record;
+    ASSERT_TRUE(broken_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    VersionEdit fixup_edit;
+    fixup_edit.SetColumnFamily(kNumColumnFamilies - 1);
+    fixup_edit.DeleteFile(0 /* level */, 20 /* number */);
+    fixup_edit.MarkAtomicGroup(0 /* remaining_entries */);
+    record.clear();
+    ASSERT_TRUE(fixup_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+    assert(log_writer_.get() != nullptr);
+  }
+
+  {
+    bool has_missing_table_file = false;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
 }
 
 TEST_F(AtomicGroupBestEffortRecoveryTest,

@@ -746,16 +746,24 @@ VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
 void VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
   assert(!in_atomic_group_);
 
+  // The AtomicGroup that is about to begin may block column families in a valid
+  // state from saving any more updates. So we should save any valid states
+  // before proceeding.
+  for (const auto& cfid_and_builder : builders_) {
+    ColumnFamilyData* cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
+        cfid_and_builder.first);
+    assert(!cfd->IsDropped());
+    assert(cfd->initialized());
+    VersionEdit edit;
+    // TODO: handle the error
+    MaybeCreateVersion(edit, cfd, true /* force_create_version */)
+        .PermitUncheckedError();
+  }
+
   if (!atomic_update_versions_.empty()) {
-    // An existing AtomicGroup has not been completed yet. The situation is not
-    // hopeless however because `MaybeCreateVersion()` creates versions that lag
-    // behind the builder state. We can force it to catchup by applying empty
-    // edits for the missing column families.
-    if (!atomic_update_versions_.empty()) {
-      // The situation is now hopeless. Throw away the versions that failed to
-      // complete the last AtomicGroup. They must not be used for completing the
-      // upcoming AtomicGroup since they are too old.
-    }
+    // An old AtomicGroup is incomplete. Throw away the versions that failed to
+    // complete it. They must not be used for completing the upcoming
+    // AtomicGroup since they are too old.
   }
 
   in_atomic_group_ = true;
