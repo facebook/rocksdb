@@ -3278,6 +3278,70 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
        HandleAtomicGroupMadeWholeAfterNewCf) {
   // One AtomicGroup contains updates that become valid after a new column
   // family is added.
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    if (cfid == kNumColumnFamilies - 1) {
+      // Corrupt the number of the last file.
+      file_metas[cfid].fd.packed_number_and_path_id =
+          PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+    }
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(edits_.size());
+
+  {
+    // Add a new CF. Have the new CF refer to a non-existent file for an extra
+    // challenge.
+    VersionEdit add_cf_edit;
+    add_cf_edit.AddColumnFamily("extra_cf");
+    add_cf_edit.SetColumnFamily(kNumColumnFamilies);
+    file_metas[0].fd.packed_number_and_path_id =
+        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
+    add_cf_edit.AddFile(0 /* level */, file_metas[0]);
+    add_cf_edit.SetLastSequence(++last_seqno_);
+    std::string record;
+    ASSERT_TRUE(add_cf_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    // This fixes up the first of the two non-existent file references.
+    VersionEdit fixup_edit;
+    fixup_edit.SetColumnFamily(kNumColumnFamilies - 1);
+    fixup_edit.DeleteFile(0 /* level */, 20 /* number */);
+    record.clear();
+    ASSERT_TRUE(fixup_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+    assert(log_writer_.get() != nullptr);
+  }
+
+  {
+    bool has_missing_table_file = false;
+    std::vector<ColumnFamilyDescriptor> column_families = column_families_;
+    column_families.emplace_back("extra_cf", cf_options_);
+    ASSERT_OK(versions_->TryRecover(column_families, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(file_metas.size() - 1, all_table_files.size());
 }
 
 class VersionSetTestDropOneCF : public VersionSetTestBase,
