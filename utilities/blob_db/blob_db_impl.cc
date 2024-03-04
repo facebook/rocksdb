@@ -2128,9 +2128,9 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& _read_options) {
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kDBIterator;
   }
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
-          ->cfd();
+  auto* cfh =
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily());
+  auto* cfd = cfh->cfd();
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   ManagedSnapshot* own_snapshot = nullptr;
@@ -2141,7 +2141,7 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& _read_options) {
   }
   SuperVersion* sv = cfd->GetReferencedSuperVersion(db_impl_);
   auto* iter = db_impl_->NewIteratorImpl(
-      read_options, cfd, sv, snapshot->GetSequenceNumber(),
+      read_options, cfh, sv, snapshot->GetSequenceNumber(),
       nullptr /*read_callback*/, true /*expose_blob_index*/);
   return new BlobDBIterator(own_snapshot, iter, this, clock_, statistics_);
 }

@@ -31,40 +31,44 @@ class MyTestCompactionService : public CompactionService {
 
   const char* Name() const override { return kClassName(); }
 
-  CompactionServiceJobStatus StartV2(
+  CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& info,
       const std::string& compaction_service_input) override {
     InstrumentedMutexLock l(&mutex_);
     start_info_ = info;
     assert(info.db_name == db_path_);
-    jobs_.emplace(info.job_id, compaction_service_input);
-    CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
-    if (is_override_start_status_) {
-      return override_start_status_;
-    }
-    return s;
+    std::string unique_id = Env::Default()->GenerateUniqueId();
+    jobs_.emplace(unique_id, compaction_service_input);
+    infos_.emplace(unique_id, info);
+    CompactionServiceScheduleResponse response(
+        unique_id, is_override_start_status_
+                       ? override_start_status_
+                       : CompactionServiceJobStatus::kSuccess);
+    return response;
   }
 
-  CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) override {
+  CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
+                                  std::string* result) override {
     std::string compaction_input;
-    assert(info.db_name == db_path_);
     {
       InstrumentedMutexLock l(&mutex_);
-      wait_info_ = info;
-      auto i = jobs_.find(info.job_id);
-      if (i == jobs_.end()) {
+      auto job_index = jobs_.find(scheduled_job_id);
+      if (job_index == jobs_.end()) {
         return CompactionServiceJobStatus::kFailure;
       }
-      compaction_input = std::move(i->second);
-      jobs_.erase(i);
-    }
+      compaction_input = std::move(job_index->second);
+      jobs_.erase(job_index);
 
+      auto info_index = infos_.find(scheduled_job_id);
+      if (info_index == infos_.end()) {
+        return CompactionServiceJobStatus::kFailure;
+      }
+      wait_info_ = std::move(info_index->second);
+      infos_.erase(info_index);
+    }
     if (is_override_wait_status_) {
       return override_wait_status_;
     }
-
     CompactionServiceOptionsOverride options_override;
     options_override.env = options_.env;
     options_override.file_checksum_gen_factory =
@@ -90,11 +94,11 @@ class MyTestCompactionService : public CompactionService {
     OpenAndCompactOptions options;
     options.canceled = &canceled_;
 
-    Status s = DB::OpenAndCompact(
-        options, db_path_, db_path_ + "/" + std::to_string(info.job_id),
-        compaction_input, compaction_service_result, options_override);
+    Status s =
+        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+                           compaction_input, result, options_override);
     if (is_override_wait_result_) {
-      *compaction_service_result = override_wait_result_;
+      *result = override_wait_result_;
     }
     compaction_num_.fetch_add(1);
     if (s.ok()) {
@@ -135,7 +139,8 @@ class MyTestCompactionService : public CompactionService {
  private:
   InstrumentedMutex mutex_;
   std::atomic_int compaction_num_{0};
-  std::map<uint64_t, std::string> jobs_;
+  std::map<std::string, std::string> jobs_;
+  std::map<std::string, CompactionServiceJobInfo> infos_;
   const std::string db_path_;
   Options options_;
   std::shared_ptr<Statistics> statistics_;
