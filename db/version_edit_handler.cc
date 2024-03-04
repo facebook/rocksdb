@@ -764,6 +764,10 @@ void VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
     // An old AtomicGroup is incomplete. Throw away the versions that failed to
     // complete it. They must not be used for completing the upcoming
     // AtomicGroup since they are too old.
+    for (auto& cfid_and_version : atomic_update_versions_) {
+      delete cfid_and_version.second;
+      cfid_and_version.second = nullptr;
+    }
   }
 
   in_atomic_group_ = true;
