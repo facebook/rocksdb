@@ -3,13 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/multi_cf_iterator_impl.h"
+#include "db/multi_cf_iterator.h"
 
 #include <cassert>
 
 namespace ROCKSDB_NAMESPACE {
 
-void MultiCfIteratorImpl::SeekToFirst() {
+void MultiCfIterator::SeekToFirst() {
   Reset();
   int i = 0;
   for (auto& cfh_iter_pair : cfh_iter_pairs_) {
@@ -26,7 +26,7 @@ void MultiCfIteratorImpl::SeekToFirst() {
   }
 }
 
-void MultiCfIteratorImpl::Next() {
+void MultiCfIterator::Next() {
   assert(Valid());
   // 1. Keep the top iterator (by popping it from the heap)
   // 2. Make sure all others have iterated past the top iterator key slice

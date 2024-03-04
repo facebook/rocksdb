@@ -17,11 +17,11 @@ namespace ROCKSDB_NAMESPACE {
 // When the same key exists in more than one column families, the iterator
 // selects the value from the first column family containing the key, in the
 // order provided in the `column_families` parameter.
-class MultiCfIteratorImpl : public Iterator {
+class MultiCfIterator : public Iterator {
  public:
-  MultiCfIteratorImpl(const Comparator* comparator,
-                      const std::vector<ColumnFamilyHandle*>& column_families,
-                      const std::vector<Iterator*>& child_iterators)
+  MultiCfIterator(const Comparator* comparator,
+                  const std::vector<ColumnFamilyHandle*>& column_families,
+                  const std::vector<Iterator*>& child_iterators)
       : comparator_(comparator),
         min_heap_(MultiCfMinHeapItemComparator(comparator_)) {
     assert(column_families.size() > 0 &&
@@ -32,11 +32,11 @@ class MultiCfIteratorImpl : public Iterator {
           column_families[i], std::unique_ptr<Iterator>(child_iterators[i]));
     }
   }
-  ~MultiCfIteratorImpl() override { status_.PermitUncheckedError(); }
+  ~MultiCfIterator() override { status_.PermitUncheckedError(); }
 
   // No copy allowed
-  MultiCfIteratorImpl(const MultiCfIteratorImpl&) = delete;
-  MultiCfIteratorImpl& operator=(const MultiCfIteratorImpl&) = delete;
+  MultiCfIterator(const MultiCfIterator&) = delete;
+  MultiCfIterator& operator=(const MultiCfIterator&) = delete;
 
  private:
   std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>
