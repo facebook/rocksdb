@@ -281,12 +281,6 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is incompatible with enable_pipelined_write");
   }
 
-  // TODO remove this restriction
-  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
-    return Status::InvalidArgument(
-        "atomic_flush is currently incompatible with best-efforts recovery");
-  }
-
   if (db_options.use_direct_io_for_flush_and_compaction &&
       0 == db_options.writable_file_max_buffer_size) {
     return Status::InvalidArgument(

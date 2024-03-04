@@ -1344,8 +1344,6 @@ struct DBOptions {
   // setting. BER does require at least one valid MANIFEST to recover to a
   // non-trivial DB state, unlike `ldb repair`.
   //
-  // Currently, best_efforts_recovery=true is not compatible with atomic flush.
-  //
   // Default: false
   bool best_efforts_recovery = false;
 
