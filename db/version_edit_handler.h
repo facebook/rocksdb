@@ -245,6 +245,11 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
+  // `MaybeCreateVersion(..., false)` creates a version upon a negative edge
+  // trigger (transition from valid to invalid).
+  //
+  // `MaybeCreateVersion(..., true)` creates a version on a positive level
+  // trigger (state is valid).
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
   virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
@@ -258,12 +263,14 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
   std::unordered_map<uint32_t, Version*> versions_;
 
-  // `atomic_update_versions_` is for ensuring whole AtomicGroup recoveries.
-  // When `atomic_update_versions_` is nonempty, it serves as a barrier to
-  // updating `versions_` until all its entries are populated with valid
-  // `Version`s.
+  // `atomic_update_versions_` is for ensuring all-or-nothing AtomicGroup
+  // recoveries.  When `atomic_update_versions_` is nonempty, it serves as a
+  // barrier to updating `versions_` until all its values are populated.
   std::unordered_map<uint32_t, Version*> atomic_update_versions_;
+  // `atomic_update_versions_missing_` counts the nullptr values in
+  // `atomic_update_versions_`.
   size_t atomic_update_versions_missing_;
+
   bool in_atomic_group_ = false;
 
  private:
