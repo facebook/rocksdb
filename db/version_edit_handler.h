@@ -40,8 +40,8 @@ class VersionEditHandlerBase {
   virtual Status ApplyVersionEdit(VersionEdit& edit,
                                   ColumnFamilyData** cfd) = 0;
 
-  virtual void OnAtomicGroupReplayBegin() {}
-  virtual void OnAtomicGroupReplayEnd() {}
+  virtual Status OnAtomicGroupReplayBegin() { return Status::OK(); }
+  virtual Status OnAtomicGroupReplayEnd() { return Status::OK(); }
 
   virtual void CheckIterationResult(const log::Reader& /*reader*/,
                                     Status* /*s*/) {}
@@ -240,8 +240,8 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ~VersionEditHandlerPointInTime() override;
 
  protected:
-  void OnAtomicGroupReplayBegin() override;
-  void OnAtomicGroupReplayEnd() override;
+  Status OnAtomicGroupReplayBegin() override;
+  Status OnAtomicGroupReplayEnd() override;
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;

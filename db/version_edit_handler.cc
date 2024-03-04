@@ -45,7 +45,10 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     ColumnFamilyData* cfd = nullptr;
     if (edit.IsInAtomicGroup()) {
       if (read_buffer_.IsFull()) {
-        OnAtomicGroupReplayBegin();
+        s = OnAtomicGroupReplayBegin();
+        if (!s.ok()) {
+          break;
+        }
         for (auto& e : read_buffer_.replay_buffer()) {
           s = ApplyVersionEdit(e, &cfd);
           if (!s.ok()) {
@@ -53,11 +56,11 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
           }
           ++recovered_edits;
         }
-        OnAtomicGroupReplayEnd();
         if (!s.ok()) {
           break;
         }
         read_buffer_.Clear();
+        s = OnAtomicGroupReplayEnd();
       }
     } else {
       s = ApplyVersionEdit(edit, &cfd);
@@ -743,8 +746,10 @@ VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   versions_.clear();
 }
 
-void VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
-  assert(!in_atomic_group_);
+Status VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
+  if (in_atomic_group_) {
+    return Status::Corruption("unexpected AtomicGroup");
+  }
 
   // The AtomicGroup that is about to begin may block column families in a valid
   // state from saving any more updates. So we should save any valid states
@@ -755,9 +760,10 @@ void VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
     assert(!cfd->IsDropped());
     assert(cfd->initialized());
     VersionEdit edit;
-    // TODO: handle the error
-    MaybeCreateVersion(edit, cfd, true /* force_create_version */)
-        .PermitUncheckedError();
+    Status s = MaybeCreateVersion(edit, cfd, true /* force_create_version */);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   if (!atomic_update_versions_.empty()) {
@@ -780,9 +786,10 @@ void VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
     atomic_update_versions_[cfid_and_builder.first] = nullptr;
   }
   atomic_update_versions_missing_ = atomic_update_versions_.size();
+  return Status::OK();
 }
 
-void VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
+Status VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
   assert(in_atomic_group_);
 
 #ifndef NDEBUG
@@ -791,6 +798,7 @@ void VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
   // atomic_update_versions_ == builders_.keys()
 #endif
   in_atomic_group_ = false;
+  return Status::OK();
 }
 
 void VersionEditHandlerPointInTime::CheckIterationResult(
