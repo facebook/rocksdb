@@ -1050,8 +1050,7 @@ bool VersionEditHandlerPointInTime::AtomicUpdateVersionsContains(
   return atomic_update_versions_.find(cfid) != atomic_update_versions_.end();
 }
 
-void VersionEditHandlerPointInTime::AtomicUpdateVersionsDropCf(
-    uint32_t cfid) {
+void VersionEditHandlerPointInTime::AtomicUpdateVersionsDropCf(uint32_t cfid) {
   assert(!AtomicUpdateVersionsCompleted());
   auto atomic_update_versions_iter = atomic_update_versions_.find(cfid);
   assert(atomic_update_versions_iter != atomic_update_versions_.end());
