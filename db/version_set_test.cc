@@ -3176,6 +3176,47 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
   // One AtomicGroup has multiple updates for the same CF. One of the earlier
   // updates for this CF can lead to a valid state if applied. But the last
   // update for this CF is invalid so the AtomicGroup must not be recovered.
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies -
+                                  cfid /* remaining_entries */);
+  }
+  // Here is the unrecoverable update.
+  edits_.emplace_back();
+  edits_.back().SetColumnFamily(0 /* column_family_id */);
+  file_metas[0].fd.packed_number_and_path_id =
+      PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+  edits_.back().AddFile(0 /* level */, file_metas[0]);
+  edits_.back().SetLastSequence(++last_seqno_);
+  edits_.back().MarkAtomicGroup(0 /* remaining_entries */);
+  AddNewEditsToLog(edits_.size());
+
+  {
+    bool has_missing_table_file = false;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
 }
 
 TEST_F(AtomicGroupBestEffortRecoveryTest,
