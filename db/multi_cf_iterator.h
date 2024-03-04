@@ -111,11 +111,6 @@ class MultiCfIterator : public Iterator {
     assert(Valid());
     return min_heap_.top().iterator->columns();
   }
-  const AttributeGroups& attribute_groups() const override {
-    assert(false);
-    // TODO - Lazily populate attribute groups from child iterators
-    return attribute_groups_;
-  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

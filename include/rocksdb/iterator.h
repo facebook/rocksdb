@@ -24,7 +24,6 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/wide_columns.h"
-#include "wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -101,12 +100,6 @@ class Iterator : public Cleanable {
   virtual const WideColumns& columns() const {
     assert(false);
     return kNoWideColumns;
-  }
-
-  // UNDER CONSTRUCTION - DO NOT USE
-  virtual const AttributeGroups& attribute_groups() const {
-    assert(false);
-    return kNoAttributeGroups;
   }
 
   // If an error has occurred, return it.  Else return an ok status.

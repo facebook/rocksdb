@@ -34,8 +34,9 @@ class MultiCfIteratorTest : public DBTestBase {
         ASSERT_EQ(expected_wide_columns.value()[i], iter->columns());
       }
       if (expected_attribute_groups.has_value()) {
-        ASSERT_EQ(expected_attribute_groups.value()[i],
-                  iter->attribute_groups());
+        // TODO - Add this back when attribute_groups() API is added
+        // ASSERT_EQ(expected_attribute_groups.value()[i],
+        //           iter->attribute_groups());
       }
       if (expected_values.has_value()) {
         ASSERT_EQ(expected_values.value()[i], iter->value());
