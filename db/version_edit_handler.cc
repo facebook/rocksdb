@@ -822,7 +822,14 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
 ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
     const VersionEdit& edit) {
   ColumnFamilyData* cfd = VersionEditHandler::DestroyCfAndCleanup(edit);
-  auto v_iter = versions_.find(edit.GetColumnFamily());
+  uint32_t cfid = edit.GetColumnFamily();
+  if (AtomicUpdateVersionsContains(cfid)) {
+    AtomicUpdateVersionsDropCf(cfid);
+    if (AtomicUpdateVersionsCompleted()) {
+      AtomicUpdateVersionsApply();
+    }
+  }
+  auto v_iter = versions_.find(cfid);
   if (v_iter != versions_.end()) {
     delete v_iter->second;
     versions_.erase(v_iter);
@@ -1023,6 +1030,19 @@ bool VersionEditHandlerPointInTime::AtomicUpdateVersionsCompleted() {
 bool VersionEditHandlerPointInTime::AtomicUpdateVersionsContains(
     uint32_t cfid) {
   return atomic_update_versions_.find(cfid) != atomic_update_versions_.end();
+}
+
+void VersionEditHandlerPointInTime::AtomicUpdateVersionsDropCf(
+    uint32_t cfid) {
+  assert(!AtomicUpdateVersionsCompleted());
+  auto atomic_update_versions_iter = atomic_update_versions_.find(cfid);
+  assert(atomic_update_versions_iter != atomic_update_versions_.end());
+  if (atomic_update_versions_iter->second == nullptr) {
+    atomic_update_versions_missing_--;
+  } else {
+    delete atomic_update_versions_iter->second;
+  }
+  atomic_update_versions_.erase(atomic_update_versions_iter);
 }
 
 void VersionEditHandlerPointInTime::AtomicUpdateVersionsPut(Version* version) {

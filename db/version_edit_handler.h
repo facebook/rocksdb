@@ -269,6 +269,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
  private:
   bool AtomicUpdateVersionsCompleted();
   bool AtomicUpdateVersionsContains(uint32_t cfid);
+  void AtomicUpdateVersionsDropCf(uint32_t cfid);
 
   // This function is called for `Version*` updates for column families in an
   // incomplete atomic update. It buffers `Version*` updates in
