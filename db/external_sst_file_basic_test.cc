@@ -1863,6 +1863,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
 
 TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   bool alternate_hint = Random::GetTLSInstance()->OneIn(2);
+  Destroy(CurrentOptions());
 
   for (std::string mode : {"ingest_behind", "fail_if_not", "neither"}) {
     SCOPED_TRACE("Mode: " + mode);
@@ -1880,8 +1881,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     options.level0_file_num_compaction_trigger = 2;
     options.allow_ingest_behind = (mode == "ingest_behind");
-    DestroyAndReopen(options);
-    Defer closer([&]() { Close(); });
+    Reopen(options);
+    Defer destroyer([&]() { Destroy(options); });
 
 #define VERIFY_SST_COUNT(temp, expected_count_in_db,                       \
                          expected_count_outside_db)                        \
