@@ -263,7 +263,21 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   // updating `versions_` until all its entries are populated with valid
   // `Version`s.
   std::unordered_map<uint32_t, Version*> atomic_update_versions_;
+  size_t atomic_update_versions_missing_;
   bool in_atomic_group_ = false;
+
+ private:
+  bool AtomicUpdateVersionsCompleted();
+  bool AtomicUpdateVersionsContains(uint32_t cfid);
+
+  // This function is called for `Version*` updates for column families in an
+  // incomplete atomic update. It buffers `Version*` updates in
+  // `atomic_update_versions_`.
+  void AtomicUpdateVersionsPut(Version* version);
+
+  // This function is called upon completion of an atomic update. It applies
+  // `Version*` updates in `atomic_update_versions_` to `versions_`.
+  void AtomicUpdateVersionsApply();
 };
 
 class ManifestTailer : public VersionEditHandlerPointInTime {

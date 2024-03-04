@@ -763,7 +763,11 @@ void VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
   // involved in the AtomicGroup. Overestimating the scope of the AtomicGroup
   // will sometimes cause less data to be recovered, which is fine for
   // best-effort recovery.
-  // atomic_update_versions_ <- builders_.keys()
+  atomic_update_versions_.clear();
+  for (const auto& cfid_and_builder : builders_) {
+    atomic_update_versions_[cfid_and_builder.first] = nullptr;
+  }
+  atomic_update_versions_missing_ = atomic_update_versions_.size();
 }
 
 void VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
@@ -945,18 +949,22 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     }
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
-      version->PrepareAppend(
-          *cfd->GetLatestMutableCFOptions(), read_options_,
-          !version_set_->db_options_->skip_stats_update_on_db_open);
-      // When there's an incomplete AtomicGroup, apply it to
-      // `atomic_update_versions_`. If the AtomicGroup is now complete, apply it
-      // to `versions_`.
-      auto v_iter = versions_.find(cfd->GetID());
-      if (v_iter != versions_.end()) {
-        delete v_iter->second;
-        v_iter->second = version;
+      if (AtomicUpdateVersionsContains(cfd->GetID())) {
+        AtomicUpdateVersionsPut(version);
+        if (AtomicUpdateVersionsCompleted()) {
+          AtomicUpdateVersionsApply();
+        }
       } else {
-        versions_.emplace(cfd->GetID(), version);
+        version->PrepareAppend(
+            *cfd->GetLatestMutableCFOptions(), read_options_,
+            !version_set_->db_options_->skip_stats_update_on_db_open);
+        auto v_iter = versions_.find(cfd->GetID());
+        if (v_iter != versions_.end()) {
+          delete v_iter->second;
+          v_iter->second = version;
+        } else {
+          versions_.emplace(cfd->GetID(), version);
+        }
       }
     } else {
       delete version;
@@ -994,6 +1002,48 @@ Status VersionEditHandlerPointInTime::LoadTables(
     ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
     bool /*is_initial_load*/) {
   return Status::OK();
+}
+
+bool VersionEditHandlerPointInTime::AtomicUpdateVersionsCompleted() {
+  return atomic_update_versions_missing_ == 0;
+}
+
+bool VersionEditHandlerPointInTime::AtomicUpdateVersionsContains(
+    uint32_t cfid) {
+  return atomic_update_versions_.find(cfid) != atomic_update_versions_.end();
+}
+
+void VersionEditHandlerPointInTime::AtomicUpdateVersionsPut(Version* version) {
+  assert(!AtomicUpdateVersionsCompleted());
+  auto atomic_update_versions_iter =
+      atomic_update_versions_.find(version->cfd()->GetID());
+  assert(atomic_update_versions_iter != atomic_update_versions_.end());
+  if (atomic_update_versions_iter->second == nullptr) {
+    atomic_update_versions_missing_--;
+  } else {
+    delete atomic_update_versions_iter->second;
+  }
+  atomic_update_versions_iter->second = version;
+}
+
+void VersionEditHandlerPointInTime::AtomicUpdateVersionsApply() {
+  assert(AtomicUpdateVersionsCompleted());
+  for (const auto& cfid_and_version : atomic_update_versions_) {
+    uint32_t cfid = cfid_and_version.first;
+    Version* version = cfid_and_version.second;
+    assert(version != nullptr);
+    version->PrepareAppend(
+        *version->cfd()->GetLatestMutableCFOptions(), read_options_,
+        !version_set_->db_options_->skip_stats_update_on_db_open);
+    auto versions_iter = versions_.find(cfid);
+    if (versions_iter != versions_.end()) {
+      delete versions_iter->second;
+      versions_iter->second = version;
+    } else {
+      versions_.emplace(cfid, version);
+    }
+  }
+  atomic_update_versions_.clear();
 }
 
 Status ManifestTailer::Initialize() {
