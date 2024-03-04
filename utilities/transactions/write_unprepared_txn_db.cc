@@ -470,13 +470,13 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& _read_options,
   min_uncommitted =
       static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
 
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto* cfd = cfh->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
   auto* db_iter = db_impl_->NewIteratorImpl(
-      read_options, cfd, super_version, state->MaxVisibleSeq(),
+      read_options, cfh, super_version, state->MaxVisibleSeq(),
       &state->callback, expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;

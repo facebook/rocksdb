@@ -103,7 +103,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
          ++miter) {
       std::string& row_cache_entry = row_cache_entries[row_idx++];
       const Slice& user_key = miter->ukey_with_ts;
-      ;
       GetContext* get_context = miter->get_context;
 
       get_context->SetReplayLog(nullptr);

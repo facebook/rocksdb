@@ -384,7 +384,7 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
             chunks_head = chunks_head->next;
             tmp_chunk->Free();
             obj = nullptr;
-          };
+          }
         }};
     return &kHelper;
   } else {

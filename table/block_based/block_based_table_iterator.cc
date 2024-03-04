@@ -846,7 +846,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     }
     index_iter_->Next();
     is_index_at_curr_block_ = false;
-  };
+  }
 
   if (found_first_miss_block) {
     // Iterate cache hit block handles from the end till a Miss is there, to

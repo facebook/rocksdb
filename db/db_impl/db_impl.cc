@@ -3618,9 +3618,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
   }
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh != nullptr);
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     const Status s =
@@ -3636,24 +3636,24 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
-        this, cfd);
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        nullptr /* read_callback */, cfh);
   } else {
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
     // WritePreparedTxnDB
-    result = NewIteratorImpl(read_options, cfd, sv,
+    result = NewIteratorImpl(read_options, cfh, sv,
                              (read_options.snapshot != nullptr)
                                  ? read_options.snapshot->GetSequenceNumber()
                                  : kMaxSequenceNumber,
-                             read_callback);
+                             nullptr /* read_callback */);
   }
   return result;
 }
 
 ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
-    const ReadOptions& read_options, ColumnFamilyData* cfd, SuperVersion* sv,
-    SequenceNumber snapshot, ReadCallback* read_callback,
+    const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
+    SuperVersion* sv, SequenceNumber snapshot, ReadCallback* read_callback,
     bool expose_blob_index, bool allow_refresh) {
   TEST_SYNC_POINT("DBImpl::NewIterator:1");
   TEST_SYNC_POINT("DBImpl::NewIterator:2");
@@ -3716,13 +3716,13 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, sv->current,
-      snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback, this, cfd, expose_blob_index,
-      allow_refresh);
+      env_, read_options, *cfh->cfd()->ioptions(), sv->mutable_cf_options,
+      sv->current, snapshot,
+      sv->mutable_cf_options.max_sequential_skip_in_iterations,
+      sv->version_number, read_callback, cfh, expose_blob_index, allow_refresh);
 
   InternalIterator* internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(), snapshot,
+      db_iter->GetReadOptions(), cfh->cfd(), sv, db_iter->GetArena(), snapshot,
       /* allow_unprepared_value */ true, db_iter);
   db_iter->SetIterUnderDBIter(internal_iter);
 
@@ -3769,37 +3769,37 @@ Status DBImpl::NewIterators(
     }
   }
 
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
-  autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;
+  autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
   const bool check_read_ts =
       read_options.timestamp && read_options.timestamp->size() > 0;
-  for (auto cfh : column_families) {
-    auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+  for (auto cf : column_families) {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+    auto cfd = cfh->cfd();
     SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-    cfd_to_sv.emplace_back(cfd, sv);
+    cfh_to_sv.emplace_back(cfh, sv);
     if (check_read_ts) {
       const Status s =
           FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
       if (!s.ok()) {
-        for (auto prev_entry : cfd_to_sv) {
+        for (auto prev_entry : cfh_to_sv) {
           CleanupSuperVersion(std::get<1>(prev_entry));
         }
         return s;
       }
     }
   }
-  assert(cfd_to_sv.size() == column_families.size());
+  assert(cfh_to_sv.size() == column_families.size());
   if (read_options.tailing) {
-    for (auto [cfd, sv] : cfd_to_sv) {
-      auto iter = new ForwardIterator(this, read_options, cfd, sv,
+    for (auto [cfh, sv] : cfh_to_sv) {
+      auto iter = new ForwardIterator(this, read_options, cfh->cfd(), sv,
                                       /* allow_unprepared_value */ true);
       iterators->push_back(NewDBIterator(
-          env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-          cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
+          env_, read_options, *cfh->cfd()->ioptions(), sv->mutable_cf_options,
+          cfh->cfd()->user_comparator(), iter, sv->current, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          read_callback, this, cfd));
+          nullptr /*read_callback*/, cfh));
     }
   } else {
     // Note: no need to consider the special case of
@@ -3808,9 +3808,9 @@ Status DBImpl::NewIterators(
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
-    for (auto [cfd, sv] : cfd_to_sv) {
-      iterators->push_back(
-          NewIteratorImpl(read_options, cfd, sv, snapshot, read_callback));
+    for (auto [cfh, sv] : cfh_to_sv) {
+      iterators->push_back(NewIteratorImpl(read_options, cfh, sv, snapshot,
+                                           nullptr /*read_callback*/));
     }
   }
 
