@@ -740,6 +740,9 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
                          read_options, epoch_number_requirement) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
+  for (const auto& cfid_and_version : atomic_update_versions_) {
+    delete cfid_and_version.second;
+  }
   for (const auto& elem : versions_) {
     delete elem.second;
   }
