@@ -2967,7 +2967,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
     edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
                                   cfid /* remaining_entries */);
   }
-  AddNewEditsToLog(edits_.size());
+  AddNewEditsToLog(kNumColumnFamilies);
 
   {
     bool has_missing_table_file;
@@ -3016,7 +3016,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesValidLater) {
     edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
                                   cfid /* remaining_entries */);
   }
-  AddNewEditsToLog(edits_.size());
+  AddNewEditsToLog(kNumColumnFamilies);
 
   {
     // Delete the file with the corrupted number.
@@ -3082,7 +3082,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesInvalid) {
     edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
                                   cfid /* remaining_entries */);
   }
-  AddNewEditsToLog(edits_.size());
+  AddNewEditsToLog(kNumColumnFamilies);
 
   {
     bool has_missing_table_file = false;
@@ -3132,7 +3132,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
     edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
                                   cfid /* remaining_entries */);
   }
-  AddNewEditsToLog(edits_.size());
+  AddNewEditsToLog(kNumColumnFamilies);
 
   {
     // Delete the file with the corrupted number. But bundle it in an
@@ -3204,7 +3204,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
   edits_.back().AddFile(0 /* level */, file_metas[0]);
   edits_.back().SetLastSequence(++last_seqno_);
   edits_.back().MarkAtomicGroup(0 /* remaining_entries */);
-  AddNewEditsToLog(edits_.size());
+  AddNewEditsToLog(kNumColumnFamilies);
 
   {
     bool has_missing_table_file = false;
@@ -3248,7 +3248,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
     edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
                                   cfid /* remaining_entries */);
   }
-  AddNewEditsToLog(edits_.size());
+  AddNewEditsToLog(kNumColumnFamilies);
 
   {
     // Delete the column family with the corrupted file number.
@@ -3303,7 +3303,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
     edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
                                   cfid /* remaining_entries */);
   }
-  AddNewEditsToLog(edits_.size());
+  AddNewEditsToLog(kNumColumnFamilies);
 
   {
     // Add a new CF. Have the new CF refer to a non-existent file for an extra
