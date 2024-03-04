@@ -748,7 +748,7 @@ VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
 
 Status VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
   if (in_atomic_group_) {
-    return Status::Corruption("unexpected AtomicGroup");
+    return Status::Corruption("unexpected AtomicGroup start");
   }
 
   // The AtomicGroup that is about to begin may block column families in a valid
@@ -790,14 +790,24 @@ Status VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
 }
 
 Status VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
-  assert(in_atomic_group_);
+  if (!in_atomic_group_) {
+    return Status::Corruption("unexpected AtomicGroup end");
+  }
+  in_atomic_group_ = false;
 
-#ifndef NDEBUG
   // The AtomicGroup must not have changed the column families. We don't support
   // CF adds or drops in an AtomicGroup.
-  // atomic_update_versions_ == builders_.keys()
-#endif
-  in_atomic_group_ = false;
+  for (const auto& cfid_and_builder : builders_) {
+    if (atomic_update_versions_.find(cfid_and_builder.first) ==
+        atomic_update_versions_.end()) {
+      return Status::Corruption("unexpected CF add in AtomicGroup");
+    }
+  }
+  for (const auto& cfid_and_version : atomic_update_versions_) {
+    if (builders_.find(cfid_and_version.first) == builders_.end()) {
+      return Status::Corruption("unexpected CF drop in AtomicGroup");
+    }
+  }
   return Status::OK();
 }
 
