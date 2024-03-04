@@ -384,7 +384,7 @@ class BackupEngineImpl {
     BackupMeta(const BackupMeta&) = delete;
     BackupMeta& operator=(const BackupMeta&) = delete;
 
-    ~BackupMeta() {}
+    ~BackupMeta() = default;
 
     void RecordTimestamp() {
       // Best effort
@@ -639,11 +639,9 @@ class BackupEngineImpl {
     std::string db_session_id;
 
     CopyOrCreateWorkItem()
-        : src_path(""),
-          dst_path(""),
-          src_temperature(Temperature::kUnknown),
+        : src_temperature(Temperature::kUnknown),
           dst_temperature(Temperature::kUnknown),
-          contents(""),
+
           src_env(nullptr),
           dst_env(nullptr),
           src_env_options(),
@@ -651,10 +649,7 @@ class BackupEngineImpl {
           rate_limiter(nullptr),
           size_limit(0),
           stats(nullptr),
-          src_checksum_func_name(kUnknownFileChecksumFuncName),
-          src_checksum_hex(""),
-          db_id(""),
-          db_session_id("") {}
+          src_checksum_func_name(kUnknownFileChecksumFuncName) {}
 
     CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
     CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
@@ -727,12 +722,7 @@ class BackupEngineImpl {
     std::string dst_path;
     std::string dst_relative;
     BackupAfterCopyOrCreateWorkItem()
-        : shared(false),
-          needed_to_copy(false),
-          backup_env(nullptr),
-          dst_path_tmp(""),
-          dst_path(""),
-          dst_relative("") {}
+        : shared(false), needed_to_copy(false), backup_env(nullptr) {}
 
     BackupAfterCopyOrCreateWorkItem(
         BackupAfterCopyOrCreateWorkItem&& o) noexcept {
@@ -773,7 +763,7 @@ class BackupEngineImpl {
     std::string from_file;
     std::string to_file;
     std::string checksum_hex;
-    RestoreAfterCopyOrCreateWorkItem() : checksum_hex("") {}
+    RestoreAfterCopyOrCreateWorkItem() {}
     RestoreAfterCopyOrCreateWorkItem(std::future<CopyOrCreateResult>&& _result,
                                      const std::string& _from_file,
                                      const std::string& _to_file,
@@ -874,7 +864,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   BackupEngineImplThreadSafe(const BackupEngineOptions& options, Env* db_env,
                              bool read_only = false)
       : impl_(options, db_env, read_only) {}
-  ~BackupEngineImplThreadSafe() override {}
+  ~BackupEngineImplThreadSafe() override = default;
 
   using BackupEngine::CreateNewBackupWithMetadata;
   IOStatus CreateNewBackupWithMetadata(const CreateBackupOptions& options,

@@ -386,7 +386,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 3u);
@@ -400,7 +400,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(20));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -414,7 +414,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -428,7 +428,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -442,7 +442,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -456,7 +456,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(20));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -470,7 +470,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(20));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -484,7 +484,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(20));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -528,7 +528,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 3u);
@@ -542,7 +542,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(20));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -561,7 +561,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(36));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 10u);
@@ -582,7 +582,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 10u);
@@ -629,7 +629,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 3u);
@@ -644,7 +644,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   keys.push_back(Key(20));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -659,7 +659,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   keys.push_back(Key(8));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
@@ -676,7 +676,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   keys.push_back(Key(36));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 8u);
@@ -691,7 +691,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   keys.push_back(Key(36));
   values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
-  for (auto value : values) {
+  for (const auto& value : values) {
     ASSERT_EQ(1007, value.size());
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 8u);

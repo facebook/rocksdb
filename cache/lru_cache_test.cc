@@ -32,7 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class LRUCacheTest : public testing::Test {
  public:
-  LRUCacheTest() {}
+  LRUCacheTest() = default;
   ~LRUCacheTest() override { DeleteCache(); }
 
   void DeleteCache() {
@@ -378,7 +378,7 @@ class ClockCacheTest : public testing::Test {
   using Table = typename Shard::Table;
   using TableOpts = typename Table::Opts;
 
-  ClockCacheTest() {}
+  ClockCacheTest() = default;
   ~ClockCacheTest() override { DeleteShard(); }
 
   void DeleteShard() {
@@ -1976,7 +1976,7 @@ TEST_P(BasicSecondaryCacheTest, BasicWaitAllTest) {
     ah.priority = Cache::Priority::LOW;
     cache->StartAsyncLookup(ah);
   }
-  cache->WaitAll(&async_handles[0], async_handles.size());
+  cache->WaitAll(async_handles.data(), async_handles.size());
   for (size_t i = 0; i < async_handles.size(); ++i) {
     SCOPED_TRACE("i = " + std::to_string(i));
     Cache::Handle* result = async_handles[i].Result();

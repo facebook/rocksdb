@@ -744,7 +744,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   const size_t capacity = size_t{1} << 25;
   const int num_shard_bits = 0;  // 1 shard
   int iterations_tested = 0;
-  for (std::shared_ptr<Cache> base_cache :
+  for (const std::shared_ptr<Cache>& base_cache :
        {NewLRUCache(capacity, num_shard_bits),
         // FixedHyperClockCache
         HyperClockCacheOptions(
@@ -990,7 +990,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
     SCOPED_TRACE("Partition? " + std::to_string(partition));
-    for (std::shared_ptr<Cache> cache :
+    for (const std::shared_ptr<Cache>& cache :
          {NewLRUCache(capacity),
           HyperClockCacheOptions(
               capacity,
@@ -1251,7 +1251,7 @@ void DummyFillCache(Cache& cache, size_t entry_size,
 
 class CountingLogger : public Logger {
  public:
-  ~CountingLogger() override {}
+  ~CountingLogger() override = default;
   using Logger::Logv;
   void Logv(const InfoLogLevel log_level, const char* format,
             va_list /*ap*/) override {
@@ -1373,7 +1373,7 @@ class StableCacheKeyTestFS : public FaultInjectionTestFS {
     SetFailGetUniqueId(true);
   }
 
-  ~StableCacheKeyTestFS() override {}
+  ~StableCacheKeyTestFS() override = default;
 
   IOStatus LinkFile(const std::string&, const std::string&, const IOOptions&,
                     IODebugContext*) override {
@@ -1566,7 +1566,7 @@ class CacheKeyTest : public testing::Test {
     tp_.db_id = std::to_string(db_id_);
     tp_.orig_file_number = file_number;
     bool is_stable;
-    std::string cur_session_id = "";  // ignored
+    std::string cur_session_id;       // ignored
     uint64_t cur_file_number = 42;    // ignored
     OffsetableCacheKey rv;
     BlockBasedTable::SetupBaseCacheKey(&tp_, cur_session_id, cur_file_number,

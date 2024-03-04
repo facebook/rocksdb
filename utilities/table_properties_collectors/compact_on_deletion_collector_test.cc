@@ -7,10 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdio.h>
+#include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 #include "port/stack_trace.h"
@@ -19,7 +20,6 @@
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
-#include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
 namespace ROCKSDB_NAMESPACE {
 

@@ -77,7 +77,7 @@ class CompactionPickerTestBase : public testing::Test {
     ioptions_.level_compaction_dynamic_level_bytes = false;
   }
 
-  ~CompactionPickerTestBase() override {}
+  ~CompactionPickerTestBase() override = default;
 
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();
@@ -214,7 +214,7 @@ class CompactionPickerTest : public CompactionPickerTestBase {
   explicit CompactionPickerTest()
       : CompactionPickerTestBase(BytewiseComparator()) {}
 
-  ~CompactionPickerTest() override {}
+  ~CompactionPickerTest() override = default;
 };
 
 class CompactionPickerU64TsTest : public CompactionPickerTestBase {
@@ -222,7 +222,7 @@ class CompactionPickerU64TsTest : public CompactionPickerTestBase {
   explicit CompactionPickerU64TsTest()
       : CompactionPickerTestBase(test::BytewiseComparatorWithU64TsWrapper()) {}
 
-  ~CompactionPickerU64TsTest() override {}
+  ~CompactionPickerU64TsTest() override = default;
 };
 
 TEST_F(CompactionPickerTest, Empty) {

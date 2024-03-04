@@ -41,7 +41,7 @@ class CompactionStatsCollector : public EventListener {
     }
   }
 
-  ~CompactionStatsCollector() override {}
+  ~CompactionStatsCollector() override = default;
 
   void OnCompactionCompleted(DB* /* db */,
                              const CompactionJobInfo& info) override {
@@ -241,8 +241,8 @@ class RoundRobinSubcompactionsAgainstResources
 namespace {
 class FlushedFileCollector : public EventListener {
  public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
+  FlushedFileCollector() = default;
+  ~FlushedFileCollector() override = default;
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -252,7 +252,7 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> GetFlushedFiles() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> result;
-    for (auto fname : flushed_files_) {
+    for (const auto& fname : flushed_files_) {
       result.push_back(fname);
     }
     return result;
@@ -2090,9 +2090,9 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     Slice begin2(begin_str2), end2(end_str2);
     Slice begin3(begin_str3), end3(end_str3);
     std::vector<RangePtr> ranges;
-    ranges.push_back(RangePtr(&begin1, &end1));
-    ranges.push_back(RangePtr(&begin2, &end2));
-    ranges.push_back(RangePtr(&begin3, &end3));
+    ranges.emplace_back(&begin1, &end1);
+    ranges.emplace_back(&begin2, &end2);
+    ranges.emplace_back(&begin3, &end3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
@@ -2117,9 +2117,9 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     Slice begin2(begin_str2), end2(end_str2);
     Slice begin3(begin_str3), end3(end_str3);
     std::vector<RangePtr> ranges;
-    ranges.push_back(RangePtr(&begin1, &end1));
-    ranges.push_back(RangePtr(&begin2, &end2));
-    ranges.push_back(RangePtr(&begin3, &end3));
+    ranges.emplace_back(&begin1, &end1);
+    ranges.emplace_back(&begin2, &end2);
+    ranges.emplace_back(&begin3, &end3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size(), false));
     ASSERT_EQ("0,1,4", FilesPerLevel(0));
@@ -6641,7 +6641,7 @@ TEST_F(DBCompactionTest, RoundRobinCutOutputAtCompactCursor) {
 
 class NoopMergeOperator : public MergeOperator {
  public:
-  NoopMergeOperator() {}
+  NoopMergeOperator() = default;
 
   bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
                    MergeOperationOutput* merge_out) const override {
@@ -9878,7 +9878,7 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesUCToLC) {
   options.compaction_style = CompactionStyle::kCompactionStyleLevel;
   options.level_compaction_dynamic_level_bytes = true;
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  std::string expected_lsm = "";
+  std::string expected_lsm;
   for (int i = 0; i < 49; ++i) {
     expected_lsm += "0,";
   }
@@ -10394,20 +10394,20 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<std::thread> threads;
-  threads.emplace_back(std::thread([&]() {
+  threads.emplace_back([&]() {
     std::string k1_str = Key(1);
     std::string k2_str = Key(2);
     Slice k1 = k1_str;
     Slice k2 = k2_str;
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k1, &k2));
-  }));
-  threads.emplace_back(std::thread([&]() {
+  });
+  threads.emplace_back([&]() {
     std::string k10_str = Key(10);
     std::string k11_str = Key(11);
     Slice k10 = k10_str;
     Slice k11 = k11_str;
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k10, &k11));
-  }));
+  });
   std::string k100_str = Key(100);
   std::string k101_str = Key(101);
   Slice k100 = k100_str;

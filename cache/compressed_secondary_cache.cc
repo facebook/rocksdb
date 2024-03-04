@@ -26,7 +26,7 @@ CompressedSecondaryCache::CompressedSecondaryCache(
               cache_))),
       disable_cache_(opts.capacity == 0) {}
 
-CompressedSecondaryCache::~CompressedSecondaryCache() {}
+CompressedSecondaryCache::~CompressedSecondaryCache() = default;
 
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CacheItemHelper* helper,

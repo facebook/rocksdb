@@ -9,9 +9,8 @@
 
 #include "rocksdb/slice.h"
 
-#include <stdio.h>
-
 #include <algorithm>
+#include <cstdio>
 
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice_transform.h"
@@ -128,7 +127,7 @@ class CappedPrefixTransform : public SliceTransform {
 
 class NoopTransform : public SliceTransform {
  public:
-  explicit NoopTransform() {}
+  explicit NoopTransform() = default;
 
   static const char* kClassName() { return "rocksdb.Noop"; }
   const char* Name() const override { return kClassName(); }
@@ -173,7 +172,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
           .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         auto len = ParseSizeT(uri.substr(colon + 1));
         guard->reset(NewFixedPrefixTransform(len));
         return guard->get();
@@ -193,7 +192,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
           .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
+        auto colon = uri.find(':');
         auto len = ParseSizeT(uri.substr(colon + 1));
         guard->reset(NewCappedPrefixTransform(len));
         return guard->get();

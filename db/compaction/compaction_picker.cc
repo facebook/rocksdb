@@ -130,7 +130,7 @@ CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
                                    const InternalKeyComparator* icmp)
     : ioptions_(ioptions), icmp_(icmp) {}
 
-CompactionPicker::~CompactionPicker() {}
+CompactionPicker::~CompactionPicker() = default;
 
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {

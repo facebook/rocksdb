@@ -9,7 +9,7 @@
 
 #include "rocksdb/status.h"
 
-#include <stdio.h>
+#include <cstdio>
 #ifdef OS_WIN
 #include <string.h>
 #endif

@@ -7,7 +7,7 @@
 /*
   This is a dump ground to make Lock Tree work without the rest of TokuDB.
 */
-#include <string.h>
+#include <cstring>
 
 #include "db.h"
 #include "ft/ft-status.h"
@@ -53,7 +53,9 @@ size_t toku_memory_footprint(void *, size_t touched) { return touched; }
 //   "TOKU"
 LTM_STATUS_S ltm_status;
 void LTM_STATUS_S::init() {
-  if (m_initialized) return;
+  if (m_initialized) {
+    return;
+  }
 #define LTM_STATUS_INIT(k, c, t, l)                    \
   TOKUFT_STATUS_INIT((*this), k, c, t, "locktree: " l, \
                      TOKU_ENGINE_STATUS | TOKU_GLOBAL_STATUS)
@@ -104,7 +106,9 @@ void LTM_STATUS_S::init() {
 #undef LTM_STATUS_INIT
 }
 void LTM_STATUS_S::destroy() {
-  if (!m_initialized) return;
+  if (!m_initialized) {
+    return;
+  }
   for (int i = 0; i < LTM_STATUS_NUM_ROWS; ++i) {
     if (status[i].type == STATUS_PARCOUNT) {
       // PORT: TODO?? destroy_partitioned_counter(status[i].value.parcount);

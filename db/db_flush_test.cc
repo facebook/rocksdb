@@ -1367,14 +1367,15 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
       ASSERT_OK(iter->status());
       key = (iter->key()).ToString(false);
       value = (iter->value()).ToString(false);
-      if (key.compare(KEY3) == 0)
+      if (key.compare(KEY3) == 0) {
         ASSERT_EQ(value, p_v3b);
-      else if (key.compare(KEY4) == 0)
+      } else if (key.compare(KEY4) == 0) {
         ASSERT_EQ(value, p_v4);
-      else if (key.compare(KEY5) == 0)
+      } else if (key.compare(KEY5) == 0) {
         ASSERT_EQ(value, p_v5);
-      else
+      } else {
         ASSERT_EQ(value, NOT_FOUND);
+      }
       count++;
     }
     ASSERT_OK(iter->status());
@@ -1404,22 +1405,25 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
     ASSERT_OK(iter->status());
     key = (iter->key()).ToString(false);
     value = (iter->value()).ToString(false);
-    if (key.compare(KEY2) == 0)
+    if (key.compare(KEY2) == 0) {
       ASSERT_EQ(value, p_v2);
-    else if (key.compare(KEY3) == 0)
+    } else if (key.compare(KEY3) == 0) {
       ASSERT_EQ(value, p_v3b);
-    else if (key.compare(KEY4) == 0)
+    } else if (key.compare(KEY4) == 0) {
       ASSERT_EQ(value, p_v4);
-    else if (key.compare(KEY5) == 0)
+    } else if (key.compare(KEY5) == 0) {
       ASSERT_EQ(value, p_v5);
-    else
+    } else {
       ASSERT_EQ(value, NOT_FOUND);
+    }
     count++;
   }
 
   // Expected count here is 4: KEY2, KEY3, KEY4, KEY5.
   ASSERT_EQ(count, EXPECTED_COUNT_END);
-  if (iter) delete iter;
+  if (iter) {
+    delete iter;
+  }
 
   Close();
 }
@@ -2499,7 +2503,7 @@ TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
   class SimpleTestFlushListener : public EventListener {
    public:
     explicit SimpleTestFlushListener(DBFlushTest* _test) : test_(_test) {}
-    ~SimpleTestFlushListener() override {}
+    ~SimpleTestFlushListener() override = default;
 
     void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
       ASSERT_EQ(static_cast<uint32_t>(0), info.cf_id);
