@@ -8,8 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#include <stdint.h>
-
 #include <cstdint>
 #ifdef OS_SOLARIS
 #include <alloca.h>
