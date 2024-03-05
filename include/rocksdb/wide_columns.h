@@ -238,8 +238,16 @@ class AttributeGroup {
   WideColumns columns_;
 };
 
+inline bool operator==(const AttributeGroup& lhs, const AttributeGroup& rhs) {
+  return lhs.column_family() == rhs.column_family() &&
+         lhs.columns() == rhs.columns();
+}
+
 // A collection of Attribute Groups.
 using AttributeGroups = std::vector<AttributeGroup>;
+
+// An empty set of Attribute Groups.
+extern const AttributeGroups kNoAttributeGroups;
 
 // Used in Read Path. Wide-columns returned from the query are pinnable.
 class PinnableAttributeGroup {

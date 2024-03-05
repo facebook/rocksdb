@@ -3199,6 +3199,14 @@ class ModelDB : public DB {
                       std::vector<Iterator*>* /*iterators*/) override {
     return Status::NotSupported("Not supported yet");
   }
+
+  // UNDER CONSTRUCTION - DO NOT USE
+  std::unique_ptr<Iterator> NewMultiCfIterator(
+      const ReadOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
+    return nullptr;
+  }
+
   const Snapshot* GetSnapshot() override {
     ModelSnapshot* snapshot = new ModelSnapshot;
     snapshot->map_ = map_;

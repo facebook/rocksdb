@@ -955,6 +955,15 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
+  // UNDER CONSTRUCTION - DO NOT USE
+  // Return a cross-column-family iterator from a consistent database state.
+  // When the same key is present in multiple column families, the iterator
+  // selects the value or columns from the first column family containing the
+  // key, in the order specified by the `column_families` parameter.
+  virtual std::unique_ptr<Iterator> NewMultiCfIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
   // state.  The caller must call ReleaseSnapshot(result) when the
