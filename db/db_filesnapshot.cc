@@ -390,8 +390,11 @@ Status DBImpl::GetLiveFilesStorageInfo(
       info.file_number = live_wal_files[i]->LogNumber();
       info.file_type = kWalFile;
       info.size = live_wal_files[i]->SizeFileBytes();
-      // Only last should need to be trimmed
-      info.trim_to_size = (i + 1 == wal_size);
+      // Trim the log either if its the last one, or log file recycling is
+      // enabled. In the latter case, a hard link doesn't prevent the file
+      // from being renamed and recycled. So we need to copy it instead.
+      info.trim_to_size = (i + 1 == wal_size) ||
+                          (immutable_db_options_.recycle_log_file_num > 0);
       if (opts.include_checksum_info) {
         info.file_checksum_func_name = kUnknownFileChecksumFuncName;
         info.file_checksum = kUnknownFileChecksum;

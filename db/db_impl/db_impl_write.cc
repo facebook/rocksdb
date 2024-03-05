@@ -2173,8 +2173,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     log_write_mutex_.Unlock();
   }
   uint64_t recycle_log_number = 0;
+  // If file deletion is disabled, don't recycle logs since it'll result in
+  // the file getting renamed
   if (creating_new_log && immutable_db_options_.recycle_log_file_num &&
-      !log_recycle_files_.empty()) {
+      !log_recycle_files_.empty() && IsFileDeletionsEnabled()) {
     recycle_log_number = log_recycle_files_.front();
   }
   uint64_t new_log_number =
