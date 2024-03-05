@@ -109,8 +109,7 @@ bool TtlMergeOperator::PartialMergeMulti(const Slice& key,
       return false;
     }
 
-    operands_without_ts.push_back(
-        Slice(operand.data(), operand.size() - ts_len));
+    operands_without_ts.emplace_back(operand.data(), operand.size() - ts_len);
   }
 
   // Apply the user partial-merge operator (store result in *new_value)
@@ -339,8 +338,7 @@ Status DBWithTTL::Open(const Options& options, const std::string& dbname,
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DBWithTTL::Open(db_options, dbname, column_families, &handles,
                              dbptr, {ttl}, read_only);
@@ -631,7 +629,9 @@ void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {
   opts = GetOptions(h);
   filter = std::static_pointer_cast<TtlCompactionFilterFactory>(
       opts.compaction_filter_factory);
-  if (!filter) return;
+  if (!filter) {
+    return;
+  }
   filter->SetTtl(ttl);
 }
 

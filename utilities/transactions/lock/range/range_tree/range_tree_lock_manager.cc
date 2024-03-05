@@ -149,7 +149,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 // the lock waits that are in progress.
 void wait_callback_for_locktree(void*, toku::lock_wait_infos* infos) {
   TEST_SYNC_POINT("RangeTreeLockManager::TryRangeLock:EnterWaitingTxn");
-  for (auto wait_info : *infos) {
+  for (const auto& wait_info : *infos) {
     // As long as we hold the lock on the locktree's pending request queue
     // this should be safe.
     auto txn = (PessimisticTransaction*)wait_info.waiter;
@@ -305,7 +305,7 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
       path.push_back(
           {it2->m_txn_id, it2->m_cf_id, it2->m_exclusive, it2->m_start.slice});
     }
-    res.push_back(DeadlockPath(path, it->deadlock_time));
+    res.emplace_back(path, it->deadlock_time);
   }
   return res;
 }
@@ -489,7 +489,7 @@ LockManager::RangeLockStatus RangeTreeLockManager::GetRangeLockStatus() {
   LockManager::RangeLockStatus data;
   {
     InstrumentedMutexLock l(&ltree_map_mutex_);
-    for (auto it : ltree_map_) {
+    for (const auto& it : ltree_map_) {
       LOCK_PRINT_CONTEXT ctx = {&data, it.first};
       it.second->dump_locks((void*)&ctx, push_into_lock_status_data);
     }

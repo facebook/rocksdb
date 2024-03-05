@@ -884,7 +884,7 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
     // what the sorting is as long as it's consistent.
     std::map<uint32_t, std::set<std::string>> keys_;
 
-    Handler() {}
+    Handler() = default;
 
     void RecordKey(uint32_t column_family_id, const Slice& key) {
       auto& cfh_keys = keys_[column_family_id];

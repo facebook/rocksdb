@@ -27,7 +27,7 @@ class TsCheckingTxnNotifier : public TransactionNotifier {
  public:
   explicit TsCheckingTxnNotifier() = default;
 
-  ~TsCheckingTxnNotifier() override {}
+  ~TsCheckingTxnNotifier() override = default;
 
   void SnapshotCreated(const Snapshot* new_snapshot) override {
     assert(new_snapshot);

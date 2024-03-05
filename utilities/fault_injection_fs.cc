@@ -33,7 +33,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::string kNewFileNoOverwrite = "";
+const std::string kNewFileNoOverwrite;
 
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
@@ -47,7 +47,7 @@ std::string TestFSGetDirName(const std::string filename) {
 
 // Trim the tailing "/" in the end of `str`
 std::string TestFSTrimDirname(const std::string& str) {
-  size_t found = str.find_last_not_of("/");
+  size_t found = str.find_last_not_of('/');
   if (found == std::string::npos) {
     return str;
   }
@@ -74,7 +74,6 @@ void CalculateTypedChecksum(const ChecksumType& checksum_type, const char* data,
     uint32_t v = XXH32(data, size, 0);
     PutFixed32(checksum, v);
   }
-  return;
 }
 
 IOStatus FSFileState::DropUnsyncedData() {
@@ -1014,7 +1013,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
                                             uint64_t* number, FileType* type) {
-  std::size_t found = file_name.find_last_of("/");
+  std::size_t found = file_name.find_last_of('/');
   std::string file = file_name.substr(found);
   return ParseFileName(file, number, type);
 }

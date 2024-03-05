@@ -175,7 +175,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   sim_cache->StopActivityLogging();
   ASSERT_OK(sim_cache->GetActivityLoggingStatus());
 
-  std::string file_contents = "";
+  std::string file_contents;
   ASSERT_OK(ReadFileToString(env_, log_file, &file_contents));
   std::istringstream contents(file_contents);
 

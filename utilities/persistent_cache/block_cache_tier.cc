@@ -78,7 +78,7 @@ bool IsCacheFile(const std::string& file) {
   // check if the file has .rc suffix
   // Unfortunately regex support across compilers is not even, so we use simple
   // string parsing
-  size_t pos = file.find(".");
+  size_t pos = file.find('.');
   if (pos == std::string::npos) {
     return false;
   }
@@ -97,7 +97,7 @@ Status BlockCacheTier::CleanupCacheFolder(const std::string& folder) {
   }
 
   // cleanup files with the patter :digi:.rc
-  for (auto file : files) {
+  for (const auto& file : files) {
     if (IsCacheFile(file)) {
       // cache file
       Info(opt_.log, "Removing file %s.", file.c_str());

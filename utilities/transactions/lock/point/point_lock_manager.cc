@@ -34,9 +34,8 @@ struct LockInfo {
     txn_ids.push_back(id);
   }
   LockInfo(const LockInfo& lock_info)
-      : exclusive(lock_info.exclusive),
-        txn_ids(lock_info.txn_ids),
-        expiration_time(lock_info.expiration_time) {}
+
+      = default;
   void operator=(const LockInfo& lock_info) {
     exclusive = lock_info.exclusive;
     txn_ids = lock_info.txn_ids;

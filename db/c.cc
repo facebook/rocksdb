@@ -446,7 +446,7 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     size_t new_value_len;
     char* tmp_new_value = (*full_merge_)(
         state_, merge_in.key.data(), merge_in.key.size(), existing_value_data,
-        existing_value_len, &operand_pointers[0], &operand_sizes[0],
+        existing_value_len, operand_pointers.data(), operand_sizes.data(),
         static_cast<int>(n), &success, &new_value_len);
     merge_out->new_value.assign(tmp_new_value, new_value_len);
 
@@ -475,8 +475,9 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     unsigned char success;
     size_t new_value_len;
     char* tmp_new_value = (*partial_merge_)(
-        state_, key.data(), key.size(), &operand_pointers[0], &operand_sizes[0],
-        static_cast<int>(operand_count), &success, &new_value_len);
+        state_, key.data(), key.size(), operand_pointers.data(),
+        operand_sizes.data(), static_cast<int>(operand_count), &success,
+        &new_value_len);
     new_value->assign(tmp_new_value, new_value_len);
 
     if (delete_value_ != nullptr) {
@@ -886,9 +887,9 @@ rocksdb_t* rocksdb_open_and_trim_history(
     size_t trim_tslen, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   std::string trim_ts_(trim_ts, trim_tslen);
@@ -919,9 +920,9 @@ rocksdb_t* rocksdb_open_column_families(
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   DB* db;
@@ -953,9 +954,9 @@ rocksdb_t* rocksdb_open_column_families_with_ttl(
   for (int i = 0; i < num_column_families; i++) {
     ttls_vec.push_back(ttls[i]);
 
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   ROCKSDB_NAMESPACE::DBWithTTL* db;
@@ -985,9 +986,9 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     unsigned char error_if_wal_file_exists, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   DB* db;
@@ -1081,7 +1082,7 @@ rocksdb_column_family_handle_t** rocksdb_create_column_families(
   std::vector<ColumnFamilyHandle*> handles;
   std::vector<std::string> names;
   for (int i = 0; i != num_column_families; ++i) {
-    names.push_back(std::string(column_family_names[i]));
+    names.emplace_back(column_family_names[i]);
   }
   SaveError(errptr, db->rep->CreateColumnFamilies(
                         ColumnFamilyOptions(column_family_options->rep), names,
@@ -2788,7 +2789,9 @@ void rocksdb_options_set_cuckoo_table_factory(
 void rocksdb_set_options(rocksdb_t* db, int count, const char* const keys[],
                          const char* const values[], char** errptr) {
   std::unordered_map<std::string, std::string> options_map;
-  for (int i = 0; i < count; i++) options_map[keys[i]] = values[i];
+  for (int i = 0; i < count; i++) {
+    options_map[keys[i]] = values[i];
+  }
   SaveError(errptr, db->rep->SetOptions(options_map));
 }
 
@@ -2797,7 +2800,9 @@ void rocksdb_set_options_cf(rocksdb_t* db,
                             const char* const keys[],
                             const char* const values[], char** errptr) {
   std::unordered_map<std::string, std::string> options_map;
-  for (int i = 0; i < count; i++) options_map[keys[i]] = values[i];
+  for (int i = 0; i < count; i++) {
+    options_map[keys[i]] = values[i];
+  }
   SaveError(errptr, db->rep->SetOptions(handle->rep, options_map));
 }
 
@@ -5060,7 +5065,9 @@ void rocksdb_env_lower_high_priority_thread_pool_cpu_priority(
 }
 
 void rocksdb_env_destroy(rocksdb_env_t* env) {
-  if (!env->is_default) delete env->rep;
+  if (!env->is_default) {
+    delete env->rep;
+  }
   delete env;
 }
 
@@ -5524,7 +5531,7 @@ size_t rocksdb_column_family_metadata_get_level_count(
 rocksdb_level_metadata_t* rocksdb_column_family_metadata_get_level_metadata(
     rocksdb_column_family_metadata_t* cf_meta, size_t i) {
   if (i >= cf_meta->rep.levels.size()) {
-    return NULL;
+    return nullptr;
   }
   rocksdb_level_metadata_t* level_meta =
       (rocksdb_level_metadata_t*)malloc(sizeof(rocksdb_level_metadata_t));
@@ -5739,9 +5746,9 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   TransactionDB* txn_db;
@@ -6533,9 +6540,9 @@ rocksdb_optimistictransactiondb_open_column_families(
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   OptimisticTransactionDB* otxn_db;

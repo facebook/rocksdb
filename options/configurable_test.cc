@@ -29,8 +29,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
-namespace ROCKSDB_NAMESPACE {
-namespace test {
+namespace ROCKSDB_NAMESPACE::test {
 class StringLogger : public Logger {
  public:
   using Logger::Logv;
@@ -849,8 +848,7 @@ INSTANTIATE_TEST_CASE_P(
                                             "block_size=1024;"
                                             "no_block_cache=true;")));
 
-}  // namespace test
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::test
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);

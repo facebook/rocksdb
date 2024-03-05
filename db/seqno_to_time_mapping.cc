@@ -422,7 +422,7 @@ bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
     // TODO: consider changing?
   } else if (pairs_.empty()) {
     enforced_ = true;
-    pairs_.push_back({seqno, time});
+    pairs_.emplace_back(seqno, time);
     // skip normal enforced check below
     return true;
   } else {
@@ -437,13 +437,13 @@ bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
           // reset
           assert(false);
         } else {
-          pairs_.push_back({seqno, time});
+          pairs_.emplace_back(seqno, time);
           added = true;
         }
       }
     } else if (!enforced_) {
       // Treat like AddUnenforced and fix up below
-      pairs_.push_back({seqno, time});
+      pairs_.emplace_back(seqno, time);
       added = true;
     } else {
       // Out of order append attempted

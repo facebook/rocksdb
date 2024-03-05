@@ -270,7 +270,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
   void Reopen(const std::vector<ColumnFamilyOptions> options = {}) {
     std::vector<std::string> names;
-    for (auto name : names_) {
+    for (const auto& name : names_) {
       if (name != "") {
         names.push_back(name);
       }
@@ -607,7 +607,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest) {
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
   std::vector<std::string> names;
-  for (auto name : names_) {
+  for (const auto& name : names_) {
     if (name != "") {
       names.push_back(name);
     }
@@ -669,7 +669,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest2) {
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
   std::vector<std::string> names;
-  for (auto name : names_) {
+  for (const auto& name : names_) {
     if (name != "") {
       names.push_back(name);
     }
@@ -1034,7 +1034,7 @@ TEST_P(ColumnFamilyTest, CrashAfterFlush) {
   fault_env->SetFilesystemActive(false);
 
   std::vector<std::string> names;
-  for (auto name : names_) {
+  for (const auto& name : names_) {
     if (name != "") {
       names.push_back(name);
     }
@@ -3407,9 +3407,13 @@ TEST_P(ColumnFamilyTest, DISABLED_LogTruncationTest) {
   for (size_t i = 0; i < filenames.size(); i++) {
     uint64_t number;
     FileType type;
-    if (!(ParseFileName(filenames[i], &number, &type))) continue;
+    if (!(ParseFileName(filenames[i], &number, &type))) {
+      continue;
+    }
 
-    if (type != kWalFile) continue;
+    if (type != kWalFile) {
+      continue;
+    }
 
     logfs.push_back(filenames[i]);
   }

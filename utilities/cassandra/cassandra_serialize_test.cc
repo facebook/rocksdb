@@ -6,8 +6,7 @@
 #include "test_util/testharness.h"
 #include "utilities/cassandra/serialize.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 
 TEST(SerializeTest, SerializeI64) {
   std::string dest;
@@ -154,8 +153,7 @@ TEST(SerializeTest, DeserializeI8) {
   EXPECT_EQ(-128, Deserialize<int8_t>(dest.c_str(), offset));
 }
 
-}  // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
