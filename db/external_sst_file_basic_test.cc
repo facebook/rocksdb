@@ -1862,6 +1862,9 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
+  // Rather than doubling the running time of this test, this boolean
+  // field gets a random starting value and then alternates between
+  // true and false.
   bool alternate_hint = Random::GetTLSInstance()->OneIn(2);
   Destroy(CurrentOptions());
 
@@ -2007,7 +2010,10 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
     // (no change)
     VERIFY_SST_COUNTS();
 
-    // check invalid temperature with DB property (not sure why)
+    // check invalid temperature with DB property. Not sure why the original
+    // author is testing this case, but perhaps so that downgrading DB with
+    // new GetProperty code using a new Temperature will report something
+    // reasonable and not an error.
     std::string prop;
     ASSERT_TRUE(dbfull()->GetProperty(
         DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
