@@ -163,8 +163,10 @@ IOStatus DBImpl::SyncClosedLogs(const WriteOptions& write_options,
         if (error_recovery_in_prog) {
           log->file()->reset_seen_error();
         }
-        // TODO: plumb Env::IOActivity, Env::IOPriority
-        io_s = log->Close(WriteOptions());
+        // Normally the log file is closed when purging obsolete file, but if
+        // log recycling is enabled, the log file is closed here so that it
+        // can be reused.
+        io_s = log->Close(write_options);
         if (!io_s.ok()) {
           break;
         }

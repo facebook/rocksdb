@@ -853,7 +853,7 @@ void CorruptLogFile(Env* env, Options& options, std::string log_path,
                   Slice(reinterpret_cast<char*>(&bad_lognum), sizeof(uint32_t)),
                   IOOptions(), nullptr),
               IOStatus::OK());
-    file->Close(IOOptions(), nullptr);
+    ASSERT_OK(file->Close(IOOptions(), nullptr));
     file.reset();
   }
 }
