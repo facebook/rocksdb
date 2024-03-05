@@ -2465,7 +2465,13 @@ Status DBImpl::AtomicFlushMemTables(
     }
     WaitForPendingWrites();
 
-    SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds);
+    // We are only allowed to flush all column families if
+    // replication_log_listener exists, i.e. we ignore candidate_cfds
+    if (immutable_db_options_.replication_log_listener) {
+      SelectColumnFamiliesForAtomicFlush(&cfds);
+    } else {
+      SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds);
+    }
 
     MemTableSwitchRecord mem_switch_record;
     std::string replication_sequence;

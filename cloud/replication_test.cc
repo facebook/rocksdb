@@ -705,6 +705,15 @@ TEST_F(ReplicationTest, MultiColumnFamily) {
   // Atomic flush, will flush all column families
   ASSERT_OK(leader->Flush(FlushOptions()));
 
+  {
+    // Make sure that CF5 was also flushed, even though it wasn't in the list of
+    // CFs in the call to Flush() above
+    ReadOptions ro;
+    ro.read_tier = kPersistedTier;
+    ASSERT_OK(leader->Get(ro, leaderCF(cf(5)), "key5", &val));
+    EXPECT_EQ(val, "val5");
+  }
+
   for (size_t i = 0; i < 1000; ++i) {
     ASSERT_OK(follower->Get(ReadOptions(), followerCF(cf(i % 10)),
                             "key" + std::to_string(i), &val));
