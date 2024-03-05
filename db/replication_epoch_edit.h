@@ -101,9 +101,13 @@ class ReplicationEpochSet {
   std::optional<uint64_t> GetEpochForMUS(uint64_t mus) const;
 
   const auto& GetEpochs() const { return epochs_; }
+  uint64_t GetSmallestEpoch() const {
+    return epochs_.front().GetEpoch();
+  }
 
   bool empty() const { return epochs_.empty(); }
   auto size() const { return epochs_.size(); }
+
 
  private:
   Status AddEpoch(const ReplicationEpochAddition& epoch,

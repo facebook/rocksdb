@@ -1418,16 +1418,35 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
                 !versions_->IsReplicationEpochsEmpty()) {
               auto inferred_epoch_of_mus = versions_->GetReplicationEpochForMUS(
                   latest_applied_update_sequence);
-              if (!inferred_epoch_of_mus ||
-                  (*inferred_epoch_of_mus != replication_epoch)) {
-                // - If inferred_epoch_of_mus is not set, either we are
-                // recovering manifest writes before persisted replication
-                // sequence, or there are too many manifest writes after the
-                // persisted replication sequence. For either case, we report
-                // divergence and clear local log
-                // - If inferred_epoch_of_mus doesn't match epoch in
-                // VersionEdit, the applied version edit is diverged
+              // If mus is smaller than mus in the epoch set, the replication
+              // epoch should also be smaller than epoch in the epoch set.
+              if (!inferred_epoch_of_mus &&
+                  replication_epoch >=
+                      versions_->replication_epochs_.GetSmallestEpoch()) {
                 info->diverged_manifest_writes = true;
+                ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                               "Diverged manifest found: replication seq: %s, "
+                               "mus: %" PRIu64 ", smallest epoch: %" PRIu64
+                               ", actual epoch: %" PRIu64,
+                               replication_sequence.c_str(),
+                               latest_applied_update_sequence,
+                               versions_->replication_epochs_.GetSmallestEpoch(),
+                               replication_epoch);
+                break;
+              }
+              // If we can infer epoch, make sure the epoch actually matches
+              // with epoch in the `replication_sequence`
+              if (inferred_epoch_of_mus &&
+                  (*inferred_epoch_of_mus != replication_epoch)) {
+                info->diverged_manifest_writes = true;
+                ROCKS_LOG_INFO(
+                    immutable_db_options_.info_log,
+                    "Diverged manifest found: replication seq: %s, mus: "
+                    "%" PRIu64 ", inferred epoch: %" PRIu64
+                    ", actual epoch: %" PRIu64,
+                    replication_sequence.c_str(),
+                    latest_applied_update_sequence, *inferred_epoch_of_mus,
+                    replication_epoch);
                 break;
               }
             }  // else Old manifest write which is not diverged

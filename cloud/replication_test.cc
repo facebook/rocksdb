@@ -1440,7 +1440,7 @@ TEST_F(ReplicationTest, ReplicationEpochs) {
       leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().empty());
 
   ASSERT_OK(leader->Put(wo(), leaderCF(cf(0)), "k2", "v2"));
-  ASSERT_OK(leader->Flush(FlushOptions()));
+  ASSERT_OK(leader->Flush(FlushOptions(), leaderCF(cf(0))));
 
   catchUpFollower();
 
@@ -1450,7 +1450,7 @@ TEST_F(ReplicationTest, ReplicationEpochs) {
 
   UpdateLeaderEpoch(3);
   ASSERT_OK(leader->Put(wo(), leaderCF(cf(0)), "k3", "v3"));
-  ASSERT_OK(leader->Flush(FlushOptions()));
+  ASSERT_OK(leader->Flush(FlushOptions(), leaderCF(cf(0))));
 
   catchUpFollower();
   ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
@@ -1462,6 +1462,62 @@ TEST_F(ReplicationTest, ReplicationEpochs) {
 
   ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
             1);
+}
+
+TEST_F(ReplicationTest, MaxNumReplicationEpochs) {
+  auto options = leaderOptions();
+  options.disable_auto_compactions = true;
+  options.disable_auto_flush = true;
+  // maintain at most two replication epochs in the set
+  options.max_num_replication_epochs = 2;
+  auto leader = openLeader(options);
+  openFollower(options);
+
+  auto cf = [](int i) { return "cf" + std::to_string(i); };
+
+  createColumnFamily(cf(0));
+
+  UpdateLeaderEpoch(2);
+
+  ASSERT_OK(leader->Put(wo(), leaderCF(cf(0)), "k1", "v1"));
+  ASSERT_OK(leader->Flush(FlushOptions(), leaderCF(cf(0))));
+
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
+            1);
+
+  catchUpFollower();
+  verifyReplicationEpochsEqual();
+
+  UpdateLeaderEpoch(3);
+  // generate some manifest writes without changing persisted replication
+  // sequence
+  ASSERT_OK(leader->SetOptions(leaderCF(cf(0)), {{"max_write_buffer_number", "3"}}));
+
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
+            2);
+  
+  UpdateLeaderEpoch(4);
+  // generate some manifest writes without changing persisted replication
+  // sequence
+  ASSERT_OK(leader->SetOptions(leaderCF(cf(0)), {{"max_write_buffer_number", "2"}}));
+
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
+            2);
+  ASSERT_EQ(leaderFull()
+                ->GetVersionSet()
+                ->TEST_GetReplicationEpochSet()
+                .GetSmallestEpoch(),
+            3);
+
+  catchUpFollower();
+  verifyReplicationEpochsEqual();
+
+  closeLeader();
+  leader = openLeader(options);
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
+            2);
+  ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().GetSmallestEpoch(),
+            3);
 }
 
 }  //  namespace ROCKSDB_NAMESPACE

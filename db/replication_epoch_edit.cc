@@ -51,7 +51,7 @@ Status ReplicationEpochSet::AddEpoch(const ReplicationEpochAddition& epoch,
     return Status::Corruption(ss.str());
   }
 
-  while (epochs_.size() + 1 >= max_num_replication_epochs) {
+  while (epochs_.size() >= max_num_replication_epochs) {
     epochs_.pop_front();
   }
   epochs_.push_back(epoch);
