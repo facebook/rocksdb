@@ -769,7 +769,6 @@ Status VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
     // AtomicGroup since they are too old.
     for (auto& cfid_and_version : atomic_update_versions_) {
       delete cfid_and_version.second;
-      cfid_and_version.second = nullptr;
     }
   }
 

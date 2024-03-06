@@ -1327,6 +1327,13 @@ struct DBOptions {
   // is like applying WALRecoveryMode::kPointInTimeRecovery to each column
   // family rather than just the WAL.
   //
+  // The behavior changes in the presence of "AtomicGroup"s in the MANIFEST,
+  // which is currently only the case when `atomic_flush == true`. In that
+  // case, all pre-existing CFs must recover the atomic group in order for
+  // that group to be applied in an all-or-nothing manner. This means that
+  // unused/inactive CF(s) with invalid filesystem state can block recovery of
+  // all other CFs at an atomic group.
+  //
   // Best-efforts recovery (BER) is specifically designed to recover a DB with
   // files that are missing or truncated to some smaller size, such as the
   // result of an incomplete DB "physical" (FileSystem) copy. BER can also
