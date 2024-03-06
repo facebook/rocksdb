@@ -34,42 +34,36 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
          reader.ReadRecord(&record, &scratch) && log_read_status->ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
-    if (!s.ok()) {
-      break;
+    if (s.ok()) {
+      s = read_buffer_.AddEdit(&edit);
     }
-
-    s = read_buffer_.AddEdit(&edit);
-    if (!s.ok()) {
-      break;
-    }
-    ColumnFamilyData* cfd = nullptr;
-    if (edit.IsInAtomicGroup()) {
-      if (read_buffer_.IsFull()) {
-        s = OnAtomicGroupReplayBegin();
-        if (!s.ok()) {
-          break;
-        }
-        for (auto& e : read_buffer_.replay_buffer()) {
-          s = ApplyVersionEdit(e, &cfd);
-          if (!s.ok()) {
-            break;
+    if (s.ok()) {
+      ColumnFamilyData* cfd = nullptr;
+      if (edit.IsInAtomicGroup()) {
+        if (read_buffer_.IsFull()) {
+          s = OnAtomicGroupReplayBegin();
+          for (size_t i = 0; s.ok() && i < read_buffer_.replay_buffer().size();
+               i++) {
+            auto& e = read_buffer_.replay_buffer()[i];
+            s = ApplyVersionEdit(e, &cfd);
+            if (s.ok()) {
+              recovered_edits++;
+            }
           }
-          ++recovered_edits;
+          if (s.ok()) {
+            read_buffer_.Clear();
+            s = OnAtomicGroupReplayEnd();
+          }
         }
-        if (!s.ok()) {
-          break;
+      } else {
+        s = ApplyVersionEdit(edit, &cfd);
+        if (s.ok()) {
+          recovered_edits++;
         }
-        read_buffer_.Clear();
-        s = OnAtomicGroupReplayEnd();
-      }
-    } else {
-      s = ApplyVersionEdit(edit, &cfd);
-      if (s.ok()) {
-        ++recovered_edits;
       }
     }
   }
-  if (!log_read_status->ok()) {
+  if (s.ok() && !log_read_status->ok()) {
     s = *log_read_status;
   }
 
