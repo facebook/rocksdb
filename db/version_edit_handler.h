@@ -40,6 +40,9 @@ class VersionEditHandlerBase {
   virtual Status ApplyVersionEdit(VersionEdit& edit,
                                   ColumnFamilyData** cfd) = 0;
 
+  virtual Status OnAtomicGroupReplayBegin() { return Status::OK(); }
+  virtual Status OnAtomicGroupReplayEnd() { return Status::OK(); }
+
   virtual void CheckIterationResult(const log::Reader& /*reader*/,
                                     Status* /*s*/) {}
 
@@ -237,8 +240,16 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ~VersionEditHandlerPointInTime() override;
 
  protected:
+  Status OnAtomicGroupReplayBegin() override;
+  Status OnAtomicGroupReplayEnd() override;
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
+
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
+  // `MaybeCreateVersion(..., false)` creates a version upon a negative edge
+  // trigger (transition from valid to invalid).
+  //
+  // `MaybeCreateVersion(..., true)` creates a version on a positive level
+  // trigger (state is valid).
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
   virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
@@ -251,6 +262,30 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
                     bool is_initial_load) override;
 
   std::unordered_map<uint32_t, Version*> versions_;
+
+  // `atomic_update_versions_` is for ensuring all-or-nothing AtomicGroup
+  // recoveries.  When `atomic_update_versions_` is nonempty, it serves as a
+  // barrier to updating `versions_` until all its values are populated.
+  std::unordered_map<uint32_t, Version*> atomic_update_versions_;
+  // `atomic_update_versions_missing_` counts the nullptr values in
+  // `atomic_update_versions_`.
+  size_t atomic_update_versions_missing_;
+
+  bool in_atomic_group_ = false;
+
+ private:
+  bool AtomicUpdateVersionsCompleted();
+  bool AtomicUpdateVersionsContains(uint32_t cfid);
+  void AtomicUpdateVersionsDropCf(uint32_t cfid);
+
+  // This function is called for `Version*` updates for column families in an
+  // incomplete atomic update. It buffers `Version*` updates in
+  // `atomic_update_versions_`.
+  void AtomicUpdateVersionsPut(Version* version);
+
+  // This function is called upon completion of an atomic update. It applies
+  // `Version*` updates in `atomic_update_versions_` to `versions_`.
+  void AtomicUpdateVersionsApply();
 };
 
 class ManifestTailer : public VersionEditHandlerPointInTime {
