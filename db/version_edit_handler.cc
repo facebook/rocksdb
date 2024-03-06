@@ -793,6 +793,9 @@ Status VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
 
   // The AtomicGroup must not have changed the column families. We don't support
   // CF adds or drops in an AtomicGroup.
+  if (builders_.size() != atomic_update_versions_.size()) {
+    return Status::Corruption("unexpected CF change in AtomicGroup");
+  }
   for (const auto& cfid_and_builder : builders_) {
     if (atomic_update_versions_.find(cfid_and_builder.first) ==
         atomic_update_versions_.end()) {
@@ -944,7 +947,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
 
   // Create version before apply edit. The version will represent the state
   // before applying the version edit.
-  // A new version will created if:
+  // A new version will be created if:
   // 1) no error has occurred so far, and
   // 2) log_number_, next_file_number_ and last_sequence_ are known, and
   // 3) not in an AtomicGroup

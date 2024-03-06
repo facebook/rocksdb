@@ -2975,6 +2975,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
                                     {DescriptorFileName(1 /* number */)},
                                     nullptr /* db_id */,
                                     &has_missing_table_file));
+    ASSERT_FALSE(has_missing_table_file);
   }
   std::vector<uint64_t> all_table_files;
   std::vector<uint64_t> all_blob_files;
@@ -3048,6 +3049,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesValidLater) {
                                     {DescriptorFileName(1 /* number */)},
                                     nullptr /* db_id */,
                                     &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
   }
   std::vector<uint64_t> all_table_files;
   std::vector<uint64_t> all_blob_files;
@@ -3090,6 +3092,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesInvalid) {
                                     {DescriptorFileName(1 /* number */)},
                                     nullptr /* db_id */,
                                     &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
   }
   std::vector<uint64_t> all_table_files;
   std::vector<uint64_t> all_blob_files;
@@ -3164,6 +3167,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
                                     {DescriptorFileName(1 /* number */)},
                                     nullptr /* db_id */,
                                     &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
   }
   std::vector<uint64_t> all_table_files;
   std::vector<uint64_t> all_blob_files;
@@ -3204,7 +3208,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
   edits_.back().AddFile(0 /* level */, file_metas[0]);
   edits_.back().SetLastSequence(++last_seqno_);
   edits_.back().MarkAtomicGroup(0 /* remaining_entries */);
-  AddNewEditsToLog(kNumColumnFamilies);
+  AddNewEditsToLog(kNumColumnFamilies + 1);
 
   {
     bool has_missing_table_file = false;
@@ -3212,6 +3216,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
                                     {DescriptorFileName(1 /* number */)},
                                     nullptr /* db_id */,
                                     &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
   }
   std::vector<uint64_t> all_table_files;
   std::vector<uint64_t> all_blob_files;
@@ -3267,6 +3272,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
                                     {DescriptorFileName(1 /* number */)},
                                     nullptr /* db_id */,
                                     &has_missing_table_file));
+    ASSERT_FALSE(has_missing_table_file);
   }
   std::vector<uint64_t> all_table_files;
   std::vector<uint64_t> all_blob_files;
@@ -3306,17 +3312,23 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
   AddNewEditsToLog(kNumColumnFamilies);
 
   {
-    // Add a new CF. Have the new CF refer to a non-existent file for an extra
-    // challenge.
+    // Add a new CF.
     VersionEdit add_cf_edit;
     add_cf_edit.AddColumnFamily("extra_cf");
     add_cf_edit.SetColumnFamily(kNumColumnFamilies);
-    file_metas[0].fd.packed_number_and_path_id =
-        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
-    add_cf_edit.AddFile(0 /* level */, file_metas[0]);
-    add_cf_edit.SetLastSequence(++last_seqno_);
     std::string record;
     ASSERT_TRUE(add_cf_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    // Have the new CF refer to a non-existent file for an extra challenge.
+    VersionEdit broken_edit;
+    broken_edit.SetColumnFamily(kNumColumnFamilies);
+    file_metas[0].fd.packed_number_and_path_id =
+        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
+    broken_edit.AddFile(0 /* level */, file_metas[0]);
+    broken_edit.SetLastSequence(++last_seqno_);
+    record.clear();
+    ASSERT_TRUE(broken_edit.EncodeTo(&record, 0 /* ts_sz */));
     ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
 
     // This fixes up the first of the two non-existent file references.
@@ -3337,6 +3349,7 @@ TEST_F(AtomicGroupBestEffortRecoveryTest,
                                     {DescriptorFileName(1 /* number */)},
                                     nullptr /* db_id */,
                                     &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
   }
   std::vector<uint64_t> all_table_files;
   std::vector<uint64_t> all_blob_files;
