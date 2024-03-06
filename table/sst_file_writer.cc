@@ -327,11 +327,12 @@ SstFileWriter::~SstFileWriter() {
   }
 }
 
-Status SstFileWriter::Open(const std::string& file_path) {
+Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   Rep* r = rep_.get();
   Status s;
   std::unique_ptr<FSWritableFile> sst_file;
   FileOptions cur_file_opts(r->env_options);
+  cur_file_opts.temperature = temp;
   s = r->ioptions.env->GetFileSystem()->NewWritableFile(
       file_path, cur_file_opts, &sst_file, nullptr);
   if (!s.ok()) {
