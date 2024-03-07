@@ -190,11 +190,11 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
     }
   }
 
-  if (!do_validate) {
+  if (!do_validate && kMaxTxnTimestamp != read_timestamp_) {
     return Status::InvalidArgument(
         "If do_validate is false then GetForUpdate with read_timestamp is not "
         "defined.");
-  } else if (kMaxTxnTimestamp == read_timestamp_) {
+  } else if (do_validate && kMaxTxnTimestamp == read_timestamp_) {
     return Status::InvalidArgument("read_timestamp must be set for validation");
   }
 
