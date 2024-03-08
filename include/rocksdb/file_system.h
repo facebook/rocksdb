@@ -85,7 +85,7 @@ enum FSSupportedOps {
   kAsyncIO,   // Supports async reads
   kFSBuffer,  // Supports handing off the file system allocated read buffer
               // to the caller of Read/MultiRead
-  kVerifyAndReconstructRead,  // Supports a higher level of data inegrity. See
+  kVerifyAndReconstructRead,  // Supports a higher level of data integrity. See
                               // the verify_and_reconstruct_read flag in
                               // IOOptions.
 };
