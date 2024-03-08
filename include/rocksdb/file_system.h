@@ -82,11 +82,12 @@ enum class IOType : uint8_t {
 // enum representing various operations supported by underlying FileSystem.
 // These need to be set in SupportedOps API for RocksDB to use them.
 enum FSSupportedOps {
-  kAsyncIO,        // Supports async reads
-  kFSBuffer,       // Supports handing off the file system allocated read buffer
-                   // to the caller of Read/MultiRead
-  kIntegrityRead,  // Supports a higher level of data inegrity. See the
-                   // integrity_read flag in IOOptions.
+  kAsyncIO,   // Supports async reads
+  kFSBuffer,  // Supports handing off the file system allocated read buffer
+              // to the caller of Read/MultiRead
+  kVerifyAndReconstructRead,  // Supports a higher level of data inegrity. See
+                              // the verify_and_reconstruct_read flag in
+                              // IOOptions.
 };
 
 // Per-request options that can be passed down to the FileSystem
@@ -134,9 +135,9 @@ struct IOOptions {
   // much higher overhead than a normal read.
   // This is a hint. At a minimum, the file system should implement this flag in
   // FSRandomAccessFile::Read and FSSequentialFile::Read
-  // NOTE: The file system must support kIntegrityRead in FSSupportedOps,
-  // otherwise this feature will not be used.
-  bool integrity_read;
+  // NOTE: The file system must support kVerifyAndReconstructRead in
+  // FSSupportedOps, otherwise this feature will not be used.
+  bool verify_and_reconstruct_read;
 
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
