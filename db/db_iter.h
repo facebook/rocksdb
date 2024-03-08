@@ -118,7 +118,7 @@ class DBIter final : public Iterator {
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
-         ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+         ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
          bool expose_blob_index);
 
   // No copying allowed
@@ -417,8 +417,7 @@ class DBIter final : public Iterator {
   MergeContext merge_context_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-  DBImpl* db_impl_;
-  ColumnFamilyData* cfd_;
+  ColumnFamilyHandleImpl* cfh_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
@@ -428,15 +427,12 @@ class DBIter final : public Iterator {
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
-Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
-                        const ImmutableOptions& ioptions,
-                        const MutableCFOptions& mutable_cf_options,
-                        const Comparator* user_key_comparator,
-                        InternalIterator* internal_iter, const Version* version,
-                        const SequenceNumber& sequence,
-                        uint64_t max_sequential_skip_in_iterations,
-                        ReadCallback* read_callback, DBImpl* db_impl = nullptr,
-                        ColumnFamilyData* cfd = nullptr,
-                        bool expose_blob_index = false);
+Iterator* NewDBIterator(
+    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options,
+    const Comparator* user_key_comparator, InternalIterator* internal_iter,
+    const Version* version, const SequenceNumber& sequence,
+    uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
+    ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false);
 
 }  // namespace ROCKSDB_NAMESPACE

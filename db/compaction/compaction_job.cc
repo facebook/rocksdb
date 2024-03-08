@@ -404,7 +404,9 @@ void CompactionJob::AcquireSubcompactionResources(
 
 void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
   // Do nothing when we have zero resources to shrink
-  if (num_extra_resources == 0) return;
+  if (num_extra_resources == 0) {
+    return;
+  }
   db_mutex_->Lock();
   // We cannot release threads more than what we reserved before
   int extra_num_subcompaction_threads_released = env_->ReleaseThreads(
@@ -584,7 +586,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
 
   TEST_SYNC_POINT_CALLBACK("CompactionJob::GenSubcompactionBoundaries:0",
                            &num_planned_subcompactions);
-  if (num_planned_subcompactions == 1) return;
+  if (num_planned_subcompactions == 1) {
+    return;
+  }
 
   // Group the ranges into subcompactions
   uint64_t target_range_size = std::max(
@@ -641,7 +645,7 @@ Status CompactionJob::Run() {
 
   // Always schedule the first subcompaction (whether or not there are also
   // others) in the current thread to be efficient with resources
-  ProcessKeyValueCompaction(&compact_->sub_compact_states[0]);
+  ProcessKeyValueCompaction(compact_->sub_compact_states.data());
 
   // Wait for all other threads (if there are any) to finish execution
   for (auto& thread : thread_pool) {
@@ -1850,13 +1854,14 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   // Pass temperature of the last level files to FileSystem.
   FileOptions fo_copy = file_options_;
   Temperature temperature = sub_compact->compaction->output_temperature();
-  // only set for the last level compaction and also it's not output to
-  // penultimate level (when preclude_last_level feature is enabled)
-  if (temperature == Temperature::kUnknown &&
+  Temperature last_level_temp =
+      sub_compact->compaction->mutable_cf_options()->last_level_temperature;
+  // Here last_level_temperature supersedes default_write_temperature, when
+  // enabled and applicable
+  if (last_level_temp != Temperature::kUnknown &&
       sub_compact->compaction->is_last_level() &&
       !sub_compact->IsCurrentPenultimateLevel()) {
-    temperature =
-        sub_compact->compaction->mutable_cf_options()->last_level_temperature;
+    temperature = last_level_temp;
   }
   fo_copy.temperature = temperature;
 

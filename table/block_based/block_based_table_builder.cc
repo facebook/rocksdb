@@ -707,7 +707,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     template <typename T>
     void Fill(T&& rep) {
       slot_.push(std::forward<T>(rep));
-    };
+    }
     void Take(BlockRep*& rep) { slot_.pop(rep); }
 
    private:

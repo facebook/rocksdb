@@ -33,7 +33,7 @@ const std::string key3 = "____    ____key3";
 class CompressedSecondaryCacheTestBase : public testing::Test,
                                          public WithCacheType {
  public:
-  CompressedSecondaryCacheTestBase() {}
+  CompressedSecondaryCacheTestBase() = default;
   ~CompressedSecondaryCacheTestBase() override = default;
 
  protected:

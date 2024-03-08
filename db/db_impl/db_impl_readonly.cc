@@ -26,7 +26,7 @@ DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
   LogFlush(immutable_db_options_.info_log);
 }
 
-DBImplReadOnly::~DBImplReadOnly() {}
+DBImplReadOnly::~DBImplReadOnly() = default;
 
 // Implementations of the DB interface
 Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
@@ -293,8 +293,7 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
 
   s = DBImplReadOnly::OpenForReadOnlyWithoutCheck(
@@ -339,7 +338,7 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
                            error_if_wal_file_exists);
   if (s.ok()) {
     // set column family handles
-    for (auto cf : column_families) {
+    for (const auto& cf : column_families) {
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (cfd == nullptr) {

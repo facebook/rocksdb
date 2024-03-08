@@ -7,8 +7,7 @@
 
 #include "stringappend.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <memory>
 
 #include "rocksdb/merge_operator.h"

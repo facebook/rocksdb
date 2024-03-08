@@ -43,14 +43,13 @@ void ArenaWrappedDBIter::Init(
     Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iteration,
-    uint64_t version_number, ReadCallback* read_callback, DBImpl* db_impl,
-    ColumnFamilyData* cfd, bool expose_blob_index, bool allow_refresh) {
+    uint64_t version_number, ReadCallback* read_callback,
+    ColumnFamilyHandleImpl* cfh, bool expose_blob_index, bool allow_refresh) {
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
-  db_iter_ =
-      new (mem) DBIter(env, read_options, ioptions, mutable_cf_options,
-                       ioptions.user_comparator, /* iter */ nullptr, version,
-                       sequence, true, max_sequential_skip_in_iteration,
-                       read_callback, db_impl, cfd, expose_blob_index);
+  db_iter_ = new (mem) DBIter(
+      env, read_options, ioptions, mutable_cf_options, ioptions.user_comparator,
+      /* iter */ nullptr, version, sequence, true,
+      max_sequential_skip_in_iteration, read_callback, cfh, expose_blob_index);
   sv_number_ = version_number;
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
@@ -65,40 +64,44 @@ void ArenaWrappedDBIter::Init(
 Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }
 
 Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
-  if (cfd_ == nullptr || db_impl_ == nullptr || !allow_refresh_) {
+  if (cfh_ == nullptr || !allow_refresh_) {
     return Status::NotSupported("Creating renew iterator is not allowed.");
   }
   assert(db_iter_ != nullptr);
+  auto cfd = cfh_->cfd();
+  auto db_impl = cfh_->db();
+
   // TODO(yiwu): For last_seq_same_as_publish_seq_==false, this is not the
   // correct behavior. Will be corrected automatically when we take a snapshot
   // here for the case of WritePreparedTxnDB.
-  uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
+  uint64_t cur_sv_number = cfd->GetSuperVersionNumber();
   // If we recreate a new internal iterator below (NewInternalIterator()),
   // we will pass in read_options_. We need to make sure it
   // has the right snapshot.
   read_options_.snapshot = snapshot;
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:1");
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:2");
+
   auto reinit_internal_iter = [&]() {
     Env* env = db_iter_->env();
     db_iter_->~DBIter();
     arena_.~Arena();
     new (&arena_) Arena();
 
-    SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(db_impl);
     assert(sv->version_number >= cur_sv_number);
-    SequenceNumber read_seq = GetSeqNum(db_impl_, snapshot);
+    SequenceNumber read_seq = GetSeqNum(db_impl, snapshot);
     if (read_callback_) {
       read_callback_->Refresh(read_seq);
     }
-    Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
+    Init(env, read_options_, *(cfd->ioptions()), sv->mutable_cf_options,
          sv->current, read_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-         sv->version_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
+         sv->version_number, read_callback_, cfh_, expose_blob_index_,
          allow_refresh_);
 
-    InternalIterator* internal_iter = db_impl_->NewInternalIterator(
-        read_options_, cfd_, sv, &arena_, read_seq,
+    InternalIterator* internal_iter = db_impl->NewInternalIterator(
+        read_options_, cfd, sv, &arena_, read_seq,
         /* allow_unprepared_value */ true, /* db_iter */ this);
     SetIterUnderDBIter(internal_iter);
   };
@@ -107,10 +110,10 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
       reinit_internal_iter();
       break;
     } else {
-      SequenceNumber read_seq = GetSeqNum(db_impl_, snapshot);
+      SequenceNumber read_seq = GetSeqNum(db_impl, snapshot);
       // Refresh range-tombstones in MemTable
       if (!read_options_.ignore_range_deletions) {
-        SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
+        SuperVersion* sv = cfd->GetThreadLocalSuperVersion(db_impl);
         TEST_SYNC_POINT_CALLBACK("ArenaWrappedDBIter::Refresh:SV", nullptr);
         auto t = sv->mem->NewRangeTombstoneIterator(
             read_options_, read_seq, false /* immutable_memtable */);
@@ -123,13 +126,13 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
           // will be freed during db_iter destruction there.
           if (memtable_range_tombstone_iter_) {
             assert(!*memtable_range_tombstone_iter_ ||
-                   sv_number_ != cfd_->GetSuperVersionNumber());
+                   sv_number_ != cfd->GetSuperVersionNumber());
           }
           delete t;
         } else {  // current mutable memtable has range tombstones
           if (!memtable_range_tombstone_iter_) {
             delete t;
-            db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv);
+            db_impl->ReturnAndCleanupSuperVersion(cfd, sv);
             // The memtable under DBIter did not have range tombstone before
             // refresh.
             reinit_internal_iter();
@@ -138,13 +141,13 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
             delete *memtable_range_tombstone_iter_;
             *memtable_range_tombstone_iter_ = new TruncatedRangeDelIterator(
                 std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
-                &cfd_->internal_comparator(), nullptr, nullptr);
+                &cfd->internal_comparator(), nullptr, nullptr);
           }
         }
-        db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv);
+        db_impl->ReturnAndCleanupSuperVersion(cfd, sv);
       }
       // Check again if the latest super version number is changed
-      uint64_t latest_sv_number = cfd_->GetSuperVersionNumber();
+      uint64_t latest_sv_number = cfd->GetSuperVersionNumber();
       if (latest_sv_number != cur_sv_number) {
         // If the super version number is changed after refreshing,
         // fallback to Re-Init the InternalIterator
@@ -163,14 +166,14 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number, ReadCallback* read_callback, DBImpl* db_impl,
-    ColumnFamilyData* cfd, bool expose_blob_index, bool allow_refresh) {
+    uint64_t version_number, ReadCallback* read_callback,
+    ColumnFamilyHandleImpl* cfh, bool expose_blob_index, bool allow_refresh) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   iter->Init(env, read_options, ioptions, mutable_cf_options, version, sequence,
              max_sequential_skip_in_iterations, version_number, read_callback,
-             db_impl, cfd, expose_blob_index, allow_refresh);
-  if (db_impl != nullptr && cfd != nullptr && allow_refresh) {
-    iter->StoreRefreshInfo(db_impl, cfd, read_callback, expose_blob_index);
+             cfh, expose_blob_index, allow_refresh);
+  if (cfh != nullptr && allow_refresh) {
+    iter->StoreRefreshInfo(cfh, read_callback, expose_blob_index);
   }
 
   return iter;

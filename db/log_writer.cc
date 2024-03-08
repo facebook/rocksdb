@@ -18,8 +18,7 @@
 #include "util/crc32c.h"
 #include "util/udt_util.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace log {
+namespace ROCKSDB_NAMESPACE::log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush,
@@ -297,5 +296,4 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
   return s;
 }
 
-}  // namespace log
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::log

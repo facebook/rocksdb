@@ -157,7 +157,7 @@ class SimCacheImpl : public SimCache {
         hit_times_(0),
         stats_(nullptr) {}
 
-  ~SimCacheImpl() override {}
+  ~SimCacheImpl() override = default;
 
   const char* Name() const override { return "SimCache"; }
 

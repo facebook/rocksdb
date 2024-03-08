@@ -5,9 +5,8 @@
 
 #include "utilities/blob_db/blob_dump_tool.h"
 
-#include <stdio.h>
-
 #include <cinttypes>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -21,8 +20,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
+namespace ROCKSDB_NAMESPACE::blob_db {
 
 BlobDumpTool::BlobDumpTool()
     : reader_(nullptr), buffer_(nullptr), buffer_size_(0) {}
@@ -275,5 +273,4 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
   return "(" + std::to_string(p.first) + ", " + std::to_string(p.second) + ")";
 }
 
-}  // namespace blob_db
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::blob_db

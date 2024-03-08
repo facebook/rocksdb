@@ -41,7 +41,7 @@ class CompactionStatsCollector : public EventListener {
     }
   }
 
-  ~CompactionStatsCollector() override {}
+  ~CompactionStatsCollector() override = default;
 
   void OnCompactionCompleted(DB* /* db */,
                              const CompactionJobInfo& info) override {
@@ -241,8 +241,8 @@ class RoundRobinSubcompactionsAgainstResources
 namespace {
 class FlushedFileCollector : public EventListener {
  public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
+  FlushedFileCollector() = default;
+  ~FlushedFileCollector() override = default;
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -252,7 +252,7 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> GetFlushedFiles() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> result;
-    for (auto fname : flushed_files_) {
+    for (const auto& fname : flushed_files_) {
       result.push_back(fname);
     }
     return result;
@@ -2090,9 +2090,9 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     Slice begin2(begin_str2), end2(end_str2);
     Slice begin3(begin_str3), end3(end_str3);
     std::vector<RangePtr> ranges;
-    ranges.push_back(RangePtr(&begin1, &end1));
-    ranges.push_back(RangePtr(&begin2, &end2));
-    ranges.push_back(RangePtr(&begin3, &end3));
+    ranges.emplace_back(&begin1, &end1);
+    ranges.emplace_back(&begin2, &end2);
+    ranges.emplace_back(&begin3, &end3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
@@ -2117,9 +2117,9 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     Slice begin2(begin_str2), end2(end_str2);
     Slice begin3(begin_str3), end3(end_str3);
     std::vector<RangePtr> ranges;
-    ranges.push_back(RangePtr(&begin1, &end1));
-    ranges.push_back(RangePtr(&begin2, &end2));
-    ranges.push_back(RangePtr(&begin3, &end3));
+    ranges.emplace_back(&begin1, &end1);
+    ranges.emplace_back(&begin2, &end2);
+    ranges.emplace_back(&begin3, &end3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size(), false));
     ASSERT_EQ("0,1,4", FilesPerLevel(0));
@@ -6641,7 +6641,7 @@ TEST_F(DBCompactionTest, RoundRobinCutOutputAtCompactCursor) {
 
 class NoopMergeOperator : public MergeOperator {
  public:
-  NoopMergeOperator() {}
+  NoopMergeOperator() = default;
 
   bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
                    MergeOperationOutput* merge_out) const override {
@@ -9164,66 +9164,104 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
 }
 
 TEST_F(DBCompactionTest, FIFOChangeTemperature) {
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleFIFO;
-  options.num_levels = 1;
-  options.max_open_files = -1;
-  options.level0_file_num_compaction_trigger = 2;
-  options.create_if_missing = true;
-  CompactionOptionsFIFO fifo_options;
-  fifo_options.file_temperature_age_thresholds = {{Temperature::kCold, 1000}};
-  fifo_options.max_table_files_size = 100000000;
-  options.compaction_options_fifo = fifo_options;
-  env_->SetMockSleep();
-  Reopen(options);
+  for (bool write_time_default : {false, true}) {
+    SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
 
-  int total_cold = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "NewWritableFile::FileOptions.temperature", [&](void* arg) {
-        Temperature temperature = *(static_cast<Temperature*>(arg));
-        if (temperature == Temperature::kCold) {
-          total_cold++;
-        }
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    Options options = CurrentOptions();
+    options.compaction_style = kCompactionStyleFIFO;
+    options.num_levels = 1;
+    options.max_open_files = -1;
+    options.level0_file_num_compaction_trigger = 2;
+    options.create_if_missing = true;
+    CompactionOptionsFIFO fifo_options;
+    fifo_options.file_temperature_age_thresholds = {{Temperature::kCold, 1000}};
+    fifo_options.max_table_files_size = 100000000;
+    options.compaction_options_fifo = fifo_options;
+    env_->SetMockSleep();
+    if (write_time_default) {
+      options.default_write_temperature = Temperature::kWarm;
+    }
+    // Should be ignored (TODO: fail?)
+    options.last_level_temperature = Temperature::kHot;
+    Reopen(options);
 
-  // The file system does not support checksum handoff. The check
-  // will be ignored.
-  ASSERT_OK(Put(Key(0), "value1"));
-  env_->MockSleepForSeconds(800);
-  ASSERT_OK(Put(Key(2), "value2"));
-  ASSERT_OK(Flush());
+    int total_cold = 0;
+    int total_warm = 0;
+    int total_hot = 0;
+    int total_unknown = 0;
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "NewWritableFile::FileOptions.temperature", [&](void* arg) {
+          Temperature temperature = *(static_cast<Temperature*>(arg));
+          if (temperature == Temperature::kCold) {
+            total_cold++;
+          } else if (temperature == Temperature::kWarm) {
+            total_warm++;
+          } else if (temperature == Temperature::kHot) {
+            total_hot++;
+          } else {
+            assert(temperature == Temperature::kUnknown);
+            total_unknown++;
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(Put(Key(0), "value1"));
-  env_->MockSleepForSeconds(800);
-  ASSERT_OK(Put(Key(2), "value2"));
-  ASSERT_OK(Flush());
+    // The file system does not support checksum handoff. The check
+    // will be ignored.
+    ASSERT_OK(Put(Key(0), "value1"));
+    env_->MockSleepForSeconds(800);
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
 
-  ASSERT_OK(Put(Key(0), "value1"));
-  env_->MockSleepForSeconds(800);
-  ASSERT_OK(Put(Key(2), "value2"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_OK(Put(Key(0), "value1"));
+    env_->MockSleepForSeconds(800);
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
 
-  ASSERT_OK(Put(Key(0), "value1"));
-  env_->MockSleepForSeconds(800);
-  ASSERT_OK(Put(Key(2), "value2"));
-  ASSERT_OK(Flush());
+    ASSERT_OK(Put(Key(0), "value1"));
+    env_->MockSleepForSeconds(800);
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    if (write_time_default) {
+      // Also test dynamic option change
+      ASSERT_OK(db_->SetOptions({{"default_write_temperature", "kHot"}}));
+    }
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ASSERT_OK(Put(Key(0), "value1"));
+    env_->MockSleepForSeconds(800);
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
 
-  ColumnFamilyMetaData metadata;
-  db_->GetColumnFamilyMetaData(&metadata);
-  ASSERT_EQ(4, metadata.file_count);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[1].temperature);
-  ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
-  ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
-  ASSERT_EQ(2, total_cold);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  Destroy(options);
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+    ColumnFamilyMetaData metadata;
+    db_->GetColumnFamilyMetaData(&metadata);
+    ASSERT_EQ(4, metadata.file_count);
+    if (write_time_default) {
+      ASSERT_EQ(Temperature::kHot, metadata.levels[0].files[0].temperature);
+      ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[1].temperature);
+      // Includes obsolete/deleted files moved to cold
+      ASSERT_EQ(total_warm, 3);
+      ASSERT_EQ(total_hot, 1);
+      // Includes non-SST DB files
+      ASSERT_GT(total_unknown, 0);
+    } else {
+      ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+      ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[1].temperature);
+      ASSERT_EQ(total_warm, 0);
+      ASSERT_EQ(total_hot, 0);
+      // Includes non-SST DB files
+      ASSERT_GT(total_unknown, 4);
+    }
+    ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
+    ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
+    ASSERT_EQ(2, total_cold);
+
+    Destroy(options);
+  }
 }
 
 TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
@@ -9840,7 +9878,7 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesUCToLC) {
   options.compaction_style = CompactionStyle::kCompactionStyleLevel;
   options.level_compaction_dynamic_level_bytes = true;
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  std::string expected_lsm = "";
+  std::string expected_lsm;
   for (int i = 0; i < 49; ++i) {
     expected_lsm += "0,";
   }
@@ -10356,20 +10394,20 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<std::thread> threads;
-  threads.emplace_back(std::thread([&]() {
+  threads.emplace_back([&]() {
     std::string k1_str = Key(1);
     std::string k2_str = Key(2);
     Slice k1 = k1_str;
     Slice k2 = k2_str;
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k1, &k2));
-  }));
-  threads.emplace_back(std::thread([&]() {
+  });
+  threads.emplace_back([&]() {
     std::string k10_str = Key(10);
     std::string k11_str = Key(11);
     Slice k10 = k10_str;
     Slice k11 = k11_str;
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k10, &k11));
-  }));
+  });
   std::string k100_str = Key(100);
   std::string k101_str = Key(101);
   Slice k100 = k100_str;

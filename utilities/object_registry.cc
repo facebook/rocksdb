@@ -5,7 +5,7 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
-#include <ctype.h>
+#include <cctype>
 
 #include "logging/logging.h"
 #include "port/lang.h"

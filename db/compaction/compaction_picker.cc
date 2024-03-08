@@ -130,7 +130,7 @@ CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
                                    const InternalKeyComparator* icmp)
     : ioptions_(ioptions), icmp_(icmp) {}
 
-CompactionPicker::~CompactionPicker() {}
+CompactionPicker::~CompactionPicker() = default;
 
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
@@ -377,7 +377,8 @@ Compaction* CompactionPicker::CompactFiles(
       output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      Temperature::kUnknown, compact_options.max_subcompactions,
+      mutable_cf_options.default_write_temperature,
+      compact_options.max_subcompactions,
       /* grandparents */ {}, true);
   RegisterCompaction(c);
   return c;
@@ -664,7 +665,8 @@ Compaction* CompactionPicker::CompactRange(
         compact_range_options.target_path_id,
         GetCompressionType(vstorage, mutable_cf_options, output_level, 1),
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-        Temperature::kUnknown, compact_range_options.max_subcompactions,
+        mutable_cf_options.default_write_temperature,
+        compact_range_options.max_subcompactions,
         /* grandparents */ {}, /* is manual */ true, trim_ts, /* score */ -1,
         /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
         CompactionReason::kUnknown,
@@ -852,8 +854,9 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionType(vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      Temperature::kUnknown, compact_range_options.max_subcompactions,
-      std::move(grandparents), /* is manual */ true, trim_ts, /* score */ -1,
+      mutable_cf_options.default_write_temperature,
+      compact_range_options.max_subcompactions, std::move(grandparents),
+      /* is manual */ true, trim_ts, /* score */ -1,
       /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kUnknown,
       compact_range_options.blob_garbage_collection_policy,

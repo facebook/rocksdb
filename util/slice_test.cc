@@ -169,8 +169,8 @@ TEST_F(PinnableSliceTest, Move) {
 // Unit test for SmallEnumSet
 class SmallEnumSetTest : public testing::Test {
  public:
-  SmallEnumSetTest() {}
-  ~SmallEnumSetTest() {}
+  SmallEnumSetTest() = default;
+  ~SmallEnumSetTest() = default;
 };
 
 TEST_F(SmallEnumSetTest, SmallEnumSetTest1) {

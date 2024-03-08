@@ -52,7 +52,9 @@ bool SortList::PartialMergeMulti(const Slice& /*key*/,
 void SortList::MakeVector(std::vector<int>& operand, Slice slice) const {
   do {
     const char* begin = slice.data_;
-    while (*slice.data_ != ',' && *slice.data_) slice.data_++;
+    while (*slice.data_ != ',' && *slice.data_) {
+      slice.data_++;
+    }
     operand.push_back(std::stoi(std::string(begin, slice.data_)));
   } while (0 != *slice.data_++);
 }

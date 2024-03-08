@@ -20,16 +20,16 @@ static const std::string kValuePlaceHolder = "value";
 
 class HandleTimestampSizeDifferenceTest : public testing::Test {
  public:
-  HandleTimestampSizeDifferenceTest() {}
+  HandleTimestampSizeDifferenceTest() = default;
 
   // Test handler used to collect the column family id and user keys contained
   // in a WriteBatch for test verification. And verifies the value part stays
   // the same if it's available.
   class KeyCollector : public WriteBatch::Handler {
    public:
-    explicit KeyCollector() {}
+    explicit KeyCollector() = default;
 
-    ~KeyCollector() override {}
+    ~KeyCollector() override = default;
 
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
       if (value.compare(kValuePlaceHolder) != 0) {
@@ -90,7 +90,7 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
 
    private:
     Status AddKey(uint32_t cf, const Slice& key) {
-      keys_.push_back(std::make_pair(cf, key));
+      keys_.emplace_back(cf, key);
       return Status::OK();
     }
     std::vector<std::pair<uint32_t, const Slice>> keys_;

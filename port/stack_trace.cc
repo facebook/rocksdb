@@ -55,8 +55,7 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 
 #include "port/lang.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace port {
+namespace ROCKSDB_NAMESPACE::port {
 
 namespace {
 
@@ -413,7 +412,6 @@ void InstallStackTraceHandler() {
 #endif
 }
 
-}  // namespace port
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::port
 
 #endif

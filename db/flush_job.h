@@ -157,7 +157,7 @@ class FlushJob {
   // this job. All memtables in this column family with an ID smaller than or
   // equal to max_memtable_id_ will be selected for flush.
   uint64_t max_memtable_id_;
-  const FileOptions file_options_;
+  FileOptions file_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
   std::atomic<bool>* shutting_down_;

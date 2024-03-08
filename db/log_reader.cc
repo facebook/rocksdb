@@ -18,8 +18,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace log {
+namespace ROCKSDB_NAMESPACE::log {
 
 Reader::Reporter::~Reporter() = default;
 
@@ -44,7 +43,7 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       compression_type_record_read_(false),
       uncompress_(nullptr),
       hash_state_(nullptr),
-      uncompress_hash_state_(nullptr){};
+      uncompress_hash_state_(nullptr){}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -937,5 +936,4 @@ bool FragmentBufferedReader::TryReadFragment(
   }
 }
 
-}  // namespace log
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::log

@@ -9,7 +9,7 @@
 
 #include "util/thread_local.h"
 
-#include <stdlib.h>
+#include <cstdlib>
 
 #include "port/likely.h"
 #include "util/mutexlock.h"

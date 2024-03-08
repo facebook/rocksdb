@@ -12,6 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 const Slice kDefaultWideColumnName;
 
 const WideColumns kNoWideColumns;
+const AttributeGroups kNoAttributeGroups;
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
   Slice value_copy = value_;

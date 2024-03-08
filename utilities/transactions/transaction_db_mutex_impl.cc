@@ -17,8 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class TransactionDBMutexImpl : public TransactionDBMutex {
  public:
-  TransactionDBMutexImpl() {}
-  ~TransactionDBMutexImpl() override {}
+  TransactionDBMutexImpl() = default;
+  ~TransactionDBMutexImpl() override = default;
 
   Status Lock() override;
 
@@ -34,8 +34,8 @@ class TransactionDBMutexImpl : public TransactionDBMutex {
 
 class TransactionDBCondVarImpl : public TransactionDBCondVar {
  public:
-  TransactionDBCondVarImpl() {}
-  ~TransactionDBCondVarImpl() override {}
+  TransactionDBCondVarImpl() = default;
+  ~TransactionDBCondVarImpl() override = default;
 
   Status Wait(std::shared_ptr<TransactionDBMutex> mutex) override;
 

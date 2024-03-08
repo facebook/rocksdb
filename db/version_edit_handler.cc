@@ -34,37 +34,36 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
          reader.ReadRecord(&record, &scratch) && log_read_status->ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
-    if (!s.ok()) {
-      break;
+    if (s.ok()) {
+      s = read_buffer_.AddEdit(&edit);
     }
-
-    s = read_buffer_.AddEdit(&edit);
-    if (!s.ok()) {
-      break;
-    }
-    ColumnFamilyData* cfd = nullptr;
-    if (edit.IsInAtomicGroup()) {
-      if (read_buffer_.IsFull()) {
-        for (auto& e : read_buffer_.replay_buffer()) {
-          s = ApplyVersionEdit(e, &cfd);
-          if (!s.ok()) {
-            break;
+    if (s.ok()) {
+      ColumnFamilyData* cfd = nullptr;
+      if (edit.IsInAtomicGroup()) {
+        if (read_buffer_.IsFull()) {
+          s = OnAtomicGroupReplayBegin();
+          for (size_t i = 0; s.ok() && i < read_buffer_.replay_buffer().size();
+               i++) {
+            auto& e = read_buffer_.replay_buffer()[i];
+            s = ApplyVersionEdit(e, &cfd);
+            if (s.ok()) {
+              recovered_edits++;
+            }
           }
-          ++recovered_edits;
+          if (s.ok()) {
+            read_buffer_.Clear();
+            s = OnAtomicGroupReplayEnd();
+          }
         }
-        if (!s.ok()) {
-          break;
+      } else {
+        s = ApplyVersionEdit(edit, &cfd);
+        if (s.ok()) {
+          recovered_edits++;
         }
-        read_buffer_.Clear();
-      }
-    } else {
-      s = ApplyVersionEdit(edit, &cfd);
-      if (s.ok()) {
-        ++recovered_edits;
       }
     }
   }
-  if (!log_read_status->ok()) {
+  if (s.ok() && !log_read_status->ok()) {
     s = *log_read_status;
   }
 
@@ -735,10 +734,78 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
                          read_options, epoch_number_requirement) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
+  for (const auto& cfid_and_version : atomic_update_versions_) {
+    delete cfid_and_version.second;
+  }
   for (const auto& elem : versions_) {
     delete elem.second;
   }
   versions_.clear();
+}
+
+Status VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
+  if (in_atomic_group_) {
+    return Status::Corruption("unexpected AtomicGroup start");
+  }
+
+  // The AtomicGroup that is about to begin may block column families in a valid
+  // state from saving any more updates. So we should save any valid states
+  // before proceeding.
+  for (const auto& cfid_and_builder : builders_) {
+    ColumnFamilyData* cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
+        cfid_and_builder.first);
+    assert(!cfd->IsDropped());
+    assert(cfd->initialized());
+    VersionEdit edit;
+    Status s = MaybeCreateVersion(edit, cfd, true /* force_create_version */);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  // An old AtomicGroup is incomplete. Throw away the versions that failed to
+  // complete it. They must not be used for completing the upcoming
+  // AtomicGroup since they are too old.
+  for (auto& cfid_and_version : atomic_update_versions_) {
+    delete cfid_and_version.second;
+  }
+
+  in_atomic_group_ = true;
+  // We lazily assume the column families that exist at this point are all
+  // involved in the AtomicGroup. Overestimating the scope of the AtomicGroup
+  // will sometimes cause less data to be recovered, which is fine for
+  // best-effort recovery.
+  atomic_update_versions_.clear();
+  for (const auto& cfid_and_builder : builders_) {
+    atomic_update_versions_[cfid_and_builder.first] = nullptr;
+  }
+  atomic_update_versions_missing_ = atomic_update_versions_.size();
+  return Status::OK();
+}
+
+Status VersionEditHandlerPointInTime::OnAtomicGroupReplayEnd() {
+  if (!in_atomic_group_) {
+    return Status::Corruption("unexpected AtomicGroup end");
+  }
+  in_atomic_group_ = false;
+
+  // The AtomicGroup must not have changed the column families. We don't support
+  // CF adds or drops in an AtomicGroup.
+  if (builders_.size() != atomic_update_versions_.size()) {
+    return Status::Corruption("unexpected CF change in AtomicGroup");
+  }
+  for (const auto& cfid_and_builder : builders_) {
+    if (atomic_update_versions_.find(cfid_and_builder.first) ==
+        atomic_update_versions_.end()) {
+      return Status::Corruption("unexpected CF add in AtomicGroup");
+    }
+  }
+  for (const auto& cfid_and_version : atomic_update_versions_) {
+    if (builders_.find(cfid_and_version.first) == builders_.end()) {
+      return Status::Corruption("unexpected CF drop in AtomicGroup");
+    }
+  }
+  return Status::OK();
 }
 
 void VersionEditHandlerPointInTime::CheckIterationResult(
@@ -770,7 +837,14 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
 ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
     const VersionEdit& edit) {
   ColumnFamilyData* cfd = VersionEditHandler::DestroyCfAndCleanup(edit);
-  auto v_iter = versions_.find(edit.GetColumnFamily());
+  uint32_t cfid = edit.GetColumnFamily();
+  if (AtomicUpdateVersionsContains(cfid)) {
+    AtomicUpdateVersionsDropCf(cfid);
+    if (AtomicUpdateVersionsCompleted()) {
+      AtomicUpdateVersionsApply();
+    }
+  }
+  auto v_iter = versions_.find(cfid);
   if (v_iter != versions_.end()) {
     delete v_iter->second;
     versions_.erase(v_iter);
@@ -871,15 +945,16 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
 
   // Create version before apply edit. The version will represent the state
   // before applying the version edit.
-  // A new version will created if:
+  // A new version will be created if:
   // 1) no error has occurred so far, and
   // 2) log_number_, next_file_number_ and last_sequence_ are known, and
-  // 3) any of the following:
+  // 3) not in an AtomicGroup
+  // 4) any of the following:
   //   a) no missing file before, but will have missing file(s) after applying
   //      this version edit.
   //   b) no missing file after applying the version edit, and the caller
   //      explicitly request that a new version be created.
-  if (s.ok() && !missing_info &&
+  if (s.ok() && !missing_info && !in_atomic_group_ &&
       ((has_missing_files && !prev_has_missing_files) ||
        (!has_missing_files && force_create_version))) {
     if (!builder) {
@@ -908,15 +983,22 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     }
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
-      version->PrepareAppend(
-          *cfd->GetLatestMutableCFOptions(), read_options_,
-          !version_set_->db_options_->skip_stats_update_on_db_open);
-      auto v_iter = versions_.find(cfd->GetID());
-      if (v_iter != versions_.end()) {
-        delete v_iter->second;
-        v_iter->second = version;
+      if (AtomicUpdateVersionsContains(cfd->GetID())) {
+        AtomicUpdateVersionsPut(version);
+        if (AtomicUpdateVersionsCompleted()) {
+          AtomicUpdateVersionsApply();
+        }
       } else {
-        versions_.emplace(cfd->GetID(), version);
+        version->PrepareAppend(
+            *cfd->GetLatestMutableCFOptions(), read_options_,
+            !version_set_->db_options_->skip_stats_update_on_db_open);
+        auto v_iter = versions_.find(cfd->GetID());
+        if (v_iter != versions_.end()) {
+          delete v_iter->second;
+          v_iter->second = version;
+        } else {
+          versions_.emplace(cfd->GetID(), version);
+        }
       }
     } else {
       delete version;
@@ -954,6 +1036,60 @@ Status VersionEditHandlerPointInTime::LoadTables(
     ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
     bool /*is_initial_load*/) {
   return Status::OK();
+}
+
+bool VersionEditHandlerPointInTime::AtomicUpdateVersionsCompleted() {
+  return atomic_update_versions_missing_ == 0;
+}
+
+bool VersionEditHandlerPointInTime::AtomicUpdateVersionsContains(
+    uint32_t cfid) {
+  return atomic_update_versions_.find(cfid) != atomic_update_versions_.end();
+}
+
+void VersionEditHandlerPointInTime::AtomicUpdateVersionsDropCf(uint32_t cfid) {
+  assert(!AtomicUpdateVersionsCompleted());
+  auto atomic_update_versions_iter = atomic_update_versions_.find(cfid);
+  assert(atomic_update_versions_iter != atomic_update_versions_.end());
+  if (atomic_update_versions_iter->second == nullptr) {
+    atomic_update_versions_missing_--;
+  } else {
+    delete atomic_update_versions_iter->second;
+  }
+  atomic_update_versions_.erase(atomic_update_versions_iter);
+}
+
+void VersionEditHandlerPointInTime::AtomicUpdateVersionsPut(Version* version) {
+  assert(!AtomicUpdateVersionsCompleted());
+  auto atomic_update_versions_iter =
+      atomic_update_versions_.find(version->cfd()->GetID());
+  assert(atomic_update_versions_iter != atomic_update_versions_.end());
+  if (atomic_update_versions_iter->second == nullptr) {
+    atomic_update_versions_missing_--;
+  } else {
+    delete atomic_update_versions_iter->second;
+  }
+  atomic_update_versions_iter->second = version;
+}
+
+void VersionEditHandlerPointInTime::AtomicUpdateVersionsApply() {
+  assert(AtomicUpdateVersionsCompleted());
+  for (const auto& cfid_and_version : atomic_update_versions_) {
+    uint32_t cfid = cfid_and_version.first;
+    Version* version = cfid_and_version.second;
+    assert(version != nullptr);
+    version->PrepareAppend(
+        *version->cfd()->GetLatestMutableCFOptions(), read_options_,
+        !version_set_->db_options_->skip_stats_update_on_db_open);
+    auto versions_iter = versions_.find(cfid);
+    if (versions_iter != versions_.end()) {
+      delete versions_iter->second;
+      versions_iter->second = version;
+    } else {
+      versions_.emplace(cfid, version);
+    }
+  }
+  atomic_update_versions_.clear();
 }
 
 Status ManifestTailer::Initialize() {

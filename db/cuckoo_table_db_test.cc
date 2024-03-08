@@ -209,7 +209,7 @@ static std::string Key(int i) {
 static std::string Uint64Key(uint64_t i) {
   std::string str;
   str.resize(8);
-  memcpy(&str[0], static_cast<void*>(&i), 8);
+  memcpy(str.data(), static_cast<void*>(&i), 8);
   return str;
 }
 }  // namespace.

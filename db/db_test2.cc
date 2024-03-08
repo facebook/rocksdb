@@ -6904,88 +6904,127 @@ TEST_F(DBTest2, LastLevelTemperatureUniversal) {
 }
 
 TEST_F(DBTest2, LastLevelStatistics) {
-  Options options = CurrentOptions();
-  options.last_level_temperature = Temperature::kWarm;
-  options.default_temperature = Temperature::kHot;
-  options.level0_file_num_compaction_trigger = 2;
-  options.level_compaction_dynamic_level_bytes = true;
-  options.statistics = CreateDBStatistics();
-  Reopen(options);
+  for (bool write_time_default : {false, true}) {
+    SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
+    Options options = CurrentOptions();
+    options.last_level_temperature = Temperature::kWarm;
+    if (write_time_default) {
+      options.default_write_temperature = Temperature::kHot;
+      ASSERT_EQ(options.default_temperature, Temperature::kUnknown);
+    } else {
+      options.default_temperature = Temperature::kHot;
+      ASSERT_EQ(options.default_write_temperature, Temperature::kUnknown);
+    }
+    options.level0_file_num_compaction_trigger = 2;
+    options.level_compaction_dynamic_level_bytes = true;
+    options.statistics = CreateDBStatistics();
+    BlockBasedTableOptions bbto;
+    bbto.no_block_cache = true;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
-  // generate 1 sst on level 0
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("bar", Get("bar"));
+    DestroyAndReopen(options);
 
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES), 0);
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT), 0);
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES), 0);
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT), 0);
+    // generate 1 sst on level 0
+    ASSERT_OK(Put("foo1", "bar"));
+    ASSERT_OK(Put("bar", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ("bar", Get("bar"));
 
-  // 2nd flush to trigger compaction
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ("bar", Get("bar"));
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES), 0);
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT), 0);
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES), 0);
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT), 0);
 
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // 2nd flush to trigger compaction
+    ASSERT_OK(Put("foo2", "bar"));
+    ASSERT_OK(Put("bar", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ("bar", Get("bar"));
 
-  auto pre_bytes =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES);
-  auto pre_count =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
 
-  // 3rd flush to generate 1 sst on level 0
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("bar", Get("bar"));
+    auto pre_bytes =
+        options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES);
+    auto pre_count =
+        options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
 
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            pre_bytes);
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            pre_count);
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // 3rd flush to generate 1 sst on level 0
+    ASSERT_OK(Put("foo3", "bar"));
+    ASSERT_OK(Put("bar", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ("bar", Get("foo1"));
+    ASSERT_EQ("bar", Get("foo2"));
+    ASSERT_EQ("bar", Get("foo3"));
+    ASSERT_EQ("bar", Get("bar"));
 
-  // Not a realistic setting to make last level kWarm and default temp kCold.
-  // This is just for testing default temp can be reset on reopen while the
-  // last level temp is consistent across DB reopen because those file's temp
-  // are persisted in manifest.
-  options.default_temperature = Temperature::kCold;
-  ASSERT_OK(options.statistics->Reset());
-  Reopen(options);
-  ASSERT_EQ("bar", Get("bar"));
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              pre_bytes);
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              pre_count);
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // Control
+    ASSERT_NE(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
 
-  ASSERT_EQ(0, options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    // Not a realistic setting to make last level kWarm and default temp kCold.
+    // This is just for testing default temp can be reset on reopen while the
+    // last level temp is consistent across DB reopen because those file's temp
+    // are persisted in manifest.
+    options.default_temperature = Temperature::kCold;
+    ASSERT_OK(options.statistics->Reset());
+    Reopen(options);
+    ASSERT_EQ("bar", Get("foo1"));
+    ASSERT_EQ("bar", Get("foo2"));
+    ASSERT_EQ("bar", Get("foo3"));
+    ASSERT_EQ("bar", Get("bar"));
 
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(COLD_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    if (write_time_default) {
+      // Unchanged
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+                options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+                options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+
+      ASSERT_LT(0, options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+      ASSERT_EQ(0, options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
+    } else {
+      // Changed (in how we map kUnknown)
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+                options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+                options.statistics->getTickerCount(COLD_FILE_READ_COUNT));
+
+      ASSERT_EQ(0, options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+      ASSERT_LT(0, options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
+    }
+
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // Control
+    ASSERT_NE(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
+  }
 }
 
 TEST_F(DBTest2, CheckpointFileTemperature) {

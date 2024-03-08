@@ -858,8 +858,8 @@ class BackupEngineTest : public testing::Test {
     for (auto& dir : child_dirs) {
       dir = "private/" + dir;
     }
-    child_dirs.push_back("shared");           // might not exist
-    child_dirs.push_back("shared_checksum");  // might not exist
+    child_dirs.emplace_back("shared");           // might not exist
+    child_dirs.emplace_back("shared_checksum");  // might not exist
     for (auto& dir : child_dirs) {
       std::vector<std::string> children;
       test_backup_env_->GetChildren(backupdir_ + "/" + dir, &children)
@@ -927,7 +927,7 @@ class BackupEngineTest : public testing::Test {
   void DeleteLogFiles() {
     std::vector<std::string> delete_logs;
     ASSERT_OK(db_chroot_env_->GetChildren(dbname_, &delete_logs));
-    for (auto f : delete_logs) {
+    for (const auto& f : delete_logs) {
       uint64_t number;
       FileType type;
       bool ok = ParseFileName(f, &number, &type);
@@ -1925,7 +1925,7 @@ TEST_F(BackupEngineTest, BackupOptions) {
     ASSERT_OK(file_manager_->FileExists(OptionsPath(backupdir_, i) + name));
     ASSERT_OK(backup_chroot_env_->GetChildren(OptionsPath(backupdir_, i),
                                               &filenames));
-    for (auto fn : filenames) {
+    for (const auto& fn : filenames) {
       if (fn.compare(0, 7, "OPTIONS") == 0) {
         ASSERT_EQ(name, fn);
       }
@@ -2664,7 +2664,7 @@ TEST_F(BackupEngineTest, DeleteTmpFiles) {
           assert(false);
       }
       CloseDBAndBackupEngine();
-      for (std::string file_or_dir : tmp_files_and_dirs) {
+      for (const std::string& file_or_dir : tmp_files_and_dirs) {
         if (file_manager_->FileExists(file_or_dir) != Status::NotFound()) {
           FAIL() << file_or_dir << " was expected to be deleted." << cleanup_fn;
         }
@@ -2698,7 +2698,7 @@ class BackupEngineRateLimitingTestWithParam
                      int /* 0 = single threaded, 1 = multi threaded*/,
                      std::pair<uint64_t, uint64_t> /* limits */>> {
  public:
-  BackupEngineRateLimitingTestWithParam() {}
+  BackupEngineRateLimitingTestWithParam() = default;
 };
 
 uint64_t const MB = 1024 * 1024;
@@ -2848,7 +2848,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
                                           true /* include_file_details */));
 
   std::uint64_t bytes_read_during_verify_backup = 0;
-  for (BackupFileInfo backup_file_info : backup_info.file_details) {
+  for (const BackupFileInfo& backup_file_info : backup_info.file_details) {
     bytes_read_during_verify_backup += backup_file_info.size;
   }
   auto start_verify_backup = special_env->NowMicros();
@@ -2986,7 +2986,7 @@ class BackupEngineRateLimitingTestWithParam2
       public testing::WithParamInterface<
           std::tuple<std::pair<uint64_t, uint64_t> /* limits */>> {
  public:
-  BackupEngineRateLimitingTestWithParam2() {}
+  BackupEngineRateLimitingTestWithParam2() = default;
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -4212,7 +4212,7 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     std::vector<LiveFileStorageInfo> infos;
     ASSERT_OK(
         db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
-    for (auto info : infos) {
+    for (const auto& info : infos) {
       if (info.file_type == kTableFile) {
         manifest_temps.emplace(info.file_number, info.temperature);
         manifest_temp_counts[info.temperature]++;
@@ -4379,7 +4379,7 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
                                             MaybeExcludeBackupFile* files_end) {
     for (auto* f = files_begin; f != files_end; ++f) {
       std::string s = StringSplit(f->info.relative_file, '/').back();
-      s = s.substr(0, s.find("_"));
+      s = s.substr(0, s.find('_'));
       int64_t num = std::strtoll(s.c_str(), nullptr, /*base*/ 10);
       // Exclude if not a match
       f->exclude_decision = (num % modulus) != remainder;

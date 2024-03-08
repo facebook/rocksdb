@@ -121,8 +121,8 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
 
   std::vector<std::string> cf_names;
   cf_names.push_back(kDefaultColumnFamilyName);
-  cf_names.push_back("cf_sample");
-  cf_names.push_back("cf_plain_table_sample");
+  cf_names.emplace_back("cf_sample");
+  cf_names.emplace_back("cf_plain_table_sample");
   // Saving DB in file
   const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
   ASSERT_OK(PersistRocksDBOptions(WriteOptions(), db_opt, cf_names, cf_opts,
@@ -151,8 +151,8 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
 namespace {
 class DummyTableFactory : public TableFactory {
  public:
-  DummyTableFactory() {}
-  ~DummyTableFactory() override {}
+  DummyTableFactory() = default;
+  ~DummyTableFactory() override = default;
 
   const char* Name() const override { return "DummyTableFactory"; }
 
@@ -183,8 +183,8 @@ class DummyTableFactory : public TableFactory {
 
 class DummyMergeOperator : public MergeOperator {
  public:
-  DummyMergeOperator() {}
-  ~DummyMergeOperator() override {}
+  DummyMergeOperator() = default;
+  ~DummyMergeOperator() override = default;
 
   bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
                    MergeOperationOutput* /*merge_out*/) const override {
@@ -203,8 +203,8 @@ class DummyMergeOperator : public MergeOperator {
 
 class DummySliceTransform : public SliceTransform {
  public:
-  DummySliceTransform() {}
-  ~DummySliceTransform() override {}
+  DummySliceTransform() = default;
+  ~DummySliceTransform() override = default;
 
   // Return the name of this transformation.
   const char* Name() const override { return "DummySliceTransform"; }

@@ -351,6 +351,13 @@ class DBImpl : public DB {
 
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
+
+  // UNDER CONSTRUCTION - DO NOT USE
+  // Return a cross-column-family iterator from a consistent database state.
+  std::unique_ptr<Iterator> NewMultiCfIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
   // Create a timestamped snapshot. This snapshot can be shared by multiple
   // readers. If any of them uses it for write conflict checking, then
   // is_write_conflict_boundary is true. For simplicity, set it to true by
@@ -646,8 +653,8 @@ class DBImpl : public DB {
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
-                                      ColumnFamilyData* cfd, SuperVersion* sv,
-                                      SequenceNumber snapshot,
+                                      ColumnFamilyHandleImpl* cfh,
+                                      SuperVersion* sv, SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool expose_blob_index = false,
                                       bool allow_refresh = true);
