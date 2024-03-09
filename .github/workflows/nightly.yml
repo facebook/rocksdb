@@ -7,7 +7,7 @@ jobs:
   build-format-compatible:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -29,7 +29,7 @@ jobs:
   build-linux-run-microbench:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -41,7 +41,7 @@ jobs:
   build-linux-non-shm:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -55,7 +55,7 @@ jobs:
   build-linux-clang-13-asan-ubsan-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -69,7 +69,7 @@ jobs:
   build-linux-valgrind:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
