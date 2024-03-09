@@ -83,6 +83,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/memtable_list.cc",
         "db/merge_helper.cc",
         "db/merge_operator.cc",
+        "db/multi_cf_iterator.cc",
         "db/output_validator.cc",
         "db/periodic_task_scheduler.cc",
         "db/range_del_aggregator.cc",
@@ -5222,6 +5223,12 @@ cpp_unittest_wrapper(name="merger_test",
 
 cpp_unittest_wrapper(name="mock_env_test",
             srcs=["env/mock_env_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="multi_cf_iterator_test",
+            srcs=["db/multi_cf_iterator_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

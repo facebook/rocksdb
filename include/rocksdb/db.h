@@ -131,6 +131,7 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
   std::vector<std::string> files_checksums;
   std::vector<std::string> files_checksum_func_names;
+  // A hint as to the temperature for *reading* the files to be ingested.
   Temperature file_temperature = Temperature::kUnknown;
 };
 
@@ -954,6 +955,15 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
+
+  // UNDER CONSTRUCTION - DO NOT USE
+  // Return a cross-column-family iterator from a consistent database state.
+  // When the same key is present in multiple column families, the iterator
+  // selects the value or columns from the first column family containing the
+  // key, in the order specified by the `column_families` parameter.
+  virtual std::unique_ptr<Iterator> NewMultiCfIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
@@ -1803,6 +1813,16 @@ class DB {
   //     the files cannot be ingested to the bottommost level, and it is the
   //     user's responsibility to clear the bottommost level in the overlapping
   //     range before re-attempting the ingestion.
+  //
+  // EXPERIMENTAL: the temperatures of the files after ingestion are currently
+  // determined like this:
+  // - If the ingested file is moved rather than copied, its temperature is
+  //   inherited from the input file.
+  // - If either ingest_behind or fail_if_not_bottommost_level is set to true,
+  //   then the temperature is set to the CF's last_level_temperature.
+  // - Otherwise, the temperature is set to the CF's default_write_temperature.
+  // (Landing in the last level does not currently guarantee using
+  // last_level_temperature - TODO)
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,

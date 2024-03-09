@@ -116,9 +116,9 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
       new WritableFileWriter(std::move(file_writer), path_, FileOptions()));
 
   if (size > 0) {
-    st = CopyFile(fs.get(), tmp_path, data_file_writer_, size,
-                  /*use_fsync*/ true, /*io_tracer*/ nullptr,
-                  /*temparature*/ Temperature::kHot);
+    st = CopyFile(fs.get(), tmp_path, Temperature::kUnknown, data_file_writer_,
+                  size,
+                  /*use_fsync*/ true, /*io_tracer*/ nullptr);
     if (!st.ok()) {
       fprintf(stderr, "Error copying contents of old unique id file: %s\n",
               st.ToString().c_str());

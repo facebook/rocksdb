@@ -2787,13 +2787,10 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
   // have to open default column family
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  column_families.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
   // open the new column families
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+  column_families.emplace_back("CFA", ColumnFamilyOptions());
+  column_families.emplace_back("CFB", ColumnFamilyOptions());
 
   std::vector<ColumnFamilyHandle*> handles;
 
@@ -2951,11 +2948,10 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
   // have to open default column family
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  column_families.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
   // open the new column families
   cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  column_families.push_back(ColumnFamilyDescriptor("CF", cf_options));
+  column_families.emplace_back("CF", cf_options);
 
   std::vector<ColumnFamilyHandle*> handles;
 
@@ -3045,11 +3041,10 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
   // have to open default column family
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  column_families.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
   // open the new column families
   cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  column_families.push_back(ColumnFamilyDescriptor("CF", cf_options));
+  column_families.emplace_back("CF", cf_options);
 
   std::vector<ColumnFamilyHandle*> handles;
 
@@ -5457,13 +5452,10 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
   // have to open default column family
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  column_families.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
   // open the new column families
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+  column_families.emplace_back("CFA", ColumnFamilyOptions());
+  column_families.emplace_back("CFB", ColumnFamilyOptions());
 
   ColumnFamilyOptions* cf_opt_default = &column_families[0].options;
   ColumnFamilyOptions* cf_opt_cfa = &column_families[1].options;
@@ -5860,7 +5852,7 @@ TEST_P(TransactionTest, Optimizations) {
 // A comparator that uses only the first three bytes
 class ThreeBytewiseComparator : public Comparator {
  public:
-  ThreeBytewiseComparator() {}
+  ThreeBytewiseComparator() = default;
   const char* Name() const override { return "test.ThreeBytewiseComparator"; }
   int Compare(const Slice& a, const Slice& b) const override {
     Slice na = Slice(a.data(), a.size() < 3 ? a.size() : 3);
@@ -6481,10 +6473,9 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       // Recover from corruption
       std::vector<ColumnFamilyHandle*> handles;
       std::vector<ColumnFamilyDescriptor> column_families;
-      column_families.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName,
-                                                       ColumnFamilyOptions()));
-      column_families.push_back(
-          ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
+      column_families.emplace_back(kDefaultColumnFamilyName,
+                                   ColumnFamilyOptions());
+      column_families.emplace_back("two", ColumnFamilyOptions());
       ASSERT_OK(ReOpenNoDelete(column_families, &handles));
       assert(db != nullptr);
 
@@ -6628,7 +6619,7 @@ TEST_P(TransactionTest, WriteWithBulkCreatedColumnFamilies) {
   std::vector<std::string> cf_names;
   std::vector<ColumnFamilyHandle*> cf_handles;
 
-  cf_names.push_back("test_cf");
+  cf_names.emplace_back("test_cf");
 
   ASSERT_OK(db->CreateColumnFamilies(cf_options, cf_names, &cf_handles));
   ASSERT_OK(db->Put(write_options, cf_handles[0], "foo", "bar"));

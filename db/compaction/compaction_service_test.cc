@@ -563,10 +563,10 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
 
   std::vector<std::thread> threads;
   for (const auto& file : meta.levels[1].files) {
-    threads.emplace_back(std::thread([&]() {
+    threads.emplace_back([&]() {
       std::string fname = file.db_path + "/" + file.name;
       ASSERT_OK(db_->CompactFiles(CompactionOptions(), {fname}, 2));
-    }));
+    });
   }
 
   for (auto& thread : threads) {

@@ -281,12 +281,6 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is incompatible with enable_pipelined_write");
   }
 
-  // TODO remove this restriction
-  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
-    return Status::InvalidArgument(
-        "atomic_flush is currently incompatible with best-efforts recovery");
-  }
-
   if (db_options.use_direct_io_for_flush_and_compaction &&
       0 == db_options.writable_file_max_buffer_size) {
     return Status::InvalidArgument(
@@ -1799,11 +1793,9 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   if (db_options.persist_stats_to_disk) {
-    column_families.push_back(
-        ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+    column_families.emplace_back(kPersistentStatsColumnFamilyName, cf_options);
   }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
@@ -1972,7 +1964,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   handles->clear();
 
   size_t max_write_buffer_size = 0;
-  for (auto cf : column_families) {
+  for (const auto& cf : column_families) {
     max_write_buffer_size =
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
   }
@@ -2044,8 +2036,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     if (s.ok()) {
-      impl->alive_log_files_.push_back(
-          DBImpl::LogFileNumberSize(impl->logfile_number_));
+      impl->alive_log_files_.emplace_back(impl->logfile_number_);
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
@@ -2093,7 +2084,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     // set column family handles
-    for (auto cf : column_families) {
+    for (const auto& cf : column_families) {
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (cfd != nullptr) {

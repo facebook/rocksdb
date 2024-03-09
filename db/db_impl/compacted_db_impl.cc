@@ -21,7 +21,7 @@ CompactedDBImpl::CompactedDBImpl(const DBOptions& options,
       version_(nullptr),
       user_comparator_(nullptr) {}
 
-CompactedDBImpl::~CompactedDBImpl() {}
+CompactedDBImpl::~CompactedDBImpl() = default;
 
 size_t CompactedDBImpl::FindFile(const Slice& key) {
   size_t right = files_.num_files - 1;

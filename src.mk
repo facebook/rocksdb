@@ -76,6 +76,7 @@ LIB_SOURCES =                                                   \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
+  db/multi_cf_iterator.cc                                       \
   db/output_validator.cc                                        \
   db/periodic_task_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \
@@ -516,6 +517,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/memtable_list_test.cc                                              \
   db/merge_helper_test.cc                                               \
   db/merge_test.cc                                                      \
+  db/multi_cf_iterator_test.cc                                          \
   db/obsolete_files_test.cc                                             \
   db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \

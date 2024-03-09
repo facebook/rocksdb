@@ -112,7 +112,7 @@ class CheckpointTest : public testing::Test {
     ColumnFamilyOptions cf_opts(options);
     size_t cfi = handles_.size();
     handles_.resize(cfi + cfs.size());
-    for (auto cf : cfs) {
+    for (const auto& cf : cfs) {
       ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
     }
   }
@@ -141,7 +141,7 @@ class CheckpointTest : public testing::Test {
     EXPECT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
     for (size_t i = 0; i < cfs.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(cfs[i], options[i]));
+      column_families.emplace_back(cfs[i], options[i]);
     }
     DBOptions db_opts = DBOptions(options[0]);
     return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
@@ -507,7 +507,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
   cfs = {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
   std::vector<ColumnFamilyDescriptor> column_families;
   for (size_t i = 0; i < cfs.size(); ++i) {
-    column_families.push_back(ColumnFamilyDescriptor(cfs[i], options));
+    column_families.emplace_back(cfs[i], options);
   }
   ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
                      &snapshotDB));
@@ -565,7 +565,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   cfs = {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
   std::vector<ColumnFamilyDescriptor> column_families;
   for (size_t i = 0; i < cfs.size(); ++i) {
-    column_families.push_back(ColumnFamilyDescriptor(cfs[i], options));
+    column_families.emplace_back(cfs[i], options);
   }
   ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
                      &snapshotDB));
@@ -717,12 +717,9 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
 
   TransactionDB* snapshotDB;
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+  column_families.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
+  column_families.emplace_back("CFA", ColumnFamilyOptions());
+  column_families.emplace_back("CFB", ColumnFamilyOptions());
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   ASSERT_OK(TransactionDB::Open(options, txn_db_options, snapshot_name_,
                                 column_families, &cf_handles, &snapshotDB));

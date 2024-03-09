@@ -104,7 +104,9 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
         return status;
       }
 
-      if (i == 0) continue;
+      if (i == 0) {
+        continue;
+      }
       auto prev_f = l0_files[i - 1];
       if (icmp->Compare(prev_f->largest, f->smallest) >= 0) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -148,9 +150,9 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                                     read_options, write_options, &edit, &mutex_,
                                     directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd,
-                                         &job_context.superversion_contexts[0],
-                                         *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+          cfd, job_context.superversion_contexts.data(),
+          *cfd->GetLatestMutableCFOptions());
     }
   }  // lock released here
   LogFlush(immutable_db_options_.info_log);

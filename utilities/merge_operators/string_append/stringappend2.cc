@@ -5,8 +5,7 @@
 
 #include "stringappend2.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <memory>
 #include <string>
 

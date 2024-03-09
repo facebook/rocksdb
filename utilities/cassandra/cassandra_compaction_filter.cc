@@ -13,8 +13,7 @@
 #include "utilities/cassandra/format.h"
 #include "utilities/cassandra/merge_operator.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 static std::unordered_map<std::string, OptionTypeInfo>
     cassandra_filter_type_info = {
         {"purge_ttl_on_expiration",
@@ -102,5 +101,4 @@ int RegisterCassandraObjects(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-}  // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra

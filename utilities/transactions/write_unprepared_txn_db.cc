@@ -250,7 +250,7 @@ Status WriteUnpreparedTxnDB::Initialize(
   // create 'real' transactions from recovered shell transactions
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
-  for (auto rtxn : rtxns) {
+  for (const auto& rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
     assert(recovered_trx);
     assert(recovered_trx->batches_.size() >= 1);
@@ -334,7 +334,7 @@ Status WriteUnpreparedTxnDB::Initialize(
 
   Status s;
   // Rollback unprepared transactions.
-  for (auto rtxn : rtxns) {
+  for (const auto& rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
     if (recovered_trx->unprepared_) {
       s = RollbackRecoveredTransaction(recovered_trx);

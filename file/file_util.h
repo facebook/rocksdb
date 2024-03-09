@@ -21,22 +21,21 @@ namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  Temperature src_temp_hint,
                   std::unique_ptr<WritableFileWriter>& dest_writer,
                   uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer,
-                  const Temperature temperature);
+                  const std::shared_ptr<IOTracer>& io_tracer);
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                  const std::string& destination, uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer,
-                  const Temperature temperature);
+                  Temperature src_temp_hint, const std::string& destination,
+                  Temperature dst_temp, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer);
 inline IOStatus CopyFile(const std::shared_ptr<FileSystem>& fs,
-                         const std::string& source,
-                         const std::string& destination, uint64_t size,
-                         bool use_fsync,
-                         const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature) {
-  return CopyFile(fs.get(), source, destination, size, use_fsync, io_tracer,
-                  temperature);
+                         const std::string& source, Temperature src_temp_hint,
+                         const std::string& destination, Temperature dst_temp,
+                         uint64_t size, bool use_fsync,
+                         const std::shared_ptr<IOTracer>& io_tracer) {
+  return CopyFile(fs.get(), source, src_temp_hint, destination, dst_temp, size,
+                  use_fsync, io_tracer);
 }
 IOStatus CreateFile(FileSystem* fs, const std::string& destination,
                     const std::string& contents, bool use_fsync);

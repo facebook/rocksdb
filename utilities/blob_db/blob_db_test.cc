@@ -31,8 +31,7 @@
 #include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/fault_injection_env.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
+namespace ROCKSDB_NAMESPACE::blob_db {
 
 class BlobDBTest : public testing::Test {
  public:
@@ -607,7 +606,7 @@ TEST_F(BlobDBTest, EnableDisableCompressionGC) {
   VerifyDB(data);
 
   blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  for (auto bfile : blob_files) {
+  for (const auto &bfile : blob_files) {
     ASSERT_EQ(kNoCompression, bfile->GetCompressionType());
   }
 
@@ -627,7 +626,7 @@ TEST_F(BlobDBTest, EnableDisableCompressionGC) {
   VerifyDB(data);
 
   blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  for (auto bfile : blob_files) {
+  for (const auto &bfile : blob_files) {
     ASSERT_EQ(kSnappyCompression, bfile->GetCompressionType());
   }
 }
@@ -678,7 +677,7 @@ TEST_F(BlobDBTest, ChangeCompressionGC) {
 
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  for (auto bfile : blob_files) {
+  for (const auto &bfile : blob_files) {
     ASSERT_EQ(kSnappyCompression, bfile->GetCompressionType());
   }
 
@@ -695,7 +694,7 @@ TEST_F(BlobDBTest, ChangeCompressionGC) {
 
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  for (auto bfile : blob_files) {
+  for (const auto &bfile : blob_files) {
     ASSERT_EQ(kNoCompression, bfile->GetCompressionType());
   }
 
@@ -719,7 +718,7 @@ TEST_F(BlobDBTest, ChangeCompressionGC) {
 
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  for (auto bfile : blob_files) {
+  for (const auto &bfile : blob_files) {
     ASSERT_EQ(kLZ4Compression, bfile->GetCompressionType());
   }
 }
@@ -731,8 +730,8 @@ TEST_F(BlobDBTest, MultipleWriters) {
 
   std::vector<port::Thread> workers;
   std::vector<std::map<std::string, std::string>> data_set(10);
-  for (uint32_t i = 0; i < 10; i++)
-    workers.push_back(port::Thread(
+  for (uint32_t i = 0; i < 10; i++) {
+    workers.emplace_back(
         [&](uint32_t id) {
           Random rnd(301 + id);
           for (int j = 0; j < 100; j++) {
@@ -747,7 +746,8 @@ TEST_F(BlobDBTest, MultipleWriters) {
             }
           }
         },
-        i));
+        i);
+  }
   std::map<std::string, std::string> data;
   for (size_t i = 0; i < 10; i++) {
     workers[i].join();
@@ -1375,8 +1375,8 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
   constexpr uint64_t kMinValueSize = 1 << 6;
   constexpr uint64_t kMaxValueSize = 1 << 8;
   constexpr uint64_t kMinBlobSize = 1 << 7;
-  static_assert(kMinValueSize < kMinBlobSize, "");
-  static_assert(kMaxValueSize > kMinBlobSize, "");
+  static_assert(kMinValueSize < kMinBlobSize);
+  static_assert(kMaxValueSize > kMinBlobSize);
 
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = kMinBlobSize;
@@ -1747,8 +1747,8 @@ TEST_F(BlobDBTest, GarbageCollection) {
   constexpr uint64_t kSmallValueSize = 1 << 6;
   constexpr uint64_t kLargeValueSize = 1 << 8;
   constexpr uint64_t kMinBlobSize = 1 << 7;
-  static_assert(kSmallValueSize < kMinBlobSize, "");
-  static_assert(kLargeValueSize > kMinBlobSize, "");
+  static_assert(kSmallValueSize < kMinBlobSize);
+  static_assert(kLargeValueSize > kMinBlobSize);
 
   constexpr size_t kBlobsPerFile = 8;
   constexpr size_t kNumBlobFiles = kNumPuts / kBlobsPerFile;
@@ -1999,7 +1999,7 @@ TEST_F(BlobDBTest, EvictExpiredFile) {
   ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
   // Make sure we don't return garbage value after blob file being evicted,
   // but the blob index still exists in the LSM tree.
-  std::string val = "";
+  std::string val;
   ASSERT_TRUE(blob_db_->Get(ReadOptions(), "foo", &val).IsNotFound());
   ASSERT_EQ("", val);
 }
@@ -2413,8 +2413,7 @@ TEST_F(BlobDBTest, SyncBlobFileBeforeCloseIOError) {
   ASSERT_TRUE(s.IsIOError());
 }
 
-}  //  namespace blob_db
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::blob_db
 
 // A black-box test for the ttl wrapper around rocksdb
 int main(int argc, char **argv) {

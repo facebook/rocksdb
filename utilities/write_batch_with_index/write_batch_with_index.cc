@@ -283,7 +283,7 @@ WriteBatchWithIndex::WriteBatchWithIndex(
     : rep(new Rep(default_index_comparator, reserved_bytes, max_bytes,
                   overwrite_key, protection_bytes_per_key)) {}
 
-WriteBatchWithIndex::~WriteBatchWithIndex() {}
+WriteBatchWithIndex::~WriteBatchWithIndex() = default;
 
 WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
 

@@ -191,6 +191,7 @@ else()
   endif()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wa,-mbig-obj")
     add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -691,6 +692,7 @@ set(SOURCES
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc
+        db/multi_cf_iterator.cc
         db/output_validator.cc
         db/periodic_task_scheduler.cc
         db/range_del_aggregator.cc
@@ -1343,6 +1345,7 @@ if(WITH_TESTS)
         db/memtable_list_test.cc
         db/merge_helper_test.cc
         db/merge_test.cc
+        db/multi_cf_iterator_test.cc
         db/options_file_test.cc
         db/perf_context_test.cc
         db/periodic_task_scheduler_test.cc

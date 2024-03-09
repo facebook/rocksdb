@@ -11,7 +11,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class UtilMergeOperatorTest : public testing::Test {
  public:
-  UtilMergeOperatorTest() {}
+  UtilMergeOperatorTest() = default;
 
   std::string FullMergeV2(std::string existing_value,
                           std::vector<std::string> operands,

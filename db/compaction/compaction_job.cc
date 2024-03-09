@@ -404,7 +404,9 @@ void CompactionJob::AcquireSubcompactionResources(
 
 void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
   // Do nothing when we have zero resources to shrink
-  if (num_extra_resources == 0) return;
+  if (num_extra_resources == 0) {
+    return;
+  }
   db_mutex_->Lock();
   // We cannot release threads more than what we reserved before
   int extra_num_subcompaction_threads_released = env_->ReleaseThreads(
@@ -584,7 +586,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
 
   TEST_SYNC_POINT_CALLBACK("CompactionJob::GenSubcompactionBoundaries:0",
                            &num_planned_subcompactions);
-  if (num_planned_subcompactions == 1) return;
+  if (num_planned_subcompactions == 1) {
+    return;
+  }
 
   // Group the ranges into subcompactions
   uint64_t target_range_size = std::max(
@@ -641,7 +645,7 @@ Status CompactionJob::Run() {
 
   // Always schedule the first subcompaction (whether or not there are also
   // others) in the current thread to be efficient with resources
-  ProcessKeyValueCompaction(&compact_->sub_compact_states[0]);
+  ProcessKeyValueCompaction(compact_->sub_compact_states.data());
 
   // Wait for all other threads (if there are any) to finish execution
   for (auto& thread : thread_pool) {

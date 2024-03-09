@@ -46,7 +46,7 @@ Status WritePreparedTxnDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
-  for (auto rtxn : rtxns) {
+  for (const auto& rtxn : rtxns) {
     // There should only one batch for WritePrepared policy.
     assert(rtxn.second->batches_.size() == 1);
     const auto& seq = rtxn.second->batches_.begin()->first;
@@ -369,7 +369,6 @@ void WritePreparedTxnDB::MultiGet(const ReadOptions& _read_options,
     statuses[i] =
         this->GetImpl(read_options, column_families[i], keys[i], &values[i]);
   }
-  return;
 }
 
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
