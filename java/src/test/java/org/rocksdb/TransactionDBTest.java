@@ -31,10 +31,9 @@ public class TransactionDBTest {
 
   @Test
   public void open_columnFamilies() throws RocksDBException {
-    try(final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true)
-          .setCreateMissingColumnFamilies(true);
-        final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
-
+    try (final DBOptions dbOptions =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
           Arrays.asList(
               new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
@@ -53,6 +52,24 @@ public class TransactionDBTest {
             handle.close();
           }
         }
+      }
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void open_columnFamilies_no_default() throws RocksDBException {
+    try (final DBOptions dbOptions =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Collections.singletonList(new ColumnFamilyDescriptor("myCf".getBytes(), myCfOpts));
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+
+      try (
+          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+          final TransactionDB ignored = TransactionDB.open(dbOptions, txnDbOptions,
+              dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors, columnFamilyHandles)) {
       }
     }
   }

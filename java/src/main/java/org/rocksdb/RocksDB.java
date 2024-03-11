@@ -304,9 +304,7 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB open(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
-
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     int defaultColumnFamilyIndex = -1;
@@ -320,7 +318,7 @@ public class RocksDB extends RocksObject {
       }
     }
     if (defaultColumnFamilyIndex < 0) {
-      new IllegalArgumentException(
+      throw new IllegalArgumentException(
           "You must provide the default column family in your columnFamilyDescriptors");
     }
 
