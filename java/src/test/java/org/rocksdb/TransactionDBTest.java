@@ -174,4 +174,22 @@ public class TransactionDBTest {
       tdb.setDeadlockInfoBufferSize(123);
     }
   }
+
+  @Test
+  public void tdbSimpleIterator() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
+         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+         final TransactionDB tdb = TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
+      tdb.put("keyI".getBytes(), "valueI".getBytes());
+      try (final RocksIterator iterator = tdb.newIterator()) {
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("keyI".getBytes());
+        assertThat(iterator.value()).isEqualTo("valueI".getBytes());
+        iterator.next();
+        assertThat(iterator.isValid()).isFalse();
+      }
+    }
+  }
+
 }

@@ -128,4 +128,20 @@ public class OptimisticTransactionDBTest {
       assertThat(db.isOwningHandle()).isFalse();
     }
   }
+
+  @Test
+  public void otdbSimpleIterator() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
+         final OptimisticTransactionDB otdb = OptimisticTransactionDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      otdb.put("keyI".getBytes(), "valueI".getBytes());
+      try (final RocksIterator iterator = otdb.newIterator()) {
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("keyI".getBytes());
+        assertThat(iterator.value()).isEqualTo("valueI".getBytes());
+        iterator.next();
+        assertThat(iterator.isValid()).isFalse();
+      }
+    }
+  }
 }
