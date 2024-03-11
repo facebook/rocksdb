@@ -318,11 +318,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
     putJni(handle, key, keyLen, value, valueLen, cfHandle);
   }
 
-  @Override
   void putEntity(long nativeHandle, byte[] key, int keyOffset, int keyLength, byte[][] names,
-      byte[][] values, long cfHandle) {
-    throw new RuntimeException("Not implemented yet");
+      byte[][] values, long cfHandle) throws RocksDBException {
+    putEntityJni(nativeHandle, key, keyOffset, keyLength, names, values, cfHandle);
   }
+  private static native void putEntityJni(long nativeHandle, byte[] key, int keyOffset,
+      int keyLength, byte[][] names, byte[][] values, long cfHandle) throws RocksDBException;
 
   private static native void putJni(final long handle, final byte[] key, final int keyLen,
       final byte[] value, final int valueLen, final long cfHandle);
@@ -338,8 +339,13 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   void putEntityDirect(long nativeHandle, ByteBuffer key, int keyOffset, int keyLength,
       ByteBuffer[] names, int[] namesOffset, int[] namesLength, ByteBuffer[] values,
       int[] valuesOffset, int[] valuesLength, long cfHandle) throws RocksDBException {
-    throw new RuntimeException("Not implemented yet");
+    putEntityDirectJni(nativeHandle, key, keyOffset, keyLength, names, namesOffset, namesLength,
+        values, valuesOffset, valuesLength, cfHandle);
   }
+
+  private static native void putEntityDirectJni(long nativeHandle, ByteBuffer key, int keyOffset,
+      int keyLength, ByteBuffer[] names, int[] namesOffset, int[] namesLength, ByteBuffer[] values,
+      int[] valuesOffset, int[] valuesLength, long cfHandle) throws RocksDBException;
 
   private static native void putDirectJni(final long handle, final ByteBuffer key,
       final int keyOffset, final int keyLength, final ByteBuffer value, final int valueOffset,
