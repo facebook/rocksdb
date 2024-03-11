@@ -527,6 +527,56 @@ TEST_F(SstFileReaderTimestampNotPersistedTest, IncompatibleTimestampFormat) {
                   .IsInvalidArgument());
 }
 
+TEST_F(SstFileReaderTest, VerifyNumEntries1) {
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFile(sst_name_, keys);
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  ASSERT_OK(reader.VerifyNumEntries(ReadOptions()));
+}
+
+TEST_F(SstFileReaderTest, VerifyNumEntries2) {
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.Open(sst_name_));
+
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(writer.Put(EncodeAsUint64(i), EncodeAsUint64(i + 1)));
+  }
+  ASSERT_OK(
+      writer.DeleteRange(EncodeAsUint64(0), EncodeAsUint64(kNumKeys / 2)));
+  ASSERT_OK(writer.Finish());
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  ASSERT_OK(reader.VerifyNumEntries(ReadOptions()));
+}
+
+TEST_F(SstFileReaderTest, VerifyNumEntries3) {
+  const int num_keys = 99;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+        TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+        props->num_entries = num_keys + 2;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < num_keys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFile(sst_name_, keys);
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  Status s = reader.VerifyNumEntries(ReadOptions());
+  ASSERT_TRUE(s.IsCorruption());
+  std::ostringstream oss;
+  oss << "Table property has num_entries = " << std::to_string(num_keys + 2)
+      << " but scanning the table returns " << std::to_string(num_keys)
+      << " records.";
+  ASSERT_TRUE(std::strstr(oss.str().c_str(), s.getState()));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

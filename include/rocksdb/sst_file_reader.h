@@ -37,6 +37,10 @@ class SstFileReader {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
+  // Verify that the number of entries in the table matches table property.
+  // A Corruption status is returned if they do not match.
+  Status VerifyNumEntries(const ReadOptions& /*read_options*/);
+
  private:
   struct Rep;
   std::unique_ptr<Rep> rep_;

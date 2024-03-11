@@ -105,4 +105,34 @@ Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
                                             TableReaderCaller::kSSTFileReader);
 }
 
+Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
+  Rep* r = rep_.get();
+  std::unique_ptr<InternalIterator> internal_iter{r->table_reader->NewIterator(
+      read_options, r->moptions.prefix_extractor.get(), nullptr,
+      false /* skip_filters */, TableReaderCaller::kSSTFileReader)};
+  internal_iter->SeekToFirst();
+  Status s = internal_iter->status();
+  if (!s.ok()) {
+    return s;
+  }
+  uint64_t num_read = 0;
+  for (; internal_iter->Valid(); internal_iter->Next()) {
+    ++num_read;
+  };
+  s = internal_iter->status();
+  if (!s.ok()) {
+    return s;
+  }
+  std::shared_ptr<const TableProperties> tp = GetTableProperties();
+  if (!tp) {
+    s = Status::Corruption("table properties not available");
+  } else if (num_read != tp->num_entries - tp->num_range_deletions) {
+    s = Status::Corruption(
+        "Table property has num_entries = " + std::to_string(tp->num_entries) +
+        " but scanning the table returns " + std::to_string(num_read) +
+        " records.");
+  }
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
