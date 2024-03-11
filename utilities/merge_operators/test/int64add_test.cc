@@ -201,6 +201,16 @@ TEST_P(EncodeDecodeTest, EncodeDecode) {
   ASSERT_EQ(read_value, num);
 }
 
+TEST_P(EncodeDecodeTest, EncodeDecodeSignExtend) {
+  std::string value;
+  const int64_t num = GetParam();
+
+  Put8BitVarsignedint64(&value, num);
+  Slice read_slice(value);
+  int64_t read_value = Get8BitVarsignedint64(&read_slice);
+  ASSERT_EQ(read_value, num);
+}
+
 TEST_F(Int64AddMergeOperatorTest, MergeMultipleValues) {
   std::string value;
 
@@ -237,12 +247,15 @@ TEST_F(Int64AddMergeOperatorTest, MergeMultipleValues) {
                         // db, and then merge added merge_num.
 }
 
-INSTANTIATE_TEST_CASE_P(Int64AddMergeOperatorTest, EncodeDecodeTest,
-                        testing::Values(0, 1, 2, -1, 2, 123, 254, -254, 255,
-                                        -255, 256, -256, 257, -257, 32767,
-                                        -32767, 32768, -32768, 65534, -65534,
-                                        65535, -65535, 65536, -65536, 65537,
-                                        -65537));
+INSTANTIATE_TEST_CASE_P(
+    Int64AddMergeOperatorTest, EncodeDecodeTest,
+    testing::Values(0, 1, 2, -1, 2, 123, 127, -127, 128, -128, 254, -254, 255,
+                    -255, 256, -256, 257, -257, 32767, -32767, 32768, -32768,
+                    32769, -32769, 65534, -65534, 65535, -65535, 65536, -65536,
+                    65537, -65537, 8388607, -8388607, 8388608, -8388608,
+                    8388609, -8388609, 16777215, -16777215, 16777217, -16777217,
+                    33554431, -33554431, 33554433, -33554433, 2147483647,
+                    -2147483648));
 INSTANTIATE_TEST_CASE_P(Int64AddMergeOperatorTest, EmptyDbTest,
                         testing::Values(-255, -2, -1, 0, 1, 2, 255));
 INSTANTIATE_TEST_CASE_P(
