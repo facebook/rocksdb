@@ -195,31 +195,33 @@ inline void PutVarsignedint64(std::string* dst, int64_t v) {
 }
 
 /**
- * @brief encode an unsigned int using 8 bits of every byte
+ * @brief encode a signed int using 8 bits of every byte
  *
  * Efficient use of all 8 bits of as many bytes as necessary
  * because the length of the encoding is known independently,
  * e.g. as the length of the "value" in a (key,value)-pair
- * 0..255 are the "obvious" single byte strings
- * 256..65535 are
+ *
+ * -128..127 are a single byte sign extended value
+ * -32768..32767 are a 2-byte sign extended value
  *
  * @param dst buffer to encode into
  * @param v value to encode
- * @return char* holding the result
  */
-inline void Encode8BitVarint64(std::string* dst, uint64_t v) {
-  static const unsigned int B = 0x100;
-  while (v >= B) {
-    unsigned char byte = v & (B - 1);
-    dst->push_back(byte);
-    v >>= 8;
+inline void Put8BitVarsignedint64(std::string* dst, int64_t v) {
+  if (v >= 0) {
+    while (v > 0x7f) {
+      unsigned char byte = v & 0xff;
+      dst->push_back(byte);
+      v >>= 8;
+    }
+  } else {
+    while (v < -0x80) {
+      unsigned char byte = v & 0xff;
+      dst->push_back(byte);
+      v >>= 8;
+    }
   }
   dst->push_back(static_cast<unsigned char>(v));
-}
-
-inline void Put8BitVarsignedint64(std::string* dst, int64_t v) {
-  // Using Zigzag format to convert signed to unsigned
-  Encode8BitVarint64(dst, i64ToZigzag(v));
 }
 
 inline void PutVarint64Varint64(std::string* dst, uint64_t v1, uint64_t v2) {
@@ -279,10 +281,6 @@ inline int VarintLength(uint64_t v) {
     len++;
   }
   return len;
-}
-
-inline void Put8BitVarint64(std::string* dst, uint64_t v) {
-  Encode8BitVarint64(dst, v);
 }
 
 inline bool GetFixed64(Slice* input, uint64_t* value) {
@@ -348,19 +346,32 @@ inline bool GetVarsignedint64(Slice* input, int64_t* value) {
   }
 }
 
-inline int64_t Get8BitVarunsignedint64(Slice* input) {
+/**
+ * @brief decode a signed int encoded using 8 bits of every byte, inverse of
+ * `Put8BitVarsignedint64`
+ *
+ * Efficient use of all 8 bits of as many bytes as necessary
+ * because the length of the encoding is known independently,
+ * e.g. as the length of the "value" in a (key,value)-pair
+ *
+ * -128..127 are a single byte sign extended value
+ * -32768..32767 are a 2-byte sign extended value
+ *
+ * @param input buffer to decode out of
+ * @return an int64_t which is the decoded value of the buffer
+ */
+inline int64_t Get8BitVarsignedint64(Slice* input) {
   const char* start = input->data();
   const char* p = start + input->size();
-  uint64_t u = 0;
-  while (start < p) {
-    uint64_t byte = *(reinterpret_cast<const unsigned char*>(--p));
-    u = (u << 8) | byte;
+  int64_t s = 0;
+  if (start < p) {
+    s = *(reinterpret_cast<const char*>(--p));
+    while (start < p) {
+      int64_t byte = *(reinterpret_cast<const unsigned char*>(--p));
+      s = (s << 8) | byte;
+    }
   }
-  return u;
-}
-
-inline int64_t Get8BitVarsignedint64(Slice* input) {
-  return zigzagToI64(Get8BitVarunsignedint64(input));
+  return s;
 }
 
 inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
