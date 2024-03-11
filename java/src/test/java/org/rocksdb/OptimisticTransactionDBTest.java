@@ -147,7 +147,8 @@ public class OptimisticTransactionDBTest {
   @Test
   public void otdbSimpleIterator() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
-         final OptimisticTransactionDB otdb = OptimisticTransactionDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+         final OptimisticTransactionDB otdb =
+             OptimisticTransactionDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       otdb.put("keyI".getBytes(), "valueI".getBytes());
       try (final RocksIterator iterator = otdb.newIterator()) {
         iterator.seekToFirst();

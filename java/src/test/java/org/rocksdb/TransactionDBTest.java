@@ -196,7 +196,8 @@ public class TransactionDBTest {
   public void tdbSimpleIterator() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
-         final TransactionDB tdb = TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
+         final TransactionDB tdb =
+             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
       tdb.put("keyI".getBytes(), "valueI".getBytes());
       try (final RocksIterator iterator = tdb.newIterator()) {
         iterator.seekToFirst();
@@ -208,5 +209,4 @@ public class TransactionDBTest {
       }
     }
   }
-
 }

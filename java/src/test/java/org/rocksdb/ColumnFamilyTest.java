@@ -183,6 +183,41 @@ public class ColumnFamilyTest {
   }
 
   @Test
+  public void defaultColumnFamilySynonymsReadOnly() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      db.put("dfkey_syn_1".getBytes(), "dfvalue_syn_1".getBytes());
+    }
+
+    final List<ColumnFamilyDescriptor> cfNames =
+        Arrays.asList(new ColumnFamilyDescriptor("new_cf1".getBytes()),
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor("new_cf2".getBytes()));
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(
+             options, dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList)) {
+      assertThat(columnFamilyHandleList.size()).isEqualTo(3);
+      assertThat(db.get(columnFamilyHandleList.get(1), "dfkey_syn_1".getBytes()))
+          .isEqualTo("dfvalue_syn_1".getBytes());
+      db.put(columnFamilyHandleList.get(1), "dfkey_syn_2".getBytes(), "dfvalue_syn_2".getBytes());
+    }
+
+    final List<ColumnFamilyDescriptor> cfNames2 =
+        Arrays.asList(new ColumnFamilyDescriptor("new_cf1".getBytes()),
+            new ColumnFamilyDescriptor("new_cf2".getBytes()),
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+    final List<ColumnFamilyHandle> columnFamilyHandleList2 = new ArrayList<>();
+
+    try (final RocksDB db = RocksDB.openReadOnly(new DBOptions(),
+             dbFolder.getRoot().getAbsolutePath(), cfNames2, columnFamilyHandleList2)) {
+      assertThat(db.get("dfkey_syn_2".getBytes())).isEqualTo("dfvalue_syn_2".getBytes());
+    }
+  }
+
+  @Test
   public void defaultColumnFamilySynonymsOTDB() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final OptimisticTransactionDB db =
@@ -293,7 +328,7 @@ public class ColumnFamilyTest {
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void open_columnFamilies_no_default() throws RocksDBException {
+  public void openColumnFamiliesNoDefault() throws RocksDBException {
     try (final DBOptions dbOptions =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
@@ -304,6 +339,33 @@ public class ColumnFamilyTest {
 
       RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors,
           columnFamilyHandles);
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void openColumnFamiliesNoDefaultReadOnly() throws RocksDBException {
+    try (final DBOptions dbOptions =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions()) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Arrays.asList(new ColumnFamilyDescriptor("myCf".getBytes()),
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+
+      RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors,
+          columnFamilyHandles);
+    }
+
+    try (final DBOptions dbOptions = new DBOptions()) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Collections.singletonList(new ColumnFamilyDescriptor("myCf".getBytes()));
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+
+      final RocksDB db = RocksDB.openReadOnly(dbOptions, dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors, columnFamilyHandles);
+      db.close();
     }
   }
 
