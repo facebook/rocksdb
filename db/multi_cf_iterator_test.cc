@@ -234,7 +234,7 @@ TEST_F(MultiCfIteratorTest, EmptyCfs) {
     ASSERT_OK(iter->status());
   }
   {
-    // Case 2: keys in only one of the CF. Rest CFs are empty.
+    // Case 2: A single key exists in only one of the CF. Rest CFs are empty.
     ASSERT_OK(Put(1, "key_1", "key_1_cf_1_val"));
     std::unique_ptr<Iterator> iter =
         db_->NewMultiCfIterator(ReadOptions(), handles_);
@@ -242,13 +242,13 @@ TEST_F(MultiCfIteratorTest, EmptyCfs) {
     ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_1_val");
     iter->Next();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
-    iter->SeekToFirst();
+    iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_1_val");
     iter->Prev();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
   }
   {
-    // Case 3: same keys in all of the CFs except one (cf_2).
+    // Case 3: same key exists in all of the CFs except one (cf_2)
     ASSERT_OK(Put(0, "key_1", "key_1_cf_0_val"));
     ASSERT_OK(Put(3, "key_1", "key_1_cf_3_val"));
     // handles_ are in the order of 0->1->2->3. We should expect value from cf_0
@@ -258,7 +258,7 @@ TEST_F(MultiCfIteratorTest, EmptyCfs) {
     ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
     iter->Next();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
-    iter->SeekToFirst();
+    iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
     iter->Prev();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
