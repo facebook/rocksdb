@@ -318,6 +318,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
     putJni(handle, key, keyLen, value, valueLen, cfHandle);
   }
 
+  @Override
   void putEntity(long nativeHandle, byte[] key, int keyOffset, int keyLength, byte[][] names,
       byte[][] values, long cfHandle) throws RocksDBException {
     putEntityJni(nativeHandle, key, keyOffset, keyLength, names, values, cfHandle);
