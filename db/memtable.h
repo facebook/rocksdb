@@ -20,6 +20,7 @@
 #include "db/kv_checksum.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/version_edit.h"
 #include "memory/allocator.h"
 #include "memory/concurrent_arena.h"
@@ -203,7 +204,11 @@ class MemTable {
   // arena: If not null, the arena needs to be used to allocate the Iterator.
   //        Calling ~Iterator of the iterator will destroy all the states but
   //        those allocated in arena.
-  InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
+  // seqno_to_time_mapping: it's used to support return write unix time for the
+  // data, currently only needed for iterators serving user reads.
+  InternalIterator* NewIterator(const ReadOptions& read_options,
+                                const SeqnoToTimeMapping* seqno_to_time_mapping,
+                                Arena* arena);
 
   // Returns an iterator that yields the range tombstones of the memtable.
   // The caller must ensure that the underlying MemTable remains live

@@ -430,6 +430,11 @@ class MergingIterator : public InternalIterator {
     return current_->key();
   }
 
+  uint64_t write_unix_time() const override {
+    assert(Valid());
+    return current_->write_unix_time();
+  }
+
   Slice value() const override {
     assert(Valid());
     return current_->value();

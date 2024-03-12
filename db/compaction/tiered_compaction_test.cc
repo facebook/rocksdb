@@ -14,6 +14,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/utilities/debug.h"
 #include "test_util/mock_time_env.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1307,8 +1308,8 @@ TEST_F(TieredCompactionTest, CheckInternalKeyRange) {
 
 class PrecludeLastLevelTest : public DBTestBase {
  public:
-  PrecludeLastLevelTest()
-      : DBTestBase("preclude_last_level_test", /*env_do_fsync=*/false) {
+  PrecludeLastLevelTest(std::string test_name = "preclude_last_level_test")
+      : DBTestBase(test_name, /*env_do_fsync=*/false) {
     mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
     mock_clock_->SetCurrentTime(kMockStartTime);
     mock_env_ = std::make_unique<CompositeEnvWrapper>(env_, mock_clock_);
@@ -2255,6 +2256,253 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
 
   Close();
 }
+
+// Tests DBIter::GetProperty("rocksdb.iterator.write-time") return a data's
+// approximate write unix time.
+// Test Param:
+// 1) use tailing iterator or regular iterator (when it applies)
+class IteratorWriteTimeTest : public PrecludeLastLevelTest,
+                              public testing::WithParamInterface<bool> {
+ public:
+  IteratorWriteTimeTest() : PrecludeLastLevelTest("iterator_write_time_test") {}
+
+  uint64_t VerifyKeyAndGetWriteTime(Iterator* iter,
+                                    const std::string& expected_key) {
+    std::string prop;
+    uint64_t write_time = 0;
+    EXPECT_TRUE(iter->Valid());
+    EXPECT_EQ(expected_key, iter->key());
+    EXPECT_OK(iter->GetProperty("rocksdb.iterator.write-time", &prop));
+    Slice prop_slice = prop;
+    EXPECT_TRUE(GetFixed64(&prop_slice, &write_time));
+    return write_time;
+  }
+
+  void VerifyKeyAndWriteTime(Iterator* iter, const std::string& expected_key,
+                             uint64_t expected_write_time) {
+    std::string prop;
+    uint64_t write_time = 0;
+    EXPECT_TRUE(iter->Valid());
+    EXPECT_EQ(expected_key, iter->key());
+    EXPECT_OK(iter->GetProperty("rocksdb.iterator.write-time", &prop));
+    Slice prop_slice = prop;
+    EXPECT_TRUE(GetFixed64(&prop_slice, &write_time));
+    EXPECT_EQ(expected_write_time, write_time);
+  }
+};
+
+TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kSecondsPerRecording = 101;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumKeys; i++) {
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+
+  ReadOptions ropts;
+  ropts.tailing = GetParam();
+  int i;
+
+  // Forward iteration
+  uint64_t start_time = 0;
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToFirst(), i = 0; iter->Valid(); iter->Next(), i++) {
+      if (start_time == 0) {
+        start_time = VerifyKeyAndGetWriteTime(iter.get(), Key(i));
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Backward iteration
+  {
+    ropts.tailing = false;
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToLast(), i = kNumKeys - 1; iter->Valid();
+         iter->Prev(), i--) {
+      if (i == 0) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+  Close();
+}
+
+TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kSecondsPerRecording = 101;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumKeys; i++) {
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+
+  ASSERT_OK(Flush());
+  ReadOptions ropts;
+  ropts.tailing = GetParam();
+  std::string prop;
+  int i;
+
+  // Forward iteration
+  uint64_t start_time = 0;
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToFirst(), i = 0; iter->Valid(); iter->Next(), i++) {
+      if (start_time == 0) {
+        start_time = VerifyKeyAndGetWriteTime(iter.get(), Key(i));
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Backward iteration
+  {
+    ropts.tailing = false;
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToLast(), i = kNumKeys - 1; iter->Valid();
+         iter->Prev(), i--) {
+      if (i == 0) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Reopen the DB and disable the seqno to time recording. Data retrieved from
+  // SST files still have write time available.
+  options.preserve_internal_time_seconds = 0;
+  DestroyAndReopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+  ASSERT_OK(Put("a", "val"));
+  ASSERT_TRUE(dbfull()->TEST_GetSeqnoToTimeMapping().Empty());
+
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    // "a" is retrieved from memtable, its write time is unknown because the
+    // seqno to time mapping recording is not available.
+    VerifyKeyAndWriteTime(iter.get(), "a",
+                          std::numeric_limits<uint64_t>::max());
+    for (iter->Next(), i = 0; iter->Valid(); iter->Next(), i++) {
+      if (i == 0) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // There is no write time info for "a" after it's flushed to SST file either.
+  ASSERT_OK(Flush());
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    VerifyKeyAndWriteTime(iter.get(), "a",
+                          std::numeric_limits<uint64_t>::max());
+  }
+
+  // Sequence number zeroed out after compacted to the last level, write time
+  // all becomes zero.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    for (iter->Next(), i = 0; iter->Valid(); iter->Next(), i++) {
+      VerifyKeyAndWriteTime(iter.get(), Key(i), 0);
+    }
+    ASSERT_OK(iter->status());
+  }
+  Close();
+}
+
+TEST_P(IteratorWriteTimeTest, MergeReturnsBaseValueWriteTime) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kSecondsPerRecording = 101;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+  ASSERT_OK(Put("foo", "fv1"));
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+  ASSERT_OK(Put("bar", "bv1"));
+  ASSERT_OK(Merge("foo", "bv1"));
+
+  ReadOptions ropts;
+  ropts.tailing = GetParam();
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    uint64_t bar_time = VerifyKeyAndGetWriteTime(iter.get(), "bar");
+    iter->Next();
+    uint64_t foo_time = VerifyKeyAndGetWriteTime(iter.get(), "foo");
+    // "foo" has an older write time because its base value's write time is used
+    ASSERT_GT(bar_time, foo_time);
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(IteratorWriteTimeTest, IteratorWriteTimeTest,
+                        testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
 

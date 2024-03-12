@@ -16,6 +16,7 @@
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/seqno_to_time_mapping.h"
 #include "file/filename.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table_properties.h"
@@ -196,6 +197,8 @@ class BlockBasedTable : public TableReader {
   void SetupForCompaction() override;
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
+
+  const SeqnoToTimeMapping& GetSeqnoToTimeMapping() const;
 
   size_t ApproximateMemoryUsage() const override;
 
@@ -607,6 +610,7 @@ struct BlockBasedTable::Rep {
   BlockHandle compression_dict_handle;
 
   std::shared_ptr<const TableProperties> table_properties;
+  SeqnoToTimeMapping seqno_to_time_mapping;
   BlockHandle index_handle;
   BlockBasedTableOptions::IndexType index_type;
   bool whole_key_filtering;

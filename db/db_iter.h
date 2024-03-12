@@ -367,6 +367,12 @@ class DBIter final : public Iterator {
   // and should not be used across functions. Reusing this object can reduce
   // overhead of calling construction of the function if creating it each time.
   ParsedInternalKey ikey_;
+
+  // TODO(yuzhangyu): update this documentation for kTypeValuePreferredSeqno
+  // types.
+  // The approximate write time for the entry. It is deduced from the entry's
+  // sequence number if the seqno to time mapping is available.
+  uint64_t saved_write_unix_time_;
   std::string saved_value_;
   Slice pinned_value_;
   // for prefix seek mode to support prev()

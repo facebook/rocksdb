@@ -82,6 +82,12 @@ class IteratorWrapperBase {
     assert(Valid());
     return result_.key;
   }
+
+  uint64_t write_unix_time() const {
+    assert(Valid());
+    return iter_->write_unix_time();
+  }
+
   TValue value() const {
     assert(Valid());
     return iter_->value();

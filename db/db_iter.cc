@@ -113,8 +113,8 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
     *prop = saved_key_.GetUserKey().ToString();
     return Status::OK();
   } else if (prop_name == "rocksdb.iterator.write-time") {
-    // TODO(yuzhangyu): implement return the actual write time.
-    return Status::NotSupported("write time property is under construction");
+    PutFixed64(prop, saved_write_unix_time_);
+    return Status::OK();
   }
   return Status::InvalidArgument("Unidentified property.");
 }
@@ -421,6 +421,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               assert(ikey_.type == kTypeValue ||
                      ikey_.type == kTypeValuePreferredSeqno);
               Slice value = iter_.value();
+              saved_write_unix_time_ = iter_.write_unix_time();
               if (ikey_.type == kTypeValuePreferredSeqno) {
                 value = ParsePackedValueForValue(value);
               }
@@ -582,6 +583,7 @@ bool DBIter::MergeValuesNewToOld() {
 
     if (kTypeValue == ikey.type || kTypeValuePreferredSeqno == ikey.type) {
       Slice value = iter_.value();
+      saved_write_unix_time_ = iter_.write_unix_time();
       if (kTypeValuePreferredSeqno == ikey.type) {
         value = ParsePackedValueForValue(value);
       }
@@ -931,6 +933,7 @@ bool DBIter::FindValueForCurrentKey() {
       case kTypeBlobIndex:
       case kTypeWideColumnEntity:
         if (iter_.iter()->IsValuePinned()) {
+          saved_write_unix_time_ = iter_.write_unix_time();
           if (last_key_entry_type == kTypeValuePreferredSeqno) {
             pinned_value_ = ParsePackedValueForValue(iter_.value());
           } else {
@@ -1162,6 +1165,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (ikey.type == kTypeValue || ikey.type == kTypeValuePreferredSeqno ||
       ikey.type == kTypeBlobIndex || ikey.type == kTypeWideColumnEntity) {
     assert(iter_.iter()->IsValuePinned());
+    saved_write_unix_time_ = iter_.write_unix_time();
     if (ikey.type == kTypeValuePreferredSeqno) {
       pinned_value_ = ParsePackedValueForValue(iter_.value());
     } else {
