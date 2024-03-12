@@ -23,7 +23,8 @@ class MultiCfIterator : public Iterator {
                   const std::vector<ColumnFamilyHandle*>& column_families,
                   const std::vector<Iterator*>& child_iterators)
       : comparator_(comparator),
-        min_heap_(MultiCfMinHeapItemComparator(comparator_)) {
+        min_heap_(MultiCfMinHeapItemComparator(comparator_)),
+        max_heap_(MultiCfMaxHeapItemComparator(comparator_)) {
     assert(column_families.size() > 0 &&
            column_families.size() == child_iterators.size());
     cfh_iter_pairs_.reserve(column_families.size());
@@ -72,18 +73,65 @@ class MultiCfIterator : public Iterator {
     const Comparator* comparator_;
   };
 
+  class MultiCfMaxHeapItemComparator {
+   public:
+    explicit MultiCfMaxHeapItemComparator(const Comparator* comparator)
+        : comparator_(comparator) {}
+
+    bool operator()(const MultiCfIteratorInfo& a,
+                    const MultiCfIteratorInfo& b) const {
+      assert(a.iterator);
+      assert(b.iterator);
+      assert(a.iterator->Valid());
+      assert(b.iterator->Valid());
+      int c = comparator_->Compare(a.iterator->key(), b.iterator->key());
+      assert(c != 0 || a.order != b.order);
+      return c == 0 ? a.order - b.order > 0 : c < 0;
+    }
+
+   private:
+    const Comparator* comparator_;
+  };
+
   const Comparator* comparator_;
   using MultiCfMinHeap =
       BinaryHeap<MultiCfIteratorInfo, MultiCfMinHeapItemComparator>;
+  using MultiCfMaxHeap =
+      BinaryHeap<MultiCfIteratorInfo, MultiCfMaxHeapItemComparator>;
   MultiCfMinHeap min_heap_;
-  // TODO: MaxHeap for Reverse Iteration
+  MultiCfMaxHeap max_heap_;
+
+  enum Direction : uint8_t { kForward, kReverse };
+  Direction direction_ = kForward;
+
   // TODO: Lower and Upper bounds
+
+  Iterator* current() const {
+    if (direction_ == kReverse) {
+      return max_heap_.top().iterator;
+    }
+    return min_heap_.top().iterator;
+  }
 
   Slice key() const override {
     assert(Valid());
-    return min_heap_.top().iterator->key();
+    return current()->key();
   }
-  bool Valid() const override { return !min_heap_.empty() && status_.ok(); }
+  Slice value() const override {
+    assert(Valid());
+    return current()->value();
+  }
+  const WideColumns& columns() const override {
+    assert(Valid());
+    return current()->columns();
+  }
+
+  bool Valid() const override {
+    if (direction_ == kReverse) {
+      return !max_heap_.empty() && status_.ok();
+    }
+    return !min_heap_.empty() && status_.ok();
+  }
   Status status() const override { return status_; }
   void considerStatus(Status s) {
     if (!s.ok() && status_.ok()) {
@@ -92,42 +140,32 @@ class MultiCfIterator : public Iterator {
   }
   void Reset() {
     min_heap_.clear();
+    max_heap_.clear();
     status_ = Status::OK();
   }
 
-  void SeekCommon(const std::function<void(Iterator*)>& child_seek_func) {
-    Reset();
-    int i = 0;
-    for (auto& cfh_iter_pair : cfh_iter_pairs_) {
-      auto& cfh = cfh_iter_pair.first;
-      auto& iter = cfh_iter_pair.second;
-      child_seek_func(iter.get());
-      if (iter->Valid()) {
-        assert(iter->status().ok());
-        min_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
-      } else {
-        considerStatus(iter->status());
-      }
-      ++i;
+  void SwitchToDirection(Direction new_direction) {
+    assert(direction_ != new_direction);
+    Slice target = key();
+    if (new_direction == kForward) {
+      Seek(target);
+    } else {
+      SeekForPrev(target);
     }
   }
 
-  void SeekToFirst() override;
-  void Seek(const Slice& /*target*/) override;
-  void Next() override;
+  void SeekCommon(const std::function<void(Iterator*)>& child_seek_func,
+                  Direction direction);
+  template <typename BinaryHeap>
+  void AdvanceIterator(BinaryHeap& heap,
+                       const std::function<void(Iterator*)>& advance_func);
 
-  // TODO - Implement these
-  void SeekToLast() override {}
-  void SeekForPrev(const Slice& /*target*/) override {}
-  void Prev() override { assert(false); }
-  Slice value() const override {
-    assert(Valid());
-    return min_heap_.top().iterator->value();
-  }
-  const WideColumns& columns() const override {
-    assert(Valid());
-    return min_heap_.top().iterator->columns();
-  }
+  void SeekToFirst() override;
+  void SeekToLast() override;
+  void Seek(const Slice& /*target*/) override;
+  void SeekForPrev(const Slice& /*target*/) override;
+  void Next() override;
+  void Prev() override;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

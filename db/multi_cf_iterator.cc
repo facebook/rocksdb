@@ -9,44 +9,91 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+void MultiCfIterator::SeekCommon(
+    const std::function<void(Iterator*)>& child_seek_func,
+    Direction direction) {
+  Reset();
+  direction_ = direction;
+  int i = 0;
+  for (auto& cfh_iter_pair : cfh_iter_pairs_) {
+    auto& cfh = cfh_iter_pair.first;
+    auto& iter = cfh_iter_pair.second;
+    child_seek_func(iter.get());
+    if (iter->Valid()) {
+      assert(iter->status().ok());
+      if (direction_ == kReverse) {
+        max_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
+      } else {
+        min_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
+      }
+    } else {
+      considerStatus(iter->status());
+    }
+    ++i;
+  }
+}
+
+template <typename BinaryHeap>
+void MultiCfIterator::AdvanceIterator(
+    BinaryHeap& heap, const std::function<void(Iterator*)>& advance_func) {
+  // 1. Keep the top iterator (by popping it from the heap)
+  // 2. Make sure all others have iterated past the top iterator key slice
+  // 3. Advance the top iterator, and add it back to the heap if valid
+  auto top = heap.top();
+  heap.pop();
+  if (!heap.empty()) {
+    auto* current = heap.top().iterator;
+    while (current->Valid() &&
+           comparator_->Compare(top.iterator->key(), current->key()) == 0) {
+      assert(current->status().ok());
+      advance_func(current);
+      if (current->Valid()) {
+        heap.replace_top(heap.top());
+      } else {
+        considerStatus(current->status());
+        heap.pop();
+      }
+      if (!heap.empty()) {
+        current = heap.top().iterator;
+      }
+    }
+  }
+  advance_func(top.iterator);
+  if (top.iterator->Valid()) {
+    assert(top.iterator->status().ok());
+    heap.push(top);
+  } else {
+    considerStatus(top.iterator->status());
+  }
+}
+
 void MultiCfIterator::SeekToFirst() {
-  SeekCommon([](Iterator* iter) { iter->SeekToFirst(); });
+  SeekCommon([](Iterator* iter) { iter->SeekToFirst(); }, kForward);
 }
 void MultiCfIterator::Seek(const Slice& target) {
-  SeekCommon([&target](Iterator* iter) { iter->Seek(target); });
+  SeekCommon([&target](Iterator* iter) { iter->Seek(target); }, kForward);
+}
+void MultiCfIterator::SeekToLast() {
+  SeekCommon([](Iterator* iter) { iter->SeekToLast(); }, kReverse);
+}
+void MultiCfIterator::SeekForPrev(const Slice& target) {
+  SeekCommon([&target](Iterator* iter) { iter->SeekForPrev(target); },
+             kReverse);
 }
 
 void MultiCfIterator::Next() {
   assert(Valid());
-  // 1. Keep the top iterator (by popping it from the heap)
-  // 2. Make sure all others have iterated past the top iterator key slice
-  // 3. Advance the top iterator, and add it back to the heap if valid
-  auto top = min_heap_.top();
-  min_heap_.pop();
-  if (!min_heap_.empty()) {
-    auto* current = min_heap_.top().iterator;
-    while (current->Valid() &&
-           comparator_->Compare(top.iterator->key(), current->key()) == 0) {
-      assert(current->status().ok());
-      current->Next();
-      if (current->Valid()) {
-        min_heap_.replace_top(min_heap_.top());
-      } else {
-        considerStatus(current->status());
-        min_heap_.pop();
-      }
-      if (!min_heap_.empty()) {
-        current = min_heap_.top().iterator;
-      }
-    }
+  if (direction_ != kForward) {
+    SwitchToDirection(kForward);
   }
-  top.iterator->Next();
-  if (top.iterator->Valid()) {
-    assert(top.iterator->status().ok());
-    min_heap_.push(top);
-  } else {
-    considerStatus(top.iterator->status());
+  AdvanceIterator(min_heap_, [](Iterator* iter) { iter->Next(); });
+}
+void MultiCfIterator::Prev() {
+  assert(Valid());
+  if (direction_ != kReverse) {
+    SwitchToDirection(kReverse);
   }
+  AdvanceIterator(max_heap_, [](Iterator* iter) { iter->Prev(); });
 }
 
 }  // namespace ROCKSDB_NAMESPACE
