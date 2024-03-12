@@ -48,7 +48,7 @@ public class MergeEncodings {
   }
 
   /**
-   * Create a variable length encoding of an unsigned integer
+   * Create a variable length encoding of a signed integer
    * The encoding is little-endian (least significant byte first)
    * and each byte encodes a full 8 bits of the supplied {@code value}
    *
@@ -56,33 +56,35 @@ public class MergeEncodings {
    * such as in the value length of a {@code (key,value)}-pair, so we always know how many
    * bytes to decode.
    *
+   * The MSB is 2s complement, and is sign-extended on decoding.
+   *
    * @param value to encode as a sequence of bytes
    * @return a byte array encoding the value, and which is just exactly as long as necessary
-   *
-   * @throws IllegalArgumentException when the input value is negative
    */
   @SuppressWarnings("PMD.AvoidReassigningParameters")
-  public static byte[] encodeVarint(long value) {
-    if (value < 0) {
-      throw new IllegalArgumentException(
-          "Varint encoding cannot be applied to negative values, value is " + value);
-    }
+  public static byte[] encodeVarintSigned(long value) {
     final byte[] bytes = new byte[Long.BYTES];
     int i = 0;
-
-    while (value >= 256) {
-      bytes[i++] = (byte) (256 | (value & 255));
-      value = value >>> 8;
+    if (value < 0) {
+      while (value < -0x80) {
+        bytes[i++] = (byte) (value & 0xff);
+        value >>= 8;
+      }
+    } else {
+      while (value > 0x7f) {
+        bytes[i++] = (byte) (value & 0xff);
+        value >>= 8;
+      }
     }
-    bytes[i] = (byte) value;
-
-    return Arrays.copyOfRange(bytes, 0, i + 1);
+    bytes[i++] = (byte) (value & 0xff);
+    return Arrays.copyOfRange(bytes, 0, i);
   }
 
   /**
-   * Decode a variable length encoding of an unsigned integer
+   * Decode a variable length encoding of a signed integer
    * The encoding is little-endian (least significant byte first)
-   * and each byte encodes a full 8 bits of the supplied {@code value}
+   * and each byte encodes a full 8 bits of the supplied {@code value},
+   * except for the MSB, which is 2s complement
    *
    * This is possible because the length of {@code byte[] bytes} is known/stored elsewhere,
    * such as in the value length of a {@code (key,value)}-pair, so we always know how many
@@ -91,12 +93,14 @@ public class MergeEncodings {
    * @param bytes which encode the value as a sequence of bytes
    * @return the value decoded from {@code bytes}
    */
-  public static long decodeVarint(final byte[] bytes) {
-    int shift = 0;
+  public static long decodeVarintSigned(final byte[] bytes) {
     long acc = 0;
-    for (final byte b : bytes) {
-      acc |= (long) (b & 255) << shift;
-      shift += 8;
+    if (bytes.length > 0) {
+      int pos = bytes.length;
+      acc = bytes[--pos];
+      while (pos > 0) {
+        acc = (acc << 8) | (bytes[--pos] & 0xff);
+      }
     }
 
     return acc;
@@ -108,7 +112,7 @@ public class MergeEncodings {
    * @return the signed value's encoding as a variable-length run of bytes
    */
   public static byte[] encodeSigned(final long value) {
-    return encodeVarint(toZigzag(value));
+    return encodeVarintSigned(value);
   }
 
   /**
@@ -117,7 +121,7 @@ public class MergeEncodings {
    * @return the signed value represented by the encoding
    */
   public static long decodeSigned(final byte[] bytes) {
-    return fromZigzag(decodeVarint(bytes));
+    return decodeVarintSigned(bytes);
   }
 
   /**
