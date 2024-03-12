@@ -96,15 +96,21 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   uint64_t write_unix_time() const override {
     assert(Valid());
-    // TODO(yuzhangyu): if value type is kTypeValuePreferredSeqno,
-    // parse its unix write time out of packed value.
+    ParsedInternalKey pikey;
+    SequenceNumber seqno;
     const SeqnoToTimeMapping& seqno_to_time_mapping =
         table_->GetSeqnoToTimeMapping();
-    SequenceNumber seqno = ExtractSequenceNumber(key());
-    if (kUnknownSeqnoBeforeAll == seqno) {
+    Status s = ParseInternalKey(key(), &pikey, /*log_err_key=*/false);
+    if (!s.ok()) {
+      return std::numeric_limits<uint64_t>::max();
+    } else if (kUnknownSeqnoBeforeAll == pikey.sequence) {
       return kUnknownTimeBeforeAll;
     } else if (seqno_to_time_mapping.Empty()) {
       return std::numeric_limits<uint64_t>::max();
+    } else if (kTypeValuePreferredSeqno == pikey.type) {
+      seqno = ParsePackedValueForSeqno(value());
+    } else {
+      seqno = pikey.sequence;
     }
     return seqno_to_time_mapping.GetProximalTimeBeforeSeqno(seqno);
   }

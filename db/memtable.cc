@@ -504,13 +504,16 @@ class MemTableIterator : public InternalIterator {
 
   uint64_t write_unix_time() const override {
     assert(Valid());
-    // TODO(yuzhangyu): if value type is kTypeValuePreferredSeqno,
-    // parse its unix write time out of packed value.
-    if (!seqno_to_time_mapping_ || seqno_to_time_mapping_->Empty()) {
+    ParsedInternalKey pikey;
+    Status s = ParseInternalKey(key(), &pikey, /*log_err_key=*/false);
+    if (!s.ok()) {
+      return std::numeric_limits<uint64_t>::max();
+    } else if (kTypeValuePreferredSeqno == pikey.type) {
+      return ParsePackedValueForWriteTime(value());
+    } else if (!seqno_to_time_mapping_ || seqno_to_time_mapping_->Empty()) {
       return std::numeric_limits<uint64_t>::max();
     }
-    SequenceNumber seqno = ExtractSequenceNumber(key());
-    return seqno_to_time_mapping_->GetProximalTimeBeforeSeqno(seqno);
+    return seqno_to_time_mapping_->GetProximalTimeBeforeSeqno(pikey.sequence);
   }
 
   Slice value() const override {

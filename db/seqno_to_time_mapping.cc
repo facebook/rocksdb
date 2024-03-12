@@ -504,27 +504,36 @@ Slice PackValueAndSeqno(const Slice& value, SequenceNumber seqno,
   return Slice(*buf);
 }
 
-std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value) {
+uint64_t ParsePackedValueForWriteTime(const Slice& value) {
   assert(value.size() >= sizeof(uint64_t));
   Slice write_time_slice(value.data() + value.size() - sizeof(uint64_t),
                          sizeof(uint64_t));
   uint64_t write_time;
   [[maybe_unused]] auto res = GetFixed64(&write_time_slice, &write_time);
   assert(res);
-  return std::make_tuple(Slice(value.data(), value.size() - sizeof(uint64_t)),
-                         write_time);
+  return write_time;
 }
 
-std::tuple<Slice, SequenceNumber> ParsePackedValueWithSeqno(
-    const Slice& value) {
+std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value) {
+  return std::make_tuple(Slice(value.data(), value.size() - sizeof(uint64_t)),
+                         ParsePackedValueForWriteTime(value));
+}
+
+SequenceNumber ParsePackedValueForSeqno(const Slice& value) {
   assert(value.size() >= sizeof(SequenceNumber));
   Slice seqno_slice(value.data() + value.size() - sizeof(uint64_t),
                     sizeof(uint64_t));
   SequenceNumber seqno;
   [[maybe_unused]] auto res = GetFixed64(&seqno_slice, &seqno);
   assert(res);
+  return seqno;
+}
+
+std::tuple<Slice, SequenceNumber> ParsePackedValueWithSeqno(
+    const Slice& value) {
   return std::make_tuple(
-      Slice(value.data(), value.size() - sizeof(SequenceNumber)), seqno);
+      Slice(value.data(), value.size() - sizeof(SequenceNumber)),
+      ParsePackedValueForSeqno(value));
 }
 
 Slice ParsePackedValueForValue(const Slice& value) {

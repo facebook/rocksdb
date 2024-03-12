@@ -277,9 +277,15 @@ Slice PackValueAndWriteTime(const Slice& value, uint64_t unix_write_time,
 Slice PackValueAndSeqno(const Slice& value, SequenceNumber seqno,
                         std::string* buf);
 
+// Parse a packed value to get the write time.
+uint64_t ParsePackedValueForWriteTime(const Slice& value);
+
 // Parse a packed value to get the value and the write time. The unpacked value
 // Slice is backed up by the same memory backing up `value`.
 std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value);
+
+// Parse a packed value to get the sequence number.
+SequenceNumber ParsePackedValueForSeqno(const Slice& value);
 
 // Parse a packed value to get the value and the sequence number. The unpacked
 // value Slice is backed up by the same memory backing up `value`.

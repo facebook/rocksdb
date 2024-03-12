@@ -169,7 +169,7 @@ class FlushJobTestBase : public testing::Test {
   bool persist_udt_ = true;
   bool paranoid_file_checks_ = false;
 
-  SeqnoToTimeMapping empty_seqno_to_time_mapping_;
+  std::shared_ptr<SeqnoToTimeMapping> empty_seqno_to_time_mapping_;
 };
 
 class FlushJobTest : public FlushJobTestBase {
@@ -627,13 +627,14 @@ TEST_F(FlushJobTest, ReplaceTimedPutWriteTimeWithPreferredSeqno) {
   auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                            kMaxSequenceNumber);
   new_mem->Ref();
-  SeqnoToTimeMapping seqno_to_time_mapping;
+  std::shared_ptr<SeqnoToTimeMapping> seqno_to_time_mapping =
+      std::make_shared<SeqnoToTimeMapping>();
   // Seqno: 10,       11, ... 20,
   // Time:  ...  500      ...      600
   // GetProximalSeqnoBeforeTime(500) -> 10
   // GetProximalSeqnoBeforeTime(600) -> 20
-  seqno_to_time_mapping.Append(10, 500);
-  seqno_to_time_mapping.Append(20, 600);
+  seqno_to_time_mapping->Append(10, 500);
+  seqno_to_time_mapping->Append(20, 600);
 
   ASSERT_OK(new_mem->Add(SequenceNumber(15), kTypeValuePreferredSeqno, "bar",
                          ValueWithWriteTime("bval", 500),

@@ -70,8 +70,8 @@ Status BuildTable(
     bool paranoid_file_checks, InternalStats* internal_stats,
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCreationReason blob_creation_reason,
-    const SeqnoToTimeMapping& seqno_to_time_mapping, EventLogger* event_logger,
-    int job_id, TableProperties* table_properties,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
+    EventLogger* event_logger, int job_id, TableProperties* table_properties,
     Env::WriteLifeTimeHint write_hint, const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback, Version* version,
     uint64_t* num_input_entries, uint64_t* memtable_payload_bytes,
@@ -235,7 +235,10 @@ Status BuildTable(
         auto [unpacked_value, unix_write_time] =
             ParsePackedValueWithWriteTime(value);
         SequenceNumber preferred_seqno =
-            seqno_to_time_mapping.GetProximalSeqnoBeforeTime(unix_write_time);
+            seqno_to_time_mapping
+                ? seqno_to_time_mapping->GetProximalSeqnoBeforeTime(
+                      unix_write_time)
+                : kMaxSequenceNumber;
         if (preferred_seqno < ikey.sequence) {
           value_after_flush =
               PackValueAndSeqno(unpacked_value, preferred_seqno, &value_buf);
@@ -322,11 +325,13 @@ Status BuildTable(
       builder->Abandon();
     } else {
       SeqnoToTimeMapping relevant_mapping;
-      relevant_mapping.CopyFromSeqnoRange(seqno_to_time_mapping,
-                                          meta->fd.smallest_seqno,
-                                          meta->fd.largest_seqno);
-      relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
-      relevant_mapping.Enforce(tboptions.file_creation_time);
+      if (seqno_to_time_mapping) {
+        relevant_mapping.CopyFromSeqnoRange(*seqno_to_time_mapping,
+                                            meta->fd.smallest_seqno,
+                                            meta->fd.largest_seqno);
+        relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
+        relevant_mapping.Enforce(tboptions.file_creation_time);
+      }
       builder->SetSeqnoTimeTableProperties(
           relevant_mapping,
           ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
