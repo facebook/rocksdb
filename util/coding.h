@@ -210,13 +210,13 @@ inline void PutVarsignedint64(std::string* dst, int64_t v) {
 inline void Put8BitVarsignedint64(std::string* dst, int64_t v) {
   if (v >= 0) {
     while (v > 0x7f) {
-      unsigned char byte = v & 0xff;
+      unsigned char byte = static_cast<u_int64_t>(v) & 0xff;
       dst->push_back(byte);
       v >>= 8;
     }
   } else {
     while (v < -0x80) {
-      unsigned char byte = v & 0xff;
+      unsigned char byte = static_cast<u_int64_t>(v) & 0xff;
       dst->push_back(byte);
       v >>= 8;
     }
@@ -367,7 +367,7 @@ inline int64_t Get8BitVarsignedint64(Slice* input) {
   if (start < p) {
     s = *(reinterpret_cast<const char*>(--p));
     while (start < p) {
-      int64_t byte = *(reinterpret_cast<const unsigned char*>(--p));
+      int64_t byte = static_cast<int64_t>(*(reinterpret_cast<const unsigned char*>(--p)));
       s = (s << 8) | byte;
     }
   }
