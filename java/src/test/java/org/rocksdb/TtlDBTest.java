@@ -52,6 +52,22 @@ public class TtlDBTest {
   }
 
   @Test
+  public void ttlDBSimpleIterator() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
+         final TtlDB ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      ttlDB.put("keyI".getBytes(), "valueI".getBytes());
+      try (final RocksIterator iterator = ttlDB.newIterator()) {
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("keyI".getBytes());
+        assertThat(iterator.value()).isEqualTo("valueI".getBytes());
+        iterator.next();
+        assertThat(iterator.isValid()).isFalse();
+      }
+    }
+  }
+
+  @Test
   public void ttlDbOpenWithColumnFamilies() throws RocksDBException,
       InterruptedException {
     final List<ColumnFamilyDescriptor> cfNames = Arrays.asList(

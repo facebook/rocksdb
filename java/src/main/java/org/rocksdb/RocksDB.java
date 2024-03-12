@@ -304,9 +304,7 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB open(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
-
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     int defaultColumnFamilyIndex = -1;
@@ -320,7 +318,7 @@ public class RocksDB extends RocksObject {
       }
     }
     if (defaultColumnFamilyIndex < 0) {
-      new IllegalArgumentException(
+      throw new IllegalArgumentException(
           "You must provide the default column family in your columnFamilyDescriptors");
     }
 
@@ -502,11 +500,19 @@ public class RocksDB extends RocksObject {
 
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      throw new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final long[] handles =
@@ -521,7 +527,7 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(db.makeDefaultColumnFamilyHandle());
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return db;
   }

@@ -6,6 +6,7 @@
 package org.rocksdb;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -77,7 +78,7 @@ public class TransactionDB extends RocksDB
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-
+    int defaultColumnFamilyIndex = -1;
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
@@ -85,6 +86,13 @@ public class TransactionDB extends RocksDB
           .get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      throw new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final long[] handles = open(dbOptions.nativeHandle_,
@@ -95,12 +103,13 @@ public class TransactionDB extends RocksDB
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     tdb.storeOptionsInstance(dbOptions);
-    tdb.storeDefaultColumnFamilyHandle(tdb.makeDefaultColumnFamilyHandle());
     tdb.storeTransactionDbOptions(transactionDbOptions);
 
     for (int i = 1; i < handles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(tdb, handles[i]));
     }
+    tdb.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
+    tdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return tdb;
   }
@@ -143,6 +152,12 @@ public class TransactionDB extends RocksDB
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
+    for (final ColumnFamilyHandle columnFamilyHandle : // NOPMD - CloseResource
+        ownedColumnFamilyHandles) {
+      columnFamilyHandle.close();
+    }
+    ownedColumnFamilyHandles.clear();
+
     if (owningHandle_.compareAndSet(true, false)) {
       try {
         closeDatabase(nativeHandle_);
