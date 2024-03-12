@@ -126,11 +126,17 @@ Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
   std::shared_ptr<const TableProperties> tp = GetTableProperties();
   if (!tp) {
     s = Status::Corruption("table properties not available");
-  } else if (num_read != tp->num_entries - tp->num_range_deletions) {
-    s = Status::Corruption(
-        "Table property has num_entries = " + std::to_string(tp->num_entries) +
-        " but scanning the table returns " + std::to_string(num_read) +
-        " records.");
+  } else {
+    // TODO: verify num_range_deletions
+    uint64_t expected = tp->num_entries - tp->num_range_deletions;
+    if (num_read != expected) {
+      std::ostringstream oss;
+      oss << "Table property expects " << expected
+          << " entries when excluding range deletions,"
+          << " but scanning the table returned " << std::to_string(num_read)
+          << " entries";
+      s = Status::Corruption(oss.str());
+    }
   }
   return s;
 }

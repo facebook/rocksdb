@@ -527,7 +527,7 @@ TEST_F(SstFileReaderTimestampNotPersistedTest, IncompatibleTimestampFormat) {
                   .IsInvalidArgument());
 }
 
-TEST_F(SstFileReaderTest, VerifyNumEntries1) {
+TEST_F(SstFileReaderTest, VerifyNumEntriesBasic) {
   std::vector<std::string> keys;
   for (uint64_t i = 0; i < kNumKeys; i++) {
     keys.emplace_back(EncodeAsUint64(i));
@@ -538,7 +538,7 @@ TEST_F(SstFileReaderTest, VerifyNumEntries1) {
   ASSERT_OK(reader.VerifyNumEntries(ReadOptions()));
 }
 
-TEST_F(SstFileReaderTest, VerifyNumEntries2) {
+TEST_F(SstFileReaderTest, VerifyNumEntriesDeleteRange) {
   SstFileWriter writer(soptions_, options_);
   ASSERT_OK(writer.Open(sst_name_));
 
@@ -553,12 +553,13 @@ TEST_F(SstFileReaderTest, VerifyNumEntries2) {
   ASSERT_OK(reader.VerifyNumEntries(ReadOptions()));
 }
 
-TEST_F(SstFileReaderTest, VerifyNumEntries3) {
+TEST_F(SstFileReaderTest, VerifyNumEntriesCorruption) {
   const int num_keys = 99;
+  const int corrupted_num_keys = num_keys + 2;
   SyncPoint::GetInstance()->SetCallBack(
       "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
         TableProperties* props = reinterpret_cast<TableProperties*>(arg);
-        props->num_entries = num_keys + 2;
+        props->num_entries = corrupted_num_keys;
       });
   SyncPoint::GetInstance()->EnableProcessing();
   std::vector<std::string> keys;
@@ -571,9 +572,9 @@ TEST_F(SstFileReaderTest, VerifyNumEntries3) {
   Status s = reader.VerifyNumEntries(ReadOptions());
   ASSERT_TRUE(s.IsCorruption());
   std::ostringstream oss;
-  oss << "Table property has num_entries = " << std::to_string(num_keys + 2)
-      << " but scanning the table returns " << std::to_string(num_keys)
-      << " records.";
+  oss << "Table property expects " << corrupted_num_keys
+      << " entries when excluding range deletions,"
+      << " but scanning the table returned " << num_keys << " entries";
   ASSERT_TRUE(std::strstr(oss.str().c_str(), s.getState()));
 }
 

@@ -32,6 +32,8 @@ class SstFileReader {
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 
   // Verifies whether there is corruption in this table.
+  // For the default BlockBasedTable, this will verify the block
+  // checksum of each block.
   Status VerifyChecksum(const ReadOptions& /*read_options*/);
 
   // TODO: plumb Env::IOActivity, Env::IOPriority

@@ -583,8 +583,8 @@ TEST_F(SSTDumpToolTest, SstFileDumperVerifyNumRecords) {
         /*has_to=*/false, /*to_key=*/"");
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(
-        std::strstr("Table property has num_entries = 1026 but scanning the "
-                    "table returns 1024 records.",
+        std::strstr("Table property expects 1026 entries when excluding range "
+                    "deletions, but scanning the table returned 1024 entries",
                     s.getState()));
 
     // Validation is not performed when read_num, has_from, has_to are set
