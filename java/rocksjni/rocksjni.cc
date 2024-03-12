@@ -760,67 +760,22 @@ void Java_org_rocksdb_RocksDB_putEntity(JNIEnv* env, jclass, jlong jdb_handle,
                                         jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
 
-  jbyte* key = new jbyte[keyLen];
-  env->GetByteArrayRegion(jkey, keyOffset, keyLen, key);
-  if (env->ExceptionCheck()) {
-    return;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), keyLen);
+  auto putEntity = [&db, &jcf_handle](ROCKSDB_NAMESPACE::Slice key,
+                                      ROCKSDB_NAMESPACE::WideColumns columns) {
+    const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
+        ROCKSDB_NAMESPACE::WriteOptions();
 
-  const auto column_len = env->GetArrayLength(jnames);
-  rocksdb::WideColumns columns;
-  columns.reserve(column_len);
+    auto columns_family =
+        (jcf_handle == 0)
+            ? db->DefaultColumnFamily()
+            : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+                  jcf_handle);
 
-  std::vector<std::unique_ptr<jbyte[]>> names_vec;
-  names_vec.reserve(column_len);
+    db->PutEntity(default_write_options, columns_family, key, columns);
+  };
 
-  std::vector<std::unique_ptr<jbyte[]>> values_vec;
-  values_vec.reserve(column_len);
-
-  for (int i = 0; i < column_len; i++) {
-    auto jname = static_cast<jbyteArray>(env->GetObjectArrayElement(jnames, i));
-    if (env->ExceptionCheck()) {
-      return;
-    }
-    auto jname_len = env->GetArrayLength(jname);
-    auto name = std::make_unique<jbyte[]>(jname_len);
-    env->GetByteArrayRegion(jname, 0, jname_len, name.get());
-    if (env->ExceptionCheck()) {
-      return;
-    }
-    ROCKSDB_NAMESPACE::Slice name_slice(reinterpret_cast<char*>(name.get()),
-                                        jname_len);
-    names_vec.push_back(std::move(name));
-
-    auto j_value =
-        static_cast<jbyteArray>(env->GetObjectArrayElement(jvalues, i));
-    if (env->ExceptionCheck()) {
-      return;
-    }
-    auto jvalue_len = env->GetArrayLength(j_value);
-    auto value = std::make_unique<jbyte[]>(jvalue_len);
-    env->GetByteArrayRegion(j_value, 0, jvalue_len, value.get());
-    if (env->ExceptionCheck()) {
-      return;
-    }
-    ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value.get()),
-                                         jvalue_len);
-    names_vec.push_back(std::move(value));
-
-    columns.emplace_back(
-        ROCKSDB_NAMESPACE::WideColumn(name_slice, value_slice));
-  }
-
-  const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
-      ROCKSDB_NAMESPACE::WriteOptions();
-
-  auto columns_family =
-      (jcf_handle == 0)
-          ? db->DefaultColumnFamily()
-          : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-                jcf_handle);
-
-  db->PutEntity(default_write_options, columns_family, key_slice, columns);
+  ROCKSDB_NAMESPACE::WideColumnJni::convertWideColumns(
+      putEntity, env, jkey, keyOffset, keyLen, jnames, jvalues);
 }
 
 /*
@@ -835,87 +790,24 @@ void Java_org_rocksdb_RocksDB_putEntityDirect(
     jintArray jnames_len, jobjectArray jvalues, jintArray jvalues_offset,
     jintArray jvalues_len, jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto columns_family =
-      (jcf_handle == 0)
-          ? db->DefaultColumnFamily()
-          : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-                jcf_handle);
 
-  auto _key = env->GetDirectBufferAddress(jKey);
-  if (_key == nullptr) {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env,
-        "Invalid key argument (argument is not a valid direct ByteBuffer)");
-    return;
-  }
-  auto key = reinterpret_cast<char*>(_key) + key_offset;
-  ROCKSDB_NAMESPACE::Slice key_slice(key, static_cast<size_t>(key_len));
+  auto putEntity = [&db, &jcf_handle](ROCKSDB_NAMESPACE::Slice key,
+                                      ROCKSDB_NAMESPACE::WideColumns columns) {
+    const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
+        ROCKSDB_NAMESPACE::WriteOptions();
 
-  const auto columns_len = static_cast<int>(env->GetArrayLength(jnames));
+    auto columns_family =
+        (jcf_handle == 0)
+            ? db->DefaultColumnFamily()
+            : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+                  jcf_handle);
 
-  ROCKSDB_NAMESPACE::WideColumns columns;
-  columns.reserve(columns_len);
+    db->PutEntity(default_write_options, columns_family, key, columns);
+  };
 
-  auto namesOffset = std::make_unique<jint[]>(columns_len);
-  env->GetIntArrayRegion(jnames_offset, 0, columns_len, namesOffset.get());
-  if (env->ExceptionCheck()) {
-    return;
-  }
-  auto namesLength = std::make_unique<jint[]>(columns_len);
-  env->GetIntArrayRegion(jnames_len, 0, columns_len, namesLength.get());
-  if (env->ExceptionCheck()) {
-    return;
-  }
-
-  auto valuesOffset = std::make_unique<jint[]>(columns_len);
-  env->GetIntArrayRegion(jvalues_offset, 0, columns_len, valuesOffset.get());
-  if (env->ExceptionCheck()) {
-    return;
-  }
-
-  auto valuesLenght = std::make_unique<jint[]>(columns_len);
-  env->GetIntArrayRegion(jvalues_len, 0, columns_len, valuesLenght.get());
-  if (env->ExceptionCheck()) {
-    return;
-  }
-
-  for (int i = 0; i < columns_len; i++) {
-    auto jname = env->GetObjectArrayElement(jnames, i);
-    if (env->ExceptionCheck()) {
-      return;
-    }
-    auto _name = env->GetDirectBufferAddress(jname);
-    if (_name == nullptr) {
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env,
-          "Invalid \"name\" argument (argument is not a valid direct "
-          "ByteBuffer)");
-      return;
-    }
-    auto name = reinterpret_cast<char*>(_name) + namesOffset[i];
-    ROCKSDB_NAMESPACE::Slice nameSlice(name, namesLength[i]);
-
-    auto j_value = env->GetObjectArrayElement(jvalues, i);
-    if (env->ExceptionCheck()) {
-      return;
-    }
-    auto _value = env->GetDirectBufferAddress(j_value);
-    if (_value == nullptr) {
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env,
-          "Invalid \"value\" argument (argument is not a valid direct "
-          "ByteBuffer)");
-      return;
-    }
-    auto value = reinterpret_cast<char*>(_value) + valuesOffset[i];
-    ROCKSDB_NAMESPACE::Slice valueSlice(value, valuesLenght[i]);
-
-    columns.push_back(ROCKSDB_NAMESPACE::WideColumn(nameSlice, valueSlice));
-  }
-
-  const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
-      ROCKSDB_NAMESPACE::WriteOptions();
-  db->PutEntity(default_write_options, columns_family, key_slice, columns);
+  ROCKSDB_NAMESPACE::WideColumnJni::convertWideColumnsDirect(
+      putEntity, env, jKey, key_offset, key_len, jnames, jnames_offset,
+      jnames_len, jvalues, jvalues_offset, jvalues_len);
 }
 
 /*
