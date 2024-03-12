@@ -95,13 +95,30 @@ class MultiCfIterator : public Iterator {
     status_ = Status::OK();
   }
 
+  void SeekCommon(const std::function<void(Iterator*)>& child_seek_func) {
+    Reset();
+    int i = 0;
+    for (auto& cfh_iter_pair : cfh_iter_pairs_) {
+      auto& cfh = cfh_iter_pair.first;
+      auto& iter = cfh_iter_pair.second;
+      child_seek_func(iter.get());
+      if (iter->Valid()) {
+        assert(iter->status().ok());
+        min_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
+      } else {
+        considerStatus(iter->status());
+      }
+      ++i;
+    }
+  }
+
   void SeekToFirst() override;
+  void Seek(const Slice& /*target*/) override;
   void Next() override;
 
   // TODO - Implement these
-  void Seek(const Slice& /*target*/) override {}
-  void SeekForPrev(const Slice& /*target*/) override {}
   void SeekToLast() override {}
+  void SeekForPrev(const Slice& /*target*/) override {}
   void Prev() override { assert(false); }
   Slice value() const override {
     assert(Valid());

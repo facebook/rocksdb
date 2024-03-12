@@ -10,20 +10,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 void MultiCfIterator::SeekToFirst() {
-  Reset();
-  int i = 0;
-  for (auto& cfh_iter_pair : cfh_iter_pairs_) {
-    auto& cfh = cfh_iter_pair.first;
-    auto& iter = cfh_iter_pair.second;
-    iter->SeekToFirst();
-    if (iter->Valid()) {
-      assert(iter->status().ok());
-      min_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
-    } else {
-      considerStatus(iter->status());
-    }
-    ++i;
-  }
+  SeekCommon([](Iterator* iter) { iter->SeekToFirst(); });
+}
+void MultiCfIterator::Seek(const Slice& target) {
+  SeekCommon([&target](Iterator* iter) { iter->Seek(target); });
 }
 
 void MultiCfIterator::Next() {
