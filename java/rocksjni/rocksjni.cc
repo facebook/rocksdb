@@ -26,6 +26,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/jni_multiget_helpers.h"
 #include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
 
@@ -1053,93 +1054,6 @@ void Java_org_rocksdb_RocksDB_deleteRange__J_3BII_3BII(
                               jend_key, jend_key_off, jend_key_len);
 }
 
-jint rocksdb_get_helper_direct(
-    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
-    const ROCKSDB_NAMESPACE::ReadOptions& read_options,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle, jobject jkey,
-    jint jkey_off, jint jkey_len, jobject jval, jint jval_off, jint jval_len,
-    bool* has_exception) {
-  static const int kNotFound = -1;
-  static const int kStatusError = -2;
-  static const int kArgumentError = -3;
-
-  char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
-  if (key == nullptr) {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env,
-        "Invalid key argument (argument is not a valid direct ByteBuffer)");
-    *has_exception = true;
-    return kArgumentError;
-  }
-  if (env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env,
-        "Invalid key argument. Capacity is less than requested region (offset "
-        "+ length).");
-    *has_exception = true;
-    return kArgumentError;
-  }
-
-  char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
-  if (value == nullptr) {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env,
-        "Invalid value argument (argument is not a valid direct ByteBuffer)");
-    *has_exception = true;
-    return kArgumentError;
-  }
-
-  if (env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env,
-        "Invalid value argument. Capacity is less than requested region "
-        "(offset + length).");
-    *has_exception = true;
-    return kArgumentError;
-  }
-
-  key += jkey_off;
-  value += jval_off;
-
-  ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
-
-  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
-  ROCKSDB_NAMESPACE::Status s;
-  if (column_family_handle != nullptr) {
-    s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
-  } else {
-    // backwards compatibility
-    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice,
-                &pinnable_value);
-  }
-
-  if (s.IsNotFound()) {
-    *has_exception = false;
-    return kNotFound;
-  } else if (!s.ok()) {
-    *has_exception = true;
-    // Here since we are throwing a Java exception from c++ side.
-    // As a result, c++ does not know calling this function will in fact
-    // throwing an exception.  As a result, the execution flow will
-    // not stop here, and codes after this throw will still be
-    // executed.
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-
-    // Return a dummy const value to avoid compilation error, although
-    // java side might not have a chance to get the return value :)
-    return kStatusError;
-  }
-
-  const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
-  const jint length = std::min(jval_len, pinnable_value_len);
-
-  memcpy(value, pinnable_value.data(), length);
-  pinnable_value.Reset();
-
-  *has_exception = false;
-  return pinnable_value_len;
-}
-
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    deleteRange
@@ -1274,16 +1188,33 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jclass /*jdb*/,
                                         jint jkey_len, jobject jval,
                                         jint jval_off, jint jval_len,
                                         jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* ro_opt =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  bool has_exception = false;
-  return rocksdb_get_helper_direct(
-      env, db_handle,
-      ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt, cf_handle,
-      jkey, jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
+
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval, jval_off,
+                                                        jval_len);
+    ROCKSDB_NAMESPACE::Status s;
+    if (cf_handle != nullptr) {
+      s = db->Get(
+          ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt,
+          cf_handle, key.slice(), &value.pinnable_slice());
+    } else {
+      // backwards compatibility
+      s = db->Get(
+          ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt,
+          db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice());
+    }
+
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
+    return value.Fetch();
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1508,52 +1439,6 @@ void Java_org_rocksdb_RocksDB_write1(JNIEnv* env, jclass, jlong jdb_handle,
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::Get
 
-jbyteArray rocksdb_get_helper(
-    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
-    const ROCKSDB_NAMESPACE::ReadOptions& read_opt,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len) {
-  jbyte* key = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
-  if (env->ExceptionCheck()) {
-    // exception thrown: ArrayIndexOutOfBoundsException
-    delete[] key;
-    return nullptr;
-  }
-
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-
-  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
-  ROCKSDB_NAMESPACE::Status s;
-  if (column_family_handle != nullptr) {
-    s = db->Get(read_opt, column_family_handle, key_slice, &pinnable_value);
-  } else {
-    s = db->Get(read_opt, db->DefaultColumnFamily(), key_slice,
-                &pinnable_value);
-  }
-
-  // cleanup
-  delete[] key;
-
-  if (s.IsNotFound()) {
-    return nullptr;
-  }
-
-  if (s.ok()) {
-    jbyteArray jret_value =
-        ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, pinnable_value);
-    pinnable_value.Reset();
-    if (jret_value == nullptr) {
-      // exception occurred
-      return nullptr;
-    }
-    return jret_value;
-  }
-
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-  return nullptr;
-}
-
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    get
@@ -1563,9 +1448,20 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BII(JNIEnv* env, jclass,
                                                 jlong jdb_handle,
                                                 jbyteArray jkey, jint jkey_off,
                                                 jint jkey_len) {
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey, jkey_off, jkey_len);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
+                key.slice(), &value.pinnable_slice()));
+    return value.NewByteArray();
+
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return nullptr;
+  }
 }
 
 /*
@@ -1578,16 +1474,22 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BIIJ(JNIEnv* env, jclass,
                                                  jbyteArray jkey, jint jkey_off,
                                                  jint jkey_len,
                                                  jlong jcf_handle) {
-  auto db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    return rocksdb_get_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
-                              cf_handle, jkey, jkey_off, jkey_len);
-  } else {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto cf_handle = ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handleFromJLong(
+      env, jcf_handle);
+  if (cf_handle == nullptr) {
+    return nullptr;
+  }
+
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(),
+                     &value.pinnable_slice()));
+    return value.NewByteArray();
+
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
     return nullptr;
   }
 }
@@ -1602,10 +1504,20 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(JNIEnv* env, jclass,
                                                  jlong jropt_handle,
                                                  jbyteArray jkey, jint jkey_off,
                                                  jint jkey_len) {
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), nullptr,
-      jkey, jkey_off, jkey_len);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        db->Get(
+            *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+            db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice()));
+    return value.NewByteArray();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return nullptr;
+  }
 }
 
 /*
@@ -1616,85 +1528,24 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(JNIEnv* env, jclass,
 jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
     JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle, jbyteArray jkey,
     jint jkey_off, jint jkey_len, jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto& ro_opt =
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    return rocksdb_get_helper(env, db_handle, ro_opt, cf_handle, jkey, jkey_off,
-                              jkey_len);
-  } else {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto cf_handle = ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handleFromJLong(
+      env, jcf_handle);
+  if (cf_handle == nullptr) {
     return nullptr;
   }
-}
 
-jint rocksdb_get_helper(
-    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
-    const ROCKSDB_NAMESPACE::ReadOptions& read_options,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
-    jint jval_off, jint jval_len, bool* has_exception) {
-  static const int kNotFound = -1;
-  static const int kStatusError = -2;
-
-  jbyte* key = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
-  if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
-    delete[] key;
-    *has_exception = true;
-    return kStatusError;
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(
+                         jropt_handle),
+                     cf_handle, key.slice(), &value.pinnable_slice()));
+    return value.NewByteArray();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return nullptr;
   }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-
-  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
-  ROCKSDB_NAMESPACE::Status s;
-  if (column_family_handle != nullptr) {
-    s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
-  } else {
-    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice,
-                &pinnable_value);
-  }
-
-  // cleanup
-  delete[] key;
-
-  if (s.IsNotFound()) {
-    *has_exception = false;
-    return kNotFound;
-  } else if (!s.ok()) {
-    *has_exception = true;
-    // Here since we are throwing a Java exception from c++ side.
-    // As a result, c++ does not know calling this function will in fact
-    // throwing an exception.  As a result, the execution flow will
-    // not stop here, and codes after this throw will still be
-    // executed.
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-
-    // Return a dummy const value to avoid compilation error, although
-    // java side might not have a chance to get the return value :)
-    return kStatusError;
-  }
-
-  const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
-  const jint length = std::min(jval_len, pinnable_value_len);
-
-  env->SetByteArrayRegion(jval, jval_off, length,
-                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(
-                              pinnable_value.data())));
-  pinnable_value.Reset();
-  if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
-    *has_exception = true;
-    return kStatusError;
-  }
-
-  *has_exception = false;
-  return pinnable_value_len;
 }
 
 /*
@@ -1707,11 +1558,20 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(JNIEnv* env, jclass,
                                                jbyteArray jkey, jint jkey_off,
                                                jint jkey_len, jbyteArray jval,
                                                jint jval_off, jint jval_len) {
-  bool has_exception = false;
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey, jkey_off, jkey_len, jval,
-      jval_off, jval_len, &has_exception);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
+                                                     jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
+                key.slice(), &value.pinnable_slice()));
+    return value.Fetch();
+
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
 }
 
 /*
@@ -1725,20 +1585,23 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(JNIEnv* env, jclass,
                                                 jint jkey_len, jbyteArray jval,
                                                 jint jval_off, jint jval_len,
                                                 jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    bool has_exception = false;
-    return rocksdb_get_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
-                              cf_handle, jkey, jkey_off, jkey_len, jval,
-                              jval_off, jval_len, &has_exception);
-  } else {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
-    // will never be evaluated
-    return 0;
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto cf_handle = ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handleFromJLong(
+      env, jcf_handle);
+  if (cf_handle == nullptr) {
+    return ROCKSDB_NAMESPACE::KVException::kStatusError;
+  }
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
+                                                     jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(),
+                     &value.pinnable_slice()));
+    return value.Fetch();
+
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
   }
 }
 
@@ -1753,11 +1616,21 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(JNIEnv* env, jclass,
                                                 jbyteArray jkey, jint jkey_off,
                                                 jint jkey_len, jbyteArray jval,
                                                 jint jval_off, jint jval_len) {
-  bool has_exception = false;
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), nullptr,
-      jkey, jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
+                                                     jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        db->Get(
+            *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+            db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice()));
+    return value.Fetch();
+
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
 }
 
 /*
@@ -1769,270 +1642,25 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
     JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle, jbyteArray jkey,
     jint jkey_off, jint jkey_len, jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto& ro_opt =
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    bool has_exception = false;
-    return rocksdb_get_helper(env, db_handle, ro_opt, cf_handle, jkey, jkey_off,
-                              jkey_len, jval, jval_off, jval_len,
-                              &has_exception);
-  } else {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
-    // will never be evaluated
-    return 0;
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto cf_handle = ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handleFromJLong(
+      env, jcf_handle);
+  if (cf_handle == nullptr) {
+    return ROCKSDB_NAMESPACE::KVException::kStatusError;
   }
-}
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
+                                                     jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(
+                         jropt_handle),
+                     cf_handle, key.slice(), &value.pinnable_slice()));
+    return value.Fetch();
 
-inline void multi_get_helper_release_keys(std::vector<jbyte*>& keys_to_free) {
-  auto end = keys_to_free.end();
-  for (auto it = keys_to_free.begin(); it != end; ++it) {
-    delete[] * it;
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
   }
-  keys_to_free.clear();
-}
-
-/**
- * @brief fill a native array of cf handles from java handles
- *
- * @param env
- * @param cf_handles to fill from the java variants
- * @param jcolumn_family_handles
- * @return true if the copy succeeds
- * @return false if a JNI exception is generated
- */
-inline bool cf_handles_from_jcf_handles(
-    JNIEnv* env,
-    std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>& cf_handles,
-    jlongArray jcolumn_family_handles) {
-  if (jcolumn_family_handles != nullptr) {
-    const jsize len_cols = env->GetArrayLength(jcolumn_family_handles);
-
-    jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
-    if (jcfh == nullptr) {
-      // exception thrown: OutOfMemoryError
-      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-      (env)->ThrowNew(exception_cls,
-                      "Insufficient Memory for CF handle array.");
-      return false;
-    }
-
-    for (jsize i = 0; i < len_cols; i++) {
-      auto* cf_handle =
-          reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcfh[i]);
-      cf_handles.push_back(cf_handle);
-    }
-    env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
-  }
-  return true;
-}
-
-/**
- * @brief copy keys from JNI into vector of slices for Rocks API
- *
- * @param keys to instantiate
- * @param jkeys
- * @param jkey_offs
- * @param jkey_lens
- * @return true if the copy succeeds
- * @return false if a JNI exception is raised
- */
-inline bool keys_from_jkeys(JNIEnv* env,
-                            std::vector<ROCKSDB_NAMESPACE::Slice>& keys,
-                            std::vector<jbyte*>& keys_to_free,
-                            jobjectArray jkeys, jintArray jkey_offs,
-                            jintArray jkey_lens) {
-  jint* jkey_off = env->GetIntArrayElements(jkey_offs, nullptr);
-  if (jkey_off == nullptr) {
-    // exception thrown: OutOfMemoryError
-    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-    (env)->ThrowNew(exception_cls, "Insufficient Memory for key offset array.");
-    return false;
-  }
-
-  jint* jkey_len = env->GetIntArrayElements(jkey_lens, nullptr);
-  if (jkey_len == nullptr) {
-    // exception thrown: OutOfMemoryError
-    env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-    (env)->ThrowNew(exception_cls, "Insufficient Memory for key length array.");
-    return false;
-  }
-
-  const jsize len_keys = env->GetArrayLength(jkeys);
-  for (jsize i = 0; i < len_keys; i++) {
-    jobject jkey = env->GetObjectArrayElement(jkeys, i);
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
-      env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-      multi_get_helper_release_keys(keys_to_free);
-      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-      (env)->ThrowNew(exception_cls,
-                      "Insufficient Memory for key object array.");
-      return false;
-    }
-
-    jbyteArray jkey_ba = reinterpret_cast<jbyteArray>(jkey);
-
-    const jint len_key = jkey_len[i];
-    jbyte* key = new jbyte[len_key];
-    env->GetByteArrayRegion(jkey_ba, jkey_off[i], len_key, key);
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      delete[] key;
-      env->DeleteLocalRef(jkey);
-      env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
-      env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-      multi_get_helper_release_keys(keys_to_free);
-      jclass exception_cls =
-          (env)->FindClass("java/lang/ArrayIndexOutOfBoundsException");
-      (env)->ThrowNew(exception_cls, "Invalid byte array region index.");
-      return false;
-    }
-
-    ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), len_key);
-    keys.push_back(key_slice);
-
-    env->DeleteLocalRef(jkey);
-    keys_to_free.push_back(key);
-  }
-
-  // cleanup jkey_off and jken_len
-  env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
-  env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-
-  return true;
-}
-
-inline bool keys_from_bytebuffers(JNIEnv* env,
-                                  std::vector<ROCKSDB_NAMESPACE::Slice>& keys,
-                                  jobjectArray jkeys, jintArray jkey_offs,
-                                  jintArray jkey_lens) {
-  jint* jkey_off = env->GetIntArrayElements(jkey_offs, nullptr);
-  if (jkey_off == nullptr) {
-    // exception thrown: OutOfMemoryError
-    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-    (env)->ThrowNew(exception_cls, "Insufficient Memory for key offset array.");
-    return false;
-  }
-
-  jint* jkey_len = env->GetIntArrayElements(jkey_lens, nullptr);
-  if (jkey_len == nullptr) {
-    // exception thrown: OutOfMemoryError
-    env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-    (env)->ThrowNew(exception_cls, "Insufficient Memory for key length array.");
-    return false;
-  }
-
-  const jsize len_keys = env->GetArrayLength(jkeys);
-  for (jsize i = 0; i < len_keys; i++) {
-    jobject jkey = env->GetObjectArrayElement(jkeys, i);
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      // cleanup jkey_off and jkey_len
-      env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
-      env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-
-      return false;
-    }
-    char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
-    ROCKSDB_NAMESPACE::Slice key_slice(key + jkey_off[i], jkey_len[i]);
-    keys.push_back(key_slice);
-
-    env->DeleteLocalRef(jkey);
-  }
-
-  // cleanup jkey_off and jkey_len
-  env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
-  env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-
-  return true;
-}
-
-/**
- * cf multi get
- *
- * @return byte[][] of values or nullptr if an
- * exception occurs
- */
-jobjectArray multi_get_helper(JNIEnv* env, jclass, ROCKSDB_NAMESPACE::DB* db,
-                              const ROCKSDB_NAMESPACE::ReadOptions& rOpt,
-                              jobjectArray jkeys, jintArray jkey_offs,
-                              jintArray jkey_lens,
-                              jlongArray jcolumn_family_handles) {
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
-  if (!cf_handles_from_jcf_handles(env, cf_handles, jcolumn_family_handles)) {
-    return nullptr;
-  }
-
-  std::vector<ROCKSDB_NAMESPACE::Slice> keys;
-  std::vector<jbyte*> keys_to_free;
-  if (!keys_from_jkeys(env, keys, keys_to_free, jkeys, jkey_offs, jkey_lens)) {
-    return nullptr;
-  }
-
-  std::vector<std::string> values;
-  std::vector<ROCKSDB_NAMESPACE::Status> s;
-  if (cf_handles.size() == 0) {
-    s = db->MultiGet(rOpt, keys, &values);
-  } else {
-    s = db->MultiGet(rOpt, cf_handles, keys, &values);
-  }
-
-  // free up allocated byte arrays
-  multi_get_helper_release_keys(keys_to_free);
-
-  // prepare the results
-  jobjectArray jresults = ROCKSDB_NAMESPACE::ByteJni::new2dByteArray(
-      env, static_cast<jsize>(s.size()));
-  if (jresults == nullptr) {
-    // exception occurred
-    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-    (env)->ThrowNew(exception_cls, "Insufficient Memory for results.");
-    return nullptr;
-  }
-
-  // add to the jresults
-  for (std::vector<ROCKSDB_NAMESPACE::Status>::size_type i = 0; i != s.size();
-       i++) {
-    if (s[i].ok()) {
-      std::string* value = &values[i];
-      const jsize jvalue_len = static_cast<jsize>(value->size());
-      jbyteArray jentry_value = env->NewByteArray(jvalue_len);
-      if (jentry_value == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      env->SetByteArrayRegion(
-          jentry_value, 0, static_cast<jsize>(jvalue_len),
-          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value->c_str())));
-      if (env->ExceptionCheck()) {
-        // exception thrown:
-        // ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jentry_value);
-        return nullptr;
-      }
-
-      env->SetObjectArrayElement(jresults, static_cast<jsize>(i), jentry_value);
-      if (env->ExceptionCheck()) {
-        // exception thrown:
-        // ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jentry_value);
-        return nullptr;
-      }
-
-      env->DeleteLocalRef(jentry_value);
-    }
-  }
-
-  return jresults;
 }
 
 /**
@@ -2042,192 +1670,152 @@ jobjectArray multi_get_helper(JNIEnv* env, jclass, ROCKSDB_NAMESPACE::DB* db,
  * exception on a problem
  */
 
-/**
- * @brief multi_get_helper_direct for fast-path multiget (io_uring) on Linux
- *
- * @param env
- * @param db
- * @param rOpt read options
- * @param jcolumn_family_handles 0, 1, or n column family handles
- * @param jkeys
- * @param jkey_offsets
- * @param jkey_lengths
- * @param jvalues byte buffers to receive values
- * @param jvalue_sizes returned actual sizes of data values for keys
- * @param jstatuses returned java RocksDB status values for per key
- */
-void multi_get_helper_direct(JNIEnv* env, jclass, ROCKSDB_NAMESPACE::DB* db,
-                             const ROCKSDB_NAMESPACE::ReadOptions& rOpt,
-                             jlongArray jcolumn_family_handles,
-                             jobjectArray jkeys, jintArray jkey_offsets,
-                             jintArray jkey_lengths, jobjectArray jvalues,
-                             jintArray jvalue_sizes, jobjectArray jstatuses) {
-  const jsize num_keys = env->GetArrayLength(jkeys);
-
-  std::vector<ROCKSDB_NAMESPACE::Slice> keys;
-  if (!keys_from_bytebuffers(env, keys, jkeys, jkey_offsets, jkey_lengths)) {
-    return;
-  }
-
-  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(num_keys);
-
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
-  if (!cf_handles_from_jcf_handles(env, cf_handles, jcolumn_family_handles)) {
-    return;
-  }
-
-  std::vector<ROCKSDB_NAMESPACE::Status> s(num_keys);
-  if (cf_handles.size() == 0) {
-    // we can use the more efficient call here
-    auto cf_handle = db->DefaultColumnFamily();
-    db->MultiGet(rOpt, cf_handle, num_keys, keys.data(), values.data(),
-                 s.data());
-  } else if (cf_handles.size() == 1) {
-    // we can use the more efficient call here
-    auto cf_handle = cf_handles[0];
-    db->MultiGet(rOpt, cf_handle, num_keys, keys.data(), values.data(),
-                 s.data());
-  } else {
-    // multiple CFs version
-    db->MultiGet(rOpt, num_keys, cf_handles.data(), keys.data(), values.data(),
-                 s.data());
-  }
-
-  // prepare the results
-  jobjectArray jresults = ROCKSDB_NAMESPACE::ByteJni::new2dByteArray(
-      env, static_cast<jsize>(s.size()));
-  if (jresults == nullptr) {
-    // exception occurred
-    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-    (env)->ThrowNew(exception_cls, "Insufficient Memory for results.");
-    return;
-  }
-
-  std::vector<jint> value_size;
-  for (int i = 0; i < num_keys; i++) {
-    auto jstatus = ROCKSDB_NAMESPACE::StatusJni::construct(env, s[i]);
-    if (jstatus == nullptr) {
-      // exception in context
-      return;
-    }
-    env->SetObjectArrayElement(jstatuses, i, jstatus);
-
-    if (s[i].ok()) {
-      jobject jvalue_bytebuf = env->GetObjectArrayElement(jvalues, i);
-      if (env->ExceptionCheck()) {
-        // ArrayIndexOutOfBoundsException is thrown
-        return;
-      }
-      jlong jvalue_capacity = env->GetDirectBufferCapacity(jvalue_bytebuf);
-      if (jvalue_capacity == -1) {
-        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-            env,
-            "Invalid value(s) argument (argument is not a valid direct "
-            "ByteBuffer)");
-        return;
-      }
-      void* jvalue_address = env->GetDirectBufferAddress(jvalue_bytebuf);
-      if (jvalue_address == nullptr) {
-        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-            env,
-            "Invalid value(s) argument (argument is not a valid direct "
-            "ByteBuffer)");
-        return;
-      }
-
-      // record num returned, push back that number, which may be bigger then
-      // the ByteBuffer supplied. then copy as much as fits in the ByteBuffer.
-      value_size.push_back(static_cast<jint>(values[i].size()));
-      auto copy_bytes =
-          std::min(static_cast<jlong>(values[i].size()), jvalue_capacity);
-      memcpy(jvalue_address, values[i].data(), copy_bytes);
-    } else {
-      // bad status for this
-      value_size.push_back(0);
-    }
-  }
-
-  env->SetIntArrayRegion(jvalue_sizes, 0, num_keys, value_size.data());
-}
-
 /*
+ * @brief Use the efficient/optimized variant of MultiGet()
+ *
  * Class:     org_rocksdb_RocksDB
  * Method:    multiGet
  * Signature: (J[[B[I[I)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jobjectArray jkeys,
+    JNIEnv* env, jclass, jlong jdb_handle, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens) {
-  return multi_get_helper(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), jkeys, jkey_offs, jkey_lens, nullptr);
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) {
+    return nullptr;
+  }
+  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys.size());
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->MultiGet(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
+               keys.size(), keys.data(), values.data(), statuses.data(),
+               false /* sorted_input*/);
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*
+ * @brief Use the efficient/optimized variant of MultiGet()
+ *
  * Class:     org_rocksdb_RocksDB
  * Method:    multiGet
  * Signature: (J[[B[I[I[J)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I_3J(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jobjectArray jkeys,
+    JNIEnv* env, jclass, jlong jdb_handle, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens,
     jlongArray jcolumn_family_handles) {
-  return multi_get_helper(env, jdb,
-                          reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-                          ROCKSDB_NAMESPACE::ReadOptions(), jkeys, jkey_offs,
-                          jkey_lens, jcolumn_family_handles);
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) return nullptr;
+  auto cf_handles =
+      ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handlesFromJLongArray(
+          env, jcolumn_family_handles);
+  if (!cf_handles) return nullptr;
+  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys.size());
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->MultiGet(ROCKSDB_NAMESPACE::ReadOptions(), keys.size(),
+               cf_handles->data(), keys.data(), values.data(), statuses.data(),
+               /* sorted_input */ false);
+
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*
+ * @brief Use the efficient/optimized variant of MultiGet()
+ *
  * Class:     org_rocksdb_RocksDB
  * Method:    multiGet
  * Signature: (JJ[[B[I[I)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jlong jropt_handle,
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle,
     jobjectArray jkeys, jintArray jkey_offs, jintArray jkey_lens) {
-  return multi_get_helper(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), jkeys,
-      jkey_offs, jkey_lens, nullptr);
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) {
+    return nullptr;
+  }
+  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys.size());
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->MultiGet(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+               db->DefaultColumnFamily(), keys.size(), keys.data(),
+               values.data(), statuses.data(), false /* sorted_input*/);
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*
+ * @brief Use the efficient/optimized variant of MultiGet()
+ *
  * Class:     org_rocksdb_RocksDB
  * Method:    multiGet
  * Signature: (JJ[[B[I[I[J)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I_3J(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jlong jropt_handle,
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle,
     jobjectArray jkeys, jintArray jkey_offs, jintArray jkey_lens,
     jlongArray jcolumn_family_handles) {
-  return multi_get_helper(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), jkeys,
-      jkey_offs, jkey_lens, jcolumn_family_handles);
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) return nullptr;
+  auto cf_handles =
+      ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handlesFromJLongArray(
+          env, jcolumn_family_handles);
+  if (!cf_handles) return nullptr;
+  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys.size());
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->MultiGet(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+               keys.size(), cf_handles->data(), keys.data(), values.data(),
+               statuses.data(),
+               /* sorted_input */ false);
+
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*
+ * @brief Use the efficient/optimized variant of MultiGet()
+ *
+ * Should make use of fast-path multiget (io_uring) on Linux
+ *
  * Class:     org_rocksdb_RocksDB
  * Method:    multiGet
  * Signature:
  * (JJ[J[Ljava/nio/ByteBuffer;[I[I[Ljava/nio/ByteBuffer;[I[Lorg/rocksdb/Status;)V
  */
 void Java_org_rocksdb_RocksDB_multiGet__JJ_3J_3Ljava_nio_ByteBuffer_2_3I_3I_3Ljava_nio_ByteBuffer_2_3I_3Lorg_rocksdb_Status_2(
-    JNIEnv* env, jclass jdb, jlong jdb_handle, jlong jropt_handle,
-    jlongArray jcolumn_family_handles, jobjectArray jkeys,
-    jintArray jkey_offsets, jintArray jkey_lengths, jobjectArray jvalues,
-    jintArray jvalues_sizes, jobjectArray jstatus_objects) {
-  return multi_get_helper_direct(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
-      jcolumn_family_handles, jkeys, jkey_offsets, jkey_lengths, jvalues,
-      jvalues_sizes, jstatus_objects);
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle,
+    jlongArray jcolumn_family_handles, jobjectArray jkeys, jintArray jkey_offs,
+    jintArray jkey_lens, jobjectArray jvalues, jintArray jvalues_sizes,
+    jobjectArray jstatus_objects) {
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteBuffers(env, jkeys, jkey_offs, jkey_lens)) {
+    // exception thrown
+    return;
+  }
+  auto cf_handles =
+      ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handlesFromJLongArray(
+          env, jcolumn_family_handles);
+  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys.size());
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto ro = *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
+  if (cf_handles->size() == 0) {
+    db->MultiGet(ro, db->DefaultColumnFamily(), keys.size(), keys.data(),
+                 values.data(), statuses.data(), false /* sorted_input*/);
+  } else if (cf_handles->size() == 1) {
+    db->MultiGet(ro, cf_handles->data()[0], keys.size(), keys.data(),
+                 values.data(), statuses.data(), false /* sorted_input*/);
+  } else {
+    db->MultiGet(ro, keys.size(), cf_handles->data(), keys.data(),
+                 values.data(), statuses.data(),
+                 /* sorted_input */ false);
+  }
+  ROCKSDB_NAMESPACE::MultiGetJNIValues::fillByteBuffersAndStatusObjects(
+      env, values, statuses, jvalues, jvalues_sizes, jstatus_objects);
 }
-// private native void
-// multiGet(final long dbHandle, final long rOptHandle,
-//        final long[] columnFamilyHandles, final ByteBuffer[] keysArray,
-//        final ByteBuffer[] valuesArray);
 
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::KeyMayExist

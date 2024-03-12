@@ -2315,7 +2315,7 @@ public class RocksDB extends RocksObject {
       final List<byte[]> keys) throws RocksDBException,
       IllegalArgumentException {
     assert (!keys.isEmpty());
-    // Check if key size equals cfList size. If not a exception must be
+    // Check if key size equals cfList size. If not an exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size() != columnFamilyHandleList.size()) {
         throw new IllegalArgumentException(
@@ -2505,7 +2505,8 @@ public class RocksDB extends RocksObject {
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (values.size() != keys.size()) {
-      throw new IllegalArgumentException("For each key there must be a corresponding value.");
+      throw new IllegalArgumentException("For each key there must be a corresponding value. "
+          + keys.size() + " keys were supplied, but " + values.size() + " values were supplied.");
     }
 
     // TODO (AP) support indirect buffers
@@ -2555,6 +2556,12 @@ public class RocksDB extends RocksObject {
         value.position(Math.min(valuesSizeArray[i], value.capacity()));
         value.flip(); // prepare for read out
         results.add(new ByteBufferGetStatus(status, valuesSizeArray[i], value));
+      } else if (status.getCode() == Status.Code.Incomplete) {
+        assert valuesSizeArray[i] == -1;
+        final ByteBuffer value = valuesArray[i];
+        value.position(value.capacity());
+        value.flip(); // prepare for read out
+        results.add(new ByteBufferGetStatus(status, value.capacity(), value));
       } else {
         results.add(new ByteBufferGetStatus(status));
       }

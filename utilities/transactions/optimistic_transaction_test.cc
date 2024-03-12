@@ -1217,7 +1217,8 @@ TEST_P(OptimisticTransactionTest, IteratorTest) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(results[i], iter->value().ToString());
 
-    ASSERT_OK(txn->GetForUpdate(read_options, iter->key(), nullptr));
+    ASSERT_OK(
+        txn->GetForUpdate(read_options, iter->key(), (std::string*)nullptr));
 
     iter->Next();
   }

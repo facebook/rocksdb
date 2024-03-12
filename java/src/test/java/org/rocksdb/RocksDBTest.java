@@ -219,15 +219,31 @@ public class RocksDBTest {
 
       key.position(4);
 
+      final ByteBuffer result2 = ByteBuffer.allocateDirect(12);
+      result2.put("abcdefghijkl".getBytes());
+      result2.flip().position(3);
+      assertThat(db.get(optr, key, result2)).isEqualTo(4);
+      assertThat(result2.position()).isEqualTo(3);
+      assertThat(result2.limit()).isEqualTo(7);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      final byte[] tmp2 = new byte[12];
+      result2.position(0).limit(12);
+      result2.get(tmp2);
+      assertThat(tmp2).isEqualTo("abcval3hijkl".getBytes());
+
+      key.position(4);
+
       result.clear().position(9);
       assertThat(db.get(optr, key, result)).isEqualTo(4);
       assertThat(result.position()).isEqualTo(9);
       assertThat(result.limit()).isEqualTo(12);
       assertThat(key.position()).isEqualTo(8);
       assertThat(key.limit()).isEqualTo(8);
-      final byte[] tmp2 = new byte[3];
-      result.get(tmp2);
-      assertThat(tmp2).isEqualTo("val".getBytes());
+      final byte[] tmp3 = new byte[3];
+      result.get(tmp3);
+      assertThat(tmp3).isEqualTo("val".getBytes());
 
       // put
       final Segment key3 = sliceSegment("key3");
