@@ -55,7 +55,6 @@ static const char* GetTempDir(void) {
     ret = getenv("TEMP");
 #else
     ret = "/tmp";
-  }
 #endif
   return ret;
   }
