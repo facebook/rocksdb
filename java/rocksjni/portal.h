@@ -9183,15 +9183,15 @@ class WideColumnJni {
       JNIEnv* env, jobject jKey, jint jKeyOffset, jint jKeyLen,
       jobjectArray jNames, jintArray jNamesOffset, jintArray jNamesLen,
       jobjectArray jValues, jintArray jvaluesOffset, jintArray jValuesLen) {
-    auto _key = env->GetDirectBufferAddress(jKey);
-    if (_key == nullptr) {
+    auto jKeyAddress = env->GetDirectBufferAddress(jKey);
+    if (jKeyAddress == nullptr) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
           env,
           "Invalid key argument (argument is not a valid direct ByteBuffer)");
       return;
     }
 
-    auto key = reinterpret_cast<char*>(_key) + jKeyOffset;
+    auto key = reinterpret_cast<char*>(jKeyAddress) + jKeyOffset;
     ROCKSDB_NAMESPACE::Slice key_slice(key, static_cast<size_t>(jKeyLen));
 
     const auto columns_len = static_cast<int>(env->GetArrayLength(jNames));
