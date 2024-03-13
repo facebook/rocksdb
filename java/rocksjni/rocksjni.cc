@@ -829,14 +829,14 @@ jobject Java_org_rocksdb_RocksDB_getEntityDirect(
           : reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
                 jcf_handle);
 
-  auto _key = env->GetDirectBufferAddress(jKey);
-  if (_key == nullptr) {
+  auto jKeyAddress = env->GetDirectBufferAddress(jKey);
+  if (jKeyAddress == nullptr) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env,
         "Invalid key argument (argument is not a valid direct ByteBuffer)");
     return nullptr;
   }
-  auto key = reinterpret_cast<char*>(_key) + key_offset;
+  auto key = reinterpret_cast<char*>(jKeyAddress) + key_offset;
 
   ROCKSDB_NAMESPACE::Slice key_slice(key, static_cast<size_t>(key_len));
 
