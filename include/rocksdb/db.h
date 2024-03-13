@@ -136,12 +136,24 @@ struct IngestExternalFileArg {
 };
 
 struct GetMergeOperandsOptions {
+  using ContinueCallback = bool (*)(Slice);
+
   // A limit on the number of merge operands returned by the GetMergeOperands()
   // API. In contrast with ReadOptions::merge_operator_max_count, this is a hard
   // limit: when it is exceeded, no merge operands will be returned and the
   // query will fail with an Incomplete status. See also the
   // DB::GetMergeOperands() API below.
   int expected_max_number_of_operands = 0;
+
+  // `continue_cb` will be called after reading each merge operand. Operands are
+  // read in order from newest to oldest. The value is provided as an argument.
+  //
+  // Returning false will end the lookup process at the merge operand on which
+  // `continue_cb` was just invoked. Otherwise, the lookup will continue.
+  //
+  // If it is nullptr, `GetMergeOperands()` will behave as if it always returned
+  // true (continue fetching merge operands until there are no more).
+  ContinueCallback continue_cb;
 };
 
 // A collections of table properties objects, where
