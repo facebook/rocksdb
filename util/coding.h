@@ -369,7 +369,8 @@ inline int64_t Get8BitVarsignedint64(Slice* input) {
     while (start < p) {
       int64_t byte =
           static_cast<int64_t>(*(reinterpret_cast<const unsigned char*>(--p)));
-      s = (s * 0x100) | byte;
+      s = (s * 0x100) | byte;  // s = (s << 8) | byte; fails ubsan check,
+                               // -ve << is undefined in C/C++
     }
   }
   return s;
