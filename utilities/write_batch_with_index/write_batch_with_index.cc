@@ -460,6 +460,26 @@ Status WriteBatchWithIndex::PutLogData(const Slice& blob) {
 
 void WriteBatchWithIndex::Clear() { rep->Clear(); }
 
+namespace {
+Status PostprocessStatusBatchOnly(const Status& s,
+                                  WBWIIteratorImpl::Result result) {
+  if (result == WBWIIteratorImpl::kDeleted ||
+      result == WBWIIteratorImpl::kNotFound) {
+    s.PermitUncheckedError();
+    return Status::NotFound();
+  }
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    s.PermitUncheckedError();
+    return Status::MergeInProgress();
+  }
+
+  assert(result == WBWIIteratorImpl::kFound ||
+         result == WBWIIteratorImpl::kError);
+  return s;
+}
+}  // anonymous namespace
+
 Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const DBOptions& /* options */,
                                          const Slice& key, std::string* value) {
@@ -468,23 +488,28 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
   auto result = WriteBatchWithIndexInternal::GetFromBatch(
       this, column_family, key, &merge_context, value, &s);
 
-  switch (result) {
-    case WBWIIteratorImpl::kFound:
-    case WBWIIteratorImpl::kError:
-      // use returned status
-      break;
-    case WBWIIteratorImpl::kDeleted:
-    case WBWIIteratorImpl::kNotFound:
-      s = Status::NotFound();
-      break;
-    case WBWIIteratorImpl::kMergeInProgress:
-      s = Status::MergeInProgress();
-      break;
-    default:
-      assert(false);
+  return PostprocessStatusBatchOnly(s, result);
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatch(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    PinnableWideColumns* columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a column family handle");
   }
 
-  return s;
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a PinnableWideColumns object");
+  }
+
+  MergeContext merge_context;
+  Status s;
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  return PostprocessStatusBatchOnly(s, result);
 }
 
 Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,

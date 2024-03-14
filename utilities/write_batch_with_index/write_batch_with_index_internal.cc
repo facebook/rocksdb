@@ -802,4 +802,88 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
   return result;
 }
 
+WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetEntityFromBatch(
+    WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+    const Slice& key, MergeContext* context, PinnableWideColumns* columns,
+    Status* s) {
+  assert(batch);
+  assert(column_family);
+  assert(context);
+  assert(columns);
+  assert(s);
+
+  columns->Reset();
+  *s = Status::OK();
+
+  std::unique_ptr<WBWIIteratorImpl> iter(
+      static_cast_with_check<WBWIIteratorImpl>(
+          batch->NewIterator(column_family)));
+
+  iter->Seek(key);
+  auto result = iter->FindLatestUpdate(key, context);
+
+  if (result == WBWIIteratorImpl::kError) {
+    (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
+                              std::to_string(iter->Entry().type));
+    return result;
+  }
+
+  if (result == WBWIIteratorImpl::kNotFound) {
+    return result;
+  }
+
+  if (result == WBWIIteratorImpl::Result::kFound) {  // Put/PutEntity
+    WriteEntry entry = iter->Entry();
+    Slice entry_value = entry.value;
+
+    if (context->GetNumOperands() > 0) {
+      if (entry.type == kPutRecord) {
+        *s = MergeKeyWithBaseValue(
+            column_family, key, MergeHelper::kPlainBaseValue, entry_value,
+            *context, static_cast<std::string*>(nullptr), columns);
+      } else {
+        assert(entry.type == kPutEntityRecord);
+
+        *s = MergeKeyWithBaseValue(
+            column_family, key, MergeHelper::kWideBaseValue, entry_value,
+            *context, static_cast<std::string*>(nullptr), columns);
+      }
+
+      if (!s->ok()) {
+        result = WBWIIteratorImpl::Result::kError;
+      }
+    } else {
+      if (entry.type == kPutRecord) {
+        columns->SetPlainValue(entry_value);
+      } else {
+        assert(entry.type == kPutEntityRecord);
+
+        *s = columns->SetWideColumnValue(entry_value);
+        if (!s->ok()) {
+          result = WBWIIteratorImpl::Result::kError;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  if (result == WBWIIteratorImpl::kDeleted) {
+    if (context->GetNumOperands() > 0) {
+      *s = MergeKeyWithNoBaseValue(column_family, key, *context,
+                                   static_cast<std::string*>(nullptr), columns);
+      if (s->ok()) {
+        result = WBWIIteratorImpl::Result::kFound;
+      } else {
+        result = WBWIIteratorImpl::Result::kError;
+      }
+    }
+
+    return result;
+  }
+
+  assert(result == WBWIIteratorImpl::Result::kMergeInProgress);
+  return result;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
