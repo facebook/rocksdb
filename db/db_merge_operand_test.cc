@@ -450,7 +450,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsShortCircuitInMemtable) {
   GetMergeOperandsOptions merge_operands_info;
   merge_operands_info.expected_max_number_of_operands = kNumOperands;
   int num_fetched = 0;
-  merge_operands_info.continue_cb = [&num_fetched](Slice /* value */) {
+  merge_operands_info.continue_cb = [&](Slice /* value */) {
     num_fetched++;
     return num_fetched != kNumOperandsToFetch;
   };
@@ -518,7 +518,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsShortCircuitInSst) {
   GetMergeOperandsOptions merge_operands_info;
   merge_operands_info.expected_max_number_of_operands = kNumOperands;
   int num_fetched = 0;
-  merge_operands_info.continue_cb = [&num_fetched](Slice /* value */) {
+  merge_operands_info.continue_cb = [&](Slice /* value */) {
     num_fetched++;
     return num_fetched != kNumOperandsToFetch;
   };
