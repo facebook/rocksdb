@@ -42,13 +42,12 @@ class AutoRollLogger : public Logger {
   Status GetStatus() { return status_; }
 
   size_t GetLogFileSize() const override {
-    if (!logger_) {
-      return 0;
-    }
-
     std::shared_ptr<Logger> logger;
     {
       MutexLock l(&mutex_);
+      if (!logger_) {
+        return 0;
+      }
       // pin down the current logger_ instance before releasing the mutex.
       logger = logger_;
     }
