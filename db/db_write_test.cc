@@ -281,12 +281,12 @@ TEST_P(DBWriteTest, WriteThreadWaitNanosCounter) {
     perf_ctx->Reset();
     TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:WriteFunc");
     ASSERT_OK(dbfull()->Put(WriteOptions(), "bar", "val2"));
-    ASSERT_GT(perf_ctx->write_thread_wait_nanos, 1000000000U);
+    ASSERT_GT(perf_ctx->write_thread_wait_nanos, 2000000U);
   };
 
   std::function<void()> sleep_func = [&]() {
     TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:1");
-    sleep(2);
+    SystemClock::Default()->SleepForMicroseconds(2000);
     TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:2");
   };
 
