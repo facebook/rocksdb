@@ -102,4 +102,15 @@ public class PerfContextTest {
     assertThat(ctx).isNotNull();
     assertThat(ctx.getPostProcessTime()).isGreaterThan(0);
   }
+
+  @Test
+  public void toStringTest() throws RocksDBException {
+    db.setPerfLevel(PerfLevel.ENABLE_TIME_AND_CPU_TIME_EXCEPT_FOR_MUTEX);
+    db.put("key".getBytes(), "value".getBytes());
+    db.compactRange();
+    db.get("key".getBytes());
+    PerfContext ctx = db.getPerfContext();
+    String result = ctx.toString(false);
+    assertThat(result).isNotBlank();
+  }
 }

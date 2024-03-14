@@ -6,8 +6,25 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_PerfContext.h"
+#include "portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
+
+/*
+ * Class:     org_rocksdb_PerfContext
+ * Method:    toString
+ * Signature: (JZ)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_PerfContext_toString(JNIEnv* env, jobject,
+                                              jlong jpc_handle,
+                                              jboolean excludeZeroCounters) {
+  ROCKSDB_NAMESPACE::PerfContext* perf_context =
+      reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
+
+  auto result = perf_context->ToString(excludeZeroCounters);
+
+  return ROCKSDB_NAMESPACE::JniUtil::toJavaString(env, &result, false);
+}
 
 void Java_org_rocksdb_PerfContext_reset(JNIEnv*, jobject, jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
