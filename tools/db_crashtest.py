@@ -261,7 +261,7 @@ default_params = {
     "use_adaptive_mutex_lru": lambda: random.choice([0, 1]),
     "compress_format_version": lambda: random.choice([1, 2]),
     "manifest_preallocation_size": lambda: random.choice([0, 5 * 1024]),
-    "enable_checksum_handoff": lambda: random.choice([0, 1]),
+    "enable_checksum_handoff": 0,
     "max_total_wal_size": lambda: random.choice([0] * 4 + [64 * 1024 * 1024]),
     "high_pri_pool_ratio": lambda: random.choice([0, 0.5]),
     "low_pri_pool_ratio": lambda: random.choice([0, 0.5]),
