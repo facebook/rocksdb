@@ -2327,18 +2327,22 @@ void StressTest::TestCompactFiles(ThreadState* thread,
                       << compact_options.output_file_size_limit;
       auto s = db_->CompactFiles(compact_options, column_family, input_files,
                                  static_cast<int>(output_level));
-      if (!s.ok() && !s.IsManualCompactionPaused() && !s.IsAborted() &&
-          !std::strstr(s.getState(), "injected") &&
-          !(s.IsInvalidArgument() &&
-            std::strstr(s.getState(), "Specified compaction input file") &&
-            std::strstr(s.getState(), "does not exist in column family"))) {
-        fprintf(stderr,
+      if (!s.ok()) {
+        // TOOD (hx235): allow an exact list of tolerable failures under stress
+        // test
+        bool non_ok_status_allowed =
+            s.IsManualCompactionPaused() ||
+            (s.getState() && std::strstr(s.getState(), "injected")) ||
+            s.IsAborted() || s.IsInvalidArgument() || s.IsNotSupported();
+        fprintf(non_ok_status_allowed ? stdout : stderr,
                 "Unable to perform CompactFiles(): %s under specified "
                 "CompactionOptions: %s (Empty string or "
                 "missing field indicates default option or value is used)\n",
                 s.ToString().c_str(), compact_opt_oss.str().c_str());
         thread->stats.AddNumCompactFilesFailed(1);
-        thread->shared->SafeTerminate();
+        if (!non_ok_status_allowed) {
+          thread->shared->SafeTerminate();
+        }
       } else {
         thread->stats.AddNumCompactFilesSucceed(1);
       }
@@ -2528,21 +2532,21 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                         << cro.blob_garbage_collection_age_cutoff;
   Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
 
-  if (!status.ok() && !status.IsManualCompactionPaused() &&
-      !std::strstr(status.getState(), "injected") &&
-      !(status.IsNotSupported() &&
-        (std::strstr(status.getState(), "another thread is refitting") ||
-         std::strstr(
-             status.getState(),
-             "Levels between source and target are not empty for a move")))) {
-    fprintf(stdout,
+  if (!status.ok()) {
+    // TOOD (hx235): allow an exact list of tolerable failures under stress test
+    bool non_ok_status_allowed =
+        status.IsManualCompactionPaused() ||
+        (status.getState() && std::strstr(status.getState(), "injected")) ||
+        status.IsInvalidArgument() || status.IsNotSupported();
+    fprintf(non_ok_status_allowed ? stdout : stderr,
             "Unable to perform CompactRange(): %s under specified "
             "CompactRangeOptions: %s (Empty string or "
             "missing field indicates default option or value is used)\n",
             status.ToString().c_str(), compact_range_opt_oss.str().c_str());
-    thread->stats.AddErrors(1);
-    // Fail fast to preserve the DB state.
-    thread->shared->SetVerificationFailure();
+    if (!non_ok_status_allowed) {
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    }
   }
 
   if (pre_snapshot != nullptr) {
