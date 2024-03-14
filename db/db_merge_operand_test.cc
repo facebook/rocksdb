@@ -430,6 +430,42 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {
   }
 }
 
+TEST_F(DBMergeOperandTest, GetMergeOperandsShortCircuitReturn) {
+  const int kNumOperands = 10;
+  const int kNumOperandsToFetch = 5;
+
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  std::vector<std::string> expected_merge_operands;
+  expected_merge_operands.reserve(kNumOperands);
+  for (int i = 0; i < kNumOperands; ++i) {
+    expected_merge_operands.emplace_back(rnd.RandomString(7 /* len */));
+    ASSERT_OK(Merge("key", expected_merge_operands.back()));
+  }
+
+  std::vector<PinnableSlice> merge_operands(kNumOperands);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = kNumOperands;
+  int num_fetched = 0;
+  merge_operands_info.continue_cb = [&num_fetched](Slice /* value */) {
+    num_fetched++;
+    return num_fetched != kNumOperandsToFetch;
+  };
+  int num_merge_operands = 0;
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "key", merge_operands.data(),
+                                  &merge_operands_info, &num_merge_operands));
+  ASSERT_EQ(num_merge_operands, kNumOperandsToFetch);
+
+  for (int i = 0; i < kNumOperandsToFetch; ++i) {
+    ASSERT_EQ(expected_merge_operands[kNumOperands - kNumOperandsToFetch + i],
+              merge_operands[i]);
+  }
+}
+
 TEST_F(DBMergeOperandTest, GetMergeOperandsBaseDeletionInImmMem) {
   // In this test, "k1" has a MERGE in a mutable memtable on top of a base
   // DELETE in an immutable memtable.
