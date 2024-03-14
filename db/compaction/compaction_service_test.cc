@@ -191,7 +191,7 @@ class CompactionServiceTest : public DBTestBase {
 
   void GenerateTestData(bool move_files_manually = false) {
     // Generate 20 files @ L2 Per CF
-    for (size_t cf_id = 0; cf_id < handles_.size(); cf_id++) {
+    for (int cf_id = 0; cf_id < static_cast<int>(handles_.size()); cf_id++) {
       for (int i = 0; i < 20; i++) {
         for (int j = 0; j < 10; j++) {
           int key_id = i * 10 + j;
@@ -220,7 +220,7 @@ class CompactionServiceTest : public DBTestBase {
   }
 
   void VerifyTestData() {
-    for (size_t cf_id = 0; cf_id < handles_.size(); cf_id++) {
+    for (int cf_id = 0; cf_id < static_cast<int>(handles_.size()); cf_id++) {
       for (int i = 0; i < 200; i++) {
         auto result = Get(cf_id, Key(i));
         if (i % 2) {
