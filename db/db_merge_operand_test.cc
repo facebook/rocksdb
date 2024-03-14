@@ -458,7 +458,8 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsShortCircuitReturn) {
   ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                   "key", merge_operands.data(),
                                   &merge_operands_info, &num_merge_operands));
-  ASSERT_EQ(num_merge_operands, kNumOperandsToFetch);
+  ASSERT_EQ(kNumOperandsToFetch, num_merge_operands);
+  ASSERT_EQ(kNumOperandsToFetch, num_fetched);
 
   for (int i = 0; i < kNumOperandsToFetch; ++i) {
     ASSERT_EQ(expected_merge_operands[kNumOperands - kNumOperandsToFetch + i],
