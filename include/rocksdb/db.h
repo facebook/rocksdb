@@ -136,7 +136,7 @@ struct IngestExternalFileArg {
 };
 
 struct GetMergeOperandsOptions {
-  using ContinueCallback = bool (*)(Slice);
+  using ContinueCallback = std::function<bool(Slice)>;
 
   // A limit on the number of merge operands returned by the GetMergeOperands()
   // API. In contrast with ReadOptions::merge_operator_max_count, this is a hard
