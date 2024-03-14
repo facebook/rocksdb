@@ -430,7 +430,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {
   }
 }
 
-TEST_F(DBMergeOperandTest, GetMergeOperandsShortCircuitReturn) {
+TEST_F(DBMergeOperandTest, GetMergeOperandsShortCircuitInMemtable) {
   const int kNumOperands = 10;
   const int kNumOperandsToFetch = 5;
 
