@@ -489,9 +489,8 @@ Status TableCache::Get(
       s = t->Get(options, k, get_context, prefix_extractor.get(), skip_filters);
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
-      // Couldn't find Table in cache but treat as kFound if no_io set
+      // Couldn't find table in cache and couldn't open it because of no_io.
       get_context->MarkKeyMayExist();
-      s = Status::OK();
       done = true;
     }
   }
