@@ -145,9 +145,9 @@ struct GetMergeOperandsOptions {
   // DB::GetMergeOperands() API below.
   int expected_max_number_of_operands = 0;
 
-  // `continue_cb` will be called after reading each merge operand. Operands are
-  // read in order from newest to oldest. The operand value is provided as an
-  // argument.
+  // `continue_cb` will be called after reading each merge operand, excluding
+  // any base value. Operands are read in order from newest to oldest. The
+  // operand value is provided as an argument.
   //
   // Returning false will end the lookup process at the merge operand on which
   // `continue_cb` was just invoked. Returning true allows the lookup to
@@ -657,11 +657,12 @@ class DB {
   }
 
   // Populates the `merge_operands` array with all the merge operands in the DB
-  // for `key`. The `merge_operands` array will be populated in the order of
-  // insertion. The number of entries populated in `merge_operands` will be
-  // assigned to `*number_of_operands`.
+  // for `key`, or a customizable suffix of merge operands when
+  // `GetMergeOperandsOptions::continue_cb` is set. The `merge_operands` array
+  // will be populated in the order of insertion. The number of entries
+  // populated in `merge_operands` will be assigned to `*number_of_operands`.
   //
-  // If the number of merge operands in DB for `key` is greater than
+  // If the number of merge operands to return for `key` is greater than
   // `merge_operands_options.expected_max_number_of_operands`,
   // `merge_operands` is not populated and the return value is
   // `Status::Incomplete`. In that case, `*number_of_operands` will be assigned
