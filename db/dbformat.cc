@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeWideColumnEntity;
+const ValueType kValueTypeForSeek = kTypeValuePreferredSeqno;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 const std::string kDisableUserTimestamp;
 

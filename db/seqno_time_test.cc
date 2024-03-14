@@ -1620,6 +1620,27 @@ TEST_F(SeqnoTimeTest, EncodeDecodeMinimizeTimeGaps) {
   ASSERT_EQ(expected, seqs);
 }
 
+TEST(PackValueAndSeqnoTest, Basic) {
+  std::string packed_value_buf;
+  Slice packed_value_slice =
+      PackValueAndWriteTime("foo", 30u, &packed_value_buf);
+  auto [unpacked_value, write_time] =
+      ParsePackedValueWithWriteTime(packed_value_slice);
+  ASSERT_EQ(unpacked_value, "foo");
+  ASSERT_EQ(write_time, 30u);
+  ASSERT_EQ(ParsePackedValueForValue(packed_value_slice), "foo");
+}
+
+TEST(PackValueAndWriteTimeTest, Basic) {
+  std::string packed_value_buf;
+  Slice packed_value_slice = PackValueAndSeqno("foo", 30u, &packed_value_buf);
+  auto [unpacked_value, write_time] =
+      ParsePackedValueWithSeqno(packed_value_slice);
+  ASSERT_EQ(unpacked_value, "foo");
+  ASSERT_EQ(write_time, 30u);
+  ASSERT_EQ(ParsePackedValueForValue(packed_value_slice), "foo");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 

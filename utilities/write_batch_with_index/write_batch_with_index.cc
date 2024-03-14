@@ -203,13 +203,14 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
+    uint64_t unix_write_time = 0;
     char tag = 0;
 
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
-                                 &blob, &xid);
+                                 &blob, &xid, &unix_write_time);
     if (!s.ok()) {
       break;
     }
@@ -263,6 +264,12 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
           AddNewEntry(column_family_id);
         }
         break;
+      case kTypeColumnFamilyValuePreferredSeqno:
+      case kTypeValuePreferredSeqno:
+        // TimedPut is not supported in Transaction APIs.
+        return Status::Corruption(
+            "unexpected WriteBatch tag in ReBuildIndex",
+            std::to_string(static_cast<unsigned int>(tag)));
       default:
         return Status::Corruption(
             "unknown WriteBatch tag in ReBuildIndex",

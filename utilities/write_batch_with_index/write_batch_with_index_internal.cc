@@ -553,9 +553,10 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   }
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
   char tag;
-  uint32_t column_family;
+  uint32_t column_family = 0;  // default
+  uint64_t unix_write_time = 0;
   Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, key, value,
-                                      blob, xid);
+                                      blob, xid, &unix_write_time);
   if (!s.ok()) {
     return s;
   }
@@ -598,6 +599,11 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
       *type = kPutEntityRecord;
       break;
     }
+    case kTypeColumnFamilyValuePreferredSeqno:
+    case kTypeValuePreferredSeqno:
+      // TimedPut is not supported in Transaction APIs.
+      return Status::Corruption("unexpected WriteBatch tag ",
+                                std::to_string(static_cast<unsigned int>(tag)));
     default:
       return Status::Corruption("unknown WriteBatch tag ",
                                 std::to_string(static_cast<unsigned int>(tag)));
