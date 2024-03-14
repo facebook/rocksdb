@@ -277,8 +277,8 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInHighPriPool(false);
     e->SetInLowPriPool(true);
     low_pri_pool_usage_ += e->total_charge;
-    MaintainPoolSize();
     lru_low_pri_ = e;
+    MaintainPoolSize();
   } else {
     // Insert "e" to the head of bottom-pri pool.
     e->next = lru_bottom_pri_->next;
@@ -301,6 +301,7 @@ void LRUCacheShard::MaintainPoolSize() {
     // Overflow last entry in high-pri pool to low-pri pool.
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
+    assert(lru_low_pri_->InHighPriPool());
     lru_low_pri_->SetInHighPriPool(false);
     lru_low_pri_->SetInLowPriPool(true);
     assert(high_pri_pool_usage_ >= lru_low_pri_->total_charge);
@@ -312,6 +313,7 @@ void LRUCacheShard::MaintainPoolSize() {
     // Overflow last entry in low-pri pool to bottom-pri pool.
     lru_bottom_pri_ = lru_bottom_pri_->next;
     assert(lru_bottom_pri_ != &lru_);
+    assert(lru_bottom_pri_->InLowPriPool());
     lru_bottom_pri_->SetInHighPriPool(false);
     lru_bottom_pri_->SetInLowPriPool(false);
     assert(low_pri_pool_usage_ >= lru_bottom_pri_->total_charge);
