@@ -553,8 +553,8 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   }
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
   char tag;
-  uint32_t column_family;
-  uint64_t unix_write_time;
+  uint32_t column_family = 0;  // default
+  uint64_t unix_write_time = 0;
   Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, key, value,
                                       blob, xid, &unix_write_time);
   if (!s.ok()) {

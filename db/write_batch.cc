@@ -518,7 +518,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
       (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
 
   Slice key, value, blob, xid;
-  uint64_t write_unix_time;
+  uint64_t write_unix_time = 0;
 
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
   // the batch boundary symbols otherwise we would mis-count the number of
