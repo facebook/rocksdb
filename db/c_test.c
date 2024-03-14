@@ -56,8 +56,9 @@ static const char* GetTempDir(void) {
 #else
     ret = "/tmp";
 #endif
-  return ret;
   }
+  return ret;
+}
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
