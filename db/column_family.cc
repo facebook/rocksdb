@@ -480,7 +480,7 @@ void SuperVersion::Cleanup() {
 void SuperVersion::Init(
     ColumnFamilyData* new_cfd, MemTable* new_mem, MemTableListVersion* new_imm,
     Version* new_current,
-    std::shared_ptr<SeqnoToTimeMapping> new_seqno_to_time_mapping) {
+    std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping) {
   cfd = new_cfd;
   mem = new_mem;
   imm = new_imm;
@@ -1340,7 +1340,7 @@ void ColumnFamilyData::InstallSuperVersion(
     const MutableCFOptions& mutable_cf_options) {
   SuperVersion* new_superversion = sv_context->new_superversion.release();
   new_superversion->mutable_cf_options = mutable_cf_options;
-  std::shared_ptr<SeqnoToTimeMapping> existing_seqno_to_time_mapping =
+  std::shared_ptr<const SeqnoToTimeMapping> existing_seqno_to_time_mapping =
       super_version_ ? super_version_->CopySeqnoToTimeMapping() : nullptr;
   new_superversion->Init(this, mem_, imm_.current(), current_,
                          sv_context->new_seqno_to_time_mapping

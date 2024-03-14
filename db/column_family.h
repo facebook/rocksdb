@@ -220,7 +220,7 @@ struct SuperVersion {
   std::string full_history_ts_low;
 
   // A shared copy of the DB's seqno to time mapping.
-  std::shared_ptr<SeqnoToTimeMapping> seqno_to_time_mapping{nullptr};
+  std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping{nullptr};
 
   // should be called outside the mutex
   SuperVersion() = default;
@@ -235,15 +235,16 @@ struct SuperVersion {
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
   void Cleanup();
-  void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
-            MemTableListVersion* new_imm, Version* new_current,
-            std::shared_ptr<SeqnoToTimeMapping> new_seqno_to_time_mapping);
+  void Init(
+      ColumnFamilyData* new_cfd, MemTable* new_mem,
+      MemTableListVersion* new_imm, Version* new_current,
+      std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping);
 
   // Make a shared copy of the seqno to time mapping object referred to in this
   // SuperVersion. To be used by the new SuperVersion to be installed after this
   // one if seqno to time mapping does not change in between these two
   // SuperVersions.
-  std::shared_ptr<SeqnoToTimeMapping> CopySeqnoToTimeMapping() {
+  std::shared_ptr<const SeqnoToTimeMapping> CopySeqnoToTimeMapping() {
     return seqno_to_time_mapping;
   }
 

@@ -6520,7 +6520,7 @@ void DBImpl::InstallSeqnoToTimeMappingInSV(
     std::vector<SuperVersionContext>* sv_contexts) {
   mutex_.AssertHeld();
   std::shared_ptr<SeqnoToTimeMapping> new_seqno_to_time_mapping =
-      std::shared_ptr<SeqnoToTimeMapping>(new SeqnoToTimeMapping());
+      std::make_shared<SeqnoToTimeMapping>();
   new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
   for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
