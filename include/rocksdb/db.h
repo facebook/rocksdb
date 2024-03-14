@@ -146,10 +146,12 @@ struct GetMergeOperandsOptions {
   int expected_max_number_of_operands = 0;
 
   // `continue_cb` will be called after reading each merge operand. Operands are
-  // read in order from newest to oldest. The value is provided as an argument.
+  // read in order from newest to oldest. The operand value is provided as an
+  // argument.
   //
   // Returning false will end the lookup process at the merge operand on which
-  // `continue_cb` was just invoked. Otherwise, the lookup will continue.
+  // `continue_cb` was just invoked. Returning true allows the lookup to
+  // continue.
   //
   // If it is nullptr, `GetMergeOperands()` will behave as if it always returned
   // true (continue fetching merge operands until there are no more).
