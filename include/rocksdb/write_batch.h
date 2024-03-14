@@ -101,9 +101,10 @@ class WriteBatch : public WriteBatchBase {
   }
 
   using WriteBatchBase::TimedPut;
-  // DO NOT USE, UNDER CONSTRUCTION
+  // EXPERIMENTAL
   // Stores the mapping "key->value" in the database with the specified write
-  // time in the column family.
+  // time in the column family. Also see documentation in
+  // `WriteBatchBase::TimedPut` for the API's usage and limitations.
   Status TimedPut(ColumnFamilyHandle* column_family, const Slice& key,
                   const Slice& value, uint64_t write_unix_time) override;
 
