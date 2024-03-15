@@ -116,6 +116,14 @@ class InternalIteratorBase : public Cleanable {
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
 
+  // Returns the approximate write time of this entry, which is deduced from
+  // sequence number if sequence number to time mapping is available.
+  // The default implementation returns maximum uint64_t and that indicates the
+  // write time is unknown.
+  virtual uint64_t write_unix_time() const {
+    return std::numeric_limits<uint64_t>::max();
+  }
+
   // Return user key for the current entry.
   // REQUIRES: Valid()
   virtual Slice user_key() const { return ExtractUserKey(key()); }
