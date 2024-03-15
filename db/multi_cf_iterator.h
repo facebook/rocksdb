@@ -23,8 +23,8 @@ class MultiCfIterator : public Iterator {
                   const std::vector<ColumnFamilyHandle*>& column_families,
                   const std::vector<Iterator*>& child_iterators)
       : comparator_(comparator),
-        min_heap_(MultiCfMinHeapItemComparator(comparator_)),
-        max_heap_(MultiCfMaxHeapItemComparator(comparator_)) {
+        min_heap_(MultiCfHeapItemComparator<std::greater<int>>(comparator_)),
+        max_heap_(MultiCfHeapItemComparator<std::less<int>>(comparator_)) {
     assert(column_families.size() > 0 &&
            column_families.size() == child_iterators.size());
     cfh_iter_pairs_.reserve(column_families.size());
@@ -53,11 +53,11 @@ class MultiCfIterator : public Iterator {
     int order;
   };
 
-  class MultiCfMinHeapItemComparator {
+  template <typename CompareOp>
+  class MultiCfHeapItemComparator {
    public:
-    explicit MultiCfMinHeapItemComparator(const Comparator* comparator)
+    explicit MultiCfHeapItemComparator(const Comparator* comparator)
         : comparator_(comparator) {}
-
     bool operator()(const MultiCfIteratorInfo& a,
                     const MultiCfIteratorInfo& b) const {
       assert(a.iterator);
@@ -66,38 +66,18 @@ class MultiCfIterator : public Iterator {
       assert(b.iterator->Valid());
       int c = comparator_->Compare(a.iterator->key(), b.iterator->key());
       assert(c != 0 || a.order != b.order);
-      return c == 0 ? a.order - b.order > 0 : c > 0;
+      return c == 0 ? a.order - b.order > 0 : CompareOp()(c, 0);
     }
 
    private:
     const Comparator* comparator_;
   };
-
-  class MultiCfMaxHeapItemComparator {
-   public:
-    explicit MultiCfMaxHeapItemComparator(const Comparator* comparator)
-        : comparator_(comparator) {}
-
-    bool operator()(const MultiCfIteratorInfo& a,
-                    const MultiCfIteratorInfo& b) const {
-      assert(a.iterator);
-      assert(b.iterator);
-      assert(a.iterator->Valid());
-      assert(b.iterator->Valid());
-      int c = comparator_->Compare(a.iterator->key(), b.iterator->key());
-      assert(c != 0 || a.order != b.order);
-      return c == 0 ? a.order - b.order > 0 : c < 0;
-    }
-
-   private:
-    const Comparator* comparator_;
-  };
-
   const Comparator* comparator_;
   using MultiCfMinHeap =
-      BinaryHeap<MultiCfIteratorInfo, MultiCfMinHeapItemComparator>;
-  using MultiCfMaxHeap =
-      BinaryHeap<MultiCfIteratorInfo, MultiCfMaxHeapItemComparator>;
+      BinaryHeap<MultiCfIteratorInfo,
+                 MultiCfHeapItemComparator<std::greater<int>>>;
+  using MultiCfMaxHeap = BinaryHeap<MultiCfIteratorInfo,
+                                    MultiCfHeapItemComparator<std::less<int>>>;
   MultiCfMinHeap min_heap_;
   MultiCfMaxHeap max_heap_;
 
