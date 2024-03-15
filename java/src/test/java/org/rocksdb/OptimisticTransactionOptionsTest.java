@@ -5,13 +5,12 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.Random;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.rocksdb.util.BytewiseComparator;
-
-import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class OptimisticTransactionOptionsTest {
 
@@ -19,7 +18,7 @@ public class OptimisticTransactionOptionsTest {
       getPlatformSpecificRandomFactory();
 
   @BeforeClass
-  public static void  beforeAll() {
+  public static void beforeAll() {
     RocksDB.loadLibrary();
   }
 
