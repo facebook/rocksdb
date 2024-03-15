@@ -12,8 +12,8 @@ namespace ROCKSDB_NAMESPACE {
 void MultiCfIterator::SeekCommon(
     const std::function<void(Iterator*)>& child_seek_func,
     Direction direction) {
-  Reset();
   direction_ = direction;
+  Reset();
   int i = 0;
   for (auto& cfh_iter_pair : cfh_iter_pairs_) {
     auto& cfh = cfh_iter_pair.first;
@@ -22,9 +22,11 @@ void MultiCfIterator::SeekCommon(
     if (iter->Valid()) {
       assert(iter->status().ok());
       if (direction_ == kReverse) {
-        max_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
+        auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
+        max_heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
       } else {
-        min_heap_.push(MultiCfIteratorInfo{iter.get(), cfh, i});
+        auto& min_heap = std::get<MultiCfMinHeap>(heap_);
+        min_heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
       }
     } else {
       considerStatus(iter->status());
@@ -86,14 +88,16 @@ void MultiCfIterator::Next() {
   if (direction_ != kForward) {
     SwitchToDirection(kForward);
   }
-  AdvanceIterator(min_heap_, [](Iterator* iter) { iter->Next(); });
+  auto& min_heap = std::get<MultiCfMinHeap>(heap_);
+  AdvanceIterator(min_heap, [](Iterator* iter) { iter->Next(); });
 }
 void MultiCfIterator::Prev() {
   assert(Valid());
   if (direction_ != kReverse) {
     SwitchToDirection(kReverse);
   }
-  AdvanceIterator(max_heap_, [](Iterator* iter) { iter->Prev(); });
+  auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
+  AdvanceIterator(max_heap, [](Iterator* iter) { iter->Prev(); });
 }
 
 }  // namespace ROCKSDB_NAMESPACE
