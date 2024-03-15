@@ -467,6 +467,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           MergeWithNoBaseValue();
           return false;
         }
+        if (merge_context_->get_merge_operands_options != nullptr &&
+            merge_context_->get_merge_operands_options->continue_cb !=
+                nullptr &&
+            !merge_context_->get_merge_operands_options->continue_cb(value)) {
+          state_ = kFound;
+          return false;
+        }
         return true;
 
       default:

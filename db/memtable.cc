@@ -1207,6 +1207,14 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
+        if (merge_context->get_merge_operands_options != nullptr &&
+            merge_context->get_merge_operands_options->continue_cb != nullptr &&
+            !merge_context->get_merge_operands_options->continue_cb(v)) {
+          // We were told not to continue.
+          *(s->found_final_value) = true;
+          return false;
+        }
+
         return true;
       }
       default: {
