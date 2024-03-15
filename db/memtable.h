@@ -29,6 +29,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
+#include "util/cast_util.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 #include "util/hash_containers.h"
@@ -206,9 +207,9 @@ class MemTable {
   //        those allocated in arena.
   // seqno_to_time_mapping: it's used to support return write unix time for the
   // data, currently only needed for iterators serving user reads.
-  InternalIterator* NewIterator(const ReadOptions& read_options,
-                                const SeqnoToTimeMapping* seqno_to_time_mapping,
-                                Arena* arena);
+  InternalIterator* NewIterator(
+      const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena);
 
   // Returns an iterator that yields the range tombstones of the memtable.
   // The caller must ensure that the underlying MemTable remains live

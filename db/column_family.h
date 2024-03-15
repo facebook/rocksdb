@@ -26,6 +26,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/cast_util.h"
 #include "util/hash_containers.h"
 #include "util/thread_local.h"
 
@@ -240,16 +241,16 @@ struct SuperVersion {
       MemTableListVersion* new_imm, Version* new_current,
       std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping);
 
-  // Make a shared copy of the seqno to time mapping object referred to in this
+  // Share the ownership of the seqno to time mapping object referred to in this
   // SuperVersion. To be used by the new SuperVersion to be installed after this
   // one if seqno to time mapping does not change in between these two
   // SuperVersions.
-  std::shared_ptr<const SeqnoToTimeMapping> CopySeqnoToTimeMapping() {
+  std::shared_ptr<const SeqnoToTimeMapping> ShareSeqnoToTimeMapping() {
     return seqno_to_time_mapping;
   }
 
   // Access the seqno to time mapping object in this SuperVersion.
-  const SeqnoToTimeMapping* GetSeqnoToTimeMapping() const {
+  UnownedPtr<const SeqnoToTimeMapping> GetSeqnoToTimeMapping() const {
     return seqno_to_time_mapping.get();
   }
 

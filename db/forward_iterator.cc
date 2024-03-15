@@ -709,7 +709,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
                                        kMaxSequenceNumber /* upper_bound */);
-  const SeqnoToTimeMapping* seqno_to_time_mapping =
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping =
       sv_->GetSeqnoToTimeMapping();
   mutable_iter_ =
       sv_->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_);
@@ -778,7 +778,7 @@ void ForwardIterator::RenewIterators() {
   }
   imm_iters_.clear();
 
-  const SeqnoToTimeMapping* seqno_to_time_mapping =
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping =
       svnew->GetSeqnoToTimeMapping();
   mutable_iter_ =
       svnew->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_);

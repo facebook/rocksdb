@@ -37,7 +37,8 @@ struct SuperVersionContext {
 
   // If not nullptr, a new seqno to time mapping is available to be installed.
   // Otherwise, make a shared copy of the one in the existing SuperVersion and
-  // carry it over to the new SuperVersion.
+  // carry it over to the new SuperVersion. This is moved to the SuperVersion
+  // during installation.
   std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping{nullptr};
 
   explicit SuperVersionContext(bool create_superversion = false)

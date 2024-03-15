@@ -364,7 +364,7 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 class MemTableIterator : public InternalIterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
-                   const SeqnoToTimeMapping* seqno_to_time_mapping,
+                   UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
                    Arena* arena, bool use_range_del_table = false)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
@@ -506,7 +506,7 @@ class MemTableIterator : public InternalIterator {
     assert(Valid());
     // TODO(yuzhangyu): if value type is kTypeValuePreferredSeqno,
     // parse its unix write time out of packed value.
-    if (seqno_to_time_mapping_ == nullptr || seqno_to_time_mapping_->Empty()) {
+    if (!seqno_to_time_mapping_ || seqno_to_time_mapping_->Empty()) {
       return std::numeric_limits<uint64_t>::max();
     }
     SequenceNumber seqno = ExtractSequenceNumber(key());
@@ -537,7 +537,8 @@ class MemTableIterator : public InternalIterator {
   const MemTable::KeyComparator comparator_;
   MemTableRep::Iterator* iter_;
   bool valid_;
-  const SeqnoToTimeMapping* seqno_to_time_mapping_;
+  // The seqno to time mapping is owned by the SuperVersion.
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping_;
   bool arena_mode_;
   bool value_pinned_;
   uint32_t protection_bytes_per_key_;
@@ -558,7 +559,7 @@ class MemTableIterator : public InternalIterator {
 
 InternalIterator* MemTable::NewIterator(
     const ReadOptions& read_options,
-    const SeqnoToTimeMapping* seqno_to_time_mapping, Arena* arena) {
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
   return new (mem)
