@@ -158,11 +158,14 @@ void WalManager::PurgeObsoleteWALFiles() {
           ? std::min(kDefaultIntervalToDeleteObsoleteWAL,
                      std::max(uint64_t{1}, db_options_.WAL_ttl_seconds / 2))
           : kDefaultIntervalToDeleteObsoleteWAL;
-  if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
-    return;
-  }
-
-  purge_wal_files_last_run_ = now_seconds;
+  uint64_t old_last_run_time = purge_wal_files_last_run_.LoadRelaxed();
+  do {
+    if (old_last_run_time + time_to_check > now_seconds) {
+      // last run is recent enough, no need to purge
+      return;
+    }
+  } while (!purge_wal_files_last_run_.CasWeakRelaxed(
+      /*expected=*/old_last_run_time, /*desired=*/now_seconds));
 
   std::string archival_dir = ArchivalDirectory(wal_dir_);
   std::vector<std::string> files;
