@@ -105,6 +105,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
   src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
   src/main/java/org/rocksdb/AbstractComparator.java
+  src/main/java/org/rocksdb/AbstractComparatorJniBridge.java
   src/main/java/org/rocksdb/AbstractEventListener.java
   src/main/java/org/rocksdb/AbstractImmutableNativeReference.java
   src/main/java/org/rocksdb/AbstractMutableOptions.java
@@ -315,6 +316,14 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/CompactionOptionsTest.java
   src/test/java/org/rocksdb/PlatformRandomHelper.java
   src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
+  src/test/java/org/rocksdb/ImportColumnFamilyTest.java
+  src/test/java/org/rocksdb/KeyExistsTest.java
+  src/test/java/org/rocksdb/MergeCFVariantsTest.java
+  src/test/java/org/rocksdb/MergeVariantsTest.java
+  src/test/java/org/rocksdb/PerfContextTest.java
+  src/test/java/org/rocksdb/PerfLevelTest.java
+  src/test/java/org/rocksdb/PutCFVariantsTest.java
+  src/test/java/org/rocksdb/PutVariantsTest.java
   src/test/java/org/rocksdb/MutableDBOptionsTest.java
   src/test/java/org/rocksdb/WriteOptionsTest.java
   src/test/java/org/rocksdb/SstPartitionerTest.java
@@ -425,31 +434,41 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.EventListenerTest
   org.rocksdb.CompactionOptionsTest
   org.rocksdb.IngestExternalFileOptionsTest
+  org.rocksdb.ImportColumnFamilyTest
   org.rocksdb.MutableDBOptionsTest
   org.rocksdb.WriteOptionsTest
   org.rocksdb.SstPartitionerTest
   org.rocksdb.RocksMemEnvTest
   org.rocksdb.CompactionOptionsUniversalTest
   org.rocksdb.ClockCacheTest
-  # org.rocksdb.BytewiseComparatorRegressionTest
+  org.rocksdb.BytewiseComparatorRegressionTest
   org.rocksdb.SnapshotTest
   org.rocksdb.CompactionJobStatsTest
   org.rocksdb.MemTableTest
   org.rocksdb.CompactionFilterFactoryTest
-  # org.rocksdb.DefaultEnvTest
+  org.rocksdb.DefaultEnvTest
   org.rocksdb.DBOptionsTest
   org.rocksdb.WriteBatchTest
   org.rocksdb.RocksIteratorTest
   org.rocksdb.SliceTest
   org.rocksdb.MultiGetTest
   org.rocksdb.ComparatorOptionsTest
-  # org.rocksdb.NativeLibraryLoaderTest
+  org.rocksdb.NativeLibraryLoaderTest
   org.rocksdb.StatisticsTest
   org.rocksdb.WALRecoveryModeTest
   org.rocksdb.TransactionLogIteratorTest
   org.rocksdb.ReadOptionsTest
   org.rocksdb.SecondaryDBTest
   org.rocksdb.KeyMayExistTest
+  org.rocksdb.KeyExistsTest
+  org.rocksdb.MergeCFVariantsTest
+  org.rocksdb.MergeVariantsTest
+  org.rocksdb.NativeComparatorWrapperTest
+  org.rocksdb.PerfContextTest
+  org.rocksdb.PerfLevelTest
+  org.rocksdb.PutCFVariantsTest
+  org.rocksdb.PutVariantsTest
+  org.rocksdb.RocksDBExceptionTest
   org.rocksdb.BlobOptionsTest
   org.rocksdb.InfoLogLevelTest
   org.rocksdb.CompactionPriorityTest
@@ -467,24 +486,23 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.BackupEngineOptionsTest
   org.rocksdb.CheckPointTest
   org.rocksdb.PlainTableConfigTest
-  # org.rocksdb.TransactionDBOptionsTest
+  org.rocksdb.TransactionDBOptionsTest
   org.rocksdb.ReadOnlyTest
   org.rocksdb.EnvOptionsTest
   org.rocksdb.LoggerTest
   org.rocksdb.FilterTest
-  # org.rocksdb.ByteBufferUnsupportedOperationTest
-  # org.rocksdb.util.IntComparatorTest
-  # org.rocksdb.util.JNIComparatorTest
+  org.rocksdb.ByteBufferUnsupportedOperationTest
+  org.rocksdb.util.IntComparatorTest
+  org.rocksdb.util.JNIComparatorTest
   org.rocksdb.util.SizeUnitTest
-  # org.rocksdb.util.BytewiseComparatorTest
+  org.rocksdb.util.BytewiseComparatorTest
   org.rocksdb.util.EnvironmentTest
-  # org.rocksdb.util.BytewiseComparatorIntTest
-  # org.rocksdb.util.ReverseBytewiseComparatorIntTest
+  org.rocksdb.util.BytewiseComparatorIntTest
+  org.rocksdb.util.ReverseBytewiseComparatorIntTest
   org.rocksdb.MixedOptionsTest
   org.rocksdb.CompactRangeOptionsTest
-  # org.rocksdb.SstFileWriterTest
+  org.rocksdb.SstFileWriterTest
   org.rocksdb.WalFilterTest
-  # org.rocksdb.AbstractTransactionTest
   org.rocksdb.MergeTest
   org.rocksdb.OptionsTest
   org.rocksdb.WriteBatchThreadedTest
@@ -495,7 +513,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.BlockBasedTableConfigTest
   org.rocksdb.BuiltinComparatorTest
   org.rocksdb.RateLimiterTest
-  # org.rocksdb.TransactionOptionsTest
+  org.rocksdb.TransactionOptionsTest
   org.rocksdb.WriteBatchWithIndexTest
   org.rocksdb.WriteBatchHandlerTest
   org.rocksdb.OptimisticTransactionDBTest
@@ -508,7 +526,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.TransactionDBTest
   org.rocksdb.RocksDBTest
   org.rocksdb.MutableOptionsGetSetTest
-  # org.rocksdb.OptimisticTransactionOptionsTest
+  org.rocksdb.OptimisticTransactionOptionsTest
   org.rocksdb.SstFileManagerTest
   org.rocksdb.BackupEngineTest
   org.rocksdb.DirectSliceTest
