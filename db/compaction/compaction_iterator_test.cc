@@ -17,6 +17,14 @@
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+std::string ValueWithPreferredSeqno(std::string val,
+                                    SequenceNumber preferred_seqno = 0) {
+  std::string result = val;
+  PutFixed64(&result, preferred_seqno);
+  return result;
+}
+}  // namespace
 
 // Expects no merging attempts.
 class NoMergingMergeOp : public MergeOperator {
@@ -392,6 +400,17 @@ TEST_P(CompactionIteratorTest, CorruptionAfterSingleDeletion) {
   ASSERT_FALSE(c_iter_->Valid());
 }
 
+// Tests compatibility of TimedPut and SingleDelete. TimedPut should act as if
+// it's a Put.
+TEST_P(CompactionIteratorTest, TimedPutAndSingleDelete) {
+  InitIterators({test::KeyStr("a", 5, kTypeSingleDeletion),
+                 test::KeyStr("a", 3, kTypeValuePreferredSeqno)},
+                {"", "val"}, {}, {}, 5);
+  c_iter_->SeekToFirst();
+  ASSERT_OK(c_iter_->status());
+  ASSERT_FALSE(c_iter_->Valid());
+}
+
 TEST_P(CompactionIteratorTest, SimpleRangeDeletion) {
   InitIterators({test::KeyStr("morning", 5, kTypeValue),
                  test::KeyStr("morning", 2, kTypeValue),
@@ -426,6 +445,31 @@ TEST_P(CompactionIteratorTest, RangeDeletionWithSnapshots) {
   c_iter_->Next();
   ASSERT_TRUE(c_iter_->Valid());
   ASSERT_EQ(test::KeyStr("night", 40, kTypeValue), c_iter_->key().ToString());
+  c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
+  ASSERT_FALSE(c_iter_->Valid());
+}
+
+// Tests compatibility of TimedPut and Range delete. TimedPut should act as if
+// it's a Put.
+TEST_P(CompactionIteratorTest, TimedPutAndRangeDeletion) {
+  InitIterators(
+      {test::KeyStr("morning", 5, kTypeValuePreferredSeqno),
+       test::KeyStr("morning", 2, kTypeValuePreferredSeqno),
+       test::KeyStr("night", 3, kTypeValuePreferredSeqno)},
+      {ValueWithPreferredSeqno("zao5"), ValueWithPreferredSeqno("zao2"),
+       ValueWithPreferredSeqno("wan")},
+      {test::KeyStr("ma", 4, kTypeRangeDeletion)}, {"mz"}, 5);
+  c_iter_->SeekToFirst();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("morning", 5, kTypeValuePreferredSeqno),
+            c_iter_->key().ToString());
+  ASSERT_EQ(ValueWithPreferredSeqno("zao5"), c_iter_->value().ToString());
+  c_iter_->Next();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("night", 3, kTypeValuePreferredSeqno),
+            c_iter_->key().ToString());
+  ASSERT_EQ(ValueWithPreferredSeqno("wan"), c_iter_->value().ToString());
   c_iter_->Next();
   ASSERT_OK(c_iter_->status());
   ASSERT_FALSE(c_iter_->Valid());
@@ -502,9 +546,11 @@ TEST_P(CompactionIteratorTest, CompactionFilterSkipUntil) {
        test::KeyStr("f", 25, kTypeValue), test::KeyStr("g", 90, kTypeValue),
        test::KeyStr("h", 91, kTypeValue),  // keep
        test::KeyStr("i", 95, kTypeMerge),  // skip to "z"
-       test::KeyStr("j", 99, kTypeValue)},
+       test::KeyStr("j", 99, kTypeValue),
+       test::KeyStr("k", 100, kTypeValuePreferredSeqno)},
       {"av50", "am45", "bv60", "bv40", "cv35", "dm70", "em71", "fm65", "fm30",
-       "fv25", "gv90", "hv91", "im95", "jv99"},
+       "fv25", "gv90", "hv91", "im95", "jv99",
+       ValueWithPreferredSeqno("kv100")},
       {}, {}, kMaxSequenceNumber, kMaxSequenceNumber, &merge_op, &filter);
 
   // Compaction should output just "a", "e" and "h" keys.
@@ -614,87 +660,87 @@ TEST_P(CompactionIteratorTest, ShuttingDownInMerge) {
   EXPECT_EQ(2, filter.last_seen.load());
 }
 
-TEST_P(CompactionIteratorTest, SingleMergeOperand) {
-  class Filter : public CompactionFilter {
-    Decision FilterV2(int /*level*/, const Slice& key, ValueType t,
-                      const Slice& existing_value, std::string* /*new_value*/,
-                      std::string* /*skip_until*/) const override {
-      std::string k = key.ToString();
-      std::string v = existing_value.ToString();
+class Filter : public CompactionFilter {
+  Decision FilterV2(int /*level*/, const Slice& key, ValueType t,
+                    const Slice& existing_value, std::string* /*new_value*/,
+                    std::string* /*skip_until*/) const override {
+    std::string k = key.ToString();
+    std::string v = existing_value.ToString();
 
-      // See InitIterators() call below for the sequence of keys and their
-      // filtering decisions. Here we closely assert that compaction filter is
-      // called with the expected keys and only them, and with the right values.
-      if (k == "a") {
-        EXPECT_EQ(ValueType::kMergeOperand, t);
-        EXPECT_EQ("av1", v);
-        return Decision::kKeep;
-      } else if (k == "b") {
-        EXPECT_EQ(ValueType::kMergeOperand, t);
-        return Decision::kKeep;
-      } else if (k == "c") {
-        return Decision::kKeep;
-      }
-
-      ADD_FAILURE();
+    // See InitIterators() call below for the sequence of keys and their
+    // filtering decisions. Here we closely assert that compaction filter is
+    // called with the expected keys and only them, and with the right values.
+    if (k == "a") {
+      EXPECT_EQ(ValueType::kMergeOperand, t);
+      EXPECT_EQ("av1", v);
+      return Decision::kKeep;
+    } else if (k == "b") {
+      EXPECT_EQ(ValueType::kMergeOperand, t);
+      return Decision::kKeep;
+    } else if (k == "c") {
       return Decision::kKeep;
     }
 
-    const char* Name() const override {
-      return "CompactionIteratorTest.SingleMergeOperand::Filter";
-    }
-  };
+    ADD_FAILURE();
+    return Decision::kKeep;
+  }
 
-  class SingleMergeOp : public MergeOperator {
-   public:
-    bool FullMergeV2(const MergeOperationInput& merge_in,
-                     MergeOperationOutput* merge_out) const override {
-      // See InitIterators() call below for why "c" is the only key for which
-      // FullMergeV2 should be called.
-      EXPECT_EQ("c", merge_in.key.ToString());
+  const char* Name() const override {
+    return "CompactionIteratorTest.SingleMergeOperand::Filter";
+  }
+};
 
-      std::string temp_value;
-      if (merge_in.existing_value != nullptr) {
-        temp_value = merge_in.existing_value->ToString();
-      }
+class SingleMergeOp : public MergeOperator {
+ public:
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
+    // See InitIterators() call below for why "c" is the only key for which
+    // FullMergeV2 should be called.
+    EXPECT_EQ("c", merge_in.key.ToString());
 
-      for (auto& operand : merge_in.operand_list) {
-        temp_value.append(operand.ToString());
-      }
-      merge_out->new_value = temp_value;
-
-      return true;
+    std::string temp_value;
+    if (merge_in.existing_value != nullptr) {
+      temp_value = merge_in.existing_value->ToString();
     }
 
-    bool PartialMergeMulti(const Slice& key,
-                           const std::deque<Slice>& operand_list,
-                           std::string* new_value,
-                           Logger* /*logger*/) const override {
-      std::string string_key = key.ToString();
-      EXPECT_TRUE(string_key == "a" || string_key == "b");
+    for (auto& operand : merge_in.operand_list) {
+      temp_value.append(operand.ToString());
+    }
+    merge_out->new_value = temp_value;
 
-      if (string_key == "a") {
-        EXPECT_EQ(1, operand_list.size());
-      } else if (string_key == "b") {
-        EXPECT_EQ(2, operand_list.size());
-      }
+    return true;
+  }
 
-      std::string temp_value;
-      for (auto& operand : operand_list) {
-        temp_value.append(operand.ToString());
-      }
-      swap(temp_value, *new_value);
+  bool PartialMergeMulti(const Slice& key,
+                         const std::deque<Slice>& operand_list,
+                         std::string* new_value,
+                         Logger* /*logger*/) const override {
+    std::string string_key = key.ToString();
+    EXPECT_TRUE(string_key == "a" || string_key == "b");
 
-      return true;
+    if (string_key == "a") {
+      EXPECT_EQ(1, operand_list.size());
+    } else if (string_key == "b") {
+      EXPECT_EQ(2, operand_list.size());
     }
 
-    const char* Name() const override {
-      return "CompactionIteratorTest SingleMergeOp";
+    std::string temp_value;
+    for (auto& operand : operand_list) {
+      temp_value.append(operand.ToString());
     }
+    swap(temp_value, *new_value);
 
-    bool AllowSingleOperand() const override { return true; }
-  };
+    return true;
+  }
 
+  const char* Name() const override {
+    return "CompactionIteratorTest SingleMergeOp";
+  }
+
+  bool AllowSingleOperand() const override { return true; }
+};
+
+TEST_P(CompactionIteratorTest, SingleMergeOperand) {
   SingleMergeOp merge_op;
   Filter filter;
   InitIterators(
@@ -715,6 +761,24 @@ TEST_P(CompactionIteratorTest, SingleMergeOperand) {
   ASSERT_TRUE(c_iter_->Valid());
   ASSERT_EQ("bv1bv2", c_iter_->value().ToString());
   c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
+  ASSERT_EQ("cv1cv2", c_iter_->value().ToString());
+}
+
+// Tests compatibility of TimedPut and Merge operation. When a TimedPut is
+// merged with some merge operand in compaction, it will become a regular Put
+// and lose its preferred sequence number.
+TEST_P(CompactionIteratorTest, TimedPutAndMerge) {
+  SingleMergeOp merge_op;
+  Filter filter;
+  InitIterators({test::KeyStr("c", 90, kTypeMerge),
+                 test::KeyStr("c", 80, kTypeValuePreferredSeqno)},
+                {"cv2", ValueWithPreferredSeqno("cv1")}, {}, {},
+                kMaxSequenceNumber, kMaxSequenceNumber, &merge_op, &filter);
+
+  c_iter_->SeekToFirst();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("c", 90, kTypeValue), c_iter_->key().ToString());
   ASSERT_OK(c_iter_->status());
   ASSERT_EQ("cv1cv2", c_iter_->value().ToString());
 }
@@ -963,6 +1027,22 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_Value) {
       {"v4", "v3", "v1"}, 3 /*last_committed_seq*/);
 }
 
+TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_TimedPut) {
+  AddSnapshot(2, 1);
+  RunTest({test::KeyStr("foo", 4, kTypeValuePreferredSeqno),
+           test::KeyStr("foo", 3, kTypeValuePreferredSeqno),
+           test::KeyStr("foo", 2, kTypeValuePreferredSeqno),
+           test::KeyStr("foo", 1, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("v4"), ValueWithPreferredSeqno("v3"),
+           ValueWithPreferredSeqno("v2"), ValueWithPreferredSeqno("v1")},
+          {test::KeyStr("foo", 4, kTypeValuePreferredSeqno),
+           test::KeyStr("foo", 3, kTypeValuePreferredSeqno),
+           test::KeyStr("foo", 1, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("v4"), ValueWithPreferredSeqno("v3"),
+           ValueWithPreferredSeqno("v1")},
+          3 /*last_committed_seq*/);
+}
+
 TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_Deletion) {
   AddSnapshot(2, 1);
   RunTest(
@@ -1128,6 +1208,114 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
           2 /* earliest_write_conflict_snapshot */);
 }
 
+// Same as above but with a value with preferred seqno entry. In addition to the
+// value getting trimmed, the type of the KV is changed to kTypeValue.
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       KeepSingleDeletionForWriteConflictChecking_TimedPut) {
+  AddSnapshot(2, 0);
+  RunTest({test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeValuePreferredSeqno)},
+          {"", ValueWithPreferredSeqno("v1")},
+          {test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeValue)},
+          {"", ""}, 2 /* last_committed_seq */, nullptr /* merge_operator */,
+          nullptr /* compaction_filter */, false /* bottommost_level */,
+          2 /* earliest_write_conflict_snapshot */);
+}
+
+// Tests when a kTypeValuePreferredSeqno entry can have its preferred sequence
+// number swapped in. The required and sufficient conditions for an entry's
+// preferred sequence number to get swapped in are:
+// 1) The entry is visible to the earliest snapshot, AND
+// 2) No more entries with the same user key on lower levels, AND
+//    This is either because:
+//    2a) This is a compaction to the bottommost level, OR
+//    2b) Keys do not exist beyond output level
+// 3) The entry will not resurface a range deletion entry after swapping in the
+//    preferred sequence number.
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       TimedPut_NotVisibleToEarliestSnapshot_NoSwapPreferredSeqno) {
+  AddSnapshot(3);
+  RunTest({test::KeyStr("bar", 5, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("bv2", 2)},
+          {test::KeyStr("bar", 5, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("bv2", 2), "bv1"}, 5 /*last_committed_seq*/,
+          nullptr /*merge_operator*/, nullptr /*compaction_filter*/,
+          true /*bottommost_level*/,
+          kMaxSequenceNumber /*earliest_write_conflict_snapshot*/,
+          true /*key_not_exists_beyond_output_level*/);
+}
+
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       TimedPut_MoreEntriesInLowerLevels_NoSwapPreferredSeqno) {
+  // This tests mimics more entries in lower levels with `bottommost_level` and
+  // `key_not_exists_beyond_output_level` set to false.
+  RunTest({test::KeyStr("bar", 5, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("bv2", 2)},
+          {test::KeyStr("bar", 5, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("bv2", 2)}, 5 /*last_committed_seq*/,
+          nullptr /*merge_operator*/, nullptr /*compaction_filter*/,
+          false /*bottommost_level*/,
+          kMaxSequenceNumber /*earliest_write_conflict_snapshot*/,
+          false /*key_not_exists_beyond_output_level*/);
+}
+
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       TimedPut_WillBeHiddenByRangeDeletionAfterSwap_NoSwap) {
+  InitIterators({test::KeyStr("morning", 5, kTypeValuePreferredSeqno),
+                 test::KeyStr("night", 6, kTypeValue)},
+                {ValueWithPreferredSeqno("zao", 3), "wan"},
+                {test::KeyStr("ma", 4, kTypeRangeDeletion)}, {"mz"}, 6,
+                kMaxSequenceNumber /*last_committed_sequence*/,
+                nullptr /*merge_op*/, nullptr /*filter*/,
+                false /*bottommost_level*/,
+                kMaxSequenceNumber /*earliest_write_conflict_snapshot*/,
+                true /*key_not_exists_beyond_output_level*/);
+  c_iter_->SeekToFirst();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("morning", 5, kTypeValuePreferredSeqno),
+            c_iter_->key().ToString());
+  ASSERT_EQ(ValueWithPreferredSeqno("zao", 3), c_iter_->value().ToString());
+  c_iter_->Next();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("night", 6, kTypeValue), c_iter_->key().ToString());
+  ASSERT_EQ("wan", c_iter_->value().ToString());
+  c_iter_->Next();
+  ASSERT_FALSE(c_iter_->Valid());
+  ASSERT_OK(c_iter_->status());
+}
+
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       TimedPut_BottomMostLevelVisibleToEarliestSnapshot_SwapPreferredSeqno) {
+  // Preferred seqno got swapped in and also zeroed out as a bottommost level
+  // optimization.
+  RunTest(
+      {test::KeyStr("bar", 5, kTypeValuePreferredSeqno),
+       test::KeyStr("bar", 4, kTypeValuePreferredSeqno),
+       test::KeyStr("foo", 6, kTypeValue)},
+      {ValueWithPreferredSeqno("bv2", 2), ValueWithPreferredSeqno("bv1", 1),
+       "fv1"},
+      {test::KeyStr("bar", 0, kTypeValue), test::KeyStr("foo", 0, kTypeValue)},
+      {"bv2", "fv1"}, 6 /*last_committed_seq*/, nullptr /*merge_operator*/,
+      nullptr /*compaction_filter*/, true /*bottommost_level*/);
+}
+
+TEST_F(
+    CompactionIteratorWithSnapshotCheckerTest,
+    TimedPut_NonBottomMostLevelVisibleToEarliestSnapshot_SwapPreferredSeqno) {
+  RunTest(
+      {test::KeyStr("bar", 5, kTypeValuePreferredSeqno),
+       test::KeyStr("bar", 4, kTypeValuePreferredSeqno),
+       test::KeyStr("foo", 6, kTypeValue)},
+      {ValueWithPreferredSeqno("bv2", 2), ValueWithPreferredSeqno("bv1", 1),
+       "fv1"},
+      {test::KeyStr("bar", 2, kTypeValue), test::KeyStr("foo", 6, kTypeValue)},
+      {"bv2", "fv1"}, 6 /*last_committed_seq*/, nullptr /*merge_operator*/,
+      nullptr /*compaction_filter*/, false /*bottommost_level*/,
+      kMaxSequenceNumber /*earliest_write_conflict_snapshot*/,
+      true /*key_not_exists_beyond_output_level*/);
+}
+
 // Compaction filter should keep uncommitted key as-is, and
 //   * Convert the latest value to deletion, and/or
 //   * if latest value is a merge, apply filter to all subsequent merges.
@@ -1143,6 +1331,22 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_Value) {
        test::KeyStr("b", 3, kTypeValue), test::KeyStr("c", 1, kTypeDeletion)},
       {"v2", "", "v3", ""}, 1 /*last_committed_seq*/,
       nullptr /*merge_operator*/, compaction_filter.get());
+}
+
+TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_TimedPut) {
+  // TODO(yuzhangyu): Add support for this type in compaction filter.
+  // Type kTypeValuePreferredSeqno is not explicitly exposed in the compaction
+  // filter API, so users can not operate on it through compaction filter API
+  // to remove/purge/change value etc. But this type of entry can be impacted by
+  // other entries' filter result, currently only kRemoveAndSkip type of result
+  // can affect it.
+  std::unique_ptr<CompactionFilter> compaction_filter(
+      new FilterAllKeysCompactionFilter());
+  RunTest({test::KeyStr("a", 2, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("v1")},
+          {test::KeyStr("a", 2, kTypeValuePreferredSeqno)},
+          {ValueWithPreferredSeqno("v1")}, 2 /*last_committed_seq*/,
+          nullptr /*merge_operator*/, compaction_filter.get());
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_Deletion) {

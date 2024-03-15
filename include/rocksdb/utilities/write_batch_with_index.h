@@ -229,7 +229,18 @@ class WriteBatchWithIndex : public WriteBatchBase {
     return GetFromBatch(nullptr, options, key, value);
   }
 
-  // TODO: implement GetEntityFromBatch
+  // If the batch contains an entry for "key" in "column_family", return it as a
+  // wide-column entity in "*columns". If the entry is a wide-column entity,
+  // return it as-is; if it is a plain key-value, return it as an entity with a
+  // single anonymous column (see kDefaultWideColumnName) which contains the
+  // value.
+  //
+  // Returns OK on success, NotFound if the there is no mapping for "key",
+  // MergeInProgress if the key has merge operands but the base value cannot be
+  // resolved based on the batch, or some error status (e.g. Corruption
+  // or InvalidArgument) on failure.
+  Status GetEntityFromBatch(ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableWideColumns* columns);
 
   // Similar to DB::Get() but will also read writes from this batch.
   //

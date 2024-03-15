@@ -38,8 +38,8 @@
     </scm>
 
     <properties>
-        <project.build.source>1.7</project.build.source>
-        <project.build.target>1.7</project.build.target>
+        <project.build.source>17</project.build.source>
+        <project.build.target>17</project.build.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <jmh.version>1.22</jmh.version>
@@ -50,7 +50,7 @@
         <dependency>
             <groupId>org.rocksdb</groupId>
             <artifactId>rocksdbjni</artifactId>
-            <version>7.9.0-SNAPSHOT</version>
+            <version>9.0.0</version>
         </dependency>
 
         <dependency>

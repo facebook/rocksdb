@@ -410,6 +410,7 @@ class CompactionIterator {
     kKeepDel = 9,
     kNewUserKey = 10,
     kRangeDeletion = 11,
+    kSwapPreferredSeqno = 12,
   };
 
   struct ValidityInfo {

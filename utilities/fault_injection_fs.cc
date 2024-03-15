@@ -195,9 +195,10 @@ IOStatus TestFSWritableFile::Append(
                          data.size(), &checksum);
   if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
       checksum != verification_info.checksum.ToString()) {
-    std::string msg = "Data is corrupted! Origin data checksum: " +
-                      verification_info.checksum.ToString() +
-                      "current data checksum: " + checksum;
+    std::string msg =
+        "Data is corrupted! Origin data checksum: " +
+        verification_info.checksum.ToString(true) +
+        "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
   if (target_->use_direct_io()) {
@@ -228,9 +229,10 @@ IOStatus TestFSWritableFile::PositionedAppend(
                          data.size(), &checksum);
   if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
       checksum != verification_info.checksum.ToString()) {
-    std::string msg = "Data is corrupted! Origin data checksum: " +
-                      verification_info.checksum.ToString() +
-                      "current data checksum: " + checksum;
+    std::string msg =
+        "Data is corrupted! Origin data checksum: " +
+        verification_info.checksum.ToString(true) +
+        "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
   target_->PositionedAppend(data, offset, options, dbg);

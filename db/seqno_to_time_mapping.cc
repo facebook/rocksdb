@@ -490,4 +490,45 @@ std::string SeqnoToTimeMapping::ToHumanString() const {
   return ret;
 }
 
+Slice PackValueAndWriteTime(const Slice& value, uint64_t unix_write_time,
+                            std::string* buf) {
+  buf->assign(value.data(), value.size());
+  PutFixed64(buf, unix_write_time);
+  return Slice(*buf);
+}
+
+Slice PackValueAndSeqno(const Slice& value, SequenceNumber seqno,
+                        std::string* buf) {
+  buf->assign(value.data(), value.size());
+  PutFixed64(buf, seqno);
+  return Slice(*buf);
+}
+
+std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value) {
+  assert(value.size() >= sizeof(uint64_t));
+  Slice write_time_slice(value.data() + value.size() - sizeof(uint64_t),
+                         sizeof(uint64_t));
+  uint64_t write_time;
+  [[maybe_unused]] auto res = GetFixed64(&write_time_slice, &write_time);
+  assert(res);
+  return std::make_tuple(Slice(value.data(), value.size() - sizeof(uint64_t)),
+                         write_time);
+}
+
+std::tuple<Slice, SequenceNumber> ParsePackedValueWithSeqno(
+    const Slice& value) {
+  assert(value.size() >= sizeof(SequenceNumber));
+  Slice seqno_slice(value.data() + value.size() - sizeof(uint64_t),
+                    sizeof(uint64_t));
+  SequenceNumber seqno;
+  [[maybe_unused]] auto res = GetFixed64(&seqno_slice, &seqno);
+  assert(res);
+  return std::make_tuple(
+      Slice(value.data(), value.size() - sizeof(SequenceNumber)), seqno);
+}
+
+Slice ParsePackedValueForValue(const Slice& value) {
+  assert(value.size() >= sizeof(uint64_t));
+  return Slice(value.data(), value.size() - sizeof(uint64_t));
+}
 }  // namespace ROCKSDB_NAMESPACE

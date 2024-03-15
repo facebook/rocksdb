@@ -850,6 +850,9 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t start_cpu_micros = clock_->CPUMicros();
   Status s;
 
+  // TODO(yuzhangyu): extend the copied seqno to time mapping range here so
+  // it can try to cover the earliest write unix time as much as possible. We
+  // need this mapping to get a more precise preferred seqno.
   SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
   if (!db_impl_seqno_to_time_mapping_.Empty()) {
     // make a local copy to use while not holding the db_mutex.

@@ -1176,6 +1176,9 @@ class DBTestBase : public testing::Test {
   Status Put(int cf, const Slice& k, const Slice& v,
              WriteOptions wo = WriteOptions());
 
+  Status TimedPut(int cf, const Slice& k, const Slice& v,
+                  uint64_t write_unix_time, WriteOptions wo = WriteOptions());
+
   Status Merge(const Slice& k, const Slice& v,
                WriteOptions wo = WriteOptions());
 

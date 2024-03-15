@@ -449,6 +449,11 @@ class WriteBatchWithIndexInternal {
       const Slice& key, MergeContext* merge_context, std::string* value,
       Status* s);
 
+  static WBWIIteratorImpl::Result GetEntityFromBatch(
+      WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+      const Slice& key, MergeContext* merge_context,
+      PinnableWideColumns* columns, Status* s);
+
  private:
   static Status CheckAndGetImmutableOptions(ColumnFamilyHandle* column_family,
                                             const ImmutableOptions** ioptions);

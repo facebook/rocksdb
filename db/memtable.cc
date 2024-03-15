@@ -983,7 +983,8 @@ static bool SaveValue(void* arg, const char* entry) {
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
          type == kTypeWideColumnEntity || type == kTypeDeletion ||
-         type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp) &&
+         type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp ||
+         type == kTypeValuePreferredSeqno) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
@@ -1035,12 +1036,17 @@ static bool SaveValue(void* arg, const char* entry) {
 
         return false;
       }
-      case kTypeValue: {
+      case kTypeValue:
+      case kTypeValuePreferredSeqno: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
         }
 
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+
+        if (type == kTypeValuePreferredSeqno) {
+          v = ParsePackedValueForValue(v);
+        }
 
         *(s->status) = Status::OK();
 

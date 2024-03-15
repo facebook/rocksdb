@@ -304,9 +304,7 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB open(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
-
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     int defaultColumnFamilyIndex = -1;
@@ -320,7 +318,7 @@ public class RocksDB extends RocksObject {
       }
     }
     if (defaultColumnFamilyIndex < 0) {
-      new IllegalArgumentException(
+      throw new IllegalArgumentException(
           "You must provide the default column family in your columnFamilyDescriptors");
     }
 
@@ -502,11 +500,19 @@ public class RocksDB extends RocksObject {
 
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      throw new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final long[] handles =
@@ -521,7 +527,7 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(db.makeDefaultColumnFamilyHandle());
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return db;
   }
@@ -2309,7 +2315,7 @@ public class RocksDB extends RocksObject {
       final List<byte[]> keys) throws RocksDBException,
       IllegalArgumentException {
     assert (!keys.isEmpty());
-    // Check if key size equals cfList size. If not a exception must be
+    // Check if key size equals cfList size. If not an exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size() != columnFamilyHandleList.size()) {
         throw new IllegalArgumentException(
@@ -2499,7 +2505,8 @@ public class RocksDB extends RocksObject {
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (values.size() != keys.size()) {
-      throw new IllegalArgumentException("For each key there must be a corresponding value.");
+      throw new IllegalArgumentException("For each key there must be a corresponding value. "
+          + keys.size() + " keys were supplied, but " + values.size() + " values were supplied.");
     }
 
     // TODO (AP) support indirect buffers
@@ -2549,6 +2556,12 @@ public class RocksDB extends RocksObject {
         value.position(Math.min(valuesSizeArray[i], value.capacity()));
         value.flip(); // prepare for read out
         results.add(new ByteBufferGetStatus(status, valuesSizeArray[i], value));
+      } else if (status.getCode() == Status.Code.Incomplete) {
+        assert valuesSizeArray[i] == -1;
+        final ByteBuffer value = valuesArray[i];
+        value.position(value.capacity());
+        value.flip(); // prepare for read out
+        results.add(new ByteBufferGetStatus(status, value.capacity(), value));
       } else {
         results.add(new ByteBufferGetStatus(status));
       }

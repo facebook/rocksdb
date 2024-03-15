@@ -211,12 +211,16 @@ Status BuildTable(
         ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
 
     std::string key_after_flush_buf;
+    std::string value_buf;
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
-      const ParsedInternalKey& ikey = c_iter.ikey();
-      Slice key_after_flush = key;
+      ParsedInternalKey ikey = c_iter.ikey();
+      key_after_flush_buf.assign(key.data(), key.size());
+      Slice key_after_flush = key_after_flush_buf;
+      Slice value_after_flush = value;
+
       // If user defined timestamps will be stripped from user key after flush,
       // the in memory version of the key act logically the same as one with a
       // minimum timestamp. We update the timestamp here so file boundary and
@@ -227,17 +231,34 @@ Status BuildTable(
         key_after_flush = key_after_flush_buf;
       }
 
+      if (ikey.type == kTypeValuePreferredSeqno) {
+        auto [unpacked_value, unix_write_time] =
+            ParsePackedValueWithWriteTime(value);
+        SequenceNumber preferred_seqno =
+            seqno_to_time_mapping.GetProximalSeqnoBeforeTime(unix_write_time);
+        if (preferred_seqno < ikey.sequence) {
+          value_after_flush =
+              PackValueAndSeqno(unpacked_value, preferred_seqno, &value_buf);
+        } else {
+          // Cannot get a useful preferred seqno, convert it to a kTypeValue.
+          UpdateInternalKey(&key_after_flush_buf, ikey.sequence, kTypeValue);
+          ikey = ParsedInternalKey(ikey.user_key, ikey.sequence, kTypeValue);
+          key_after_flush = key_after_flush_buf;
+          value_after_flush = ParsePackedValueForValue(value);
+        }
+      }
+
       //  Generate a rolling 64-bit hash of the key and values
       //  Note :
       //  Here "key" integrates 'sequence_number'+'kType'+'user key'.
-      s = output_validator.Add(key_after_flush, value);
+      s = output_validator.Add(key_after_flush, value_after_flush);
       if (!s.ok()) {
         break;
       }
-      builder->Add(key_after_flush, value);
+      builder->Add(key_after_flush, value_after_flush);
 
-      s = meta->UpdateBoundaries(key_after_flush, value, ikey.sequence,
-                                 ikey.type);
+      s = meta->UpdateBoundaries(key_after_flush, value_after_flush,
+                                 ikey.sequence, ikey.type);
       if (!s.ok()) {
         break;
       }

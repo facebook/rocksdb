@@ -203,13 +203,14 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
+    uint64_t unix_write_time = 0;
     char tag = 0;
 
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
-                                 &blob, &xid);
+                                 &blob, &xid, &unix_write_time);
     if (!s.ok()) {
       break;
     }
@@ -263,6 +264,12 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
           AddNewEntry(column_family_id);
         }
         break;
+      case kTypeColumnFamilyValuePreferredSeqno:
+      case kTypeValuePreferredSeqno:
+        // TimedPut is not supported in Transaction APIs.
+        return Status::Corruption(
+            "unexpected WriteBatch tag in ReBuildIndex",
+            std::to_string(static_cast<unsigned int>(tag)));
       default:
         return Status::Corruption(
             "unknown WriteBatch tag in ReBuildIndex",
@@ -460,6 +467,26 @@ Status WriteBatchWithIndex::PutLogData(const Slice& blob) {
 
 void WriteBatchWithIndex::Clear() { rep->Clear(); }
 
+namespace {
+Status PostprocessStatusBatchOnly(const Status& s,
+                                  WBWIIteratorImpl::Result result) {
+  if (result == WBWIIteratorImpl::kDeleted ||
+      result == WBWIIteratorImpl::kNotFound) {
+    s.PermitUncheckedError();
+    return Status::NotFound();
+  }
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    s.PermitUncheckedError();
+    return Status::MergeInProgress();
+  }
+
+  assert(result == WBWIIteratorImpl::kFound ||
+         result == WBWIIteratorImpl::kError);
+  return s;
+}
+}  // anonymous namespace
+
 Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const DBOptions& /* options */,
                                          const Slice& key, std::string* value) {
@@ -468,23 +495,28 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
   auto result = WriteBatchWithIndexInternal::GetFromBatch(
       this, column_family, key, &merge_context, value, &s);
 
-  switch (result) {
-    case WBWIIteratorImpl::kFound:
-    case WBWIIteratorImpl::kError:
-      // use returned status
-      break;
-    case WBWIIteratorImpl::kDeleted:
-    case WBWIIteratorImpl::kNotFound:
-      s = Status::NotFound();
-      break;
-    case WBWIIteratorImpl::kMergeInProgress:
-      s = Status::MergeInProgress();
-      break;
-    default:
-      assert(false);
+  return PostprocessStatusBatchOnly(s, result);
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatch(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    PinnableWideColumns* columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a column family handle");
   }
 
-  return s;
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a PinnableWideColumns object");
+  }
+
+  MergeContext merge_context;
+  Status s;
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  return PostprocessStatusBatchOnly(s, result);
 }
 
 Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,

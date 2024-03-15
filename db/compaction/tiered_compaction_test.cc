@@ -1583,6 +1583,62 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   Close();
 }
 
+TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preclude_last_level_data_seconds = 60;
+  options.preserve_internal_time_seconds = 0;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  options.last_level_temperature = Temperature::kCold;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(10) + 1));
+  });
+
+  for (int i = 0; i < kNumKeys / 2; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+      mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
+    });
+  }
+  // Create one file with regular Put.
+  ASSERT_OK(Flush());
+
+  // Create one file with TimedPut.
+  // With above mock clock operations, write_unix_time 50 should be before
+  // current_time - preclude_last_level_seconds.
+  // These data are eligible to be put on the last level once written to db
+  // and compaction will fast track them to the last level.
+  for (int i = kNumKeys / 2; i < kNumKeys; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50));
+  }
+  ASSERT_OK(Flush());
+
+  // TimedPut file moved to the last level immediately.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+
+  // Wait more than preclude_last_level time, Put file eventually moved to the
+  // last level.
+  mock_clock_->MockSleepForSeconds(100);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  Close();
+}
+
 TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;

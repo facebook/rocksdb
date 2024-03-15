@@ -759,6 +759,19 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   }
 }
 
+Status DBTestBase::TimedPut(int cf, const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  WriteBatch wb;
+  ColumnFamilyHandle* cfh;
+  if (cf != 0) {
+    cfh = handles_[cf];
+  } else {
+    cfh = db_->DefaultColumnFamily();
+  }
+  EXPECT_OK(wb.TimedPut(cfh, k, v, write_unix_time));
+  return db_->Write(wo, &wb);
+}
+
 Status DBTestBase::Merge(const Slice& k, const Slice& v, WriteOptions wo) {
   return db_->Merge(wo, k, v);
 }
