@@ -1845,10 +1845,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   const int kNumKeysPerFile = kBlockSize * kNumBlocksPerFile / kKeySize;
 
   Options options = CurrentOptions();
-  // `kNoCompression` makes the unit test more portable. But it relies on the
-  // current behavior of persisting/accessing dictionary even when there's no
-  // (de)compression happening, which seems fairly likely to change over time.
-  options.compression = kNoCompression;
+  options.compression = kLZ4Compression;
   options.compression_opts.max_dict_bytes = 4 << 10;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
@@ -1900,6 +1897,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   Get(Key(kNumKeysPerFile));
   uint64_t expected_filter_misses = filter_misses;
   uint64_t expected_index_misses = index_misses;
+  uint64_t expected_compression_dict_misses = compression_dict_misses;
   if (partition_index_and_filters_) {
     if (top_level_index_pinning_ == PinningTier::kNone) {
       ++expected_filter_misses;
@@ -1915,12 +1913,14 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
       ++expected_index_misses;
     }
   }
+  if (unpartitioned_pinning_ == PinningTier::kNone) {
+    ++expected_compression_dict_misses;
+  }
   ASSERT_EQ(expected_filter_misses,
             TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(expected_index_misses,
             TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
-  // for kNoCompression, compression dict is not set/empty
-  ASSERT_EQ(0,
+  ASSERT_EQ(expected_compression_dict_misses,
             TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 
   // Clear all unpinned blocks so unpinned blocks will show up as cache misses
