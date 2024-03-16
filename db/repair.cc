@@ -443,7 +443,8 @@ class Repairer {
       ReadOptions ro;
       ro.total_order_seek = true;
       Arena arena;
-      ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
+      ScopedArenaIterator iter(
+          mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
       int64_t _current_time = 0;
       immutable_db_options_.clock->GetCurrentTime(&_current_time)
           .PermitUncheckedError();  // ignore error

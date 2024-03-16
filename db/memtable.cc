@@ -364,11 +364,13 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 class MemTableIterator : public InternalIterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
+                   UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
                    Arena* arena, bool use_range_del_table = false)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         comparator_(mem.comparator_),
         valid_(false),
+        seqno_to_time_mapping_(seqno_to_time_mapping),
         arena_mode_(arena != nullptr),
         value_pinned_(
             !mem.GetImmutableMemTableOptions()->inplace_update_support),
@@ -499,6 +501,18 @@ class MemTableIterator : public InternalIterator {
     assert(Valid());
     return GetLengthPrefixedSlice(iter_->key());
   }
+
+  uint64_t write_unix_time() const override {
+    assert(Valid());
+    // TODO(yuzhangyu): if value type is kTypeValuePreferredSeqno,
+    // parse its unix write time out of packed value.
+    if (!seqno_to_time_mapping_ || seqno_to_time_mapping_->Empty()) {
+      return std::numeric_limits<uint64_t>::max();
+    }
+    SequenceNumber seqno = ExtractSequenceNumber(key());
+    return seqno_to_time_mapping_->GetProximalTimeBeforeSeqno(seqno);
+  }
+
   Slice value() const override {
     assert(Valid());
     Slice key_slice = GetLengthPrefixedSlice(iter_->key());
@@ -523,6 +537,8 @@ class MemTableIterator : public InternalIterator {
   const MemTable::KeyComparator comparator_;
   MemTableRep::Iterator* iter_;
   bool valid_;
+  // The seqno to time mapping is owned by the SuperVersion.
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping_;
   bool arena_mode_;
   bool value_pinned_;
   uint32_t protection_bytes_per_key_;
@@ -541,11 +557,13 @@ class MemTableIterator : public InternalIterator {
   }
 };
 
-InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
-                                        Arena* arena) {
+InternalIterator* MemTable::NewIterator(
+    const ReadOptions& read_options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
-  return new (mem) MemTableIterator(*this, read_options, arena);
+  return new (mem)
+      MemTableIterator(*this, read_options, seqno_to_time_mapping, arena);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
@@ -579,9 +597,9 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
   if (!cache->initialized.load(std::memory_order_acquire)) {
     cache->reader_mutex.lock();
     if (!cache->tombstones) {
-      auto* unfragmented_iter =
-          new MemTableIterator(*this, read_options, nullptr /* arena */,
-                               true /* use_range_del_table */);
+      auto* unfragmented_iter = new MemTableIterator(
+          *this, read_options, nullptr /* seqno_to_time_mapping= */,
+          nullptr /* arena */, true /* use_range_del_table */);
       cache->tombstones.reset(new FragmentedRangeTombstoneList(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
           comparator_.comparator));
@@ -600,9 +618,9 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   // There should be no concurrent Construction
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     // TODO: plumb Env::IOActivity, Env::IOPriority
-    auto* unfragmented_iter =
-        new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
-                             true /* use_range_del_table */);
+    auto* unfragmented_iter = new MemTableIterator(
+        *this, ReadOptions(), nullptr /*seqno_to_time_mapping=*/,
+        nullptr /* arena */, true /* use_range_del_table */);
 
     fragmented_range_tombstone_list_ =
         std::make_unique<FragmentedRangeTombstoneList>(
@@ -1207,6 +1225,14 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
+        if (merge_context->get_merge_operands_options != nullptr &&
+            merge_context->get_merge_operands_options->continue_cb != nullptr &&
+            !merge_context->get_merge_operands_options->continue_cb(v)) {
+          // We were told not to continue.
+          *(s->found_final_value) = true;
+          return false;
+        }
+
         return true;
       }
       default: {
