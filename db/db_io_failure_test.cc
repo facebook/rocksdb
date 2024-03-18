@@ -27,6 +27,10 @@ class CorruptionFS : public FileSystemWrapper {
         corruption_trigger_(INT_MAX),
         read_count_(0),
         rnd_(300) {}
+  ~CorruptionFS() {
+    // Assert that the corruption was reset, which means it got triggered
+    assert(corruption_trigger_ == INT_MAX);
+  }
   const char* Name() const override { return "ErrorEnv"; }
 
   IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
@@ -72,6 +76,12 @@ class CorruptionFS : public FileSystemWrapper {
               result->size());
         }
         return s;
+      }
+
+      IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                         const IOOptions& options,
+                         IODebugContext* dbg) override {
+        return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
       }
 
      private:
@@ -678,6 +688,7 @@ class DBIOCorruptionTest : public DBIOFailureTest,
     options.env = env_guard_.get();
     bbto.num_file_reads_for_auto_readahead = 0;
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options.disable_auto_compactions = true;
 
     Reopen(options);
   }
@@ -697,9 +708,8 @@ TEST_P(DBIOCorruptionTest, GetReadCorruptionRetry) {
   CorruptionFS* fs =
       static_cast<CorruptionFS*>(env_guard_->GetFileSystem().get());
 
-  ASSERT_OK(dbfull()->Put(WriteOptions(), dbfull()->DefaultColumnFamily(),
-                          "key1", "val1"));
-  ASSERT_OK(dbfull()->Flush(FlushOptions(), dbfull()->DefaultColumnFamily()));
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Flush());
   fs->SetCorruptionTrigger(1);
 
   std::string val;
@@ -713,9 +723,8 @@ TEST_P(DBIOCorruptionTest, IterReadCorruptionRetry) {
   CorruptionFS* fs =
       static_cast<CorruptionFS*>(env_guard_->GetFileSystem().get());
 
-  ASSERT_OK(dbfull()->Put(WriteOptions(), dbfull()->DefaultColumnFamily(),
-                          "key1", "val1"));
-  ASSERT_OK(dbfull()->Flush(FlushOptions(), dbfull()->DefaultColumnFamily()));
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Flush());
   fs->SetCorruptionTrigger(1);
 
   ReadOptions ro;
@@ -735,11 +744,9 @@ TEST_P(DBIOCorruptionTest, MultiGetReadCorruptionRetry) {
   CorruptionFS* fs =
       static_cast<CorruptionFS*>(env_guard_->GetFileSystem().get());
 
-  ASSERT_OK(dbfull()->Put(WriteOptions(), dbfull()->DefaultColumnFamily(),
-                          "key1", "val1"));
-  ASSERT_OK(dbfull()->Put(WriteOptions(), dbfull()->DefaultColumnFamily(),
-                          "key2", "val2"));
-  ASSERT_OK(dbfull()->Flush(FlushOptions(), dbfull()->DefaultColumnFamily()));
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
   fs->SetCorruptionTrigger(1);
 
   std::vector<std::string> keystr{"key1", "key2"};
@@ -752,6 +759,40 @@ TEST_P(DBIOCorruptionTest, MultiGetReadCorruptionRetry) {
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values[0].ToString(), "val1");
   ASSERT_EQ(values[1].ToString(), "val2");
+}
+
+TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
+  CorruptionFS* fs =
+      static_cast<CorruptionFS*>(env_guard_->GetFileSystem().get());
+
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  fs->SetCorruptionTrigger(1);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  std::string val;
+  ReadOptions ro;
+  ro.async_io = GetParam();
+  ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+  ASSERT_EQ(val, "val1");
+}
+
+TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
+  CorruptionFS* fs =
+      static_cast<CorruptionFS*>(env_guard_->GetFileSystem().get());
+
+  ASSERT_OK(Put("key1", "val1"));
+  fs->SetCorruptionTrigger(1);
+  ASSERT_OK(Flush());
+
+  std::string val;
+  ReadOptions ro;
+  ro.async_io = GetParam();
+  ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+  ASSERT_EQ(val, "val1");
 }
 
 INSTANTIATE_TEST_CASE_P(DBIOCorruptionTest, DBIOCorruptionTest,
