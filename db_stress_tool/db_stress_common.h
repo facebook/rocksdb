@@ -391,6 +391,7 @@ DECLARE_double(high_pri_pool_ratio);
 DECLARE_double(low_pri_pool_ratio);
 DECLARE_uint64(soft_pending_compaction_bytes_limit);
 DECLARE_uint64(hard_pending_compaction_bytes_limit);
+DECLARE_uint64(max_sequential_skip_in_iterations);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
