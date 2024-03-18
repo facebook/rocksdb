@@ -719,7 +719,6 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   ASSERT_TRUE(s.IsBusy());
   s = txn_db->Get(read_options, handles[1], "AAAZZZ", &value);
   ASSERT_TRUE(s.IsNotFound());
-  ASSERT_EQ(value, "barbar");
 
   delete txn;
   delete txn2;

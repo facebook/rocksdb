@@ -745,82 +745,16 @@ Status WriteBatchWithIndexInternal::CheckAndGetImmutableOptions(
   return Status::OK();
 }
 
-WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
+template <typename Traits>
+WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatchImpl(
     WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
-    const Slice& key, MergeContext* context, std::string* value, Status* s) {
-  *s = Status::OK();
-
-  std::unique_ptr<WBWIIteratorImpl> iter(
-      static_cast_with_check<WBWIIteratorImpl>(
-          batch->NewIterator(column_family)));
-
-  // Search the iterator for this key, and updates/merges to it.
-  iter->Seek(key);
-  auto result = iter->FindLatestUpdate(key, context);
-  if (result == WBWIIteratorImpl::kError) {
-    (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                              std::to_string(iter->Entry().type));
-    return result;
-  } else if (result == WBWIIteratorImpl::kNotFound) {
-    return result;
-  } else if (result == WBWIIteratorImpl::Result::kFound) {  // Put/PutEntity
-    WriteEntry entry = iter->Entry();
-    Slice entry_value = entry.value;
-    if (context->GetNumOperands() > 0) {
-      if (entry.type == kPutRecord) {
-        *s = MergeKeyWithBaseValue(
-            column_family, key, MergeHelper::kPlainBaseValue, entry_value,
-            *context, value, static_cast<PinnableWideColumns*>(nullptr));
-      } else {
-        assert(entry.type == kPutEntityRecord);
-
-        *s = MergeKeyWithBaseValue(
-            column_family, key, MergeHelper::kWideBaseValue, entry_value,
-            *context, value, static_cast<PinnableWideColumns*>(nullptr));
-      }
-      if (!s->ok()) {
-        result = WBWIIteratorImpl::Result::kError;
-      }
-    } else {
-      if (entry.type == kPutRecord) {
-        value->assign(entry_value.data(), entry_value.size());
-      } else {
-        assert(entry.type == kPutEntityRecord);
-        Slice value_of_default;
-        *s = WideColumnSerialization::GetValueOfDefaultColumn(entry_value,
-                                                              value_of_default);
-        if (s->ok()) {
-          value->assign(value_of_default.data(), value_of_default.size());
-        }
-      }
-    }
-  } else if (result == WBWIIteratorImpl::kDeleted) {
-    if (context->GetNumOperands() > 0) {
-      *s = MergeKeyWithNoBaseValue(column_family, key, *context, value,
-                                   static_cast<PinnableWideColumns*>(nullptr));
-      if (s->ok()) {
-        result = WBWIIteratorImpl::Result::kFound;
-      } else {
-        result = WBWIIteratorImpl::Result::kError;
-      }
-    }
-  }
-  return result;
-}
-
-WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetEntityFromBatch(
-    WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
-    const Slice& key, MergeContext* context, PinnableWideColumns* columns,
-    Status* s) {
+    const Slice& key, MergeContext* context,
+    typename Traits::OutputType* output, Status* s) {
   assert(batch);
-  assert(column_family);
   assert(context);
-  assert(columns);
+  assert(output);
   assert(s);
 
-  columns->Reset();
-  *s = Status::OK();
-
   std::unique_ptr<WBWIIteratorImpl> iter(
       static_cast_with_check<WBWIIteratorImpl>(
           batch->NewIterator(column_family)));
@@ -829,46 +763,64 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetEntityFromBatch(
   auto result = iter->FindLatestUpdate(key, context);
 
   if (result == WBWIIteratorImpl::kError) {
-    (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                              std::to_string(iter->Entry().type));
+    Traits::ClearOutput(output);
+    *s = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
+                            std::to_string(iter->Entry().type));
     return result;
   }
 
   if (result == WBWIIteratorImpl::kNotFound) {
+    Traits::ClearOutput(output);
+    *s = Status::OK();
     return result;
   }
 
+  auto resolve_merge_outputs = [](auto out) {
+    std::string* output_value = nullptr;
+    PinnableWideColumns* output_entity = nullptr;
+
+    if constexpr (std::is_same_v<typename Traits::OutputType, std::string>) {
+      output_value = out;
+    } else {
+      static_assert(
+          std::is_same_v<typename Traits::OutputType, PinnableWideColumns>,
+          "unexpected type");
+      output_entity = out;
+    }
+
+    return std::pair<std::string*, PinnableWideColumns*>(output_value,
+                                                         output_entity);
+  };
+
   if (result == WBWIIteratorImpl::Result::kFound) {  // Put/PutEntity
     WriteEntry entry = iter->Entry();
-    Slice entry_value = entry.value;
 
     if (context->GetNumOperands() > 0) {
+      auto [output_value, output_entity] = resolve_merge_outputs(output);
+
       if (entry.type == kPutRecord) {
-        *s = MergeKeyWithBaseValue(
-            column_family, key, MergeHelper::kPlainBaseValue, entry_value,
-            *context, static_cast<std::string*>(nullptr), columns);
+        *s = MergeKeyWithBaseValue(column_family, key,
+                                   MergeHelper::kPlainBaseValue, entry.value,
+                                   *context, output_value, output_entity);
       } else {
         assert(entry.type == kPutEntityRecord);
 
-        *s = MergeKeyWithBaseValue(
-            column_family, key, MergeHelper::kWideBaseValue, entry_value,
-            *context, static_cast<std::string*>(nullptr), columns);
-      }
-
-      if (!s->ok()) {
-        result = WBWIIteratorImpl::Result::kError;
+        *s = MergeKeyWithBaseValue(column_family, key,
+                                   MergeHelper::kWideBaseValue, entry.value,
+                                   *context, output_value, output_entity);
       }
     } else {
       if (entry.type == kPutRecord) {
-        columns->SetPlainValue(entry_value);
+        *s = Traits::SetPlainValue(entry.value, output);
       } else {
         assert(entry.type == kPutEntityRecord);
-
-        *s = columns->SetWideColumnValue(entry_value);
-        if (!s->ok()) {
-          result = WBWIIteratorImpl::Result::kError;
-        }
+        *s = Traits::SetWideColumnValue(entry.value, output);
       }
+    }
+
+    if (!s->ok()) {
+      Traits::ClearOutput(output);
+      result = WBWIIteratorImpl::Result::kError;
     }
 
     return result;
@@ -876,11 +828,14 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetEntityFromBatch(
 
   if (result == WBWIIteratorImpl::kDeleted) {
     if (context->GetNumOperands() > 0) {
-      *s = MergeKeyWithNoBaseValue(column_family, key, *context,
-                                   static_cast<std::string*>(nullptr), columns);
+      auto [output_value, output_entity] = resolve_merge_outputs(output);
+
+      *s = MergeKeyWithNoBaseValue(column_family, key, *context, output_value,
+                                   output_entity);
       if (s->ok()) {
         result = WBWIIteratorImpl::Result::kFound;
       } else {
+        Traits::ClearOutput(output);
         result = WBWIIteratorImpl::Result::kError;
       }
     }
@@ -889,7 +844,84 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetEntityFromBatch(
   }
 
   assert(result == WBWIIteratorImpl::Result::kMergeInProgress);
+
+  Traits::ClearOutput(output);
+  *s = Status::OK();
   return result;
+}
+
+WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
+    WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+    const Slice& key, MergeContext* context, std::string* value, Status* s) {
+  struct Traits {
+    using OutputType = std::string;
+
+    static void ClearOutput(OutputType* output) {
+      assert(output);
+      output->clear();
+    }
+
+    static Status SetPlainValue(const Slice& value, OutputType* output) {
+      assert(output);
+      output->assign(value.data(), value.size());
+
+      return Status::OK();
+    }
+
+    static Status SetWideColumnValue(const Slice& entity, OutputType* output) {
+      assert(output);
+
+      Slice entity_copy = entity;
+      Slice value_of_default;
+      const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
+          entity_copy, value_of_default);
+      if (!s.ok()) {
+        ClearOutput(output);
+        return s;
+      }
+
+      output->assign(value_of_default.data(), value_of_default.size());
+      return Status::OK();
+    }
+  };
+
+  return GetFromBatchImpl<Traits>(batch, column_family, key, context, value, s);
+}
+
+WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetEntityFromBatch(
+    WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+    const Slice& key, MergeContext* context, PinnableWideColumns* columns,
+    Status* s) {
+  struct Traits {
+    using OutputType = PinnableWideColumns;
+
+    static void ClearOutput(OutputType* output) {
+      assert(output);
+      output->Reset();
+    }
+
+    static Status SetPlainValue(const Slice& value, OutputType* output) {
+      assert(output);
+      output->SetPlainValue(value);
+
+      return Status::OK();
+    }
+
+    static Status SetWideColumnValue(const Slice& entity, OutputType* output) {
+      assert(output);
+
+      const Status s = output->SetWideColumnValue(entity);
+      if (!s.ok()) {
+        ClearOutput(output);
+        return s;
+      }
+
+      return Status::OK();
+    }
+  };
+
+  return GetFromBatchImpl<Traits>(batch, column_family, key, context, columns,
+                                  s);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

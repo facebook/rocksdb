@@ -457,6 +457,12 @@ class WriteBatchWithIndexInternal {
  private:
   static Status CheckAndGetImmutableOptions(ColumnFamilyHandle* column_family,
                                             const ImmutableOptions** ioptions);
+
+  template <typename Traits>
+  static WBWIIteratorImpl::Result GetFromBatchImpl(
+      WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+      const Slice& key, MergeContext* merge_context,
+      typename Traits::OutputType* output, Status* s);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
