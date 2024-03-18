@@ -2085,6 +2085,11 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     const ExpectedValue expected_value = shared->Get(cf, key);
 
+    // When expected state has pending writes/deletes. We use db state as source
+    // of truth to sync it with expected state during VerifyDB (after initDB,
+    // before any DB operation). These keys should be exempt from compaction
+    // filter because compaction filter use expected state as source of truth to
+    // operate on the DB.
     if (expected_value.PendingWrite() || expected_value.PendingDelete()) {
       if (s.ok()) {
         // Value exists in db, update state to reflect that

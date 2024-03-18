@@ -51,11 +51,17 @@ class DbStressCompactionFilter : public CompactionFilter {
     // Reaching here means we acquired the lock.
 
     bool key_exists = state_->Exists(cf_id_, key_num);
+    const ExpectedValue expected_value = state_->Get(cf_id_, key_num);
     const bool allow_overwrite = state_->AllowsOverwrite(key_num);
 
     key_mutex->Unlock();
 
-    if (!key_exists) {
+    // When expected state has pending state, it will get synced with DB state
+    // during `VerifyDB`, do not make a move in compaction iterator for these
+    // entries yet.
+    if (expected_value.PendingWrite() || expected_value.PendingDelete()) {
+      return Decision::kKeep;
+    } else if (!key_exists) {
       return allow_overwrite ? Decision::kRemove : Decision::kPurge;
     }
     return Decision::kKeep;
