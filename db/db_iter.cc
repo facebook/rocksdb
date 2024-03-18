@@ -789,7 +789,6 @@ bool DBIter::ReverseToBackward() {
 
 void DBIter::PrevInternal(const Slice* prefix) {
   while (iter_.Valid()) {
-    // if pinned, then do not copy
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),
         !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
