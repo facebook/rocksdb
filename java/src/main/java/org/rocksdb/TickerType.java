@@ -876,7 +876,7 @@ public enum TickerType {
 
     PREFETCH_HITS((byte) -0x53),
 
-    SST_FOOTER_CORRUPTION_COUNT((byte) -0x54),
+    SST_FOOTER_CORRUPTION_COUNT((byte) -0x55),
 
     TICKER_ENUM_MAX((byte) -0x54);
 
