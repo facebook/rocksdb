@@ -1400,7 +1400,7 @@ public class Transaction extends RocksObject {
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previous tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.
@@ -1485,7 +1485,7 @@ public class Transaction extends RocksObject {
    * @param keyParts the specified key to be inserted.
    * @param valueParts the value associated with the specified key.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previous tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.
@@ -1582,7 +1582,7 @@ public class Transaction extends RocksObject {
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previous tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.
@@ -1652,7 +1652,7 @@ public class Transaction extends RocksObject {
    * @param key the specified key to be merged.
    * @param value the value associated with the specified key.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previous tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.
@@ -1855,7 +1855,7 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param key the specified key to be deleted.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previous tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.
@@ -1936,7 +1936,7 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param keyParts the specified key to be deleted.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previous tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.

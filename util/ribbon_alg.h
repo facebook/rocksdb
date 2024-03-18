@@ -486,7 +486,7 @@ namespace ribbon {
 //   static bool kFirstCoeffAlwaysOne;
 // }
 
-// Abstract storage for the the result of "banding" the inputs (Gaussian
+// Abstract storage for the result of "banding" the inputs (Gaussian
 // elimination to an upper-triangular boolean band matrix). Because the
 // banding is an incremental / on-the-fly algorithm, this also represents
 // all the intermediate state between input entries.

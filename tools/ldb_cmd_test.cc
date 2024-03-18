@@ -196,7 +196,7 @@ class FileChecksumTestHelper {
       dbname_.append("/");
     }
 
-    // Step 2, get the the checksum information by recovering the VersionSet
+    // Step 2, get the checksum information by recovering the VersionSet
     // from Manifest.
     std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
     EnvOptions sopt;

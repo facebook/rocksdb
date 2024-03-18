@@ -466,7 +466,7 @@ class Transaction {
   // keys being written.
   //
   // assume_tracked=true expects the key be already tracked. More
-  // specifically, it means the the key was previous tracked in the same
+  // specifically, it means the key was previous tracked in the same
   // savepoint, with the same exclusive flag, and at a lower sequence number.
   // If valid then it skips ValidateSnapshot.  Returns error otherwise.
   //

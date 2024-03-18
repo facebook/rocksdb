@@ -2403,7 +2403,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithFlush) {
       "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterRecover");
   // After the flush during Open, the log file should get deleted.  However,
   // if  the process is in a crash loop, the log file may not get
-  // deleted and thte preallocated space will keep accumulating. So we need
+  // deleted and the preallocated space will keep accumulating. So we need
   // to ensure it gets trtuncated.
   EXPECT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
             preallocated_size);

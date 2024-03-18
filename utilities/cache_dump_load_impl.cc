@@ -256,7 +256,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
   }
 
   // Step 3: read out the rest of the blocks from the reader. The loop will stop
-  // either I/O status is not ok or we reach to the the end.
+  // either I/O status is not ok or we reach to the end.
   while (io_s.ok()) {
     dump_unit.reset();
     data.clear();

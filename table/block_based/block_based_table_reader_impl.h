@@ -68,7 +68,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     // uncompression dict is typically at the end of the file and would
     // most likely break the sequentiality of the access pattern.
     // Same is with auto_readahead_size. It iterates over index to lookup for
-    // data blocks. And this could break the the sequentiality of the access
+    // data blocks. And this could break the sequentiality of the access
     // pattern.
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
         ((ro.async_io || ro.auto_readahead_size) ? nullptr : prefetch_buffer),

@@ -695,7 +695,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
         bool may_exist = biter->SeekForGet(key);
         if (!may_exist) {
-          // HashSeek cannot find the key this block and the the iter is not
+          // HashSeek cannot find the key this block and the iter is not
           // the end of the block, i.e. cannot be in the following blocks
           // either. In this case, the seek_key cannot be found, so we break
           // from the top level for-loop.

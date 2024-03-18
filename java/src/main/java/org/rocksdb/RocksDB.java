@@ -1898,7 +1898,7 @@ public class RocksDB extends RocksObject {
    * @param vOffset the offset of the "value" array to be used, must be
    *     non-negative and no longer than "value".length
    * @param vLen the length of the "value" array to be used, must be
-   *     non-negative and and no larger than ("value".length -  offset)
+   *     non-negative and no larger than ("value".length -  offset)
    *
    * @return The size of the actual value that matches the specified
    *     {@code key} in byte.  If the return value is greater than the
@@ -2066,7 +2066,7 @@ public class RocksDB extends RocksObject {
    * @param offset the offset of the "key" array to be used, must be
    *     non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be
-   *     non-negative and and no larger than ("key".length -  offset)
+   *     non-negative and no larger than ("key".length -  offset)
    * @param value the out-value to receive the retrieved value.
    * @param vOffset the offset of the "value" array to be used, must be
    *     non-negative and no longer than "key".length
