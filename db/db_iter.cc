@@ -712,16 +712,23 @@ bool DBIter::ReverseToForward() {
   // not exist or may have different prefix than the current key().
   // If that's the case, seek iter_ to current key.
   if (!expect_total_order_inner_iter() || !iter_.Valid()) {
-    IterKey last_key;
+    std::string last_key;
     ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
                             kValueTypeForSeek);
-    if (timestamp_size_ > 0) {
+    if (timestamp_size_ == 0) {
+      AppendInternalKey(
+          &last_key, ParsedInternalKey(saved_key_.GetUserKey(),
+                                       kMaxSequenceNumber, kValueTypeForSeek));
+    } else {
       // TODO: pre-create kTsMax.
       const std::string kTsMax(timestamp_size_, '\xff');
-      pikey.SetTimestamp(kTsMax);
+      AppendInternalKeyWithDifferentTimestamp(
+          &last_key,
+          ParsedInternalKey(saved_key_.GetUserKey(), kMaxSequenceNumber,
+                            kValueTypeForSeek),
+          kTsMax);
     }
-    last_key.SetInternalKey(pikey);
-    iter_.Seek(last_key.GetInternalKey());
+    iter_.Seek(last_key);
     RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
@@ -782,6 +789,7 @@ bool DBIter::ReverseToBackward() {
 
 void DBIter::PrevInternal(const Slice* prefix) {
   while (iter_.Valid()) {
+    // if pinned, then do not copy
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),
         !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
@@ -1371,18 +1379,25 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
 
     if (num_skipped >= max_skip_) {
       num_skipped = 0;
-      IterKey last_key;
+      std::string last_key;
       ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
                               kValueTypeForSeek);
-      if (timestamp_size_ > 0) {
+      if (timestamp_size_ == 0) {
+        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
+                                                       kMaxSequenceNumber,
+                                                       kValueTypeForSeek));
+      } else {
         // TODO: pre-create kTsMax.
         const std::string kTsMax(timestamp_size_, '\xff');
-        pikey.SetTimestamp(kTsMax);
+        AppendInternalKeyWithDifferentTimestamp(
+            &last_key,
+            ParsedInternalKey(saved_key_.GetUserKey(), kMaxSequenceNumber,
+                              kValueTypeForSeek),
+            kTsMax);
       }
-      last_key.SetInternalKey(pikey);
       // It would be more efficient to use SeekForPrev() here, but some
       // iterators may not support it.
-      iter_.Seek(last_key.GetInternalKey());
+      iter_.Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
       if (!iter_.Valid()) {
         break;
