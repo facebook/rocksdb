@@ -713,8 +713,6 @@ bool DBIter::ReverseToForward() {
   // If that's the case, seek iter_ to current key.
   if (!expect_total_order_inner_iter() || !iter_.Valid()) {
     std::string last_key;
-    ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
-                            kValueTypeForSeek);
     if (timestamp_size_ == 0) {
       AppendInternalKey(
           &last_key, ParsedInternalKey(saved_key_.GetUserKey(),
@@ -1379,8 +1377,6 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
     if (num_skipped >= max_skip_) {
       num_skipped = 0;
       std::string last_key;
-      ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
-                              kValueTypeForSeek);
       if (timestamp_size_ == 0) {
         AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
                                                        kMaxSequenceNumber,
