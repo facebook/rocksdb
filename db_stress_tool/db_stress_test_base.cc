@@ -3649,6 +3649,8 @@ void InitializeOptionsFromFlags(
       FLAGS_soft_pending_compaction_bytes_limit;
   options.hard_pending_compaction_bytes_limit =
       FLAGS_hard_pending_compaction_bytes_limit;
+  options.max_sequential_skip_in_iterations =
+      FLAGS_max_sequential_skip_in_iterations;
 }
 
 void InitializeOptionsGeneral(

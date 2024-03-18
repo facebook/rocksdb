@@ -36,6 +36,11 @@ DEFINE_int64(max_key, 1 * KB * KB,
 
 DEFINE_int32(max_key_len, 3, "Maximum length of a key in 8-byte units");
 
+DEFINE_uint64(max_sequential_skip_in_iterations,
+              ROCKSDB_NAMESPACE::Options().max_sequential_skip_in_iterations,
+              "Iterator will reseek after scanning this number of keys with"
+              "the same user key during Next/Prev().");
+
 DEFINE_string(key_len_percent_dist, "",
               "Percentages of keys of various lengths. For example, 1,30,69 "
               "means 1% of keys are 8 bytes, 30% are 16 bytes, and 69% are "
