@@ -27,7 +27,7 @@ class CorruptionFS : public FileSystemWrapper {
         corruption_trigger_(INT_MAX),
         read_count_(0),
         rnd_(300) {}
-  ~CorruptionFS() {
+  ~CorruptionFS() override {
     // Assert that the corruption was reset, which means it got triggered
     assert(corruption_trigger_ == INT_MAX);
   }
