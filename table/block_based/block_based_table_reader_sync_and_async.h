@@ -214,16 +214,42 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
       if (options.verify_checksums) {
         PERF_TIMER_GUARD(block_checksum_time);
-        const char* data = req.result.data();
+        const char* data = serialized_block.data.data();
         // Since the scratch might be shared, the offset of the data block in
         // the buffer might not be 0. req.result.data() only point to the
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
         // beyond the payload size.
-        s = VerifyBlockChecksum(footer, data + req_offset, handle.size(),
+        s = VerifyBlockChecksum(footer, data, handle.size(),
                                 rep_->file->file_name(), handle.offset());
         RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
+        if (!s.ok() &&
+            CheckFSFeatureSupport(ioptions.fs.get(),
+                                  FSSupportedOps::kVerifyAndReconstructRead)) {
+          assert(s.IsCorruption());
+          assert(!ioptions.allow_mmap_reads);
+          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+
+          // Repeat the read for this particular block using the regular
+          // synchronous Read API. We can use the same chunk of memory
+          // pointed to by data, since the size is identical and we know
+          // its not a memory mapped file
+          Slice result;
+          IOOptions opts;
+          IOStatus io_s = file->PrepareIOOptions(options, opts);
+          opts.verify_and_reconstruct_read = true;
+          io_s = file->Read(opts, handle.offset(), BlockSizeWithTrailer(handle),
+                            &result, const_cast<char*>(data), nullptr);
+          if (io_s.ok()) {
+            assert(result.data() == data);
+            assert(result.size() == BlockSizeWithTrailer(handle));
+            s = VerifyBlockChecksum(footer, data, handle.size(),
+                                    rep_->file->file_name(), handle.offset());
+          } else {
+            s = io_s;
+          }
+        }
       }
     } else if (!use_shared_buffer) {
       // Free the allocated scratch buffer.

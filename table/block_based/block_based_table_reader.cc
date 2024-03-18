@@ -631,6 +631,19 @@ Status BlockBasedTable::Open(
                            prefetch_buffer.get(), file_size, &footer,
                            kBlockBasedTableMagicNumber);
   }
+  // If the footer is corrupted and the FS supports checksum verification and
+  // correction, try reading the footer again
+  if (s.IsCorruption()) {
+    RecordTick(ioptions.statistics.get(), SST_FOOTER_CORRUPTION_COUNT);
+    if (CheckFSFeatureSupport(ioptions.fs.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      IOOptions retry_opts = opts;
+      retry_opts.verify_and_reconstruct_read = true;
+      s = ReadFooterFromFile(retry_opts, file.get(), *ioptions.fs,
+                             prefetch_buffer.get(), file_size, &footer,
+                             kBlockBasedTableMagicNumber);
+    }
+  }
   if (!s.ok()) {
     return s;
   }
