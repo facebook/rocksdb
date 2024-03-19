@@ -217,6 +217,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
   Statistics* const statistics = rep_->ioptions.stats;
 
   PERF_COUNTER_ADD(block_cache_hit_count, 1);
+  PERF_COUNTER_ADD(block_cache_read_byte, usage);
   PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 1,
                             static_cast<uint32_t>(rep_->level));
 
@@ -232,6 +233,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
     case BlockType::kFilter:
     case BlockType::kFilterPartitionIndex:
       PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
+      PERF_COUNTER_ADD(block_cache_filter_read_byte, usage);
 
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_hit;
@@ -242,6 +244,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
     case BlockType::kCompressionDictionary:
       // TODO: introduce perf counter for compression dictionary hit count
+      PERF_COUNTER_ADD(block_cache_compression_dict_read_byte, usage);
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_compression_dict_hit;
       } else {
@@ -251,6 +254,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
     case BlockType::kIndex:
       PERF_COUNTER_ADD(block_cache_index_hit_count, 1);
+      PERF_COUNTER_ADD(block_cache_index_read_byte, usage);
 
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_hit;
