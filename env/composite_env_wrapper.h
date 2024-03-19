@@ -291,6 +291,10 @@ class CompositeEnvWrapper : public CompositeEnv {
   Status PrepareOptions(const ConfigOptions& options) override;
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
+  Status ParseOption(const ConfigOptions& config_options,
+                     const OptionTypeInfo& opt_info,
+                     const std::string& opt_name, const std::string& opt_value,
+                     void* opt_ptr) override;
 
   // Return the target to which this Env forwards all calls
   Env* env_target() const { return target_.env; }
