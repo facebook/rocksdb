@@ -865,7 +865,7 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
       // blocks before "mid" are uninteresting.
       left = mid;
     } else if (cmp > 0) {
-      // Key at "mid" is >= "target". Therefore all blocks at or
+      // Key at "mid" is > "target". Therefore all blocks at or
       // after "mid" are uninteresting.
       right = mid - 1;
     } else {
