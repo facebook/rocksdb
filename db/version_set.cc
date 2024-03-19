@@ -2048,7 +2048,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
-      // rather than Seek(), while files in other levels are recored per seek.
+      // rather than Seek(), while files in other levels are recorded per seek.
       // If users execute one range query per iterator, there may be some
       // discrepancy here.
       for (FileMetaData* meta : storage_info_.LevelFiles(0)) {
