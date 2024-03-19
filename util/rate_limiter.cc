@@ -140,8 +140,8 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   if (stop_) {
     // It is now in the clean-up of ~GenericRateLimiter().
-    // Therefore any new incoming request will exit from here
-    // and not get satiesfied.
+    // Therefore, any new incoming request will exit from here
+    // and not get satisfied.
     return;
   }
 
