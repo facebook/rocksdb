@@ -814,6 +814,53 @@ TEST_P(ConfigurableParamTest, ConfigureFromPropsTest) {
   ASSERT_TRUE(object_->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(ConfigurableTest, HigherPriorityOptions) {
+  static OptionTypeInfo info(0, OptionType::kString,
+                             OptionVerificationType::kNormal,
+                             OptionTypeFlags::kNone,
+                             [](const ConfigOptions&, const std::string& name,
+                                const std::string& value, void* addr) {
+                               auto* str = static_cast<std::string*>(addr);
+                               str->append(name).append(value);
+                               return Status::OK();
+                             });
+
+  static std::unordered_map<std::string, OptionTypeInfo> a_opt_info = {
+      {"A", info}};
+  static std::unordered_map<std::string, OptionTypeInfo> b_opt_info = {
+      {"B", info}};
+  static std::unordered_map<std::string, OptionTypeInfo> c_opt_info = {
+      {"C", info}};
+  class HighPriConfigurable : public Configurable {
+   public:
+    HighPriConfigurable(int which) {
+      RegisterOptions("A", &value_, &a_opt_info, (which == 0));
+      RegisterOptions("B", &value_, &b_opt_info, (which == 1));
+      RegisterOptions("C", &value_, &c_opt_info, (which == 2));
+    }
+    std::string value_;
+  };
+
+  std::string opts_str;
+  std::unique_ptr<HighPriConfigurable> hc(new HighPriConfigurable(0));
+  ASSERT_OK(hc->ConfigureFromString(config_options_, "A=1; B=2; C=3;"));
+  ASSERT_EQ(hc->value_, "A1B2C3");
+  ASSERT_OK(hc->GetOptionString(config_options_, &opts_str));
+  ASSERT_TRUE(StartsWith(opts_str, "A=A1B2C3;"));
+  hc.reset(new HighPriConfigurable(1));
+  ASSERT_OK(hc->ConfigureFromString(config_options_, "A=1; B=2; C=3;"));
+  ASSERT_EQ(hc->value_, "B2A1C3");
+  ASSERT_OK(hc->GetOptionString(config_options_, &opts_str));
+  ASSERT_TRUE(StartsWith(opts_str, "B=B2A1C3;"));
+  hc.reset(new HighPriConfigurable(2));
+  ASSERT_OK(hc->ConfigureFromString(config_options_, "A=1; B=2; C=3;"));
+  ASSERT_EQ(hc->value_, "C3A1B2");
+  ASSERT_OK(hc->GetOptionString(config_options_, &opts_str));
+  ASSERT_TRUE(StartsWith(opts_str, "C=C3A1B2;"));
+}
+#endif  // ROCKSDB_LITE
+
 INSTANTIATE_TEST_CASE_P(
     ParamTest, ConfigurableParamTest,
     testing::Values(
