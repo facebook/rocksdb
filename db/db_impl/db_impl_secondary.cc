@@ -205,8 +205,6 @@ Status DBImplSecondary::RecoverLogFiles(
     auto it = log_readers_.find(log_number);
     assert(it != log_readers_.end());
     log::FragmentBufferedReader* reader = it->second->reader_;
-    Status* wal_read_status = it->second->status_;
-    assert(wal_read_status);
     // Manually update the file number allocation counter in VersionSet.
     versions_->MarkFileNumberUsed(log_number);
 
@@ -218,7 +216,7 @@ Status DBImplSecondary::RecoverLogFiles(
 
     while (reader->ReadRecord(&record, &scratch,
                               immutable_db_options_.wal_recovery_mode) &&
-           wal_read_status->ok() && status.ok()) {
+           status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reader->GetReporter()->Corruption(
             record.size(), Status::Corruption("log record too small"));
@@ -322,9 +320,6 @@ Status DBImplSecondary::RecoverLogFiles(
         // blocks that do not form coherent data
         reader->GetReporter()->Corruption(record.size(), status);
       }
-    }
-    if (status.ok() && !wal_read_status->ok()) {
-      status = *wal_read_status;
     }
     if (!status.ok()) {
       return status;

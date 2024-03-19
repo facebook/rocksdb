@@ -17,18 +17,15 @@ namespace ROCKSDB_NAMESPACE {
 // A wrapper class to hold log reader, log reporter, log status.
 class LogReaderContainer {
  public:
-  LogReaderContainer()
-      : reader_(nullptr), reporter_(nullptr), status_(nullptr) {}
+  LogReaderContainer() : reader_(nullptr), reporter_(nullptr) {}
   LogReaderContainer(Env* env, std::shared_ptr<Logger> info_log,
                      std::string fname,
                      std::unique_ptr<SequentialFileReader>&& file_reader,
                      uint64_t log_number) {
     LogReporter* reporter = new LogReporter();
-    status_ = new Status();
     reporter->env = env;
     reporter->info_log = info_log.get();
     reporter->fname = std::move(fname);
-    reporter->status = status_;
     reporter_ = reporter;
     // We intentially make log::Reader do checksumming even if
     // paranoid_checks==false so that corruptions cause entire commits
@@ -40,11 +37,9 @@ class LogReaderContainer {
   }
   log::FragmentBufferedReader* reader_;
   log::Reader::Reporter* reporter_;
-  Status* status_;
   ~LogReaderContainer() {
     delete reader_;
     delete reporter_;
-    delete status_;
   }
 
  private:
