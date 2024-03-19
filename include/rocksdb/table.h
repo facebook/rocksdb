@@ -330,7 +330,7 @@ struct BlockBasedTableOptions {
   // (i) If kEnabled:
   // Charge memory usage of the buffered data used as training samples for
   // dictionary compression.
-  // If such memory usage exceeds the avaible space left in the block cache
+  // If such memory usage exceeds the available space left in the block cache
   // at some point (i.e, causing a cache full under
   // `LRUCacheOptions::strict_capacity_limit` = true), the data will then be
   // unbuffered.
@@ -343,7 +343,7 @@ struct BlockBasedTableOptions {
   // (i) If kEnabled:
   // Charge memory usage of Bloom Filter
   // (format_version >= 5) and Ribbon Filter construction.
-  // If additional temporary memory of Ribbon Filter exceeds the avaible
+  // If additional temporary memory of Ribbon Filter exceeds the available
   // space left in the block cache at some point (i.e, causing a cache full
   // under `LRUCacheOptions::strict_capacity_limit` = true),
   // construction will fall back to Bloom Filter.
@@ -359,7 +359,7 @@ struct BlockBasedTableOptions {
   // reader i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
   // false) + some internal data structures during table reader creation.
   // If such a table reader exceeds
-  // the avaible space left in the block cache at some point (i.e, causing
+  // the available space left in the block cache at some point (i.e, causing
   // a cache full under `LRUCacheOptions::strict_capacity_limit` = true),
   // creation will fail with Status::MemoryLimit().
   // (ii) If kDisabled:
@@ -372,7 +372,7 @@ struct BlockBasedTableOptions {
   // Charge memory usage of file metadata. RocksDB holds one file metadata
   // structure in-memory per on-disk table file.
   // If such file metadata's
-  // memory exceeds the avaible space left in the block cache at some point
+  // memory exceeds the available space left in the block cache at some point
   // (i.e, causing a cache full under `LRUCacheOptions::strict_capacity_limit` =
   // true), creation will fail with Status::MemoryLimit().
   // (ii) If kDisabled:
