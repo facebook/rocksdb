@@ -2024,6 +2024,45 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   }
 }
 
+namespace {
+class PrefixGapSstPartitioner : public SstPartitioner {
+ public:
+  const char* Name() const override { return "PrefixGapSstPartitioner"; }
+
+  PartitionerResult ShouldPartition(
+      const PartitionerRequest& request) override {
+    if (request.prev_user_key == nullptr || request.prev_user_key->empty() ||
+        request.current_user_key->empty()) {
+      return kNotRequired;
+    }
+    char a = request.prev_user_key->data_[0];
+    char b = request.current_user_key->data_[0];
+    if (a == b || a + 1 == b) {
+      return kNotRequired;
+    } else {
+      // Gap
+      return kRequired;
+    }
+  }
+
+  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
+                        const Slice& /*largest_user_key*/) override {
+    return false;
+  }
+};
+
+class PrefixGapSstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() { return "PrefixGapSstPartitionerFactory"; }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return std::unique_ptr<SstPartitioner>(new PrefixGapSstPartitioner());
+  }
+};
+}  // namespace
+
 TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
   Options options = GetDefaultOptions();
 
@@ -2031,44 +2070,118 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
   SstFileWriter sfw(EnvOptions(), options);
 
   ASSERT_OK(sfw.Open(file_path));
-  ASSERT_OK(sfw.Put("b", "dontcare"));
+  ASSERT_OK(sfw.Put("c00", "dontcare"));
+  ASSERT_OK(sfw.Put("c10", "dontcare"));
   ASSERT_OK(sfw.Finish());
 
-  // Test universal compaction + ingest with snapshot consistency
-  options.create_if_missing = true;
-  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
-  DestroyAndReopen(options);
-  {
-    const Snapshot* snapshot = db_->GetSnapshot();
-    ManagedSnapshot snapshot_guard(db_, snapshot);
-    IngestExternalFileOptions ifo;
-    ifo.fail_if_not_bottommost_level = true;
-    ifo.snapshot_consistency = true;
-    const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsTryAgain());
-  }
+  std::string file_path2 = sst_files_dir_ + std::to_string(2);
 
-  // Test level compaction
-  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
-  options.num_levels = 2;
-  DestroyAndReopen(options);
-  ASSERT_OK(db_->Put(WriteOptions(), "a", "dontcare"));
-  ASSERT_OK(db_->Put(WriteOptions(), "c", "dontcare"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(sfw.Open(file_path2));
+  ASSERT_OK(sfw.Put("c05", "dontcare"));
+  ASSERT_OK(sfw.Put("c15", "dontcare"));
+  ASSERT_OK(sfw.Finish());
 
-  ASSERT_OK(db_->Put(WriteOptions(), "b", "dontcare"));
-  ASSERT_OK(db_->Put(WriteOptions(), "d", "dontcare"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  // Vary compaction style
+  for (CompactionStyle compaction_style :
+       {CompactionStyle::kCompactionStyleUniversal,
+        CompactionStyle::kCompactionStyleLevel}) {
+    SCOPED_TRACE("compaction_style=" + std::to_string(compaction_style));
+    // Test with a basic DB and snapshot_consistency
+    options.create_if_missing = true;
+    options.compaction_style = compaction_style;
+    options.num_levels = 7;
+    for (bool snapshot_consistency : {false, true}) {
+      SCOPED_TRACE("snapshot_consistency=" +
+                   std::to_string(snapshot_consistency));
+      DestroyAndReopen(options);
+      ASSERT_OK(db_->Put(WriteOptions(), "a00", "dontcare"));
+      ASSERT_OK(db_->Flush(FlushOptions()));
 
-  {
-    CompactRangeOptions cro;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+      const Snapshot* snapshot = db_->GetSnapshot();
+      ManagedSnapshot snapshot_guard(db_, snapshot);
+      IngestExternalFileOptions ifo;
+      ifo.fail_if_not_bottommost_level = true;
+      ifo.snapshot_consistency = snapshot_consistency;
+      const Status s = db_->IngestExternalFile({file_path}, ifo);
+      if (snapshot_consistency) {
+        if (compaction_style == CompactionStyle::kCompactionStyleUniversal) {
+          ASSERT_TRUE(s.IsTryAgain());
+        } else {
+          // FIXME: seems to be broken, or am I misunderstanding the
+          // snapshot_consistency option?
+          ASSERT_OK(s);  // WRONG
+        }
+      } else {
+        if (compaction_style == CompactionStyle::kCompactionStyleLevel) {
+          ASSERT_OK(s);
+        } else {
+          // FIXME: for unknown reason, with universal compaction, ingesting
+          // into an empty level is not allowed. (In production code,
+          // compaction_style == kCompactionStyleUniversal -> continue.)
+          ASSERT_TRUE(s.IsTryAgain());  // WRONG
+        }
+      }
+    }
 
-    IngestExternalFileOptions ifo;
-    ifo.fail_if_not_bottommost_level = true;
-    const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsTryAgain());
+    // Test with possible bottom level overlap
+    options.num_levels = 2;
+
+    // Also tests using an SstPartitioner (or not) which ensures no overlap
+    // on last level
+    for (bool use_partitioner : {false, true}) {
+      SCOPED_TRACE("use_partitioner=" + std::to_string(use_partitioner));
+      options.sst_partitioner_factory =
+          use_partitioner ? std::make_shared<PrefixGapSstPartitionerFactory>()
+                          : nullptr;
+      DestroyAndReopen(options);
+      ASSERT_OK(db_->Put(WriteOptions(), "a00", "dontcare"));
+      ASSERT_OK(db_->Put(WriteOptions(), "b00", "dontcare"));
+      ASSERT_OK(db_->Put(WriteOptions(), "d00", "dontcare"));
+      ASSERT_OK(db_->Put(WriteOptions(), "e00", "dontcare"));
+      ASSERT_OK(db_->Flush(FlushOptions()));
+
+      const Snapshot* snapshot = nullptr;
+      if (compaction_style == CompactionStyle::kCompactionStyleUniversal) {
+        // FIXME: for unknown reason, with universal compaction, ingesting
+        // into last level requires a non-zero seqno to exist on that level.
+        // (In production code, level_largest_seqno != 0 check. No unit tests
+        // break with it removed.)
+        snapshot = db_->GetSnapshot();
+      }
+
+      ASSERT_OK(db_->Put(WriteOptions(), "a01", "dontcare"));
+      ASSERT_OK(db_->Put(WriteOptions(), "b01", "dontcare"));
+      ASSERT_OK(db_->Put(WriteOptions(), "d01", "dontcare"));
+      ASSERT_OK(db_->Put(WriteOptions(), "e01", "dontcare"));
+      ASSERT_OK(db_->Flush(FlushOptions()));
+
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+      if (snapshot) {
+        db_->ReleaseSnapshot(snapshot);
+      }
+
+      IngestExternalFileOptions ifo;
+      ifo.fail_if_not_bottommost_level = true;
+      Status s = db_->IngestExternalFile({file_path}, ifo);
+      if (use_partitioner) {
+        // Partitioner prevents overlap
+        ASSERT_OK(s);
+        // Also OK to stack on top of that with another overlapping file,
+        // but only if allowed in non-bottommost level
+        s = db_->IngestExternalFile({file_path2}, ifo);
+        ASSERT_TRUE(s.IsTryAgain());
+        ifo.fail_if_not_bottommost_level = false;
+        ASSERT_OK(db_->IngestExternalFile({file_path2}, ifo));
+      } else {
+        ASSERT_TRUE(s.IsTryAgain());
+        ifo.fail_if_not_bottommost_level = false;
+        ASSERT_OK(db_->IngestExternalFile({file_path}, ifo));
+      }
+    }
+    options.sst_partitioner_factory = nullptr;
   }
 }
 
