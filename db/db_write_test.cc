@@ -860,7 +860,7 @@ void CorruptLogFile(Env* env, Options& options, std::string log_path,
 
 TEST_P(DBWriteTest, RecycleLogTest) {
   Options options = GetOptions();
-  options.recycle_log_file_num = 2;
+  options.recycle_log_file_num = 0;
   options.avoid_flush_during_recovery = true;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
 
@@ -887,7 +887,7 @@ TEST_P(DBWriteTest, RecycleLogTest) {
 
 TEST_P(DBWriteTest, RecycleLogTestCFAheadOfWAL) {
   Options options = GetOptions();
-  options.recycle_log_file_num = 2;
+  options.recycle_log_file_num = 0;
   options.avoid_flush_during_recovery = true;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
 

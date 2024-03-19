@@ -220,6 +220,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
              write_options.protection_bytes_per_key != 8) {
     return Status::InvalidArgument(
         "`WriteOptions::protection_bytes_per_key` must be zero or eight");
+  } else if (write_options.disableWAL &&
+             immutable_db_options_.recycle_log_file_num > 0) {
+    return Status::InvalidArgument(
+        "WriteOptions::disableWAL option is not supported if "
+        "DBOptions::recycle_log_file_num > 0");
   }
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
