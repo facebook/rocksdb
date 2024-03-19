@@ -95,7 +95,6 @@ class LockTest : public testing::Test {
       // parent process
       int status;
       while (-1 == waitpid(pid, &status, 0)) {
-        ;
       }
       if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         // child process exited with non success status
