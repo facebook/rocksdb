@@ -534,7 +534,9 @@ class MemTableConstructor : public Constructor {
   InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
     return new KeyConvertingIterator(
-        memtable_->NewIterator(ReadOptions(), &arena_), true);
+        memtable_->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
+                               &arena_),
+        true);
   }
 
   bool AnywayDeleteIterator() const override { return true; }
@@ -4897,7 +4899,8 @@ TEST_F(MemTableTest, Simple) {
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = GetMemTable()->NewIterator(ReadOptions(), &arena);
+      iter = GetMemTable()->NewIterator(
+          ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena);
       arena_iter_guard.set(iter);
     } else {
       iter = GetMemTable()->NewRangeTombstoneIterator(

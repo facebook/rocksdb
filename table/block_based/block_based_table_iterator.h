@@ -9,6 +9,7 @@
 #pragma once
 #include <deque>
 
+#include "db/seqno_to_time_mapping.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
@@ -92,6 +93,22 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return const_cast<BlockBasedTableIterator*>(this)
         ->MaterializeCurrentBlock();
   }
+
+  uint64_t write_unix_time() const override {
+    assert(Valid());
+    // TODO(yuzhangyu): if value type is kTypeValuePreferredSeqno,
+    // parse its unix write time out of packed value.
+    const SeqnoToTimeMapping& seqno_to_time_mapping =
+        table_->GetSeqnoToTimeMapping();
+    SequenceNumber seqno = ExtractSequenceNumber(key());
+    if (kUnknownSeqnoBeforeAll == seqno) {
+      return kUnknownTimeBeforeAll;
+    } else if (seqno_to_time_mapping.Empty()) {
+      return std::numeric_limits<uint64_t>::max();
+    }
+    return seqno_to_time_mapping.GetProximalTimeBeforeSeqno(seqno);
+  }
+
   Slice value() const override {
     // PrepareValue() must have been called.
     assert(!is_at_first_key_from_index_);

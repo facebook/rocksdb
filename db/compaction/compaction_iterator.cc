@@ -491,6 +491,8 @@ void CompactionIterator::NextFromInput() {
     if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion ||
         ikey_.type == kTypeDeletionWithTimestamp) {
       iter_stats_.num_input_deletion_records++;
+    } else if (ikey_.type == kTypeValuePreferredSeqno) {
+      iter_stats_.num_input_timed_put_records++;
     }
     iter_stats_.total_input_raw_key_bytes += key_.size();
     iter_stats_.total_input_raw_value_bytes += value_.size();
@@ -618,7 +620,8 @@ void CompactionIterator::NextFromInput() {
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
       if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex &&
-          ikey_.type != kTypeWideColumnEntity) {
+          ikey_.type != kTypeWideColumnEntity &&
+          ikey_.type != kTypeValuePreferredSeqno) {
         ROCKS_LOG_FATAL(info_log_, "Unexpected key %s for compaction output",
                         ikey_.DebugString(allow_data_in_errors_, true).c_str());
         assert(false);
@@ -632,7 +635,8 @@ void CompactionIterator::NextFromInput() {
         assert(false);
       }
 
-      if (ikey_.type == kTypeBlobIndex || ikey_.type == kTypeWideColumnEntity) {
+      if (ikey_.type == kTypeBlobIndex || ikey_.type == kTypeWideColumnEntity ||
+          ikey_.type == kTypeValuePreferredSeqno) {
         ikey_.type = kTypeValue;
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       }
@@ -798,7 +802,8 @@ void CompactionIterator::NextFromInput() {
             // happened
             if (next_ikey.type != kTypeValue &&
                 next_ikey.type != kTypeBlobIndex &&
-                next_ikey.type != kTypeWideColumnEntity) {
+                next_ikey.type != kTypeWideColumnEntity &&
+                next_ikey.type != kTypeValuePreferredSeqno) {
               ++iter_stats_.num_single_del_mismatch;
             }
 
@@ -967,6 +972,50 @@ void CompactionIterator::NextFromInput() {
           cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
         validity_info_.SetValid(ValidContext::kKeepDel);
         at_next_ = true;
+      }
+    } else if (ikey_.type == kTypeValuePreferredSeqno &&
+               DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
+               (bottommost_level_ ||
+                (compaction_ != nullptr &&
+                 compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
+                                                            &level_ptrs_)))) {
+      // This section that attempts to swap preferred sequence number will not
+      // be invoked if this is a CompactionIterator created for flush, since
+      // `compaction_` will be nullptr and it's not bottommost either.
+      //
+      // The entries with the same user key and smaller sequence numbers are
+      // all in this earliest snapshot range to be iterated. Since those entries
+      // will be hidden by this entry [rule A], it's safe to swap in the
+      // preferred seqno now.
+      //
+      // It's otherwise not safe to swap in the preferred seqno since it's
+      // possible for entries in earlier snapshots to have sequence number that
+      // is smaller than this entry's sequence number but bigger than this
+      // entry's preferred sequence number. Swapping in the preferred sequence
+      // number will break the internal key ordering invariant for this key.
+      //
+      // A special case involving range deletion is handled separately below.
+      auto [unpacked_value, preferred_seqno] =
+          ParsePackedValueWithSeqno(value_);
+      assert(preferred_seqno < ikey_.sequence);
+      InternalKey ikey_after_swap(ikey_.user_key, preferred_seqno, kTypeValue);
+      Slice ikey_after_swap_slice(*ikey_after_swap.rep());
+      if (range_del_agg_->ShouldDelete(
+              ikey_after_swap_slice,
+              RangeDelPositioningMode::kForwardTraversal)) {
+        // A range tombstone that doesn't cover this kTypeValuePreferredSeqno
+        // entry may end up covering the entry, so it's not safe to swap
+        // preferred sequence number. In this case, we output the entry as is.
+        validity_info_.SetValid(ValidContext::kNewUserKey);
+      } else {
+        iter_stats_.num_timed_put_swap_preferred_seqno++;
+        ikey_.sequence = preferred_seqno;
+        ikey_.type = kTypeValue;
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+        key_ = current_key_.GetInternalKey();
+        ikey_.user_key = current_key_.GetUserKey();
+        value_ = unpacked_value;
+        validity_info_.SetValid(ValidContext::kSwapPreferredSeqno);
       }
     } else if (ikey_.type == kTypeMerge) {
       if (!merge_helper_->HasOperator()) {

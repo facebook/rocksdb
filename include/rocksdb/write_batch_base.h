@@ -42,6 +42,7 @@ class WriteBatchBase {
                      const SliceParts& value);
   virtual Status Put(const SliceParts& key, const SliceParts& value);
 
+  // EXPERIMENTAL
   // Store the mapping "key->value" in the database with the specified write
   // time in the column family. Using some write time that is in the past to
   // fast track data to their correct placement and preservation is the intended
@@ -49,10 +50,9 @@ class WriteBatchBase {
   // as having the given write time for this purpose but doesn't currently make
   // any guarantees.
   //
-  // When a regular Put("foo", "v1") is followed by a
-  // TimedPut("foo", "v2", some_time_before_first_put), the behavior of read
-  // queries are undefined and can change over time, for example due to
-  // compactions.
+  // This feature is experimental and one known side effect is that it can break
+  // snapshot immutability. Reading from a snapshot created before
+  // TimedPut(k, v, t) may or may not see that k->v.
   // Note: this feature is currently not compatible with user-defined timestamps
   // and wide columns.
   virtual Status TimedPut(ColumnFamilyHandle* column_family, const Slice& key,

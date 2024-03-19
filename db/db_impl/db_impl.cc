@@ -16,6 +16,7 @@
 #include <cinttypes>
 #include <cstdio>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -1979,7 +1980,8 @@ InternalIterator* DBImpl::NewInternalIterator(
           super_version->mutable_cf_options.prefix_extractor != nullptr,
       read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
-  auto mem_iter = super_version->mem->NewIterator(read_options, arena);
+  auto mem_iter = super_version->mem->NewIterator(
+      read_options, super_version->GetSeqnoToTimeMapping(), arena);
   Status s;
   if (!read_options.ignore_range_deletions) {
     TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
@@ -2001,8 +2003,9 @@ InternalIterator* DBImpl::NewInternalIterator(
 
   // Collect all needed child iterators for immutable memtables
   if (s.ok()) {
-    super_version->imm->AddIterators(read_options, &merge_iter_builder,
-                                     !read_options.ignore_range_deletions);
+    super_version->imm->AddIterators(
+        read_options, super_version->GetSeqnoToTimeMapping(),
+        &merge_iter_builder, !read_options.ignore_range_deletions);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
   if (s.ok()) {
@@ -2323,6 +2326,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
+  merge_context.get_merge_operands_options =
+      get_impl_options.get_merge_operands_options;
   SequenceNumber max_covering_tombstone_seq = 0;
 
   Status s;
@@ -6464,6 +6469,8 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
       .PermitUncheckedError();  // Ignore error
   uint64_t unix_time = static_cast<uint64_t>(unix_time_signed);
+
+  std::vector<SuperVersionContext> sv_contexts;
   if (populate_historical_seconds > 0) {
     bool success = true;
     {
@@ -6474,6 +6481,7 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
         success = seqno_to_time_mapping_.PrePopulate(
             from_seqno, seqno, unix_time - populate_historical_seconds,
             unix_time);
+        InstallSeqnoToTimeMappingInSV(&sv_contexts);
       } else {
         // One of these will fail
         assert(seqno > 1);
@@ -6499,7 +6507,31 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
     // FIXME: assert(seqno > 0);
     // Always successful assuming seqno never go backwards
     seqno_to_time_mapping_.Append(seqno, unix_time);
+    InstallSeqnoToTimeMappingInSV(&sv_contexts);
   }
+
+  // clean up outside db mutex
+  for (SuperVersionContext& sv_context : sv_contexts) {
+    sv_context.Clean();
+  }
+}
+
+void DBImpl::InstallSeqnoToTimeMappingInSV(
+    std::vector<SuperVersionContext>* sv_contexts) {
+  mutex_.AssertHeld();
+  std::shared_ptr<SeqnoToTimeMapping> new_seqno_to_time_mapping =
+      std::make_shared<SeqnoToTimeMapping>();
+  new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    sv_contexts->emplace_back(/*create_superversion=*/true);
+    sv_contexts->back().new_seqno_to_time_mapping = new_seqno_to_time_mapping;
+    cfd->InstallSuperVersion(&sv_contexts->back(),
+                             *(cfd->GetLatestMutableCFOptions()));
+  }
+  bg_cv_.SignalAll();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

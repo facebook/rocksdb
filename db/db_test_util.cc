@@ -759,6 +759,19 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   }
 }
 
+Status DBTestBase::TimedPut(int cf, const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  WriteBatch wb;
+  ColumnFamilyHandle* cfh;
+  if (cf != 0) {
+    cfh = handles_[cf];
+  } else {
+    cfh = db_->DefaultColumnFamily();
+  }
+  EXPECT_OK(wb.TimedPut(cfh, k, v, write_unix_time));
+  return db_->Write(wo, &wb);
+}
+
 Status DBTestBase::Merge(const Slice& k, const Slice& v, WriteOptions wo) {
   return db_->Merge(wo, k, v);
 }
@@ -1152,7 +1165,7 @@ int DBTestBase::TotalTableFiles(int cf, int levels) {
 // Return spread of files per level
 std::string DBTestBase::FilesPerLevel(int cf) {
   int num_levels =
-      (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[1]);
+      (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[cf]);
   std::string result;
   size_t last_non_zero_offset = 0;
   for (int level = 0; level < num_levels; level++) {

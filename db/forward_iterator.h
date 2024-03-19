@@ -76,6 +76,7 @@ class ForwardIterator : public InternalIterator {
   void Next() override;
   Slice key() const override;
   Slice value() const override;
+  uint64_t write_unix_time() const override;
   Status status() const override;
   bool PrepareValue() override;
   Status GetProperty(std::string prop_name, std::string* prop) override;

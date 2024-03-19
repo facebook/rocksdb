@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/cache.h"
+#include "rocksdb/options.h"
+#include "rocksdb/utilities/backup_engine.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 
@@ -32,6 +35,11 @@ DEFINE_int64(max_key, 1 * KB * KB,
              "Max number of key/values to place in database");
 
 DEFINE_int32(max_key_len, 3, "Maximum length of a key in 8-byte units");
+
+DEFINE_uint64(max_sequential_skip_in_iterations,
+              ROCKSDB_NAMESPACE::Options().max_sequential_skip_in_iterations,
+              "Iterator will reseek after scanning this number of keys with"
+              "the same user key during Next/Prev().");
 
 DEFINE_string(key_len_percent_dist, "",
               "Percentages of keys of various lengths. For example, 1,30,69 "
@@ -402,7 +410,8 @@ DEFINE_double(experimental_mempurge_threshold, 0.0,
               "Maximum estimated useful payload that triggers a "
               "mempurge process to collect memtable garbage bytes.");
 
-DEFINE_bool(enable_write_thread_adaptive_yield, true,
+DEFINE_bool(enable_write_thread_adaptive_yield,
+            ROCKSDB_NAMESPACE::Options().enable_write_thread_adaptive_yield,
             "Use a yielding spin loop for brief writer thread waits.");
 
 // Options for StackableDB-based BlobDB
@@ -1144,4 +1153,155 @@ DEFINE_uint32(bottommost_file_compaction_delay, 0,
 DEFINE_bool(auto_readahead_size, false,
             "Does auto tuning of readahead_size when enabled during scans.");
 
+DEFINE_bool(allow_fallocate, ROCKSDB_NAMESPACE::Options().allow_fallocate,
+            "Options.allow_fallocate");
+
+DEFINE_int32(table_cache_numshardbits,
+             ROCKSDB_NAMESPACE::Options().table_cache_numshardbits,
+             "Options.table_cache_numshardbits");
+
+DEFINE_uint64(log_readahead_size,
+              ROCKSDB_NAMESPACE::Options().log_readahead_size,
+              "Options.log_readahead_size");
+
+DEFINE_uint64(bgerror_resume_retry_interval,
+              ROCKSDB_NAMESPACE::Options().bgerror_resume_retry_interval,
+              "Options.bgerror_resume_retry_interval");
+
+DEFINE_uint64(delete_obsolete_files_period_micros,
+              ROCKSDB_NAMESPACE::Options().delete_obsolete_files_period_micros,
+              "Options.delete_obsolete_files_period_micros");
+
+DEFINE_uint64(max_log_file_size, ROCKSDB_NAMESPACE::Options().max_log_file_size,
+              "Options.max_log_file_sizes");
+
+DEFINE_uint64(log_file_time_to_roll,
+              ROCKSDB_NAMESPACE::Options().log_file_time_to_roll,
+              "Options.log_file_time_to_roll");
+
+DEFINE_bool(use_adaptive_mutex, ROCKSDB_NAMESPACE::Options().use_adaptive_mutex,
+            "Options.use_adaptive_mutex");
+
+DEFINE_bool(advise_random_on_open,
+            ROCKSDB_NAMESPACE::Options().advise_random_on_open,
+            "Options.advise_random_on_open");
+
+DEFINE_uint64(WAL_ttl_seconds, ROCKSDB_NAMESPACE::Options().WAL_ttl_seconds,
+              "Options.WAL_ttl_seconds");
+
+DEFINE_uint64(WAL_size_limit_MB, ROCKSDB_NAMESPACE::Options().WAL_size_limit_MB,
+              "Options.WAL_size_limit_MB");
+
+DEFINE_bool(strict_bytes_per_sync,
+            ROCKSDB_NAMESPACE::Options().strict_bytes_per_sync,
+            "Options.strict_bytes_per_sync");
+
+DEFINE_bool(avoid_flush_during_shutdown,
+            ROCKSDB_NAMESPACE::Options().avoid_flush_during_shutdown,
+            "Options.avoid_flush_during_shutdown");
+
+DEFINE_bool(fill_cache, ROCKSDB_NAMESPACE::ReadOptions().fill_cache,
+            "ReadOptions.fill_cache");
+
+DEFINE_bool(optimize_multiget_for_io,
+            ROCKSDB_NAMESPACE::ReadOptions().optimize_multiget_for_io,
+            "ReadOptions.optimize_multiget_for_io");
+
+DEFINE_bool(memtable_insert_hint_per_batch,
+            ROCKSDB_NAMESPACE::WriteOptions().memtable_insert_hint_per_batch,
+            "WriteOptions.memtable_insert_hint_per_batch");
+
+DEFINE_bool(dump_malloc_stats, ROCKSDB_NAMESPACE::Options().dump_malloc_stats,
+            "Options.dump_malloc_stats");
+
+DEFINE_uint64(stats_history_buffer_size,
+              ROCKSDB_NAMESPACE::Options().stats_history_buffer_size,
+              "Options.stats_history_buffer_size");
+
+DEFINE_bool(skip_stats_update_on_db_open,
+            ROCKSDB_NAMESPACE::Options().skip_stats_update_on_db_open,
+            "Options.skip_stats_update_on_db_open");
+
+DEFINE_bool(optimize_filters_for_hits,
+            ROCKSDB_NAMESPACE::Options().optimize_filters_for_hits,
+            "Options.optimize_filters_for_hits");
+
+DEFINE_uint64(sample_for_compression,
+              ROCKSDB_NAMESPACE::Options().sample_for_compression,
+              "Options.sample_for_compression");
+
+DEFINE_bool(report_bg_io_stats, ROCKSDB_NAMESPACE::Options().report_bg_io_stats,
+            "Options.report_bg_io_stats");
+
+DEFINE_bool(
+    cache_index_and_filter_blocks_with_high_priority,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .cache_index_and_filter_blocks_with_high_priority,
+    "BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority");
+
+DEFINE_bool(use_delta_encoding,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions().use_delta_encoding,
+            "BlockBasedTableOptions.use_delta_encoding");
+
+DEFINE_bool(verify_compression,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions().verify_compression,
+            "BlockBasedTableOptions.verify_compression");
+
+DEFINE_uint32(
+    read_amp_bytes_per_bit,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().read_amp_bytes_per_bit,
+    "Options.read_amp_bytes_per_bit");
+
+DEFINE_bool(
+    enable_index_compression,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().enable_index_compression,
+    "BlockBasedTableOptions.enable_index_compression");
+
+DEFINE_uint32(index_shortening,
+              static_cast<uint32_t>(
+                  ROCKSDB_NAMESPACE::BlockBasedTableOptions().index_shortening),
+              "BlockBasedTableOptions.index_shortening");
+
+DEFINE_uint32(metadata_charge_policy,
+              static_cast<uint32_t>(ROCKSDB_NAMESPACE::ShardedCacheOptions()
+                                        .metadata_charge_policy),
+              "ShardedCacheOptions.metadata_charge_policy");
+
+DEFINE_bool(use_adaptive_mutex_lru,
+            ROCKSDB_NAMESPACE::LRUCacheOptions().use_adaptive_mutex,
+            "LRUCacheOptions.use_adaptive_mutex");
+
+DEFINE_uint32(
+    compress_format_version,
+    static_cast<uint32_t>(ROCKSDB_NAMESPACE::CompressedSecondaryCacheOptions()
+                              .compress_format_version),
+    "CompressedSecondaryCacheOptions.compress_format_version");
+
+DEFINE_uint64(manifest_preallocation_size,
+              ROCKSDB_NAMESPACE::Options().manifest_preallocation_size,
+              "Options.manifest_preallocation_size");
+
+DEFINE_uint64(max_total_wal_size,
+              ROCKSDB_NAMESPACE::Options().max_total_wal_size,
+              "Options.max_total_wal_size");
+
+DEFINE_bool(enable_checksum_handoff, false,
+            "If true, include all the supported files in "
+            "Options.checksum_handoff_file. Otherwise include no files.");
+
+DEFINE_double(high_pri_pool_ratio,
+              ROCKSDB_NAMESPACE::LRUCacheOptions().high_pri_pool_ratio,
+              "LRUCacheOptions.high_pri_pool_ratio");
+
+DEFINE_double(low_pri_pool_ratio,
+              ROCKSDB_NAMESPACE::LRUCacheOptions().low_pri_pool_ratio,
+              "LRUCacheOptions.low_pri_pool_ratio");
+
+DEFINE_uint64(soft_pending_compaction_bytes_limit,
+              ROCKSDB_NAMESPACE::Options().soft_pending_compaction_bytes_limit,
+              "Options.soft_pending_compaction_bytes_limit");
+
+DEFINE_uint64(hard_pending_compaction_bytes_limit,
+              ROCKSDB_NAMESPACE::Options().hard_pending_compaction_bytes_limit,
+              "Options.hard_pending_compaction_bytes_limit");
 #endif  // GFLAGS

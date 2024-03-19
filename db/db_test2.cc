@@ -7808,6 +7808,27 @@ TEST_F(DBTest2, ZSTDChecksum) {
 }
 #endif
 
+TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Give table cache zero capacity to prevent preloading tables. That way,
+  // `kBlockCacheTier` reads will fail due to table cache misses.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  uint64_t orig_num_file_opens = TestGetTickerCount(options, NO_FILE_OPENS);
+
+  ReadOptions non_blocking_opts;
+  non_blocking_opts.read_tier = kBlockCacheTier;
+  std::string value;
+  ASSERT_TRUE(db_->Get(non_blocking_opts, "foo", &value).IsIncomplete());
+
+  ASSERT_EQ(orig_num_file_opens, TestGetTickerCount(options, NO_FILE_OPENS));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

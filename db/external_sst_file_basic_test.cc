@@ -1958,7 +1958,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
     arg.options = in_opts;
     arg.files_checksums = files_checksums;
     arg.files_checksum_func_names = files_checksum_func_names;
-    if ((alternate_hint = !alternate_hint)) {
+    alternate_hint = !alternate_hint;
+    if (alternate_hint) {
       // Provide correct hint (for optimal file open performance)
       arg.file_temperature = Temperature::kWarm;
     } else {

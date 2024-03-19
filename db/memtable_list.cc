@@ -211,18 +211,22 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
 }
 
 void MemTableListVersion::AddIterators(
-    const ReadOptions& options, std::vector<InternalIterator*>* iterator_list,
-    Arena* arena) {
+    const ReadOptions& options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
+    std::vector<InternalIterator*>* iterator_list, Arena* arena) {
   for (auto& m : memlist_) {
-    iterator_list->push_back(m->NewIterator(options, arena));
+    iterator_list->push_back(
+        m->NewIterator(options, seqno_to_time_mapping, arena));
   }
 }
 
-void MemTableListVersion::AddIterators(const ReadOptions& options,
-                                       MergeIteratorBuilder* merge_iter_builder,
-                                       bool add_range_tombstone_iter) {
+void MemTableListVersion::AddIterators(
+    const ReadOptions& options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
+    MergeIteratorBuilder* merge_iter_builder, bool add_range_tombstone_iter) {
   for (auto& m : memlist_) {
-    auto mem_iter = m->NewIterator(options, merge_iter_builder->GetArena());
+    auto mem_iter = m->NewIterator(options, seqno_to_time_mapping,
+                                   merge_iter_builder->GetArena());
     if (!add_range_tombstone_iter || options.ignore_range_deletions) {
       merge_iter_builder->AddIterator(mem_iter);
     } else {

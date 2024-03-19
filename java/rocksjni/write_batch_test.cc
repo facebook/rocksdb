@@ -60,7 +60,8 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   unsigned int count = 0;
   ROCKSDB_NAMESPACE::Arena arena;
   ROCKSDB_NAMESPACE::ScopedArenaIterator iter(
-      mem->NewIterator(ROCKSDB_NAMESPACE::ReadOptions(), &arena));
+      mem->NewIterator(ROCKSDB_NAMESPACE::ReadOptions(),
+                       /*seqno_to_time_mapping=*/nullptr, &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ROCKSDB_NAMESPACE::ParsedInternalKey ikey;
     ikey.clear();

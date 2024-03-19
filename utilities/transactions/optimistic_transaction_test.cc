@@ -719,7 +719,6 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   ASSERT_TRUE(s.IsBusy());
   s = txn_db->Get(read_options, handles[1], "AAAZZZ", &value);
   ASSERT_TRUE(s.IsNotFound());
-  ASSERT_EQ(value, "barbar");
 
   delete txn;
   delete txn2;
@@ -1217,7 +1216,8 @@ TEST_P(OptimisticTransactionTest, IteratorTest) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(results[i], iter->value().ToString());
 
-    ASSERT_OK(txn->GetForUpdate(read_options, iter->key(), nullptr));
+    ASSERT_OK(
+        txn->GetForUpdate(read_options, iter->key(), (std::string*)nullptr));
 
     iter->Next();
   }

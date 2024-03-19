@@ -417,7 +417,8 @@ Status FlushJob::MemPurge() {
   std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
       range_del_iters;
   for (MemTable* m : mems_) {
-    memtables.push_back(m->NewIterator(ro, &arena));
+    memtables.push_back(
+        m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
     auto* range_del_iter = m->NewRangeTombstoneIterator(
         ro, kMaxSequenceNumber, true /* immutable_memtable */);
     if (range_del_iter != nullptr) {
@@ -850,6 +851,9 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t start_cpu_micros = clock_->CPUMicros();
   Status s;
 
+  // TODO(yuzhangyu): extend the copied seqno to time mapping range here so
+  // it can try to cover the earliest write unix time as much as possible. We
+  // need this mapping to get a more precise preferred seqno.
   SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
   if (!db_impl_seqno_to_time_mapping_.Empty()) {
     // make a local copy to use while not holding the db_mutex.
@@ -894,7 +898,8 @@ Status FlushJob::WriteLevel0Table() {
           db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
-      memtables.push_back(m->NewIterator(ro, &arena));
+      memtables.push_back(
+          m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
       auto* range_del_iter = m->NewRangeTombstoneIterator(
           ro, kMaxSequenceNumber, true /* immutable_memtable */);
       if (range_del_iter != nullptr) {

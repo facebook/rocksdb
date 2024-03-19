@@ -142,6 +142,13 @@ TEST_P(DBIteratorTest, IteratorProperty) {
     // Get internal key at which the iteration stopped (tombstone in this case).
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
     ASSERT_EQ("2", prop_value);
+
+    prop_value.clear();
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.write-time", &prop_value));
+    uint64_t write_time;
+    Slice prop_slice = prop_value;
+    ASSERT_TRUE(GetFixed64(&prop_slice, &write_time));
+    ASSERT_EQ(std::numeric_limits<uint64_t>::max(), write_time);
   }
   Close();
 }

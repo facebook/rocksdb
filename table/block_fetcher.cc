@@ -81,11 +81,12 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
           &io_s, for_compaction_);
       if (read_from_prefetch_buffer) {
         ProcessTrailerIfPresent();
-        if (!io_status_.ok()) {
+        if (io_status_.ok()) {
+          got_from_prefetch_buffer_ = true;
+          used_buf_ = const_cast<char*>(slice_.data());
+        } else if (!(io_status_.IsCorruption() && retry_corrupt_read_)) {
           return true;
         }
-        got_from_prefetch_buffer_ = true;
-        used_buf_ = const_cast<char*>(slice_.data());
       }
     }
     if (!io_s.ok()) {
@@ -237,6 +238,113 @@ inline void BlockFetcher::GetBlockContents() {
 #endif
 }
 
+// Read a block from the file and verify its checksum. Upon return, io_status_
+// will be updated with the status of the read, and slice_ will be updated
+// with a pointer to the data.
+void BlockFetcher::ReadBlock(bool retry) {
+  FSReadRequest read_req;
+  IOOptions opts;
+  io_status_ = file_->PrepareIOOptions(read_options_, opts);
+  opts.verify_and_reconstruct_read = retry;
+  read_req.status.PermitUncheckedError();
+  // Actual file read
+  if (io_status_.ok()) {
+    if (file_->use_direct_io()) {
+      PERF_TIMER_GUARD(block_read_time);
+      PERF_CPU_TIMER_GUARD(
+          block_read_cpu_time,
+          ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
+      io_status_ = file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                               &slice_, /*scratch=*/nullptr, &direct_io_buf_);
+      PERF_COUNTER_ADD(block_read_count, 1);
+      used_buf_ = const_cast<char*>(slice_.data());
+    } else if (use_fs_scratch_) {
+      PERF_TIMER_GUARD(block_read_time);
+      PERF_CPU_TIMER_GUARD(
+          block_read_cpu_time,
+          ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
+      read_req.offset = handle_.offset();
+      read_req.len = block_size_with_trailer_;
+      read_req.scratch = nullptr;
+      io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
+                                    /*AlignedBuf* =*/nullptr);
+      PERF_COUNTER_ADD(block_read_count, 1);
+
+      slice_ = Slice(read_req.result.data(), read_req.result.size());
+      used_buf_ = const_cast<char*>(slice_.data());
+    } else {
+      // It allocates/assign used_buf_
+      PrepareBufferForBlockFromFile();
+
+      PERF_TIMER_GUARD(block_read_time);
+      PERF_CPU_TIMER_GUARD(
+          block_read_cpu_time,
+          ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
+
+      io_status_ = file_->Read(
+          opts, handle_.offset(), /*size*/ block_size_with_trailer_,
+          /*result*/ &slice_, /*scratch*/ used_buf_, /*aligned_buf=*/nullptr);
+      PERF_COUNTER_ADD(block_read_count, 1);
+#ifndef NDEBUG
+      if (slice_.data() == &stack_buf_[0]) {
+        num_stack_buf_memcpy_++;
+      } else if (slice_.data() == heap_buf_.get()) {
+        num_heap_buf_memcpy_++;
+      } else if (slice_.data() == compressed_buf_.get()) {
+        num_compressed_buf_memcpy_++;
+      }
+#endif
+    }
+  }
+
+  // TODO: introduce dedicated perf counter for range tombstones
+  switch (block_type_) {
+    case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+      PERF_COUNTER_ADD(filter_block_read_count, 1);
+      break;
+
+    case BlockType::kCompressionDictionary:
+      PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
+      break;
+
+    case BlockType::kIndex:
+      PERF_COUNTER_ADD(index_block_read_count, 1);
+      break;
+
+    // Nothing to do here as we don't have counters for the other types.
+    default:
+      break;
+  }
+
+  PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
+  if (io_status_.ok()) {
+    if (use_fs_scratch_ && !read_req.status.ok()) {
+      io_status_ = read_req.status;
+    } else if (slice_.size() != block_size_with_trailer_) {
+      io_status_ = IOStatus::Corruption(
+          "truncated block read from " + file_->file_name() + " offset " +
+          std::to_string(handle_.offset()) + ", expected " +
+          std::to_string(block_size_with_trailer_) + " bytes, got " +
+          std::to_string(slice_.size()));
+    }
+  }
+
+  if (io_status_.ok()) {
+    ProcessTrailerIfPresent();
+  }
+
+  if (io_status_.ok()) {
+    InsertCompressedBlockToPersistentCacheIfNeeded();
+  } else {
+    ReleaseFileSystemProvidedBuffer(&read_req);
+    direct_io_buf_.reset();
+    compressed_buf_.reset();
+    heap_buf_.reset();
+    used_buf_ = nullptr;
+  }
+}
+
 IOStatus BlockFetcher::ReadBlockContents() {
   FSReadRequest read_req;
   read_req.status.PermitUncheckedError();
@@ -252,104 +360,13 @@ IOStatus BlockFetcher::ReadBlockContents() {
       return io_status_;
     }
   } else if (!TryGetSerializedBlockFromPersistentCache()) {
-    IOOptions opts;
-    io_status_ = file_->PrepareIOOptions(read_options_, opts);
-    // Actual file read
-    if (io_status_.ok()) {
-      if (file_->use_direct_io()) {
-        PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(
-            block_read_cpu_time,
-            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
-        io_status_ =
-            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
-                        &slice_, /*scratch=*/nullptr, &direct_io_buf_);
-        PERF_COUNTER_ADD(block_read_count, 1);
-        used_buf_ = const_cast<char*>(slice_.data());
-      } else if (use_fs_scratch_) {
-        PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(
-            block_read_cpu_time,
-            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
-        read_req.offset = handle_.offset();
-        read_req.len = block_size_with_trailer_;
-        read_req.scratch = nullptr;
-        io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                      /*AlignedBuf* =*/nullptr);
-        PERF_COUNTER_ADD(block_read_count, 1);
-
-        slice_ = Slice(read_req.result.data(), read_req.result.size());
-        used_buf_ = const_cast<char*>(slice_.data());
-      } else {
-        // It allocates/assign used_buf_
-        PrepareBufferForBlockFromFile();
-
-        PERF_TIMER_GUARD(block_read_time);
-        PERF_CPU_TIMER_GUARD(
-            block_read_cpu_time,
-            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
-
-        io_status_ = file_->Read(
-            opts, handle_.offset(), /*size*/ block_size_with_trailer_,
-            /*result*/ &slice_, /*scratch*/ used_buf_, /*aligned_buf=*/nullptr);
-        PERF_COUNTER_ADD(block_read_count, 1);
-#ifndef NDEBUG
-        if (slice_.data() == &stack_buf_[0]) {
-          num_stack_buf_memcpy_++;
-        } else if (slice_.data() == heap_buf_.get()) {
-          num_heap_buf_memcpy_++;
-        } else if (slice_.data() == compressed_buf_.get()) {
-          num_compressed_buf_memcpy_++;
-        }
-#endif
-      }
+    ReadBlock(/*retry =*/false);
+    // If the file system supports retry after corruption, then try to
+    // re-read the block and see if it succeeds.
+    if (io_status_.IsCorruption() && retry_corrupt_read_) {
+      ReadBlock(/*retry=*/true);
     }
-
-    // TODO: introduce dedicated perf counter for range tombstones
-    switch (block_type_) {
-      case BlockType::kFilter:
-      case BlockType::kFilterPartitionIndex:
-        PERF_COUNTER_ADD(filter_block_read_count, 1);
-        break;
-
-      case BlockType::kCompressionDictionary:
-        PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
-        break;
-
-      case BlockType::kIndex:
-        PERF_COUNTER_ADD(index_block_read_count, 1);
-        break;
-
-      // Nothing to do here as we don't have counters for the other types.
-      default:
-        break;
-    }
-
-    PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
     if (!io_status_.ok()) {
-      ReleaseFileSystemProvidedBuffer(&read_req);
-      return io_status_;
-    }
-
-    if (use_fs_scratch_ && !read_req.status.ok()) {
-      ReleaseFileSystemProvidedBuffer(&read_req);
-      return read_req.status;
-    }
-
-    if (slice_.size() != block_size_with_trailer_) {
-      ReleaseFileSystemProvidedBuffer(&read_req);
-      return IOStatus::Corruption(
-          "truncated block read from " + file_->file_name() + " offset " +
-          std::to_string(handle_.offset()) + ", expected " +
-          std::to_string(block_size_with_trailer_) + " bytes, got " +
-          std::to_string(slice_.size()));
-    }
-
-    ProcessTrailerIfPresent();
-    if (io_status_.ok()) {
-      InsertCompressedBlockToPersistentCacheIfNeeded();
-    } else {
-      ReleaseFileSystemProvidedBuffer(&read_req);
       return io_status_;
     }
   }
@@ -402,6 +419,10 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
         // Data Block is already in prefetch.
         got_from_prefetch_buffer_ = true;
         ProcessTrailerIfPresent();
+        if (io_status_.IsCorruption() && retry_corrupt_read_) {
+          got_from_prefetch_buffer_ = false;
+          ReadBlock(/*retry = */ true);
+        }
         if (!io_status_.ok()) {
           return io_status_;
         }

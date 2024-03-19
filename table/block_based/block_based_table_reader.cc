@@ -631,6 +631,19 @@ Status BlockBasedTable::Open(
                            prefetch_buffer.get(), file_size, &footer,
                            kBlockBasedTableMagicNumber);
   }
+  // If the footer is corrupted and the FS supports checksum verification and
+  // correction, try reading the footer again
+  if (s.IsCorruption()) {
+    RecordTick(ioptions.statistics.get(), SST_FOOTER_CORRUPTION_COUNT);
+    if (CheckFSFeatureSupport(ioptions.fs.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      IOOptions retry_opts = opts;
+      retry_opts.verify_and_reconstruct_read = true;
+      s = ReadFooterFromFile(retry_opts, file.get(), *ioptions.fs,
+                             prefetch_buffer.get(), file_size, &footer,
+                             kBlockBasedTableMagicNumber);
+    }
+  }
   if (!s.ok()) {
     return s;
   }
@@ -921,6 +934,17 @@ Status BlockBasedTable::ReadPropertiesBlock(
     } else {
       assert(table_properties != nullptr);
       rep_->table_properties = std::move(table_properties);
+
+      if (s.ok()) {
+        s = rep_->seqno_to_time_mapping.DecodeFrom(
+            rep_->table_properties->seqno_to_time_mapping);
+      }
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            rep_->ioptions.logger,
+            "Problem reading or processing seqno-to-time mapping: %s",
+            s.ToString().c_str());
+      }
       rep_->blocks_maybe_compressed =
           rep_->table_properties->compression_name !=
           CompressionTypeToString(kNoCompression);
@@ -1231,6 +1255,10 @@ void BlockBasedTable::SetupForCompaction() {}
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
     const {
   return rep_->table_properties;
+}
+
+const SeqnoToTimeMapping& BlockBasedTable::GetSeqnoToTimeMapping() const {
+  return rep_->seqno_to_time_mapping;
 }
 
 size_t BlockBasedTable::ApproximateMemoryUsage() const {

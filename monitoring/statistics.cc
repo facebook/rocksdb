@@ -265,6 +265,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {PREFETCH_BYTES, "rocksdb.prefetch.bytes"},
     {PREFETCH_BYTES_USEFUL, "rocksdb.prefetch.bytes.useful"},
     {PREFETCH_HITS, "rocksdb.prefetch.hits"},
+    {SST_FOOTER_CORRUPTION_COUNT, "rocksdb.footer.corruption.count"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

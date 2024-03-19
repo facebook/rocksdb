@@ -675,6 +675,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/hyper_clock_cache.cc                          \
   java/rocksjni/iterator.cc                                   \
   java/rocksjni/jni_perf_context.cc                           \
+  java/rocksjni/jni_multiget_helpers.cc                       \
   java/rocksjni/jnicallback.cc                                \
   java/rocksjni/loggerjnicallback.cc                          \
   java/rocksjni/lru_cache.cc                                  \

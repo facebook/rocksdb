@@ -1630,7 +1630,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   Status s;
   TableProperties table_properties;
   {
-    ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
+    ScopedArenaIterator iter(
+        mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] [WriteLevel0TableForRecovery]"
                     " Level-0 table #%" PRIu64 ": started",

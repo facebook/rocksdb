@@ -14,6 +14,8 @@ class MultiCfIteratorTest : public DBTestBase {
   MultiCfIteratorTest()
       : DBTestBase("multi_cf_iterator_test", /*env_do_fsync=*/true) {}
 
+  // Verify Iteration of MultiCfIterator
+  // by SeekToFirst() + Next() and SeekToLast() + Prev()
   void verifyMultiCfIterator(
       const std::vector<ColumnFamilyHandle*>& cfhs,
       const std::vector<Slice>& expected_keys,
@@ -38,12 +40,27 @@ class MultiCfIteratorTest : public DBTestBase {
         // ASSERT_EQ(expected_attribute_groups.value()[i],
         //           iter->attribute_groups());
       }
-      if (expected_values.has_value()) {
-        ASSERT_EQ(expected_values.value()[i], iter->value());
-      }
       ++i;
     }
     ASSERT_EQ(expected_keys.size(), i);
+    ASSERT_OK(iter->status());
+
+    int rev_i = i - 1;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(expected_keys[rev_i], iter->key());
+      if (expected_values.has_value()) {
+        ASSERT_EQ(expected_values.value()[rev_i], iter->value());
+      }
+      if (expected_wide_columns.has_value()) {
+        ASSERT_EQ(expected_wide_columns.value()[rev_i], iter->columns());
+      }
+      if (expected_attribute_groups.has_value()) {
+        // TODO - Add this back when attribute_groups() API is added
+        // ASSERT_EQ(expected_attribute_groups.value()[rev_i],
+        //           iter->attribute_groups());
+      }
+      rev_i--;
+    }
     ASSERT_OK(iter->status());
   }
 
@@ -100,6 +117,41 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
     // Iteration order and the return values should be the same since keys are
     // unique per CF
     verifyMultiCfIterator(cfhs_order_3_1_0_2, expected_keys, expected_values);
+
+    // Verify Seek()
+    {
+      std::unique_ptr<Iterator> iter =
+          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_0_1_2_3);
+      iter->Seek("");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+      iter->Seek("key_1");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+      iter->Seek("key_2");
+      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_1_val");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_2_val");
+      iter->Seek("key_x");
+      ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    }
+    // Verify SeekForPrev()
+    {
+      std::unique_ptr<Iterator> iter =
+          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_0_1_2_3);
+      iter->SeekForPrev("");
+      ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+      iter->SeekForPrev("key_1");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_1_val");
+      iter->SeekForPrev("key_x");
+      ASSERT_EQ(IterStatus(iter.get()), "key_4->key_4_cf_3_val");
+      iter->Prev();
+      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_2_val");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter.get()), "key_4->key_4_cf_3_val");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    }
   }
   {
     // Case 2: Same key in multiple CFs
@@ -129,6 +181,87 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
         handles_[3], handles_[2], handles_[0], handles_[1]};
     expected_values = {"key_1_cf_3_val", "key_2_cf_2_val", "key_3_cf_3_val"};
     verifyMultiCfIterator(cfhs_order_3_2_0_1, expected_keys, expected_values);
+
+    // Verify Seek()
+    {
+      std::unique_ptr<Iterator> iter =
+          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_3_2_0_1);
+      iter->Seek("");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
+      iter->Seek("key_1");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
+      iter->Seek("key_2");
+      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_2_val");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_3_val");
+      iter->Seek("key_x");
+      ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    }
+    // Verify SeekForPrev()
+    {
+      std::unique_ptr<Iterator> iter =
+          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_3_2_0_1);
+      iter->SeekForPrev("");
+      ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+      iter->SeekForPrev("key_1");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_2_val");
+      iter->SeekForPrev("key_x");
+      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_3_val");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    }
+  }
+}
+
+TEST_F(MultiCfIteratorTest, EmptyCfs) {
+  Options options = GetDefaultOptions();
+  {
+    // Case 1: No keys in any of the CFs
+    CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+    std::unique_ptr<Iterator> iter =
+        db_->NewMultiCfIterator(ReadOptions(), handles_);
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    iter->SeekToLast();
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    iter->Seek("foo");
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    iter->SeekForPrev("foo");
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+
+    ASSERT_OK(iter->status());
+  }
+  {
+    // Case 2: A single key exists in only one of the CF. Rest CFs are empty.
+    ASSERT_OK(Put(1, "key_1", "key_1_cf_1_val"));
+    std::unique_ptr<Iterator> iter =
+        db_->NewMultiCfIterator(ReadOptions(), handles_);
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_1_val");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    iter->SeekToLast();
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_1_val");
+    iter->Prev();
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+  }
+  {
+    // Case 3: same key exists in all of the CFs except one (cf_2)
+    ASSERT_OK(Put(0, "key_1", "key_1_cf_0_val"));
+    ASSERT_OK(Put(3, "key_1", "key_1_cf_3_val"));
+    // handles_ are in the order of 0->1->2->3. We should expect value from cf_0
+    std::unique_ptr<Iterator> iter =
+        db_->NewMultiCfIterator(ReadOptions(), handles_);
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    iter->SeekToLast();
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+    iter->Prev();
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
   }
 }
 
