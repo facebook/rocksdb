@@ -45,6 +45,7 @@ SequenceNumber ReadRecords(std::unique_ptr<TransactionLogIterator>& iter,
     ++count;
     lastSequence = res.sequence;
     EXPECT_OK(iter->status());
+    iter->RecycleWriteBatch(std::move(res.writeBatchPtr));
     iter->Next();
   }
   if (expect_ok) {

@@ -605,6 +605,7 @@ For Leveled Compaction users, `CompactRange()` with `bottommost_level_compaction
 * Fixed a crash bug introduced in 7.3.0 affecting users of MultiGet with `kDataBlockBinaryAndHash`.
 
 ### Public API changes
+* Add TransactionLogIterator::RecycleWriteBatch() method to optionally recycle a WriteBatch handed out by TransactionLogIterator::GetBatch(). This is an optional API that can be used to avoid repeated memory allocations for new WriteBatch objects when calling GetBatch() on the same TransactionLogIterator instance. Using the API is performance optimization which should not affect correctness.
 * Add new API GetUnixTime in Snapshot class which returns the unix time at which Snapshot is taken.
 * Add transaction `get_pinned` and `multi_get` to C API.
 * Add two-phase commit support to C API.
@@ -642,6 +643,9 @@ For Leveled Compaction users, `CompactRange()` with `bottommost_level_compaction
 
 ### Performance Improvements
 * When compiled with folly (Meta-internal integration; experimental in open source build), improve the locking performance (CPU efficiency) of LRUCache by using folly DistributedMutex in place of standard mutex.
+
+### Performance Improvements
+* Embedders can use the new TransactionLogIterator::RecycleWriteBatch() method to optionally return a WriteBatch handed out by TransactionLogIterator::GetBatch() back to the TransactionLogIterator. This is an optional API that can be used to avoid repeated memory allocations for new WriteBatch objects.
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes

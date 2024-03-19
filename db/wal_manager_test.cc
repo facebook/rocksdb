@@ -212,6 +212,7 @@ int CountRecords(TransactionLogIterator* iter) {
     ++count;
     lastSequence = res.sequence;
     EXPECT_OK(iter->status());
+    iter->RecycleWriteBatch(std::move(res.writeBatchPtr));
     iter->Next();
   }
   EXPECT_OK(iter->status());
