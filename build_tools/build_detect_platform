@@ -49,7 +49,7 @@ fi
 if [ "$ROCKSDB_CXX_STANDARD" ]; then
   PLATFORM_CXXFLAGS="-std=$ROCKSDB_CXX_STANDARD"
 else
-  PLATFORM_CXXFLAGS="-std=c++17"
+  PLATFORM_CXXFLAGS="-std=c++20"
 fi
 
 # we currently depend on POSIX platform
@@ -165,6 +165,18 @@ case "$TARGET_OS" in
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
         if test -z "$ROCKSDB_USE_IO_URING"; then
             ROCKSDB_USE_IO_URING=1
+        fi
+        if [ "$PLATFORM_CXXFLAGS" == "-std=c++20" ]; then
+          $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
+            #include <span>
+            int main() {
+              return 0;
+            }
+EOF
+          if [ "$?" != 0 ]; then
+              # Fallback
+              PLATFORM_CXXFLAGS="-std=c++2a"
+          fi
         fi
         if test "$ROCKSDB_USE_IO_URING" -ne 0; then
             # check for liburing

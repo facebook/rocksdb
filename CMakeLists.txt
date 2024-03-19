@@ -100,7 +100,7 @@ endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
-  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD 20)
 endif()
 
 include(CMakeDependentOption)
@@ -314,7 +314,7 @@ endif()
 
 # Check if -latomic is required or not
 if (NOT MSVC)
-  set(CMAKE_REQUIRED_FLAGS "--std=c++17")
+  set(CMAKE_REQUIRED_FLAGS "--std=c++20")
   CHECK_CXX_SOURCE_COMPILES("
 #include <atomic>
 std::atomic<uint64_t> x(0);

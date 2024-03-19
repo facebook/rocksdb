@@ -55,7 +55,7 @@ jobs:
   build-linux:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -86,7 +86,7 @@ jobs:
   build-linux-cmake-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -100,7 +100,7 @@ jobs:
   build-linux-cmake-with-folly-lite-no-test:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -113,7 +113,7 @@ jobs:
   build-linux-gcc-7-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -127,7 +127,7 @@ jobs:
   build-linux-gcc-7-with-folly-lite-no-test:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -140,7 +140,7 @@ jobs:
   build-linux-cmake-with-folly-coroutines:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -157,7 +157,7 @@ jobs:
   build-linux-cmake-with-benchmark:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -169,7 +169,7 @@ jobs:
   build-linux-encrypted_env-no_compression:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -183,7 +183,7 @@ jobs:
   build-linux-release:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -263,7 +263,7 @@ jobs:
   build-linux-clang-13-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -275,7 +275,7 @@ jobs:
   build-linux-gcc-8-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -287,7 +287,7 @@ jobs:
   build-linux-gcc-10-cxx20-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -299,7 +299,7 @@ jobs:
   build-linux-gcc-11-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -312,7 +312,7 @@ jobs:
   build-linux-clang10-clang-analyze:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -358,7 +358,7 @@ jobs:
   build-linux-clang10-asan:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 32-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -370,7 +370,7 @@ jobs:
   build-linux-clang10-ubsan:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -382,7 +382,7 @@ jobs:
   build-linux-clang10-mini-tsan:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 32-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
@@ -394,7 +394,7 @@ jobs:
   build-linux-static_lib-alt_namespace-status_checked:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
-      labels: 16-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
