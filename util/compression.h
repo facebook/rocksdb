@@ -661,7 +661,11 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
     case kXpressCompression:
       return "Xpress";
     case kZSTD:
+#if defined(ZSTD_VERSION_STRING)
+      return "ZSTD (" ZSTD_VERSION_STRING ")";
+#else
       return "ZSTD";
+#endif
     case kZSTDNotFinalCompression:
       return "ZSTDNotFinal";
     case kDisableCompressionOption:
@@ -1526,32 +1530,50 @@ inline bool ZSTD_TrainDictionarySupported() {
 
 inline std::string ZSTD_TrainDictionary(const std::string& samples,
                                         const std::vector<size_t>& sample_lens,
-                                        size_t max_dict_bytes) {
+                                        size_t max_dict_bytes,
+                                        bool finalize_dict = false) {
   // Dictionary trainer is available since v0.6.1 for static linking, but not
   // available for dynamic linking until v1.1.3. For now we enable the feature
   // in v1.1.3+ only.
-#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+#if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)  // v1.1.3+
   assert(samples.empty() == sample_lens.empty());
   if (samples.empty()) {
     return "";
   }
+  unsigned nbSamples = static_cast<unsigned>(sample_lens.size());
   std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len = ZDICT_trainFromBuffer(
-      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0],
-      static_cast<unsigned>(sample_lens.size()));
+      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0], nbSamples);
   if (ZDICT_isError(dict_len)) {
     return "";
   }
   assert(dict_len <= max_dict_bytes);
   dict_data.resize(dict_len);
-  return dict_data;
+  if (!finalize_dict) {
+    return dict_data;
+  }
+
+  ZDICT_params_t params;
+  memset(&params, 0, sizeof(params));
+  std::string fin_dict_data(max_dict_bytes, '\0');
+  size_t fin_dict_len = ZDICT_finalizeDictionary(
+      &fin_dict_data[0], max_dict_bytes, &dict_data[0], dict_len, &samples[0],
+      &sample_lens[0], nbSamples, params);
+  if (ZDICT_isError(fin_dict_len)) {
+    return "";
+  }
+  assert(fin_dict_len <= max_dict_bytes);
+  fin_dict_data.resize(fin_dict_len);
+  return fin_dict_data;
+
 #else   // up to v1.1.2
   assert(false);
   (void)samples;
   (void)sample_lens;
   (void)max_dict_bytes;
+  (void)finalize_dict;
   return "";
-#endif  // ZSTD_VERSION_NUMBER >= 10103
+#endif  // defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)
 }
 
 inline std::string ZSTD_TrainDictionary(const std::string& samples,
@@ -1559,18 +1581,18 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
                                         size_t max_dict_bytes) {
   // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
   // only since v0.8.0. For now we enable the feature in stable versions only.
-#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+#if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)  // v1.1.3+
   // skips potential partial sample at the end of "samples"
   size_t num_samples = samples.size() >> sample_len_shift;
   std::vector<size_t> sample_lens(num_samples, size_t(1) << sample_len_shift);
-  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
+  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes, true);
 #else   // up to v1.1.2
   assert(false);
   (void)samples;
   (void)sample_len_shift;
   (void)max_dict_bytes;
   return "";
-#endif  // ZSTD_VERSION_NUMBER >= 10103
+#endif  // defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)
 }
 
 inline bool ZSTD_FinalizeDictionarySupported() {
