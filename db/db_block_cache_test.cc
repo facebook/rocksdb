@@ -1834,6 +1834,7 @@ class DBBlockCachePinningTest
   PinningTier unpartitioned_pinning_;
 };
 
+#ifdef LZ4
 TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   // Creates one file in L0 and one file in L1. Both files have enough data that
   // their index and filter blocks are partitioned. The L1 file will also have
@@ -1845,10 +1846,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   const int kNumKeysPerFile = kBlockSize * kNumBlocksPerFile / kKeySize;
 
   Options options = CurrentOptions();
-  // `kNoCompression` makes the unit test more portable. But it relies on the
-  // current behavior of persisting/accessing dictionary even when there's no
-  // (de)compression happening, which seems fairly likely to change over time.
-  options.compression = kNoCompression;
+  options.compression = kLZ4Compression;
   options.compression_opts.max_dict_bytes = 4 << 10;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
@@ -1961,6 +1959,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   ASSERT_EQ(expected_compression_dict_misses,
             TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
+#endif
 
 INSTANTIATE_TEST_CASE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,
