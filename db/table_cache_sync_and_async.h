@@ -55,7 +55,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
           GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
                           get_context, &read_status);
       if (!read_status.ok()) {
-        return read_status;
+        CO_RETURN read_status;
       }
       if (ret) {
         table_range.SkipKey(miter);
