@@ -1834,6 +1834,7 @@ class DBBlockCachePinningTest
   PinningTier unpartitioned_pinning_;
 };
 
+#ifdef LZ4
 TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   // Creates one file in L0 and one file in L1. Both files have enough data that
   // their index and filter blocks are partitioned. The L1 file will also have
@@ -1958,6 +1959,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   ASSERT_EQ(expected_compression_dict_misses,
             TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
+#endif
 
 INSTANTIATE_TEST_CASE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,
