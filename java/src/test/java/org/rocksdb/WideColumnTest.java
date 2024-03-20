@@ -55,6 +55,59 @@ public class WideColumnTest {
   }
 
   @Test
+  public void readKVAsWideColumn() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      db.put(
+          "someKey".getBytes(StandardCharsets.UTF_8), "someValue".getBytes(StandardCharsets.UTF_8));
+
+      List<WideColumn<byte[]>> result = new ArrayList<>();
+
+      Status status = db.getEntity("someKey".getBytes(), result);
+
+      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
+
+      assertThat(result).isNotEmpty();
+
+      assertThat(result.get(0).getName()).isEqualTo(new byte[] {});
+
+      assertThat(result.get(0).getValue()).isEqualTo("someValue".getBytes(StandardCharsets.UTF_8));
+    }
+  }
+
+  @Test
+  public void readWideColumnAsKV() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+
+      wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
+          "columnValue".getBytes(StandardCharsets.UTF_8)));
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+
+      byte[] status = db.get("someKey".getBytes());
+
+      assertThat(status).isNotNull();
+    }
+  }
+
+  @Test
+  public void readWideDefaultColumnAsKV() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      List<WideColumn<byte[]>> wideColumns = new ArrayList<>();
+
+      wideColumns.add(new WideColumn<>("columnName".getBytes(StandardCharsets.UTF_8),
+          "columnValue".getBytes(StandardCharsets.UTF_8)));
+      wideColumns.add(
+          new WideColumn<>(new byte[] {}, "defaultColumnValue".getBytes(StandardCharsets.UTF_8)));
+
+      db.putEntity("someKey".getBytes(StandardCharsets.UTF_8), wideColumns);
+
+      byte[] status = db.get("someKey".getBytes());
+
+      assertThat(status).isNotNull();
+      assertThat(status).isEqualTo("defaultColumnValue".getBytes(StandardCharsets.UTF_8));
+    }
+  }
+  @Test
   public void readWriteWithKeyOffset() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       try (final ColumnFamilyHandle cfHandle = db.getDefaultColumnFamily()) {
