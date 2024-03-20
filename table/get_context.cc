@@ -577,9 +577,9 @@ void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
   }
 }
 
-void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context, Cleanable* value_pinner,
-                         SequenceNumber seq_no) {
+Status replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+                           GetContext* get_context, Cleanable* value_pinner,
+                           SequenceNumber seq_no) {
   Slice s = replay_log;
   Slice ts;
   size_t ts_sz = get_context->TimestampSize();
@@ -612,8 +612,11 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     Status read_status;
     get_context->SaveValue(ikey, value, &dont_care, &read_status, value_pinner);
-    read_status.PermitUncheckedError();  // TODO
+    if (!read_status.ok()) {
+      return read_status;
+    }
   }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

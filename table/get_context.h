@@ -251,9 +251,9 @@ class GetContext {
 // Call this to replay a log and bring the get_context up to date. The replay
 // log must have been created by another GetContext object, whose replay log
 // must have been set by calling GetContext::SetReplayLog().
-void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context,
-                         Cleanable* value_pinner = nullptr,
-                         SequenceNumber seq_no = kMaxSequenceNumber);
+Status replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+                           GetContext* get_context,
+                           Cleanable* value_pinner = nullptr,
+                           SequenceNumber seq_no = kMaxSequenceNumber);
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -415,7 +415,8 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
     // If row cache hit, knowing cache key is the same to row_cache_key,
     // can use row_cache_key's seq no to construct InternalKey.
     replayGetContextLog(*row_cache.Value(row_handle), user_key, get_context,
-                        &value_pinner, seq_no);
+                        &value_pinner, seq_no)
+        .PermitUncheckedError();  // TODO
     RecordTick(ioptions_.stats, ROW_CACHE_HIT);
     found = true;
   } else {
