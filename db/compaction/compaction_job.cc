@@ -968,8 +968,9 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
          << "compaction_time_cpu_micros" << stats.cpu_micros << "output_level"
          << compact_->compaction->output_level() << "num_output_files"
          << stats.num_output_files << "total_output_size"
-         << stats.bytes_written << "smallest_key" << smallest_key_str
-         << "largest_key" << smallest_key_str;
+         << stats.bytes_written << "write_rate" << bytes_read_per_sec 
+         << "read_rate" << bytes_written_per_sec<< "smallest_key" 
+         << smallest_key_str << "largest_key" << smallest_key_str;
 
   if (stats.num_output_files_blob > 0) {
     stream << "num_blob_output_files" << stats.num_output_files_blob

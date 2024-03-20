@@ -865,6 +865,7 @@ Status FlushJob::WriteLevel0Table() {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
+  uint64_t total_flush_data_size = 0;
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
     Env::IOPriority io_priority = GetRateLimiterPriority();
@@ -924,6 +925,7 @@ Status FlushJob::WriteLevel0Table() {
                          << total_memory_usage << "num_range_deletes"
                          << total_num_range_deletes << "flush_reason"
                          << GetFlushReasonString(flush_reason_);
+    total_flush_data_size = total_data_size;
 
     {
       ScopedArenaIterator iter(
@@ -1067,11 +1069,16 @@ Status FlushJob::WriteLevel0Table() {
   stats.micros = micros;
   stats.cpu_micros = cpu_micros;
 
+  // ROCKS_LOG_INFO(db_options_.info_log,
+  //                "[%s] [JOB %d] Flush lasted %" PRIu64
+  //                " microseconds, and %" PRIu64 " cpu microseconds.\n",
+  //                cfd_->GetName().c_str(), job_context_->job_id, micros,
+  //                cpu_micros);
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "[%s] [JOB %d] Flush lasted %" PRIu64
-                 " microseconds, and %" PRIu64 " cpu microseconds.\n",
+                 "[%s] [JOB %d] Flush: %" PRIu64
+                 " microseconds, %" PRIu64 " cpu microseconds, %" PRIu64 " bytes\n",
                  cfd_->GetName().c_str(), job_context_->job_id, micros,
-                 cpu_micros);
+                 cpu_micros, total_flush_data_size);
 
   if (has_output) {
     stats.bytes_written = meta_.fd.GetFileSize();
