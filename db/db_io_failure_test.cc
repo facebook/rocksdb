@@ -20,13 +20,15 @@ class CorruptionFS : public FileSystemWrapper {
   bool writable_file_error_;
   int num_writable_file_errors_;
 
-  explicit CorruptionFS(const std::shared_ptr<FileSystem>& _target)
+  explicit CorruptionFS(const std::shared_ptr<FileSystem>& _target,
+                        bool fs_buffer)
       : FileSystemWrapper(_target),
         writable_file_error_(false),
         num_writable_file_errors_(0),
         corruption_trigger_(INT_MAX),
         read_count_(0),
-        rnd_(300) {}
+        rnd_(300),
+        fs_buffer_(fs_buffer) {}
   ~CorruptionFS() override {
     // Assert that the corruption was reset, which means it got triggered
     assert(corruption_trigger_ == INT_MAX);
@@ -81,7 +83,21 @@ class CorruptionFS : public FileSystemWrapper {
       IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                          const IOOptions& options,
                          IODebugContext* dbg) override {
-        return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
+        for (size_t i = 0; i < num_reqs; ++i) {
+          FSReadRequest& req = reqs[i];
+          if (fs_.fs_buffer_) {
+            FSAllocationPtr buffer(new char[req.len], [](void* ptr) {
+              delete[] static_cast<char*>(ptr);
+            });
+            req.fs_scratch = std::move(buffer);
+            req.status = Read(req.offset, req.len, options, &req.result,
+                              static_cast<char*>(req.fs_scratch.get()), dbg);
+          } else {
+            req.status = Read(req.offset, req.len, options, &req.result,
+                              req.scratch, dbg);
+          }
+        }
+        return IOStatus::OK();
       }
 
      private:
@@ -99,12 +115,16 @@ class CorruptionFS : public FileSystemWrapper {
   void SupportedOps(int64_t& supported_ops) override {
     supported_ops = 1 << FSSupportedOps::kVerifyAndReconstructRead |
                     1 << FSSupportedOps::kAsyncIO;
+    if (fs_buffer_) {
+      supported_ops |= 1 << FSSupportedOps::kFSBuffer;
+    }
   }
 
  private:
   int corruption_trigger_;
   int read_count_;
   Random rnd_;
+  bool fs_buffer_;
 };
 }  // anonymous namespace
 
@@ -674,8 +694,9 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
 }
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
-class DBIOCorruptionTest : public DBIOFailureTest,
-                           public testing::WithParamInterface<bool> {
+class DBIOCorruptionTest
+    : public DBIOFailureTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   DBIOCorruptionTest() : DBIOFailureTest() {
     BlockBasedTableOptions bbto;
@@ -683,7 +704,8 @@ class DBIOCorruptionTest : public DBIOFailureTest,
 
     base_env_ = env_;
     EXPECT_NE(base_env_, nullptr);
-    fs_.reset(new CorruptionFS(base_env_->GetFileSystem()));
+    fs_.reset(
+        new CorruptionFS(base_env_->GetFileSystem(), std::get<0>(GetParam())));
     env_guard_ = NewCompositeEnv(fs_);
     options.env = env_guard_.get();
     bbto.num_file_reads_for_auto_readahead = 0;
@@ -714,7 +736,7 @@ TEST_P(DBIOCorruptionTest, GetReadCorruptionRetry) {
 
   std::string val;
   ReadOptions ro;
-  ro.async_io = GetParam();
+  ro.async_io = std::get<1>(GetParam());
   ASSERT_OK(dbfull()->Get(ReadOptions(), "key1", &val));
   ASSERT_EQ(val, "val1");
 }
@@ -729,7 +751,7 @@ TEST_P(DBIOCorruptionTest, IterReadCorruptionRetry) {
 
   ReadOptions ro;
   ro.readahead_size = 65536;
-  ro.async_io = GetParam();
+  ro.async_io = std::get<1>(GetParam());
 
   Iterator* iter = dbfull()->NewIterator(ro);
   iter->SeekToFirst();
@@ -754,7 +776,7 @@ TEST_P(DBIOCorruptionTest, MultiGetReadCorruptionRetry) {
   std::vector<PinnableSlice> values(keys.size());
   std::vector<Status> statuses(keys.size());
   ReadOptions ro;
-  ro.async_io = GetParam();
+  ro.async_io = std::get<1>(GetParam());
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values[0].ToString(), "val1");
@@ -775,7 +797,7 @@ TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
 
   std::string val;
   ReadOptions ro;
-  ro.async_io = GetParam();
+  ro.async_io = std::get<1>(GetParam());
   ASSERT_OK(dbfull()->Get(ro, "key1", &val));
   ASSERT_EQ(val, "val1");
 }
@@ -790,13 +812,13 @@ TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
 
   std::string val;
   ReadOptions ro;
-  ro.async_io = GetParam();
+  ro.async_io = std::get<1>(GetParam());
   ASSERT_OK(dbfull()->Get(ro, "key1", &val));
   ASSERT_EQ(val, "val1");
 }
 
 INSTANTIATE_TEST_CASE_P(DBIOCorruptionTest, DBIOCorruptionTest,
-                        testing::Bool());
+                        testing::Combine(testing::Bool(), testing::Bool()));
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
