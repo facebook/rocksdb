@@ -327,6 +327,7 @@ Status DBImplSecondary::RecoverLogFiles(
       status = *wal_read_status;
     }
     if (!status.ok()) {
+      wal_read_status->PermitUncheckedError();
       return status;
     }
   }
