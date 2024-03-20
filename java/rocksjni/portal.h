@@ -9266,12 +9266,14 @@ class WideColumnJni {
           op,
       JNIEnv* env, jbyteArray jkey, jint keyOffset, jint keyLen,
       jobjectArray jnames, jobjectArray jvalues) {
-    jbyte* key = new jbyte[keyLen];
-    env->GetByteArrayRegion(jkey, keyOffset, keyLen, key);
+    auto key = std::make_unique<jbyte[]>(keyLen);
+
+    env->GetByteArrayRegion(jkey, keyOffset, keyLen, key.get());
     if (env->ExceptionCheck()) {
       return;
     }
-    ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), keyLen);
+    ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key.get()),
+                                       keyLen);
 
     const auto column_len = env->GetArrayLength(jnames);
     rocksdb::WideColumns columns;
