@@ -771,6 +771,10 @@ def finalize_and_sanitize(src_params):
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
           dest_params["disable_wal"] = 0
+    if dest_params.get("disable_wal") == 1:
+        # disableWAL and recycle_log_file_num options are not mutually
+        # compatible at the moment
+        dest_params["recycle_log_file_num"] = 0
     return dest_params
 
 
