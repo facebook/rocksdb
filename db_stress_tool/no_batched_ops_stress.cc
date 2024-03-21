@@ -1564,13 +1564,10 @@ class NonBatchedOpsStressTest : public StressTest {
         // We could alternatively include `key` that is deleted.
         continue;
       }
-      keys.push_back(key);
 
       PendingExpectedValue pending_expected_value =
           shared->PreparePut(column_family, key);
       const uint32_t value_base = pending_expected_value.GetFinalValueBase();
-      values.push_back(value_base);
-      pending_expected_values.push_back(pending_expected_value);
 
       char value[100];
       auto key_str = Key(key);
@@ -1584,6 +1581,14 @@ class NonBatchedOpsStressTest : public StressTest {
         s = sst_file_writer.PutEntity(k, columns);
       } else {
         s = sst_file_writer.Put(k, v);
+      }
+
+      if (s.ok()) {
+        keys.push_back(key);
+        values.push_back(value_base);
+        pending_expected_values.push_back(pending_expected_value);
+      } else {
+        pending_expected_value.Rollback();
       }
     }
 
