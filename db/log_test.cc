@@ -172,10 +172,11 @@ class LogTest
     if (allow_retry_read_) {
       reader_.reset(new FragmentBufferedReader(nullptr, std::move(file_reader),
                                                &report_, true /* checksum */,
-                                               123 /* log_number */));
+                                               123 /* log_number */, false));
     } else {
       reader_.reset(new Reader(nullptr, std::move(file_reader), &report_,
-                               true /* checksum */, 123 /* log_number */));
+                               true /* checksum */, 123 /* log_number */,
+                               false));
     }
   }
 
@@ -845,7 +846,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
       EXPECT_NE(reader_, nullptr);
       log_reader_.reset(new FragmentBufferedReader(
           nullptr, std::move(reader_), &report_, true /* checksum */,
-          123 /* log_number */));
+          123 /* log_number */, false));
       EXPECT_NE(log_reader_, nullptr);
     }
     return s;

@@ -2735,8 +2735,14 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
       // bogus input, carry on as best we can
       log_number = 0;
     }
+
+    bool retry_corrupt_read = false;
+    if (CheckFSFeatureSupport(fs.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      retry_corrupt_read = true;
+    }
     log::Reader reader(options.info_log, std::move(wal_file_reader), &reporter,
-                       true /* checksum */, log_number);
+                       true /* checksum */, log_number, retry_corrupt_read);
     std::string scratch;
     WriteBatch batch;
     Slice record;
