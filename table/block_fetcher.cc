@@ -364,9 +364,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
     // If the file system supports retry after corruption, then try to
     // re-read the block and see if it succeeds.
     if (io_status_.IsCorruption() && retry_corrupt_read_) {
+      assert(!fs_buf);
       ReadBlock(/*retry=*/true, fs_buf);
     }
     if (!io_status_.ok()) {
+      assert(!fs_buf);
       return io_status_;
     }
   }
@@ -424,6 +426,7 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
           ReadBlock(/*retry = */ true, fs_buf);
         }
         if (!io_status_.ok()) {
+          assert(!fs_buf);
           return io_status_;
         }
         used_buf_ = const_cast<char*>(slice_.data());
