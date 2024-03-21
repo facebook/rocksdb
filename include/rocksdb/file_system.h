@@ -789,6 +789,8 @@ class FSSequentialFile {
   // SequentialFileWrapper too.
 };
 
+using FSAllocationPtr = std::unique_ptr<void, std::function<void(void*)>>;
+
 // A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
   // Input parameter that represents the file offset in bytes.
@@ -855,7 +857,7 @@ struct FSReadRequest {
   // - FSReadRequest::result should point to fs_scratch.
   // - This is needed only if FSSupportedOps::kFSBuffer support is provided by
   // underlying FS.
-  std::unique_ptr<void, std::function<void(void*)>> fs_scratch;
+  FSAllocationPtr fs_scratch;
 };
 
 // A file abstraction for randomly reading the contents of a file.

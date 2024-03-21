@@ -241,7 +241,7 @@ inline void BlockFetcher::GetBlockContents() {
 // Read a block from the file and verify its checksum. Upon return, io_status_
 // will be updated with the status of the read, and slice_ will be updated
 // with a pointer to the data.
-void BlockFetcher::ReadBlock(bool retry) {
+void BlockFetcher::ReadBlock(bool retry, FSAllocationPtr& fs_buf) {
   FSReadRequest read_req;
   IOOptions opts;
   io_status_ = file_->PrepareIOOptions(read_options_, opts);
@@ -336,6 +336,7 @@ void BlockFetcher::ReadBlock(bool retry) {
 
   if (io_status_.ok()) {
     InsertCompressedBlockToPersistentCacheIfNeeded();
+    fs_buf = std::move(read_req.fs_scratch);
   } else {
     ReleaseFileSystemProvidedBuffer(&read_req);
     direct_io_buf_.reset();
@@ -346,8 +347,7 @@ void BlockFetcher::ReadBlock(bool retry) {
 }
 
 IOStatus BlockFetcher::ReadBlockContents() {
-  FSReadRequest read_req;
-  read_req.status.PermitUncheckedError();
+  FSAllocationPtr fs_buf;
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
@@ -360,13 +360,15 @@ IOStatus BlockFetcher::ReadBlockContents() {
       return io_status_;
     }
   } else if (!TryGetSerializedBlockFromPersistentCache()) {
-    ReadBlock(/*retry =*/false);
+    ReadBlock(/*retry =*/false, fs_buf);
     // If the file system supports retry after corruption, then try to
     // re-read the block and see if it succeeds.
     if (io_status_.IsCorruption() && retry_corrupt_read_) {
-      ReadBlock(/*retry=*/true);
+      assert(!fs_buf);
+      ReadBlock(/*retry=*/true, fs_buf);
     }
     if (!io_status_.ok()) {
+      assert(!fs_buf);
       return io_status_;
     }
   }
@@ -390,7 +392,6 @@ IOStatus BlockFetcher::ReadBlockContents() {
   }
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
-  ReleaseFileSystemProvidedBuffer(&read_req);
 
   return io_status_;
 }
@@ -416,14 +417,16 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
         return io_s;
       }
       if (io_s.ok()) {
+        FSAllocationPtr fs_buf;
         // Data Block is already in prefetch.
         got_from_prefetch_buffer_ = true;
         ProcessTrailerIfPresent();
         if (io_status_.IsCorruption() && retry_corrupt_read_) {
           got_from_prefetch_buffer_ = false;
-          ReadBlock(/*retry = */ true);
+          ReadBlock(/*retry = */ true, fs_buf);
         }
         if (!io_status_.ok()) {
+          assert(!fs_buf);
           return io_status_;
         }
         used_buf_ = const_cast<char*>(slice_.data());
