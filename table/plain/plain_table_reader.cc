@@ -614,8 +614,12 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
     // can we enable the fast path?
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
       bool dont_care __attribute__((__unused__));
-      if (!get_context->SaveValue(found_key, found_value, &dont_care,
-                                  dummy_cleanable_.get())) {
+      bool ret = get_context->SaveValue(found_key, found_value, &dont_care, &s,
+                                        dummy_cleanable_.get());
+      if (!s.ok()) {
+        return s;
+      }
+      if (!ret) {
         break;
       }
     }

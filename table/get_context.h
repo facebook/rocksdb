@@ -135,7 +135,8 @@ class GetContext {
   // Returns True if more keys need to be read (due to merges) or
   //         False if the complete value has been found.
   bool SaveValue(const ParsedInternalKey& parsed_key, const Slice& value,
-                 bool* matched, Cleanable* value_pinner = nullptr);
+                 bool* matched, Status* read_status,
+                 Cleanable* value_pinner = nullptr);
 
   // Simplified version of the previous function. Should only be used when we
   // know that the operation is a Put.
@@ -204,7 +205,7 @@ class GetContext {
   void MergeWithWideColumnBaseValue(const Slice& entity);
 
   bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
-                    PinnableSlice* blob_value);
+                    PinnableSlice* blob_value, Status* read_status);
 
   void appendToReplayLog(ValueType type, Slice value, Slice ts);
 
@@ -250,9 +251,9 @@ class GetContext {
 // Call this to replay a log and bring the get_context up to date. The replay
 // log must have been created by another GetContext object, whose replay log
 // must have been set by calling GetContext::SetReplayLog().
-void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context,
-                         Cleanable* value_pinner = nullptr,
-                         SequenceNumber seq_no = kMaxSequenceNumber);
+Status replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+                           GetContext* get_context,
+                           Cleanable* value_pinner = nullptr,
+                           SequenceNumber seq_no = kMaxSequenceNumber);
 
 }  // namespace ROCKSDB_NAMESPACE

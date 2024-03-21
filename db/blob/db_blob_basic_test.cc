@@ -1182,6 +1182,30 @@ TEST_F(DBBlobBasicTest, GetMergeBlobWithPut) {
   ASSERT_EQ(Get("Key1"), "v1,v2,v3");
 }
 
+TEST_F(DBBlobBasicTest, GetMergeBlobFromMemoryTier) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  ASSERT_OK(Put(Key(0), "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge(Key(0), "v2"));
+  ASSERT_OK(Flush());
+
+  // Regular `Get()` loads data block to cache.
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), Key(0), &value));
+  ASSERT_EQ("v1,v2", value);
+
+  // Base value blob is still uncached, so an in-memory read will fail.
+  ReadOptions read_options;
+  read_options.read_tier = kBlockCacheTier;
+  ASSERT_TRUE(db_->Get(read_options, Key(0), &value).IsIncomplete());
+}
+
 TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
   constexpr size_t num_keys = 3;
 

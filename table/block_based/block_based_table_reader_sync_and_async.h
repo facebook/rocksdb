@@ -735,9 +735,17 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
               biter->key(), &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
+            break;
           }
-          if (!get_context->SaveValue(parsed_key, biter->value(), &matched,
-                                      value_pinner)) {
+          Status read_status;
+          bool ret = get_context->SaveValue(
+              parsed_key, biter->value(), &matched, &read_status,
+              value_pinner ? value_pinner : nullptr);
+          if (!read_status.ok()) {
+            s = read_status;
+            break;
+          }
+          if (!ret) {
             if (get_context->State() == GetContext::GetState::kFound) {
               does_referenced_key_exist = true;
               referenced_data_size =
@@ -746,7 +754,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             done = true;
             break;
           }
-          s = biter->status();
+          if (s.ok()) {
+            s = biter->status();
+          }
         }
         // Write the block cache access.
         // XXX: There appear to be 'break' statements above that bypass this

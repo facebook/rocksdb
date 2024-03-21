@@ -220,7 +220,13 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
     }
 
     bool dont_care __attribute__((__unused__));
-    if (!get_context->SaveValue(parsed_key, iter->value(), &dont_care)) {
+    Status read_status;
+    bool ret = get_context->SaveValue(parsed_key, iter->value(), &dont_care,
+                                      &read_status);
+    if (!read_status.ok()) {
+      return read_status;
+    }
+    if (!ret) {
       break;
     }
   }
