@@ -83,6 +83,11 @@ struct PerfContextBase {
   uint64_t filter_block_read_count;       // total number of filter block reads
   uint64_t compression_dict_block_read_count;  // total number of compression
                                                // dictionary block reads
+  // Cumulative size of blocks found in block cache
+  uint64_t block_cache_index_read_byte;
+  uint64_t block_cache_filter_read_byte;
+  uint64_t block_cache_compression_dict_read_byte;
+  uint64_t block_cache_read_byte;
 
   uint64_t secondary_cache_hit_count;  // total number of secondary cache hits
   // total number of real handles inserted into secondary cache
