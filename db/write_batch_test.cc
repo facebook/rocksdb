@@ -406,12 +406,19 @@ TEST_F(WriteBatchTest, PutNotImplemented) {
 TEST_F(WriteBatchTest, TimedPutNotImplemented) {
   WriteBatch batch;
   ASSERT_OK(
-      batch.TimedPut(0, Slice("k1"), Slice("v1"), /*unix_write_time=*/30));
+      batch.TimedPut(0, Slice("k1"), Slice("v1"), /*write_unix_time=*/30));
   ASSERT_EQ(1u, batch.Count());
   ASSERT_EQ("TimedPut(k1, v1, 30)@0", PrintContents(&batch));
 
   WriteBatch::Handler handler;
   ASSERT_TRUE(batch.Iterate(&handler).IsInvalidArgument());
+
+  batch.Clear();
+  ASSERT_OK(
+      batch.TimedPut(0, Slice("k1"), Slice("v1"),
+                     /*write_unix_time=*/std::numeric_limits<uint64_t>::max()));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ("Put(k1, v1)@0", PrintContents(&batch));
 }
 
 TEST_F(WriteBatchTest, DeleteNotImplemented) {

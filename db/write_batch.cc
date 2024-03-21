@@ -871,6 +871,9 @@ Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
   if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("value is too large");
   }
+  if (std::numeric_limits<uint64_t>::max() == write_unix_time) {
+    return WriteBatchInternal::Put(b, column_family_id, key, value);
+  }
   LocalSavePoint save(b);
 
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);

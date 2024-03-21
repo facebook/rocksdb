@@ -64,7 +64,7 @@ Status BuildTable(
     bool paranoid_file_checks, InternalStats* internal_stats,
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCreationReason blob_creation_reason,
-    const SeqnoToTimeMapping& seqno_to_time_mapping,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
     EventLogger* event_logger = nullptr, int job_id = 0,
     TableProperties* table_properties = nullptr,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,

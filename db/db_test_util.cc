@@ -759,6 +759,11 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   }
 }
 
+Status DBTestBase::TimedPut(const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  return TimedPut(0, k, v, write_unix_time, wo);
+}
+
 Status DBTestBase::TimedPut(int cf, const Slice& k, const Slice& v,
                             uint64_t write_unix_time, WriteOptions wo) {
   WriteBatch wb;
