@@ -1091,6 +1091,70 @@ public class WriteBatchWithIndexTest {
   }
 
   @Test
+  public void wideColumnBatchWithGetEntity() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+         final ColumnFamilyHandle cf = db.getDefaultColumnFamily()) {
+      WideColumn<byte[]> column = new WideColumn<>("name".getBytes(UTF_8), "value".getBytes(UTF_8));
+      List<WideColumn<byte[]>> columns = new ArrayList<>();
+      columns.add(column);
+      wbwi.putEntity(cf, "key".getBytes(UTF_8), 0, 3, columns);
+
+      List<WideColumn<byte[]>> result = new ArrayList<>(1);
+
+      Status status = wbwi.getEntityFromBatch(cf, "key".getBytes(UTF_8), 0, 3, result);
+
+      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(result).isNotEmpty();
+      assertThat(result.get(0).getName()).isEqualTo("name".getBytes(UTF_8));
+      assertThat(result.get(0).getValue()).isEqualTo("value".getBytes(UTF_8));
+    }
+  }
+
+  @Test
+  public void wideColumnBatchWithGetEntityDirect() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+         final ColumnFamilyHandle cf = db.getDefaultColumnFamily()) {
+      WideColumn<byte[]> column = new WideColumn<>("name".getBytes(UTF_8), "value".getBytes(UTF_8));
+      List<WideColumn<byte[]>> columns = new ArrayList<>();
+      columns.add(column);
+      wbwi.putEntity(cf, "key".getBytes(UTF_8), 0, 3, columns);
+
+      List<WideColumn.ByteBufferWideColumn> result = new ArrayList<>(1);
+      result.add(new WideColumn.ByteBufferWideColumn(
+          ByteBuffer.allocateDirect(3), ByteBuffer.allocateDirect(100)));
+      ByteBuffer key = ByteBuffer.allocateDirect(100);
+      key.put("key".getBytes(UTF_8));
+      key.flip();
+
+      Status status = wbwi.getEntityFromBatch(cf, key, result);
+      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(result).isNotEmpty();
+      WideColumn.ByteBufferWideColumn singleResult = result.get(0);
+      assertThat(singleResult.getNameRequiredSize()).isEqualTo(4);
+    }
+  }
+
+  @Test
+  public void readKVWithWideColumOperation() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+         final ColumnFamilyHandle cf = db.getDefaultColumnFamily()) {
+      wbwi.put("key".getBytes(UTF_8), "value".getBytes(UTF_8));
+
+      List<WideColumn<byte[]>> result = new ArrayList<>(1);
+
+      Status status = wbwi.getEntityFromBatch(cf, "key".getBytes(UTF_8), 0, 3, result);
+
+      assertThat(status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(result).isNotEmpty();
+      assertThat(result.get(0).getName()).isEqualTo("".getBytes(UTF_8));
+      assertThat(result.get(0).getValue()).isEqualTo("value".getBytes(UTF_8));
+    }
+  }
+
+  @Test
   public void wideColumnBatchDirect() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
