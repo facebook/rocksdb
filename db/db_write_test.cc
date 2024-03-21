@@ -821,6 +821,95 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
   ASSERT_LE(bytes_num, 1024 * 100);
 }
 
+void CorruptLogFile(Env* env, Options& options, std::string log_path,
+                    uint64_t log_num, int record_num) {
+  std::shared_ptr<FileSystem> fs = env->GetFileSystem();
+  std::unique_ptr<SequentialFileReader> file_reader;
+  Status status;
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    status = fs->NewSequentialFile(log_path, FileOptions(), &file, nullptr);
+    ASSERT_EQ(status, IOStatus::OK());
+    file_reader.reset(new SequentialFileReader(std::move(file), log_path));
+  }
+  std::unique_ptr<log::Reader> reader(new log::Reader(
+      nullptr, std::move(file_reader), nullptr, false, log_num));
+  std::string scratch;
+  Slice record;
+  uint64_t record_checksum;
+  for (int i = 0; i < record_num; ++i) {
+    ASSERT_TRUE(reader->ReadRecord(&record, &scratch, options.wal_recovery_mode,
+                                   &record_checksum));
+  }
+  uint64_t rec_start = reader->LastRecordOffset();
+  reader.reset();
+  {
+    std::unique_ptr<FSRandomRWFile> file;
+    status = fs->NewRandomRWFile(log_path, FileOptions(), &file, nullptr);
+    ASSERT_EQ(status, IOStatus::OK());
+    uint32_t bad_lognum = 0xff;
+    ASSERT_EQ(file->Write(
+                  rec_start + 7,
+                  Slice(reinterpret_cast<char*>(&bad_lognum), sizeof(uint32_t)),
+                  IOOptions(), nullptr),
+              IOStatus::OK());
+    ASSERT_OK(file->Close(IOOptions(), nullptr));
+    file.reset();
+  }
+}
+
+TEST_P(DBWriteTest, RecycleLogTest) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  Reopen(options);
+  ASSERT_OK(Put(Key(1), "val1"));
+  ASSERT_OK(Put(Key(2), "val1"));
+
+  uint64_t latest_log_num = 0;
+  std::unique_ptr<LogFile> log_file;
+  ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+  latest_log_num = log_file->LogNumber();
+  Reopen(options);
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  // Corrupt second entry of first log
+  std::string log_path = LogFileName(dbname_, latest_log_num);
+  CorruptLogFile(env_, options, log_path, latest_log_num, 2);
+
+  Reopen(options);
+  ASSERT_EQ(Get(Key(1)), "val1");
+  ASSERT_EQ(Get(Key(2)), "NOT_FOUND");
+  ASSERT_EQ(Get(Key(3)), "NOT_FOUND");
+}
+
+TEST_P(DBWriteTest, RecycleLogTestCFAheadOfWAL) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, Key(1), "val1"));
+  ASSERT_OK(Put(0, Key(2), "val2"));
+
+  uint64_t latest_log_num = 0;
+  std::unique_ptr<LogFile> log_file;
+  ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+  latest_log_num = log_file->LogNumber();
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, Key(3), "val3"));
+
+  // Corrupt second entry of first log
+  std::string log_path = LogFileName(dbname_, latest_log_num);
+  CorruptLogFile(env_, options, log_path, latest_log_num, 2);
+
+  ASSERT_EQ(TryReopenWithColumnFamilies({"default", "pikachu"}, options),
+            Status::Corruption());
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,
