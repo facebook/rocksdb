@@ -172,8 +172,8 @@ jlong Java_org_rocksdb_PerfContext_getBlockReadCpuTime(JNIEnv*, jobject,
  * Method:    getBlockCacheIndexReadByte
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_PerfContext_getBlockCacheIndexReadByte(JNIEnv*, jobject,
-                                                    jlong jpc_handle) {
+jlong Java_org_rocksdb_PerfContext_getBlockCacheIndexReadByte(
+    JNIEnv*, jobject, jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
       reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
   return perf_context->block_cache_index_read_byte;
@@ -184,8 +184,8 @@ jlong Java_org_rocksdb_PerfContext_getBlockCacheIndexReadByte(JNIEnv*, jobject,
  * Method:    getBlockCacheFilterReadByte
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_PerfContext_getBlockCacheFilterReadByte(JNIEnv*, jobject,
-                                                    jlong jpc_handle) {
+jlong Java_org_rocksdb_PerfContext_getBlockCacheFilterReadByte(
+    JNIEnv*, jobject, jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
       reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
   return perf_context->block_cache_filter_read_byte;
@@ -209,7 +209,7 @@ jlong Java_org_rocksdb_PerfContext_getBlockCacheCompressionDictReadByte(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_PerfContext_getBlockCacheReadByte(JNIEnv*, jobject,
-                                                    jlong jpc_handle) {
+                                                         jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
       reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
   return perf_context->block_cache_read_byte;
