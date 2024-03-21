@@ -654,6 +654,11 @@ public class PerfContext extends RocksObject {
   public String toString(boolean excludeZeroCounters) {
     return toString(nativeHandle_, excludeZeroCounters);
   }
+  @Override
+  public String toString() {
+    return toString(true);
+  }
+
   private native String toString(long nativeHandle, boolean excludeZeroCounters);
 
   @Override

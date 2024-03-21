@@ -104,7 +104,18 @@ public class PerfContextTest {
   }
 
   @Test
-  public void toStringTest() throws RocksDBException {
+  public void toStringDefault() throws RocksDBException {
+    db.setPerfLevel(PerfLevel.ENABLE_TIME_AND_CPU_TIME_EXCEPT_FOR_MUTEX);
+    db.put("key".getBytes(), "value".getBytes());
+    db.compactRange();
+    db.get("key".getBytes());
+    PerfContext ctx = db.getPerfContext();
+    String result = ctx.toString(false);
+    assertThat(result).isNotBlank();
+  }
+
+  @Test
+  public void toStringWithParameter() throws RocksDBException {
     db.setPerfLevel(PerfLevel.ENABLE_TIME_AND_CPU_TIME_EXCEPT_FOR_MUTEX);
     db.put("key".getBytes(), "value".getBytes());
     db.compactRange();
