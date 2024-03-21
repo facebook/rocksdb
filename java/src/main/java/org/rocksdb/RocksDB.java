@@ -1029,7 +1029,7 @@ public class RocksDB extends RocksObject {
         columnFamily == null ? 0 : columnFamily.nativeHandle_);
   }
 
-  private static class GetEntityResult {
+  static class GetEntityResult {
     public Status status;
     public byte[][] names;
     public byte[][] values;
