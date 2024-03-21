@@ -10,6 +10,20 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+Slice GetInternalKeyForSeek(const Slice& user_key, std::string* buf) {
+  buf->reserve(user_key.size() + kNumInternalBytes);
+  buf->assign(user_key.data(), user_key.size());
+  PutFixed64(buf, PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
+  return Slice(*buf);
+}
+
+Slice GetInternalKeyForSeekForPrev(const Slice& user_key, std::string* buf) {
+  buf->reserve(user_key.size() + kNumInternalBytes);
+  buf->assign(user_key.data(), user_key.size());
+  PutFixed64(buf, PackSequenceAndType(0, kValueTypeForSeekForPrev));
+  return Slice(*buf);
+}
+
 Status ParseEntry(const Slice& internal_key, ParsedEntryInfo* parsed_entry) {
   if (internal_key.size() < kNumInternalBytes) {
     return Status::InvalidArgument("Internal key size invalid.");
