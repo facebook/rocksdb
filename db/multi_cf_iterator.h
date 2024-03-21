@@ -145,8 +145,8 @@ class MultiCfIterator : public Iterator {
 
   template <typename BinaryHeap, typename ChildSeekFuncType>
   void SeekCommon(BinaryHeap& heap, ChildSeekFuncType child_seek_func);
-  template <typename BinaryHeap, typename AdvancedFuncType>
-  void AdvanceIterator(BinaryHeap& heap, AdvancedFuncType advance_func);
+  template <typename BinaryHeap, typename AdvanceFuncType>
+  void AdvanceIterator(BinaryHeap& heap, AdvanceFuncType advance_func);
 
   void SeekToFirst() override;
   void SeekToLast() override;

@@ -28,9 +28,9 @@ void MultiCfIterator::SeekCommon(BinaryHeap& heap,
   }
 }
 
-template <typename BinaryHeap, typename AdvancedFuncType>
+template <typename BinaryHeap, typename AdvanceFuncType>
 void MultiCfIterator::AdvanceIterator(BinaryHeap& heap,
-                                      AdvancedFuncType advance_func) {
+                                      AdvanceFuncType advance_func) {
   // 1. Keep the top iterator (by popping it from the heap)
   // 2. Make sure all others have iterated past the top iterator key slice
   // 3. Advance the top iterator, and add it back to the heap if valid
