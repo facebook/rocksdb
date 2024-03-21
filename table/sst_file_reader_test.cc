@@ -13,6 +13,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/utilities/types_util.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -634,7 +635,8 @@ TEST_F(SstFileReaderTableIteratorTest, Basic) {
   auto verify_table_entry = [iter = table_iter.get()](
                                 const std::string& user_key,
                                 ValueType value_type,
-                                std::optional<std::string> expected_value) {
+                                std::optional<std::string> expected_value,
+                                bool backward_iteration = false) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_TRUE(iter->status().ok());
     ParsedInternalKey pikey;
@@ -644,7 +646,11 @@ TEST_F(SstFileReaderTableIteratorTest, Basic) {
     if (expected_value.has_value()) {
       ASSERT_EQ(iter->value(), expected_value.value());
     }
-    iter->Next();
+    if (!backward_iteration) {
+      iter->Next();
+    } else {
+      iter->Prev();
+    }
   };
 
   table_iter->SeekToFirst();
@@ -652,6 +658,21 @@ TEST_F(SstFileReaderTableIteratorTest, Basic) {
   verify_table_entry("bar", kTypeDeletion, std::nullopt);
   verify_table_entry("foo", kTypeDeletion, std::nullopt);
   verify_table_entry("foo", kTypeValue, "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  std::string seek_key_buf;
+  Slice seek_target = GetInternalKeyForSeek("foo", &seek_key_buf);
+  table_iter->Seek(seek_target);
+  verify_table_entry("foo", kTypeDeletion, std::nullopt);
+  verify_table_entry("foo", kTypeValue, "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  Slice seek_for_prev_target =
+      GetInternalKeyForSeekForPrev("bar", &seek_key_buf);
+  table_iter->SeekForPrev(seek_for_prev_target);
+  verify_table_entry("bar", kTypeDeletion, std::nullopt,
+                     /*backward_iteration=*/true);
+  verify_table_entry("bar", kTypeValue, "val2", /*backward_iteration=*/true);
   ASSERT_FALSE(table_iter->Valid());
 
   dbfull()->ReleaseSnapshot(snapshot1);
