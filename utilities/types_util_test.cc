@@ -13,35 +13,78 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-std::string IKey(const std::string& user_key, uint64_t seq, ValueType vt) {
+std::string EncodeAsUint64(uint64_t v) {
+  std::string dst;
+  PutFixed64(&dst, v);
+  return dst;
+}
+std::string IKey(const std::string& user_key, uint64_t seq, ValueType vt,
+                 std::optional<uint64_t> timestamp) {
   std::string encoded;
-  AppendInternalKey(&encoded, ParsedInternalKey(user_key, seq, vt));
+  encoded.assign(user_key.data(), user_key.size());
+  if (timestamp.has_value()) {
+    PutFixed64(&encoded, timestamp.value());
+  }
+  PutFixed64(&encoded, PackSequenceAndType(seq, vt));
   return encoded;
 }
 }  // namespace
 
 TEST(ParseEntryTest, InvalidInternalKey) {
+  const Comparator* ucmp = BytewiseComparator();
   std::string invalid_ikey = "foo";
   Slice ikey_slice = invalid_ikey;
   ParsedEntryInfo parsed_entry;
-  ASSERT_TRUE(ParseEntry(ikey_slice, &parsed_entry).IsInvalidArgument());
+  ASSERT_TRUE(ParseEntry(ikey_slice, ucmp, &parsed_entry).IsInvalidArgument());
+
+  std::string ikey =
+      IKey("foo", 3, ValueType::kTypeValue, /*timestamp=*/std::nullopt);
+  ikey_slice = ikey;
+  ASSERT_TRUE(
+      ParseEntry(ikey_slice, nullptr, &parsed_entry).IsInvalidArgument());
 }
 
 TEST(ParseEntryTest, Basic) {
-  std::string ikey = IKey("foo", 3, ValueType::kTypeValue);
+  const Comparator* ucmp = BytewiseComparator();
+  std::string ikey =
+      IKey("foo", 3, ValueType::kTypeValue, /*timestamp=*/std::nullopt);
   Slice ikey_slice = ikey;
 
   ParsedEntryInfo parsed_entry;
-  ASSERT_OK(ParseEntry(ikey_slice, &parsed_entry));
+  ASSERT_OK(ParseEntry(ikey_slice, ucmp, &parsed_entry));
   ASSERT_EQ(parsed_entry.user_key, "foo");
+  ASSERT_EQ(parsed_entry.timestamp, "");
   ASSERT_EQ(parsed_entry.sequence, 3);
   ASSERT_EQ(parsed_entry.type, EntryType::kEntryPut);
 
-  ikey = IKey("bar", 5, ValueType::kTypeDeletion);
+  ikey = IKey("bar", 5, ValueType::kTypeDeletion, /*timestamp=*/std::nullopt);
   ikey_slice = ikey;
 
-  ASSERT_OK(ParseEntry(ikey_slice, &parsed_entry));
+  ASSERT_OK(ParseEntry(ikey_slice, ucmp, &parsed_entry));
   ASSERT_EQ(parsed_entry.user_key, "bar");
+  ASSERT_EQ(parsed_entry.timestamp, "");
+  ASSERT_EQ(parsed_entry.sequence, 5);
+  ASSERT_EQ(parsed_entry.type, EntryType::kEntryDelete);
+}
+
+TEST(ParseEntryTest, UserKeyIncludesTimestamp) {
+  const Comparator* ucmp = BytewiseComparatorWithU64Ts();
+  std::string ikey = IKey("foo", 3, ValueType::kTypeValue, 50);
+  Slice ikey_slice = ikey;
+
+  ParsedEntryInfo parsed_entry;
+  ASSERT_OK(ParseEntry(ikey_slice, ucmp, &parsed_entry));
+  ASSERT_EQ(parsed_entry.user_key, "foo");
+  ASSERT_EQ(parsed_entry.timestamp, EncodeAsUint64(50));
+  ASSERT_EQ(parsed_entry.sequence, 3);
+  ASSERT_EQ(parsed_entry.type, EntryType::kEntryPut);
+
+  ikey = IKey("bar", 5, ValueType::kTypeDeletion, 30);
+  ikey_slice = ikey;
+
+  ASSERT_OK(ParseEntry(ikey_slice, ucmp, &parsed_entry));
+  ASSERT_EQ(parsed_entry.user_key, "bar");
+  ASSERT_EQ(parsed_entry.timestamp, EncodeAsUint64(30));
   ASSERT_EQ(parsed_entry.sequence, 5);
   ASSERT_EQ(parsed_entry.type, EntryType::kEntryDelete);
 }

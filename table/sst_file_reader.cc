@@ -15,6 +15,7 @@
 #include "rocksdb/file_system.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
+#include "table/table_iterator.h"
 #include "table/table_reader.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -108,12 +109,11 @@ std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
       TableReaderCaller::kSSTFileReader);
   assert(internal_iter);
   if (internal_iter == nullptr) {
-    // Do not attempt to create a ScopedArenaIterator if we cannot get a valid
+    // Do not attempt to create a TableIterator if we cannot get a valid
     // InternalIterator.
     return nullptr;
   }
-  return std::make_unique<ScopedArenaIterator>(internal_iter,
-                                               /*is_arena_mode=*/false);
+  return std::make_unique<TableIterator>(internal_iter);
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
