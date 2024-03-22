@@ -107,11 +107,6 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 Status BlobDBImpl::GetLiveFilesStorageInfo(
     const LiveFilesStorageInfoOptions& opts,
     std::vector<LiveFileStorageInfo>* files) {
-  if (!bdb_options_.path_relative) {
-    return Status::NotSupported(
-        "Not able to get relative blob file path from absolute blob_dir.");
-  }
-
   ReadLock rl(&mutex_);
   Status s = db_->GetLiveFilesStorageInfo(opts, files);
   if (s.ok()) {
@@ -119,7 +114,7 @@ Status BlobDBImpl::GetLiveFilesStorageInfo(
     for (const auto& [blob_number, blob_file] : blob_files_) {
       LiveFileStorageInfo file;
       file.size = blob_file->GetFileSize();
-      file.directory = bdb_options_.blob_dir;
+      file.directory = blob_dir_;
       file.relative_filename = BlobFileName(blob_number);
       file.file_type = kBlobFile;
       file.trim_to_size = true;
