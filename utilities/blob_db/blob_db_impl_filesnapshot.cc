@@ -122,6 +122,7 @@ Status BlobDBImpl::GetLiveFilesStorageInfo(
       file.directory = bdb_options_.blob_dir;
       file.relative_filename = BlobFileName(blob_number);
       file.file_type = kBlobFile;
+      file.trim_to_size = true;
       files->push_back(std::move(file));
     }
   }
