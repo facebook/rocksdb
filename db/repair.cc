@@ -81,7 +81,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
@@ -443,7 +442,7 @@ class Repairer {
       ReadOptions ro;
       ro.total_order_seek = true;
       Arena arena;
-      ScopedArenaIterator iter(
+      ScopedArenaPtr<InternalIterator> iter(
           mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
       int64_t _current_time = 0;
       immutable_db_options_.clock->GetCurrentTime(&_current_time)

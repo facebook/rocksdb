@@ -342,7 +342,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
@@ -434,7 +434,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
@@ -717,8 +717,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     Arena arena;
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(read_options, &arena,
-                                                           kMaxSequenceNumber));
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
+        read_options, &arena, kMaxSequenceNumber));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
