@@ -86,13 +86,10 @@ class MultiCfIterator : public Iterator {
 
   MultiCfIterHeap heap_;
 
-  enum Direction : uint8_t { kForward, kReverse };
-  Direction direction_ = kForward;
-
   // TODO: Lower and Upper bounds
 
   Iterator* current() const {
-    if (direction_ == kReverse) {
+    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
       auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
       return max_heap.top().iterator;
     }
@@ -114,7 +111,7 @@ class MultiCfIterator : public Iterator {
   }
 
   bool Valid() const override {
-    if (direction_ == kReverse) {
+    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
       auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
       return !max_heap.empty() && status_.ok();
     }
@@ -128,21 +125,13 @@ class MultiCfIterator : public Iterator {
       status_ = std::move(s);
     }
   }
-  void Reset() {
-    std::visit(overload{[&](MultiCfMinHeap& min_heap) -> void {
-                          min_heap.clear();
-                          if (direction_ == kReverse) {
-                            InitMaxHeap();
-                          }
-                        },
-                        [&](MultiCfMaxHeap& max_heap) -> void {
-                          max_heap.clear();
-                          if (direction_ == kForward) {
-                            InitMinHeap();
-                          }
-                        }},
-               heap_);
-    status_ = Status::OK();
+
+  template <typename HeapType, typename InitFunc>
+  HeapType& GetHeap(InitFunc initFunc) {
+    if (!std::holds_alternative<HeapType>(heap_)) {
+      initFunc();
+    }
+    return std::get<HeapType>(heap_);
   }
 
   void InitMinHeap() {
@@ -154,21 +143,10 @@ class MultiCfIterator : public Iterator {
         MultiCfHeapItemComparator<std::less<int>>(comparator_));
   }
 
-  void SwitchToDirection(Direction new_direction) {
-    assert(direction_ != new_direction);
-    Slice target = key();
-    if (new_direction == kForward) {
-      Seek(target);
-    } else {
-      SeekForPrev(target);
-    }
-  }
-
-  void SeekCommon(const std::function<void(Iterator*)>& child_seek_func,
-                  Direction direction);
-  template <typename BinaryHeap>
-  void AdvanceIterator(BinaryHeap& heap,
-                       const std::function<void(Iterator*)>& advance_func);
+  template <typename BinaryHeap, typename ChildSeekFuncType>
+  void SeekCommon(BinaryHeap& heap, ChildSeekFuncType child_seek_func);
+  template <typename BinaryHeap, typename AdvanceFuncType>
+  void AdvanceIterator(BinaryHeap& heap, AdvanceFuncType advance_func);
 
   void SeekToFirst() override;
   void SeekToLast() override;

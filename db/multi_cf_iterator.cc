@@ -9,11 +9,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void MultiCfIterator::SeekCommon(
-    const std::function<void(Iterator*)>& child_seek_func,
-    Direction direction) {
-  direction_ = direction;
-  Reset();
+template <typename BinaryHeap, typename ChildSeekFuncType>
+void MultiCfIterator::SeekCommon(BinaryHeap& heap,
+                                 ChildSeekFuncType child_seek_func) {
+  heap.clear();
   int i = 0;
   for (auto& cfh_iter_pair : cfh_iter_pairs_) {
     auto& cfh = cfh_iter_pair.first;
@@ -21,13 +20,7 @@ void MultiCfIterator::SeekCommon(
     child_seek_func(iter.get());
     if (iter->Valid()) {
       assert(iter->status().ok());
-      if (direction_ == kReverse) {
-        auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
-        max_heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
-      } else {
-        auto& min_heap = std::get<MultiCfMinHeap>(heap_);
-        min_heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
-      }
+      heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
     } else {
       considerStatus(iter->status());
     }
@@ -35,9 +28,9 @@ void MultiCfIterator::SeekCommon(
   }
 }
 
-template <typename BinaryHeap>
-void MultiCfIterator::AdvanceIterator(
-    BinaryHeap& heap, const std::function<void(Iterator*)>& advance_func) {
+template <typename BinaryHeap, typename AdvanceFuncType>
+void MultiCfIterator::AdvanceIterator(BinaryHeap& heap,
+                                      AdvanceFuncType advance_func) {
   // 1. Keep the top iterator (by popping it from the heap)
   // 2. Make sure all others have iterated past the top iterator key slice
   // 3. Advance the top iterator, and add it back to the heap if valid
@@ -70,33 +63,39 @@ void MultiCfIterator::AdvanceIterator(
 }
 
 void MultiCfIterator::SeekToFirst() {
-  SeekCommon([](Iterator* iter) { iter->SeekToFirst(); }, kForward);
+  auto& min_heap = GetHeap<MultiCfMinHeap>([this]() { InitMinHeap(); });
+  SeekCommon(min_heap, [](Iterator* iter) { iter->SeekToFirst(); });
 }
 void MultiCfIterator::Seek(const Slice& target) {
-  SeekCommon([&target](Iterator* iter) { iter->Seek(target); }, kForward);
+  auto& min_heap = GetHeap<MultiCfMinHeap>([this]() { InitMinHeap(); });
+  SeekCommon(min_heap, [&target](Iterator* iter) { iter->Seek(target); });
 }
 void MultiCfIterator::SeekToLast() {
-  SeekCommon([](Iterator* iter) { iter->SeekToLast(); }, kReverse);
+  auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() { InitMaxHeap(); });
+  SeekCommon(max_heap, [](Iterator* iter) { iter->SeekToLast(); });
 }
 void MultiCfIterator::SeekForPrev(const Slice& target) {
-  SeekCommon([&target](Iterator* iter) { iter->SeekForPrev(target); },
-             kReverse);
+  auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() { InitMaxHeap(); });
+  SeekCommon(max_heap,
+             [&target](Iterator* iter) { iter->SeekForPrev(target); });
 }
 
 void MultiCfIterator::Next() {
   assert(Valid());
-  if (direction_ != kForward) {
-    SwitchToDirection(kForward);
-  }
-  auto& min_heap = std::get<MultiCfMinHeap>(heap_);
+  auto& min_heap = GetHeap<MultiCfMinHeap>([this]() {
+    Slice target = key();
+    InitMinHeap();
+    Seek(target);
+  });
   AdvanceIterator(min_heap, [](Iterator* iter) { iter->Next(); });
 }
 void MultiCfIterator::Prev() {
   assert(Valid());
-  if (direction_ != kReverse) {
-    SwitchToDirection(kReverse);
-  }
-  auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
+  auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() {
+    Slice target = key();
+    InitMaxHeap();
+    SeekForPrev(target);
+  });
   AdvanceIterator(max_heap, [](Iterator* iter) { iter->Prev(); });
 }
 
