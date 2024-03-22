@@ -1027,11 +1027,11 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   ASSERT_GT(all_files.size(), blob_files.size());
 
   ASSERT_EQ("000001.blob", blob_files[0].relative_filename);
-  ASSERT_EQ("blob_dir", blob_files[0].directory);
+  ASSERT_EQ(blob_db_impl()->TEST_blob_dir(), blob_files[0].directory);
   ASSERT_GT(blob_files[0].size, 0);
 
   ASSERT_EQ("000002.blob", blob_files[1].relative_filename);
-  ASSERT_EQ("blob_dir", blob_files[1].directory);
+  ASSERT_EQ(blob_db_impl()->TEST_blob_dir(), blob_files[1].directory);
   ASSERT_GT(blob_files[1].size, 0);
 
   VerifyDB(data);
