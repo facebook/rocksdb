@@ -58,7 +58,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
                                                         nullptr, nullptr);
   unsigned int count = 0;
   ROCKSDB_NAMESPACE::Arena arena;
-  ROCKSDB_NAMESPACE::ScopedArenaPtr<InternalIterator> iter(
+  ROCKSDB_NAMESPACE::ScopedArenaPtr<ROCKSDB_NAMESPACE::InternalIterator> iter(
       mem->NewIterator(ROCKSDB_NAMESPACE::ReadOptions(),
                        /*seqno_to_time_mapping=*/nullptr, &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
