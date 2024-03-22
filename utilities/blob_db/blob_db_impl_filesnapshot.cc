@@ -104,4 +104,28 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
+Status BlobDBImpl::GetLiveFilesStorageInfo(
+    const LiveFilesStorageInfoOptions& opts,
+    std::vector<LiveFileStorageInfo>* files) {
+  if (!bdb_options_.path_relative) {
+    return Status::NotSupported(
+        "Not able to get relative blob file path from absolute blob_dir.");
+  }
+
+  ReadLock rl(&mutex_);
+  Status s = db_->GetLiveFilesStorageInfo(opts, files);
+  if (s.ok()) {
+    files->reserve(files->size() + blob_files_.size());
+    for (const auto& [blob_number, blob_file] : blob_files_) {
+      LiveFileStorageInfo file;
+      file.size = blob_file->GetFileSize();
+      file.directory = bdb_options_.blob_dir;
+      file.relative_filename = BlobFileName(blob_number);
+      file.file_type = kBlobFile;
+      files->push_back(std::move(file));
+    }
+  }
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE::blob_db
