@@ -271,6 +271,11 @@ class ComparatorWithU64TsImpl : public Comparator {
     return -CompareTimestamp(ExtractTimestampFromUserKey(a, ts_sz),
                              ExtractTimestampFromUserKey(b, ts_sz));
   }
+
+  Slice GetMaxTimestamp() const override { return MaxU64Ts(); }
+
+  Slice GetMinTimestamp() const override { return MinU64Ts(); }
+
   using Comparator::CompareWithoutTimestamp;
   int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
                               bool b_has_ts) const override {

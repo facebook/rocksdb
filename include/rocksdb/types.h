@@ -70,11 +70,13 @@ enum EntryType {
   kEntryOther,
 };
 
-// Structured User-oriented representation of internal key. It includes user
+// Structured user-oriented representation of an internal key. It includes user
 // key, sequence number, and type.
-// If user-defined timestamp is enabled, user key includes the timestamp.
+// If user-defined timestamp is enabled, `timestamp` contains the user-defined
+// timestamp, it's otherwise an empty Slice.
 struct ParsedEntryInfo {
   Slice user_key;
+  Slice timestamp;
   SequenceNumber sequence;
   EntryType type;
 };
