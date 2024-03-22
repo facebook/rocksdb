@@ -440,7 +440,7 @@ Status FlushJob::MemPurge() {
                          : earliest_seqno;
   }
 
-  ScopedArenaIterator iter(
+  ScopedArenaPtr<InternalIterator> iter(
       NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
                          static_cast<int>(memtables.size()), &arena));
 
@@ -917,7 +917,7 @@ Status FlushJob::WriteLevel0Table() {
                          << GetFlushReasonString(flush_reason_);
 
     {
-      ScopedArenaIterator iter(
+      ScopedArenaPtr<InternalIterator> iter(
           NewMergingIterator(&cfd_->internal_comparator(), memtables.data(),
                              static_cast<int>(memtables.size()), &arena));
       ROCKS_LOG_INFO(db_options_.info_log,

@@ -82,7 +82,7 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   auto icmp = InternalKeyComparator(idb->GetOptions(cfh).comparator);
   ReadOptions read_options;
   Arena arena;
-  ScopedArenaIterator iter(
+  ScopedArenaPtr<InternalIterator> iter(
       idb->NewInternalIterator(read_options, &arena, kMaxSequenceNumber, cfh));
 
   if (!begin_key.empty()) {

@@ -23,7 +23,6 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
-#include "table/scoped_arena_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
