@@ -1024,6 +1024,7 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   }
 
   ASSERT_EQ(2U, blob_files.size());
+  ASSERT_GT(all_files.size(), blob_files.size());
 
   ASSERT_EQ("000001.blob", blob_files[0].relative_filename);
   ASSERT_EQ("blob_dir", blob_files[0].directory);
