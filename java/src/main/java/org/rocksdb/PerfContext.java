@@ -651,6 +651,10 @@ public class PerfContext extends RocksObject {
     return getNumberAsyncSeek(nativeHandle_);
   }
 
+  public String toString(final boolean excludeZeroCounters) {
+    return toString(nativeHandle_, excludeZeroCounters);
+  }
+
   @Override
   protected void disposeInternal(long handle) {
     // Nothing to do. Perf context is valid for all the time of application is running.
@@ -758,4 +762,6 @@ public class PerfContext extends RocksObject {
   private native long getEncryptDataNanos(long nativeHandle_);
   private native long getDecryptDataNanos(long nativeHandle_);
   private native long getNumberAsyncSeek(long nativeHandle_);
+
+  private native String toString(long nativeHandle_, final boolean excludeZeroCounters);
 }

@@ -1234,3 +1234,12 @@ jlong Java_org_rocksdb_PerfContext_getNumberAsyncSeek(JNIEnv*, jobject,
       reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
   return perf_context->number_async_seek;
 }
+
+jstring Java_org_rocksdb_PerfContext_toString(JNIEnv* env, jobject,
+                                              jlong jpc_handle,
+                                              jboolean exclude_zero_counters) {
+  ROCKSDB_NAMESPACE::PerfContext* perf_context =
+      reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
+  return env->NewStringUTF(
+      perf_context->ToString(exclude_zero_counters).c_str());
+}
