@@ -431,7 +431,7 @@ struct BlockBasedTableOptions {
   // original size if malloc_usable_size says it is safe to do so. While this
   // can be considered bad practice, it should not produce undefined behavior
   // unless malloc_usable_size is buggy or broken.
-  bool optimize_filters_for_memory = false;
+  bool optimize_filters_for_memory = kMallocUsableSizeSupported;
 
   // Use delta encoding to compress keys in blocks.
   // ReadOptions::pin_data requires this option to be disabled.

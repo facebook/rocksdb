@@ -1209,6 +1209,10 @@ class Logger {
  public:
   static constexpr size_t kDoNotSupportGetLogFileSize = SIZE_MAX;
 
+  // Set to INFO_LEVEL when RocksDB is compiled in release mode, and
+  // DEBUG_LEVEL when compiled in debug mode. See DBOptions::info_log_level.
+  static const InfoLogLevel kDefaultLogLevel;
+
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : closed_(false), log_level_(log_level) {}
   // No copying allowed

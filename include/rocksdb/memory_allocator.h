@@ -84,4 +84,8 @@ Status NewJemallocNodumpAllocator(
     const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
+// Whether support for malloc_usable_size is known to be available at compile
+// time.
+extern const bool kMallocUsableSizeSupported;
+
 }  // namespace ROCKSDB_NAMESPACE

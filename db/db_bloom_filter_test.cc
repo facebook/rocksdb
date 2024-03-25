@@ -529,6 +529,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     BlockBasedTableOptions table_options;
     table_options.no_block_cache = true;
     table_options.filter_policy = Create(10, bfp_impl_);
+    table_options.optimize_filters_for_memory = false;
     table_options.partition_filters = partition_filters_;
     if (partition_filters_) {
       table_options.index_type =
@@ -1695,6 +1696,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     BlockBasedTableOptions table_options;
     table_options.filter_policy = policy;
     table_options.format_version = 5;
+    table_options.optimize_filters_for_memory = false;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     ASSERT_OK(TryReopen(options));

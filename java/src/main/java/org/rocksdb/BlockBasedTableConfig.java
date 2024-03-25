@@ -31,7 +31,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     indexBlockRestartInterval = 1;
     metadataBlockSize = 4096;
     partitionFilters = false;
-    optimizeFiltersForMemory = false;
+    optimizeFiltersForMemory = true;
     useDeltaEncoding = true;
     filterPolicy = null;
     wholeKeyFiltering = true;

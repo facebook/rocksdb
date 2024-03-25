@@ -425,6 +425,9 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
   }
 
   double EstimatedFpRate(size_t keys, size_t len_with_metadata) override {
+    if (len_with_metadata <= kMetadataLen) {
+      return keys > 0 ? 1.0 : 0.0;
+    }
     int num_probes = GetNumProbes(keys, len_with_metadata);
     return FastLocalBloomImpl::EstimatedFpRate(
         keys, len_with_metadata - kMetadataLen, num_probes, /*hash bits*/ 64);
@@ -891,6 +894,9 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 
   double EstimatedFpRate(size_t num_entries,
                          size_t len_with_metadata) override {
+    if (len_with_metadata <= kMetadataLen) {
+      return num_entries > 0 ? 1.0 : 0.0;
+    }
     if (num_entries > kMaxRibbonEntries) {
       // More entries than supported by this Ribbon
       return bloom_fallback_.EstimatedFpRate(num_entries, len_with_metadata);
@@ -1030,9 +1036,12 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     return CalculateSpace(num_entries, &dont_care1, &dont_care2);
   }
 
-  double EstimatedFpRate(size_t keys, size_t bytes) override {
-    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - kMetadataLen,
-                                            num_probes_);
+  double EstimatedFpRate(size_t keys, size_t len_with_metadata) override {
+    if (len_with_metadata <= kMetadataLen) {
+      return keys > 0 ? 1.0 : 0.0;
+    }
+    return LegacyBloomImpl::EstimatedFpRate(
+        keys, len_with_metadata - kMetadataLen, num_probes_);
   }
 
   size_t ApproximateNumEntries(size_t bytes) override;
