@@ -1,1 +1,0 @@
-Defined a new PerfLevel `kEnableWait` to measure time spent by user threads blocked in RocksDB other than mutex, such as a write thread waiting to be added to a write group, a write thread delayed or stalled etc.
