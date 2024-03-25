@@ -1,0 +1,1 @@
+`OptionChangeMigration()` will not support migration to FIFO compaction with `Options::compaction_options_fifo.max_table_files_size > 0` anymore. This is to avoid the risk of dropping data immediately after migration when the migrated data is larger than `max_table_files_size`.

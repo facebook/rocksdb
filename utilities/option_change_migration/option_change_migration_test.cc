@@ -12,6 +12,7 @@
 #include <set>
 
 #include "db/db_test_util.h"
+#include "port/lang.h"
 #include "port/stack_trace.h"
 #include "util/random.h"
 
@@ -108,7 +109,15 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   new_options.num_levels = level2_;
   new_options.max_bytes_for_level_base = 150 * 1024;
   new_options.max_bytes_for_level_multiplier = 4;
-  ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
+  Status s = OptionChangeMigration(dbname_, old_options, new_options);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO &&
+      new_options.compaction_options_fifo.max_table_files_size > 0) {
+    ASSERT_FALSE(s.ok());
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
   Reopen(new_options);
 
   // Wait for compaction to finish and make sure it can reopen
@@ -189,7 +198,14 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   new_options.num_levels = level1_;
   new_options.max_bytes_for_level_base = 150 * 1024;
   new_options.max_bytes_for_level_multiplier = 4;
-  ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
+  Status s = OptionChangeMigration(dbname_, old_options, new_options);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO &&
+      new_options.compaction_options_fifo.max_table_files_size > 0) {
+    ASSERT_FALSE(s.ok());
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
   Reopen(new_options);
   // Wait for compaction to finish and make sure it can reopen
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
@@ -274,7 +290,14 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   new_options.num_levels = level2_;
   new_options.max_bytes_for_level_base = 150 * 1024;
   new_options.max_bytes_for_level_multiplier = 4;
-  ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
+  Status s = OptionChangeMigration(dbname_, old_options, new_options);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO &&
+      new_options.compaction_options_fifo.max_table_files_size > 0) {
+    ASSERT_FALSE(s.ok());
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
   Reopen(new_options);
 
   // Wait for compaction to finish and make sure it can reopen
@@ -361,7 +384,14 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   new_options.num_levels = level1_;
   new_options.max_bytes_for_level_base = 150 * 1024;
   new_options.max_bytes_for_level_multiplier = 4;
-  ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
+  Status s = OptionChangeMigration(dbname_, old_options, new_options);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO &&
+      new_options.compaction_options_fifo.max_table_files_size > 0) {
+    ASSERT_FALSE(s.ok());
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
   Reopen(new_options);
   // Wait for compaction to finish and make sure it can reopen
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
