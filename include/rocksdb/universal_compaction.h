@@ -65,6 +65,29 @@ class CompactionOptionsUniversal {
   // Default: -1
   int compression_size_percent;
 
+  // The limit on the number of sorted runs. RocksDB will try to keep
+  // the number of sorted runs at most this number. While compactions are
+  // running, the number of sorted runs may be temporarily higher than
+  // this number.
+  //
+  // Since universal compaction checks if there is compaction to do when
+  // the number of sorted runs is at least level0_file_num_compaction_trigger,
+  // it is suggested to set level0_file_num_compaction_trigger to be no larger
+  // than max_read_amp.
+  //
+  // Values:
+  // -1: special flag to let RocksDB pick default. Currently,
+  //  RocksDB will fall back to the behavior before this option is introduced,
+  //  which is to use level0_file_num_compaction_trigger as the limit.
+  //  This may change in the future to behave as 0 below.
+  // 0: Let RocksDB auto-tune. Currently, we determine the max number of
+  //  sorted runs based on the current DB size, size_ratio and
+  //  write_buffer_size.
+  // N (N > 0): limit the number of sorted runs to be at most N.
+  //
+  // Default: -1
+  int max_read_amp;
+
   // The algorithm used to stop picking files into a single compaction run
   // Default: kCompactionStopStyleTotalSize
   CompactionStopStyle stop_style;
@@ -88,6 +111,7 @@ class CompactionOptionsUniversal {
         max_merge_width(UINT_MAX),
         max_size_amplification_percent(200),
         compression_size_percent(-1),
+        max_read_amp(-1),
         stop_style(kCompactionStopStyleTotalSize),
         allow_trivial_move(false),
         incremental(false) {}
