@@ -559,9 +559,10 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
           // level is at least `max_run_size_`.
           max_num_runs = 1;
           {
-            uint64_t cur_level_max_size = mutable_cf_options_.write_buffer_size;
-            uint64_t total_run_size = 0;
-            while (cur_level_max_size < max_run_size_) {
+            double cur_level_max_size =
+                static_cast<double>(mutable_cf_options_.write_buffer_size);
+            double total_run_size = 0;
+            while (cur_level_max_size < static_cast<double>(max_run_size_)) {
               // This loop should not take too many iterations since
               // cur_level_max_size at least doubles each iteration.
               total_run_size += cur_level_max_size;
