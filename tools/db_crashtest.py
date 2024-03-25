@@ -268,6 +268,7 @@ default_params = {
     "low_pri_pool_ratio": lambda: random.choice([0, 0.5]),
     "soft_pending_compaction_bytes_limit" : lambda: random.choice([1024 * 1024] + [64 * 1073741824] * 4),
     "hard_pending_compaction_bytes_limit" : lambda: random.choice([2 * 1024 * 1024] + [256 * 1073741824] * 4),
+    "universal_max_read_amp": lambda : random.choice([-1] * 3 + [0, 3, 10]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
