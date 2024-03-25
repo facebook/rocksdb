@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "options.h"
 #include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
@@ -973,12 +974,13 @@ class DB {
 
   // UNDER CONSTRUCTION - DO NOT USE
   // Return a cross-column-family iterator from a consistent database state.
-  // When the same key is present in multiple column families, the iterator
-  // selects the value or columns from the first column family containing the
-  // key, in the order specified by the `column_families` parameter.
+  // If a key exists in more than one column family, it chooses value/columns
+  // based on the coalescing rule provided by CoalescingOptions. See
+  // CoalescingOptions in options.h for details
   virtual std::unique_ptr<Iterator> NewMultiCfIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const CoalescingOptions& coalescing_options) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB

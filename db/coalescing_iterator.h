@@ -7,27 +7,29 @@
 
 #include <variant>
 
+#include "db/multi_cf_iterator_impl.h"
 #include "multi_cf_iterator_impl.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "util/heap.h"
 #include "util/overload.h"
-#include "db/multi_cf_iterator_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // UNDER CONSTRUCTION - DO NOT USE
 // A cross-column-family iterator from a consistent database state.
-// When the same key exists in more than one column families, the iterator
-// selects the value from the first column family containing the key, in the
-// order provided in the `column_families` parameter.
+// If a key exists in more than one column family, it chooses value/columns
+// based on the coalescing rule provided by CoalescingOptions. See
+// CoalescingOptions in options.h for details
 class CoalescingIterator : public Iterator {
  public:
-  CoalescingIterator(const Comparator* comparator,
-                  const std::vector<ColumnFamilyHandle*>& column_families,
-                  const std::vector<Iterator*>& child_iterators)
-      : impl_(comparator, column_families, child_iterators) {}
+  CoalescingIterator(const CoalescingOptions coalesing_options,
+                     const Comparator* comparator,
+                     const std::vector<ColumnFamilyHandle*>& column_families,
+                     const std::vector<Iterator*>& child_iterators)
+      : impl_(comparator, column_families, child_iterators),
+        rule_(coalesing_options.rule) {}
   ~CoalescingIterator() override {}
 
   // No copy allowed
@@ -45,18 +47,27 @@ class CoalescingIterator : public Iterator {
   Status status() const override;
 
   Slice value() const override {
-    // TODO - Implement
+    if (rule_ == CoalescingRule::kChooseFromFirstCfContainingKey) {
+      assert(Valid());
+      return impl_.current()->value();
+    }
+    // TODO - add more rules
     assert(false);
     return Slice();
   }
   const WideColumns& columns() const override {
-    // TODO - Implement
+    if (rule_ == CoalescingRule::kChooseFromFirstCfContainingKey) {
+      assert(Valid());
+      return impl_.current()->columns();
+    }
+    // TODO - add more rules
     assert(false);
     return kNoWideColumns;
   }
 
  private:
   MultiCfIteratorImpl impl_;
+  CoalescingRule rule_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
