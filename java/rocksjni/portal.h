@@ -9205,6 +9205,7 @@ class WideColumnJni {
         return;
       }
       auto _name = env->GetDirectBufferAddress(jname);
+      env->DeleteLocalRef(jname);
       if (_name == nullptr) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env,
@@ -9220,6 +9221,7 @@ class WideColumnJni {
         return;
       }
       auto _value = env->GetDirectBufferAddress(j_value);
+      env->DeleteLocalRef(j_value);
       if (_value == nullptr) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env,
@@ -9271,6 +9273,7 @@ class WideColumnJni {
       auto jname_len = env->GetArrayLength(jname);
       auto name = std::make_unique<jbyte[]>(jname_len);
       env->GetByteArrayRegion(jname, 0, jname_len, name.get());
+      env->DeleteLocalRef(jname);
       if (env->ExceptionCheck()) {
         return;
       }
@@ -9286,6 +9289,7 @@ class WideColumnJni {
       auto jvalue_len = env->GetArrayLength(j_value);
       auto value = std::make_unique<jbyte[]>(jvalue_len);
       env->GetByteArrayRegion(j_value, 0, jvalue_len, value.get());
+      env->DeleteLocalRef(j_value);
       if (env->ExceptionCheck()) {
         return;
       }

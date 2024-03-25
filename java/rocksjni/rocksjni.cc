@@ -887,6 +887,7 @@ jobject Java_org_rocksdb_RocksDB_getEntityDirect(
         return nullptr;
       }
       auto _name = env->GetDirectBufferAddress(jname);
+      env->DeleteLocalRef(jname);
       if (_name == nullptr) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env,
@@ -904,6 +905,7 @@ jobject Java_org_rocksdb_RocksDB_getEntityDirect(
         return nullptr;
       }
       auto _value = env->GetDirectBufferAddress(j_value);
+      env->DeleteLocalRef(j_value);
       if (_value == nullptr) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env,
@@ -972,10 +974,22 @@ void Java_org_rocksdb_RocksDB_getEntity(JNIEnv* env, jclass, jlong jdb_handle,
       env, "org/rocksdb/RocksDB$GetEntityResult");
   const auto statusFieldId =
       env->GetFieldID(j_status_clazz, "status", "Lorg/rocksdb/Status;");
+  if (env->ExceptionCheck() == JNI_TRUE) {
+    return;
+  }
   const auto namesFieldId = env->GetFieldID(j_status_clazz, "names", "[[B");
+  if (env->ExceptionCheck() == JNI_TRUE) {
+    return;
+  }
   const auto valuesFieldId = env->GetFieldID(j_status_clazz, "values", "[[B");
+  if (env->ExceptionCheck() == JNI_TRUE) {
+    return;
+  }
 
   env->SetObjectField(jresult, statusFieldId, jniStatus);
+  if (env->ExceptionCheck() == JNI_TRUE) {
+    return;
+  }
 
   if (status.ok()) {
     const auto columns_len = static_cast<jsize>(columns.columns().size());
@@ -985,11 +999,15 @@ void Java_org_rocksdb_RocksDB_getEntity(JNIEnv* env, jclass, jlong jdb_handle,
     auto jnames =
         env->NewObjectArray(columns_len, j_double_byte_array_clazz, nullptr);
     if (jnames == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Unable to allocate object array for column names");
       return;
     }
     auto jvalues =
         env->NewObjectArray(columns_len, j_double_byte_array_clazz, nullptr);
     if (jvalues == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Unable to allocate object array for column values");
       return;
     }
 
@@ -1005,7 +1023,14 @@ void Java_org_rocksdb_RocksDB_getEntity(JNIEnv* env, jclass, jlong jdb_handle,
       env->SetByteArrayRegion(
           jname, 0, static_cast<jsize>(column.name().size()),
           reinterpret_cast<const jbyte*>(column.name().data()));
+      if (env->ExceptionCheck() == JNI_TRUE) {
+        return;
+      }
       env->SetObjectArrayElement(jnames, i, jname);
+      if (env->ExceptionCheck() == JNI_TRUE) {
+        return;
+      }
+      env->DeleteLocalRef(jname);  // Delete local reference to help GC.
 
       auto j_value =
           env->NewByteArray(static_cast<jsize>(column.value().size()));
@@ -1017,7 +1042,14 @@ void Java_org_rocksdb_RocksDB_getEntity(JNIEnv* env, jclass, jlong jdb_handle,
       env->SetByteArrayRegion(
           j_value, 0, static_cast<jsize>(column.value().size()),
           reinterpret_cast<const jbyte*>(column.value().data()));
+      if (env->ExceptionCheck() == JNI_TRUE) {
+        return;
+      }
       env->SetObjectArrayElement(jvalues, i, j_value);
+      if (env->ExceptionCheck() == JNI_TRUE) {
+        return;
+      }
+      env->DeleteLocalRef(j_value);  // Delete local reference to help GC.
     }
     env->SetObjectField(jresult, namesFieldId, jnames);
     env->SetObjectField(jresult, valuesFieldId, jvalues);
