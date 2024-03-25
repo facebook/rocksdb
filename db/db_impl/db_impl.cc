@@ -3737,7 +3737,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
 
 std::unique_ptr<Iterator> DBImpl::NewMultiCfIterator(
     const ReadOptions& _read_options,
-    const std::vector<ColumnFamilyHandle*>& column_families) {
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    const CoalescingOptions& coalesing_options) {
   if (column_families.size() == 0) {
     return std::unique_ptr<Iterator>(NewErrorIterator(
         Status::InvalidArgument("No Column Family was provided")));
@@ -3755,7 +3756,8 @@ std::unique_ptr<Iterator> DBImpl::NewMultiCfIterator(
   Status s = NewIterators(_read_options, column_families, &child_iterators);
   if (s.ok()) {
     return std::make_unique<CoalescingIterator>(
-        first_comparator, column_families, std::move(child_iterators));
+        coalesing_options, first_comparator, column_families,
+        std::move(child_iterators));
   }
   return std::unique_ptr<Iterator>(NewErrorIterator(s));
 }

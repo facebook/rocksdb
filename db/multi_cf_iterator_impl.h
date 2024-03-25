@@ -15,11 +15,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// UNDER CONSTRUCTION - DO NOT USE
-// A cross-column-family iterator from a consistent database state.
-// When the same key exists in more than one column families, the iterator
-// selects the value from the first column family containing the key, in the
-// order provided in the `column_families` parameter.
 class MultiCfIteratorImpl {
  public:
   MultiCfIteratorImpl(const Comparator* comparator,
@@ -45,6 +40,15 @@ class MultiCfIteratorImpl {
   Slice key() const {
     assert(Valid());
     return current()->key();
+  }
+
+  Iterator* current() const {
+    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
+      auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
+      return max_heap.top().iterator;
+    }
+    auto& min_heap = std::get<MultiCfMinHeap>(heap_);
+    return min_heap.top().iterator;
   }
 
   bool Valid() const {
@@ -144,16 +148,6 @@ class MultiCfIteratorImpl {
       status_ = std::move(s);
     }
   }
-
-  Iterator* current() const {
-    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
-      auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
-      return max_heap.top().iterator;
-    }
-    auto& min_heap = std::get<MultiCfMinHeap>(heap_);
-    return min_heap.top().iterator;
-  }
-
 
 
   template <typename HeapType, typename InitFunc>

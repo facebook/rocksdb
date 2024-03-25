@@ -18,10 +18,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 // UNDER CONSTRUCTION - DO NOT USE
-// A cross-column-family iterator from a consistent database state.
-// When the same key exists in more than one column families, the iterator
-// selects the value from the first column family containing the key, in the
-// order provided in the `column_families` parameter.
+// A cross-column-family iterator that collects and returns attribute groups for
+// each key in order provided by comparator
 class AttributeGroupIterator : public IteratorBase {
  public:
   AttributeGroupIterator(const Comparator* comparator,
