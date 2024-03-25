@@ -1127,7 +1127,7 @@ DEFINE_uint64(
     "Num of sequential reads to enable auto prefetching during Iteration");
 
 DEFINE_bool(
-    preserve_unverified_changes, false,
+    preserve_unverified_changes, true,
     "DB files of the current run will all be preserved in `FLAGS_db`. DB files "
     "from the last run will be preserved in `FLAGS_db/unverified` until the "
     "first verification succeeds. Expected state files from the last run will "
