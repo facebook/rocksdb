@@ -651,6 +651,11 @@ public class PerfContext extends RocksObject {
     return getNumberAsyncSeek(nativeHandle_);
   }
 
+  @Override
+  public String toString() {
+    return toString(true);
+  }
+
   public String toString(final boolean excludeZeroCounters) {
     return toString(nativeHandle_, excludeZeroCounters);
   }
@@ -763,5 +768,5 @@ public class PerfContext extends RocksObject {
   private native long getDecryptDataNanos(long nativeHandle_);
   private native long getNumberAsyncSeek(long nativeHandle_);
 
-  private native String toString(long nativeHandle_, final boolean excludeZeroCounters);
+  private native String toString(final long nativeHandle, final boolean excludeZeroCounters);
 }
