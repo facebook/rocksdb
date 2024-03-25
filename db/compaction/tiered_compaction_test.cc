@@ -1584,7 +1584,16 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   Close();
 }
 
-TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
+// Test Param: protection_bytes_per_key for WriteBatch
+class TimedPutPrecludeLastLevelTest
+    : public PrecludeLastLevelTest,
+      public testing::WithParamInterface<size_t> {
+ public:
+  TimedPutPrecludeLastLevelTest()
+      : PrecludeLastLevelTest("timed_put_preclude_last_level_test") {}
+};
+
+TEST_P(TimedPutPrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -1598,6 +1607,8 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   options.num_levels = kNumLevels;
   options.last_level_temperature = Temperature::kCold;
   DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
 
   Random rnd(301);
 
@@ -1606,7 +1617,7 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   });
 
   for (int i = 0; i < kNumKeys / 2; i++) {
-    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100), wo));
     dbfull()->TEST_WaitForPeriodicTaskRun([&] {
       mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
     });
@@ -1620,7 +1631,7 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   // These data are eligible to be put on the last level once written to db
   // and compaction will fast track them to the last level.
   for (int i = kNumKeys / 2; i < kNumKeys; i++) {
-    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50));
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
   }
   ASSERT_OK(Flush());
 
@@ -1640,7 +1651,7 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   Close();
 }
 
-TEST_F(PrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
+TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.disable_auto_compactions = true;
@@ -1651,6 +1662,8 @@ TEST_F(PrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
   options.last_level_temperature = Temperature::kCold;
   options.default_write_temperature = Temperature::kHot;
   DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
 
   // Creating a snapshot to manually control when preferred sequence number is
   // swapped in. An entry's preferred seqno won't get swapped in until it's
@@ -1659,9 +1672,9 @@ TEST_F(PrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
   // the seqno in the internal keys.
   auto* snap1 = db_->GetSnapshot();
   // Start time: kMockStartTime = 10000000;
-  ASSERT_OK(TimedPut(0, Key(0), "v0", kMockStartTime - 1 * 24 * 60 * 60));
-  ASSERT_OK(TimedPut(0, Key(1), "v1", kMockStartTime - 1 * 24 * 60 * 60));
-  ASSERT_OK(TimedPut(0, Key(2), "v2", kMockStartTime - 1 * 24 * 60 * 60));
+  ASSERT_OK(TimedPut(0, Key(0), "v0", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(TimedPut(0, Key(1), "v1", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(TimedPut(0, Key(2), "v2", kMockStartTime - 1 * 24 * 60 * 60, wo));
   ASSERT_OK(Flush());
 
   // Should still be in penultimate level.
@@ -1695,6 +1708,9 @@ TEST_F(PrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
   Close();
 }
+
+INSTANTIATE_TEST_CASE_P(TimedPutPrecludeLastLevelTest,
+                        TimedPutPrecludeLastLevelTest, ::testing::Values(0, 8));
 
 TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   const int kNumTrigger = 4;

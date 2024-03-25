@@ -304,6 +304,7 @@ default_params = {
     "enable_memtable_insert_with_hint_prefix_extractor": 0,
     "check_multiget_consistency": lambda: random.choice([0, 0, 0, 1]),
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
+    "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -489,6 +490,8 @@ txn_params = {
     "use_put_entity_one_in": 0,
     # Should not be used with TransactionDB which uses snapshot.
     "inplace_update_support": 0,
+    # TimedPut is not supported in transaction
+    "use_timed_put_one_in": 0,
 }
 
 # For optimistic transaction db
@@ -502,6 +505,8 @@ optimistic_txn_params = {
     "use_put_entity_one_in": 0,
     # Should not be used with OptimisticTransactionDB which uses snapshot.
     "inplace_update_support": 0,
+    # TimedPut is not supported in transaction
+    "use_timed_put_one_in": 0,
 }
 
 best_efforts_recovery_params = {
@@ -547,6 +552,8 @@ ts_params = {
     "ingest_external_file_one_in": 0,
     # PutEntity with timestamps is not yet implemented
     "use_put_entity_one_in": 0,
+    # TimedPut is not compatible with user-defined timestamps yet.
+    "use_timed_put_one_in": 0,
 }
 
 tiered_params = {
@@ -613,6 +620,8 @@ multiops_txn_default_params = {
     "verify_iterator_with_expected_state_one_in": 0,
     # This test uses snapshot heavily which is incompatible with this option.
     "inplace_update_support": 0,
+    # TimedPut not supported in transaction
+    "use_timed_put_one_in": 0,
 }
 
 multiops_wc_txn_params = {
@@ -841,6 +850,13 @@ def finalize_and_sanitize(src_params):
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""
+    # `use_put_entity_one_in` cannot be enabled/disabled across runs, modify
+    # `use_timed_put_one_in` option so that they make sense together.
+    if dest_params.get("use_put_entity_one_in") == 1:
+        dest_params["use_timed_put_one_in"] = 0
+    elif (dest_params.get("use_put_entity_one_in") > 1 and
+        dest_params.get("use_timed_put_one_in") == 1):
+        dest_params["use_timed_put_one_in"] = 3
     return dest_params
 
 

@@ -391,6 +391,23 @@ std::string GetNowNanos() {
   return ret;
 }
 
+uint64_t GetWriteUnixTime(ThreadState* thread) {
+  static uint64_t kPreserveSeconds =
+      std::max(FLAGS_preserve_internal_time_seconds,
+               FLAGS_preclude_last_level_data_seconds);
+  static uint64_t kFallbackTime = std::numeric_limits<uint64_t>::max();
+  int64_t write_time = 0;
+  Status s = db_stress_env->GetCurrentTime(&write_time);
+  uint32_t write_time_mode = thread->rand.Uniform(3);
+  if (write_time_mode == 0 || !s.ok()) {
+    return kFallbackTime;
+  } else if (write_time_mode == 1) {
+    return static_cast<uint64_t>(write_time);
+  } else {
+    return static_cast<uint64_t>(write_time) - kPreserveSeconds;
+  }
+}
+
 namespace {
 
 class MyXXH64Checksum : public FileChecksumGenerator {

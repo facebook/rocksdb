@@ -351,6 +351,7 @@ DECLARE_uint32(bottommost_file_compaction_delay);
 // Tiered storage
 DECLARE_int64(preclude_last_level_data_seconds);
 DECLARE_int64(preserve_internal_time_seconds);
+DECLARE_uint32(use_timed_put_one_in);
 
 DECLARE_int32(verify_iterator_with_expected_state_one_in);
 DECLARE_bool(preserve_unverified_changes);
@@ -765,6 +766,8 @@ void InitializeHotKeyGenerator(double alpha);
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
 std::string GetNowNanos();
+
+uint64_t GetWriteUnixTime(ThreadState* thread);
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);
