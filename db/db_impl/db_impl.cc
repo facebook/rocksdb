@@ -27,6 +27,7 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
+#include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
 #include "db/convenience_impl.h"
 #include "db/db_info_dumper.h"
@@ -45,7 +46,6 @@
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
-#include "db/multi_cf_iterator.h"
 #include "db/periodic_task_scheduler.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
@@ -3754,8 +3754,8 @@ std::unique_ptr<Iterator> DBImpl::NewMultiCfIterator(
   std::vector<Iterator*> child_iterators;
   Status s = NewIterators(_read_options, column_families, &child_iterators);
   if (s.ok()) {
-    return std::make_unique<MultiCfIterator>(first_comparator, column_families,
-                                             std::move(child_iterators));
+    return std::make_unique<CoalescingIterator>(
+        first_comparator, column_families, std::move(child_iterators));
   }
   return std::unique_ptr<Iterator>(NewErrorIterator(s));
 }
