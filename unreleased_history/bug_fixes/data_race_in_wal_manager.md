@@ -1,1 +1,0 @@
-* Fixed a data race in WalManager that may affect how frequent PurgeObsoleteWALFiles() runs.
