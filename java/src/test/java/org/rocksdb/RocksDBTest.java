@@ -1423,6 +1423,33 @@ public class RocksDBTest {
     }
   }
 
+  @Test
+  public void getColumnFamilyMetadataWithChecksum() throws RocksDBException {
+    final Properties props = new Properties();
+    props.put("file_checksum_gen_factory", "FileChecksumGenCrc32cFactory");
+    final String dbPath = dbFolder.getRoot().getAbsolutePath();
+
+    try (final DBOptions dbOptions = DBOptions.getDBOptionsFromProps(props);
+         final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
+         final Options options = new Options(dbOptions, cfOptions).setCreateIfMissing(true)) {
+      try (final RocksDB db = RocksDB.open(options, dbPath);
+           final WriteOptions writeOptions = new WriteOptions().setDisableWAL(true)) {
+        db.put("key".getBytes(UTF_8), "value".getBytes(UTF_8));
+      }
+
+      try (final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+        ColumnFamilyMetaData metadata = db.getColumnFamilyMetaData(); // Exception here
+        List<LevelMetaData> levels = metadata.levels();
+        assertThat(levels).isNotEmpty();
+        List<SstFileMetaData> filesMetadata = levels.get(0).files();
+        assertThat(filesMetadata).isNotEmpty();
+        assertThat(filesMetadata.get(0).fileChecksum()).isNotNull();
+        assertThat(filesMetadata.get(0).fileChecksum()).hasSize(4);
+        assertThat(filesMetadata.get(0).fileChecksum()).isNotEqualTo(new byte[] {0, 0, 0, 0});
+      }
+    }
+  }
+
   @Ignore("TODO(AR) re-enable when ready!")
   @Test
   public void compactFiles() throws RocksDBException {
