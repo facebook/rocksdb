@@ -6,39 +6,35 @@
 #include <memory>
 
 #include "db/db_test_util.h"
+#include "rocksdb/attribute_groups.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class MultiCfIteratorTest : public DBTestBase {
+class CoalescingIteratorTest
+    : public DBTestBase,
+      public testing::WithParamInterface<CoalescingRule> {
  public:
-  MultiCfIteratorTest()
-      : DBTestBase("multi_cf_iterator_test", /*env_do_fsync=*/true) {}
+  CoalescingIteratorTest()
+      : DBTestBase("coalescing_iterator_test", /*env_do_fsync=*/true) {
+    coalesing_options_.rule = GetParam();
+  }
+  CoalescingOptions coalesing_options_;
 
-  // Verify Iteration of MultiCfIterator
+  // Verify Iteration of CoalescingIterator
   // by SeekToFirst() + Next() and SeekToLast() + Prev()
-  void verifyMultiCfIterator(
-      const std::vector<ColumnFamilyHandle*>& cfhs,
-      const std::vector<Slice>& expected_keys,
-      const std::optional<std::vector<Slice>>& expected_values = std::nullopt,
-      const std::optional<std::vector<WideColumns>>& expected_wide_columns =
-          std::nullopt,
-      const std::optional<std::vector<AttributeGroups>>&
-          expected_attribute_groups = std::nullopt) {
+  void verifyCoalescingIterator(const std::vector<ColumnFamilyHandle*>& cfhs,
+                                const std::vector<Slice>& expected_keys,
+                                const std::vector<Slice>& expected_values,
+                                const std::optional<std::vector<WideColumns>>&
+                                    expected_wide_columns = std::nullopt) {
     int i = 0;
     std::unique_ptr<Iterator> iter =
-        db_->NewMultiCfIterator(ReadOptions(), cfhs);
+        db_->NewCoalescingIterator(ReadOptions(), cfhs, coalesing_options_);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(expected_keys[i], iter->key());
-      if (expected_values.has_value()) {
-        ASSERT_EQ(expected_values.value()[i], iter->value());
-      }
+      ASSERT_EQ(expected_values[i], iter->value());
       if (expected_wide_columns.has_value()) {
         ASSERT_EQ(expected_wide_columns.value()[i], iter->columns());
-      }
-      if (expected_attribute_groups.has_value()) {
-        // TODO - Add this back when attribute_groups() API is added
-        // ASSERT_EQ(expected_attribute_groups.value()[i],
-        //           iter->attribute_groups());
       }
       ++i;
     }
@@ -48,16 +44,9 @@ class MultiCfIteratorTest : public DBTestBase {
     int rev_i = i - 1;
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       ASSERT_EQ(expected_keys[rev_i], iter->key());
-      if (expected_values.has_value()) {
-        ASSERT_EQ(expected_values.value()[rev_i], iter->value());
-      }
+      ASSERT_EQ(expected_values[rev_i], iter->value());
       if (expected_wide_columns.has_value()) {
         ASSERT_EQ(expected_wide_columns.value()[rev_i], iter->columns());
-      }
-      if (expected_attribute_groups.has_value()) {
-        // TODO - Add this back when attribute_groups() API is added
-        // ASSERT_EQ(expected_attribute_groups.value()[rev_i],
-        //           iter->attribute_groups());
       }
       rev_i--;
     }
@@ -78,20 +67,25 @@ class MultiCfIteratorTest : public DBTestBase {
   }
 };
 
-TEST_F(MultiCfIteratorTest, InvalidArguments) {
+INSTANTIATE_TEST_CASE_P(
+    CoalescingIteratorTest, CoalescingIteratorTest,
+    testing::Values(CoalescingRule::kChooseFromFirstCfContainingKey));
+
+TEST_P(CoalescingIteratorTest, InvalidArguments) {
   Options options = GetDefaultOptions();
   {
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
 
     // Invalid - No CF is provided
     std::unique_ptr<Iterator> iter_with_no_cf =
-        db_->NewMultiCfIterator(ReadOptions(), {});
+        db_->NewCoalescingIterator(ReadOptions(), {}, coalesing_options_);
     ASSERT_NOK(iter_with_no_cf->status());
     ASSERT_TRUE(iter_with_no_cf->status().IsInvalidArgument());
   }
 }
 
-TEST_F(MultiCfIteratorTest, SimpleValues) {
+// TODO - generate expected values and verify per coalesing_options_
+TEST_P(CoalescingIteratorTest, SimpleValues) {
   Options options = GetDefaultOptions();
   {
     // Case 1: Unique key per CF
@@ -109,19 +103,21 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
     // Test for iteration over CF default->1->2->3
     std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
         handles_[0], handles_[1], handles_[2], handles_[3]};
-    verifyMultiCfIterator(cfhs_order_0_1_2_3, expected_keys, expected_values);
+    verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+                             expected_values);
 
     // Test for iteration over CF 3->1->default_cf->2
     std::vector<ColumnFamilyHandle*> cfhs_order_3_1_0_2 = {
         handles_[3], handles_[1], handles_[0], handles_[2]};
     // Iteration order and the return values should be the same since keys are
     // unique per CF
-    verifyMultiCfIterator(cfhs_order_3_1_0_2, expected_keys, expected_values);
+    verifyCoalescingIterator(cfhs_order_3_1_0_2, expected_keys,
+                             expected_values);
 
     // Verify Seek()
     {
-      std::unique_ptr<Iterator> iter =
-          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_0_1_2_3);
+      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
+          ReadOptions(), cfhs_order_0_1_2_3, coalesing_options_);
       iter->Seek("");
       ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
       iter->Seek("key_1");
@@ -135,8 +131,8 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
     }
     // Verify SeekForPrev()
     {
-      std::unique_ptr<Iterator> iter =
-          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_0_1_2_3);
+      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
+          ReadOptions(), cfhs_order_0_1_2_3, coalesing_options_);
       iter->SeekForPrev("");
       ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
       iter->SeekForPrev("key_1");
@@ -174,18 +170,20 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
         handles_[0], handles_[1], handles_[2], handles_[3]};
     std::vector<Slice> expected_values = {"key_1_cf_0_val", "key_2_cf_1_val",
                                           "key_3_cf_0_val"};
-    verifyMultiCfIterator(cfhs_order_0_1_2_3, expected_keys, expected_values);
+    verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+                             expected_values);
 
     // Test for iteration over CFs 3->2->default_cf->1
     std::vector<ColumnFamilyHandle*> cfhs_order_3_2_0_1 = {
         handles_[3], handles_[2], handles_[0], handles_[1]};
     expected_values = {"key_1_cf_3_val", "key_2_cf_2_val", "key_3_cf_3_val"};
-    verifyMultiCfIterator(cfhs_order_3_2_0_1, expected_keys, expected_values);
+    verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
+                             expected_values);
 
     // Verify Seek()
     {
-      std::unique_ptr<Iterator> iter =
-          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_3_2_0_1);
+      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
+          ReadOptions(), cfhs_order_3_2_0_1, coalesing_options_);
       iter->Seek("");
       ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
       iter->Seek("key_1");
@@ -199,8 +197,8 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
     }
     // Verify SeekForPrev()
     {
-      std::unique_ptr<Iterator> iter =
-          db_->NewMultiCfIterator(ReadOptions(), cfhs_order_3_2_0_1);
+      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
+          ReadOptions(), cfhs_order_3_2_0_1, coalesing_options_);
       iter->SeekForPrev("");
       ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
       iter->SeekForPrev("key_1");
@@ -215,13 +213,13 @@ TEST_F(MultiCfIteratorTest, SimpleValues) {
   }
 }
 
-TEST_F(MultiCfIteratorTest, EmptyCfs) {
+TEST_P(CoalescingIteratorTest, EmptyCfs) {
   Options options = GetDefaultOptions();
   {
     // Case 1: No keys in any of the CFs
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
     std::unique_ptr<Iterator> iter =
-        db_->NewMultiCfIterator(ReadOptions(), handles_);
+        db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
     iter->SeekToLast();
@@ -237,7 +235,7 @@ TEST_F(MultiCfIteratorTest, EmptyCfs) {
     // Case 2: A single key exists in only one of the CF. Rest CFs are empty.
     ASSERT_OK(Put(1, "key_1", "key_1_cf_1_val"));
     std::unique_ptr<Iterator> iter =
-        db_->NewMultiCfIterator(ReadOptions(), handles_);
+        db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_1_val");
     iter->Next();
@@ -253,7 +251,7 @@ TEST_F(MultiCfIteratorTest, EmptyCfs) {
     ASSERT_OK(Put(3, "key_1", "key_1_cf_3_val"));
     // handles_ are in the order of 0->1->2->3. We should expect value from cf_0
     std::unique_ptr<Iterator> iter =
-        db_->NewMultiCfIterator(ReadOptions(), handles_);
+        db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
     iter->Next();
@@ -265,7 +263,8 @@ TEST_F(MultiCfIteratorTest, EmptyCfs) {
   }
 }
 
-TEST_F(MultiCfIteratorTest, WideColumns) {
+// TODO - generate expected values and verify per coalesing_options_
+TEST_P(CoalescingIteratorTest, WideColumns) {
   // Set up the DB and Column Families
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
@@ -336,11 +335,11 @@ TEST_F(MultiCfIteratorTest, WideColumns) {
       {{"cf_1_col_name_1", "cf_1_col_val_1_key_2"}},
       {{"cf_1_col_name_1", "cf_1_col_val_1_key_3"}},
       {{"cf_0_col_name_1", "cf_0_col_val_1_key_4"}}};
-  verifyMultiCfIterator(cfhs_order_0_1_2_3, expected_keys, expected_values,
-                        expected_wide_columns);
+  verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys, expected_values,
+                           expected_wide_columns);
 }
 
-TEST_F(MultiCfIteratorTest, DifferentComparatorsInMultiCFs) {
+TEST_P(CoalescingIteratorTest, DifferentComparatorsInMultiCFs) {
   // This test creates two column families with two different comparators.
   // Attempting to create the MultiCFIterator should fail.
   Options options = GetDefaultOptions();
@@ -362,12 +361,12 @@ TEST_F(MultiCfIteratorTest, DifferentComparatorsInMultiCFs) {
   verifyExpectedKeys(handles_[1], {"key_3", "key_2", "key_1"});
 
   std::unique_ptr<Iterator> iter =
-      db_->NewMultiCfIterator(ReadOptions(), handles_);
+      db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
   ASSERT_NOK(iter->status());
   ASSERT_TRUE(iter->status().IsInvalidArgument());
 }
 
-TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
+TEST_P(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
   // This test creates two column families with the same custom test
   // comparators (but instantiated independently). Attempting to create the
   // MultiCFIterator should not fail.
@@ -415,7 +414,7 @@ TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
                                         "value_1_4", "value_1_5", "value_1_6"};
   int i = 0;
   std::unique_ptr<Iterator> iter =
-      db_->NewMultiCfIterator(ReadOptions(), handles_);
+      db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ASSERT_EQ(expected_keys[i], iter->key());
     ASSERT_EQ(expected_values[i], iter->value());
@@ -424,7 +423,40 @@ TEST_F(MultiCfIteratorTest, CustomComparatorsInMultiCFs) {
   ASSERT_OK(iter->status());
 }
 
-TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
+class AttributeGroupIteratorTest : public DBTestBase {
+ public:
+  AttributeGroupIteratorTest()
+      : DBTestBase("attribute_group_iterator_test", /*env_do_fsync=*/true) {}
+
+  // TODO - Verify AttributeGroup Iterator
+  void verifyAttributeGroupIterator(
+      const std::vector<ColumnFamilyHandle*>& cfhs,
+      const std::vector<Slice>& expected_keys,
+      const std::vector<AttributeGroups>& /*expected_attribute_groups*/) {
+    int i = 0;
+    std::unique_ptr<AttributeGroupIterator> iter =
+        db_->NewAttributeGroupIterator(ReadOptions(), cfhs);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(expected_keys[i], iter->key());
+      // TODO - uncomment this after implementing attribute_groups()
+      // ASSERT_EQ(expected_attribute_groups[i], iter->attribute_groups());
+      ++i;
+    }
+    ASSERT_EQ(expected_keys.size(), i);
+    ASSERT_OK(iter->status());
+
+    int rev_i = i - 1;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(expected_keys[rev_i], iter->key());
+      // TODO - uncomment this after implementing attribute_groups()
+      // ASSERT_EQ(expected_attribute_groups[rev_i], iter->attribute_groups());
+      rev_i--;
+    }
+    ASSERT_OK(iter->status());
+  }
+};
+
+TEST_F(AttributeGroupIteratorTest, IterateAttributeGroups) {
   // Set up the DB and Column Families
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
@@ -483,9 +515,8 @@ TEST_F(MultiCfIteratorTest, DISABLED_IterateAttributeGroups) {
   std::vector<AttributeGroups> expected_attribute_groups = {
       key_1_attribute_groups, key_2_attribute_groups, key_3_attribute_groups,
       key_4_attribute_groups};
-  verifyMultiCfIterator(
-      cfhs_order_0_1_2_3, expected_keys, std::nullopt /* expected_values */,
-      std::nullopt /* expected_wide_columns */, expected_attribute_groups);
+  verifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
+                               expected_attribute_groups);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -12,8 +12,9 @@ LIB_SOURCES =                                                   \
   cache/secondary_cache.cc                                      \
   cache/secondary_cache_adapter.cc                              \
   cache/sharded_cache.cc                                        \
-  cache/tiered_secondary_cache.cc				\
+  cache/tiered_secondary_cache.cc                               \
   db/arena_wrapped_db_iter.cc                                   \
+  db/attribute_group_iterator_impl.cc                           \
   db/blob/blob_contents.cc                                      \
   db/blob/blob_fetcher.cc                                       \
   db/blob/blob_file_addition.cc                                 \
@@ -30,6 +31,7 @@ LIB_SOURCES =                                                   \
   db/blob/prefetch_buffer_collection.cc                         \
   db/builder.cc                                                 \
   db/c.cc                                                       \
+  db/coalescing_iterator.cc                                     \
   db/column_family.cc                                           \
   db/compaction/compaction.cc                                   \
   db/compaction/compaction_iterator.cc                          \
@@ -76,7 +78,6 @@ LIB_SOURCES =                                                   \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
-  db/multi_cf_iterator.cc                                       \
   db/output_validator.cc                                        \
   db/periodic_task_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \

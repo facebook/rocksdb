@@ -10,8 +10,8 @@
 
 #include <cstddef>
 
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
