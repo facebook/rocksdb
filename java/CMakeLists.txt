@@ -100,9 +100,6 @@ set(JNI_NATIVE_SOURCES
         rocksjni/write_buffer_manager.cc
         rocksjni/writebatchhandlerjnicallback.cc
 )
-if(WIN32)
-    list(APPEND JNI_NATIVE_SOURCES rocksjni/rocksjni.def)
-endif (WIN32)
 
 set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
@@ -792,6 +789,29 @@ if(NOT MSVC)
   set_property(TARGET ${ROCKSDB_STATIC_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
+option(WITH_JNI_EXPORT_ROCKSDB "Export ROCKSDB namespace in rocksdbjni.dll (Only on Windows)" OFF)
+if(WITH_JNI_EXPORT_ROCKSDB)
+    find_program(
+            VC_DUMPBIN dumpbin
+            REQUIRED
+    )
+    set(ROCKSDBJNIDEF rocksdbjnidef)
+    set(ROCKSDBJNI_DEF_FILENAME rocksdbjni.def)
+
+    add_custom_target(${ROCKSDBJNIDEF}
+            COMMAND ${VC_DUMPBIN} /exports /OUT:dumpbin.raw $<TARGET_FILE:${ROCKSDB_SHARED_LIB}>
+            COMMAND powershell "${CMAKE_SOURCE_DIR}/build_tools/extract-exported-functions.ps1"
+                -InputFile ${CMAKE_CURRENT_BINARY_DIR}/dumpbin.raw
+                -OutputPath ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDBJNI_DEF_FILENAME}
+            DEPENDS ${ROCKSDB_SHARED_LIB}
+            BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDBJNI_DEF_FILENAME}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+            COMMENT "Generating ${ROCKSDBJNI_DEF_FILENAME}"
+            VERBATIM
+    )
+    list(APPEND JNI_NATIVE_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDBJNI_DEF_FILENAME})
+endif ()
+
 set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
 if(MINGW)
   # Build mingw only as staic library.
@@ -799,13 +819,13 @@ if(MINGW)
 else()
   add_library(${ROCKSDBJNI_STATIC_LIB} SHARED ${JNI_NATIVE_SOURCES})
 endif()
-add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
+add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers ${ROCKSDBJNIDEF})
 target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
 if(NOT MINGW)
   set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
-  add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers)
+  add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers ${ROCKSDBJNIDEF})
   target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
   set_target_properties(
