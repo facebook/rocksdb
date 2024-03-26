@@ -3767,7 +3767,7 @@ std::unique_ptr<AttributeGroupIterator> DBImpl::NewAttributeGroupIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
   if (column_families.size() == 0) {
-    return std::make_unique<EmptyAttributeGroupIterator>(
+    return NewAttributeGroupErrorIterator(
         Status::InvalidArgument("No Column Family was provided"));
   }
   const Comparator* first_comparator = column_families[0]->GetComparator();
@@ -3775,9 +3775,8 @@ std::unique_ptr<AttributeGroupIterator> DBImpl::NewAttributeGroupIterator(
     const Comparator* cf_comparator = column_families[i]->GetComparator();
     if (first_comparator != cf_comparator &&
         first_comparator->GetId().compare(cf_comparator->GetId()) != 0) {
-      return std::make_unique<EmptyAttributeGroupIterator>(
-          Status::InvalidArgument(
-              "Different comparators are being used across CFs"));
+      return NewAttributeGroupErrorIterator(Status::InvalidArgument(
+          "Different comparators are being used across CFs"));
     }
   }
   std::vector<Iterator*> child_iterators;
