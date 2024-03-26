@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <memory>
 #include <variant>
 
 #include "db/multi_cf_iterator_impl.h"
@@ -51,7 +52,6 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
   MultiCfIteratorImpl impl_;
 };
 
-namespace {
 class EmptyAttributeGroupIterator : public AttributeGroupIterator {
  public:
   explicit EmptyAttributeGroupIterator(const Status& s) : status_(s) {}
@@ -76,6 +76,9 @@ class EmptyAttributeGroupIterator : public AttributeGroupIterator {
   Status status_;
 };
 
-}  // namespace
+inline std::unique_ptr<AttributeGroupIterator> NewAttributeGroupErrorIterator(
+    const Status& status) {
+  return std::make_unique<EmptyAttributeGroupIterator>(status);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
