@@ -168,9 +168,14 @@ Status DBImplSecondary::MaybeInitLogReader(
     }
 
     // Create the log reader.
+    bool retry_corrupt_read = false;
+    if (CheckFSFeatureSupport(fs_.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      retry_corrupt_read = true;
+    }
     LogReaderContainer* log_reader_container = new LogReaderContainer(
         env_, immutable_db_options_.info_log, std::move(fname),
-        std::move(file_reader), log_number);
+        std::move(file_reader), log_number, retry_corrupt_read);
     log_readers_.insert(std::make_pair(
         log_number, std::unique_ptr<LogReaderContainer>(log_reader_container)));
   }

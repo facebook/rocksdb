@@ -3,12 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/transaction_log_impl.h"
 
 #include <cinttypes>
 
 #include "db/write_batch_internal.h"
+#include "file/file_util.h"
 #include "file/sequence_file_reader.h"
 #include "util/defer.h"
 
@@ -288,9 +288,15 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* log_file) {
     return s;
   }
   assert(file);
+  bool retry_corrupt_read = false;
+  if (CheckFSFeatureSupport(options_->fs.get(),
+                            FSSupportedOps::kVerifyAndReconstructRead)) {
+    retry_corrupt_read = true;
+  }
   current_log_reader_.reset(
       new log::Reader(options_->info_log, std::move(file), &reporter_,
-                      read_options_.verify_checksums_, log_file->LogNumber()));
+                      read_options_.verify_checksums_, log_file->LogNumber(),
+                      retry_corrupt_read));
   return Status::OK();
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -1114,6 +1114,7 @@ class Version {
   uint64_t version_number_;
   std::shared_ptr<IOTracer> io_tracer_;
   bool use_async_io_;
+  bool retry_corrupt_read_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           MutableCFOptions mutable_cf_options,
@@ -1707,6 +1708,7 @@ class VersionSet {
 
   const bool read_only_;
   bool closed_;
+  bool retry_corrupt_read_;
 };
 
 // ReactiveVersionSet represents a collection of versions of the column

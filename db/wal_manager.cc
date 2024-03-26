@@ -488,8 +488,13 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   reporter.fname = fname.c_str();
   reporter.status = &status;
   reporter.ignore_error = !db_options_.paranoid_checks;
+  bool retry_corrupt_read = false;
+  if (CheckFSFeatureSupport(db_options_.fs.get(),
+                            FSSupportedOps::kVerifyAndReconstructRead)) {
+    retry_corrupt_read = true;
+  }
   log::Reader reader(db_options_.info_log, std::move(file_reader), &reporter,
-                     true /*checksum*/, number);
+                     true /*checksum*/, number, retry_corrupt_read);
   std::string scratch;
   Slice record;
 

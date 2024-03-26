@@ -383,8 +383,13 @@ class Repairer {
     // corruptions cause entire commits to be skipped instead of
     // propagating bad information (like overly large sequence
     // numbers).
+    bool retry_corrupt_read = false;
+    if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      retry_corrupt_read = true;
+    }
     log::Reader reader(db_options_.info_log, std::move(lfile_reader), &reporter,
-                       true /*enable checksum*/, log);
+                       true /*enable checksum*/, log, retry_corrupt_read);
 
     // Initialize per-column family memtables
     for (auto* cfd : *vset_.GetColumnFamilySet()) {

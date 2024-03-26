@@ -16,6 +16,7 @@
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -59,7 +60,7 @@ class Reader {
   // If "checksum" is true, verify checksums if available.
   Reader(std::shared_ptr<Logger> info_log,
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t log_num);
+         bool checksum, uint64_t log_num, bool retry_corrupt_read);
   // No copying allowed
   Reader(const Reader&) = delete;
   void operator=(const Reader&) = delete;
@@ -170,6 +171,8 @@ class Reader {
   // is only for WAL logs.
   UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
 
+  bool retry_corrupt_read_;
+
   // Extend record types with the following special values
   enum {
     kEof = kMaxRecordType + 1,
@@ -216,8 +219,10 @@ class FragmentBufferedReader : public Reader {
  public:
   FragmentBufferedReader(std::shared_ptr<Logger> info_log,
                          std::unique_ptr<SequentialFileReader>&& _file,
-                         Reporter* reporter, bool checksum, uint64_t log_num)
-      : Reader(info_log, std::move(_file), reporter, checksum, log_num),
+                         Reporter* reporter, bool checksum, uint64_t log_num,
+                         bool retry_corrupt_read)
+      : Reader(info_log, std::move(_file), reporter, checksum, log_num,
+               retry_corrupt_read),
         fragments_(),
         in_fragmented_record_(false) {}
   ~FragmentBufferedReader() override {}

@@ -600,8 +600,9 @@ TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
         }
       }
     } reporter(&log_read_s);
-    std::unique_ptr<log::Reader> log_reader(new log::Reader(
-        nullptr, std::move(freader), &reporter, /*checksum=*/true, log_number));
+    std::unique_ptr<log::Reader> log_reader(
+        new log::Reader(nullptr, std::move(freader), &reporter,
+                        /*checksum=*/true, log_number, false));
     Slice record;
     std::string data;
     size_t count = 0;
