@@ -353,7 +353,7 @@ class DBImpl : public DB {
 
   // UNDER CONSTRUCTION - DO NOT USE
   // Return a cross-column-family iterator from a consistent database state.
-  std::unique_ptr<Iterator> NewMultiCfIterator(
+  std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const CoalescingOptions& coalescing_options) override;

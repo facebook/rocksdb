@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 class MultiCfIteratorImpl {
  public:
   MultiCfIteratorImpl(const Comparator* comparator,
-                  const std::vector<ColumnFamilyHandle*>& column_families,
-                  const std::vector<Iterator*>& child_iterators)
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      const std::vector<Iterator*>& child_iterators)
       : comparator_(comparator),
         heap_(MultiCfMinHeap(
             MultiCfHeapItemComparator<std::greater<int>>(comparator_))) {
@@ -77,7 +77,7 @@ class MultiCfIteratorImpl {
   void SeekForPrev(const Slice& target) {
     auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() { InitMaxHeap(); });
     SeekCommon(max_heap,
-              [&target](Iterator* iter) { iter->SeekForPrev(target); });
+               [&target](Iterator* iter) { iter->SeekForPrev(target); });
   }
 
   void Next() {
@@ -149,7 +149,6 @@ class MultiCfIteratorImpl {
     }
   }
 
-
   template <typename HeapType, typename InitFunc>
   HeapType& GetHeap(InitFunc initFunc) {
     if (!std::holds_alternative<HeapType>(heap_)) {
@@ -167,59 +166,56 @@ class MultiCfIteratorImpl {
         MultiCfHeapItemComparator<std::less<int>>(comparator_));
   }
 
-template <typename BinaryHeap, typename ChildSeekFuncType>
-void SeekCommon(BinaryHeap& heap,
-                                 ChildSeekFuncType child_seek_func) {
-  heap.clear();
-  int i = 0;
-  for (auto& cfh_iter_pair : cfh_iter_pairs_) {
-    auto& cfh = cfh_iter_pair.first;
-    auto& iter = cfh_iter_pair.second;
-    child_seek_func(iter.get());
-    if (iter->Valid()) {
-      assert(iter->status().ok());
-      heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
-    } else {
-      considerStatus(iter->status());
-    }
-    ++i;
-  }
-}
-
-template <typename BinaryHeap, typename AdvanceFuncType>
-void AdvanceIterator(BinaryHeap& heap,
-                                      AdvanceFuncType advance_func) {
-  // 1. Keep the top iterator (by popping it from the heap)
-  // 2. Make sure all others have iterated past the top iterator key slice
-  // 3. Advance the top iterator, and add it back to the heap if valid
-  auto top = heap.top();
-  heap.pop();
-  if (!heap.empty()) {
-    auto* current = heap.top().iterator;
-    while (current->Valid() &&
-           comparator_->Compare(top.iterator->key(), current->key()) == 0) {
-      assert(current->status().ok());
-      advance_func(current);
-      if (current->Valid()) {
-        heap.replace_top(heap.top());
+  template <typename BinaryHeap, typename ChildSeekFuncType>
+  void SeekCommon(BinaryHeap& heap, ChildSeekFuncType child_seek_func) {
+    heap.clear();
+    int i = 0;
+    for (auto& cfh_iter_pair : cfh_iter_pairs_) {
+      auto& cfh = cfh_iter_pair.first;
+      auto& iter = cfh_iter_pair.second;
+      child_seek_func(iter.get());
+      if (iter->Valid()) {
+        assert(iter->status().ok());
+        heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
       } else {
-        considerStatus(current->status());
-        heap.pop();
+        considerStatus(iter->status());
       }
-      if (!heap.empty()) {
-        current = heap.top().iterator;
-      }
+      ++i;
     }
   }
-  advance_func(top.iterator);
-  if (top.iterator->Valid()) {
-    assert(top.iterator->status().ok());
-    heap.push(top);
-  } else {
-    considerStatus(top.iterator->status());
-  }
-}
 
+  template <typename BinaryHeap, typename AdvanceFuncType>
+  void AdvanceIterator(BinaryHeap& heap, AdvanceFuncType advance_func) {
+    // 1. Keep the top iterator (by popping it from the heap)
+    // 2. Make sure all others have iterated past the top iterator key slice
+    // 3. Advance the top iterator, and add it back to the heap if valid
+    auto top = heap.top();
+    heap.pop();
+    if (!heap.empty()) {
+      auto* current = heap.top().iterator;
+      while (current->Valid() &&
+             comparator_->Compare(top.iterator->key(), current->key()) == 0) {
+        assert(current->status().ok());
+        advance_func(current);
+        if (current->Valid()) {
+          heap.replace_top(heap.top());
+        } else {
+          considerStatus(current->status());
+          heap.pop();
+        }
+        if (!heap.empty()) {
+          current = heap.top().iterator;
+        }
+      }
+    }
+    advance_func(top.iterator);
+    if (top.iterator->Valid()) {
+      assert(top.iterator->status().ok());
+      heap.push(top);
+    } else {
+      considerStatus(top.iterator->status());
+    }
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

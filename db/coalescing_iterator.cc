@@ -7,32 +7,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-bool CoalescingIterator::Valid() const {
-    return impl_.Valid();
-}
-void CoalescingIterator::SeekToFirst() {
-  impl_.SeekToFirst();
-}
-void CoalescingIterator::SeekToLast() {
-  impl_.SeekToLast();
-}
-void CoalescingIterator::Seek(const Slice& target) {
-  impl_.Seek(target);
-}
+bool CoalescingIterator::Valid() const { return impl_.Valid(); }
+void CoalescingIterator::SeekToFirst() { impl_.SeekToFirst(); }
+void CoalescingIterator::SeekToLast() { impl_.SeekToLast(); }
+void CoalescingIterator::Seek(const Slice& target) { impl_.Seek(target); }
 void CoalescingIterator::SeekForPrev(const Slice& target) {
   impl_.SeekForPrev(target);
 }
-void CoalescingIterator::Next() {
-  impl_.Next();
-}
-void CoalescingIterator::Prev() {
-  impl_.Prev();
-}
-Slice CoalescingIterator::key() const {
-  return impl_.key();
-}
-Status CoalescingIterator::status() const {
-  return impl_.status();
-}
+void CoalescingIterator::Next() { impl_.Next(); }
+void CoalescingIterator::Prev() { impl_.Prev(); }
+Slice CoalescingIterator::key() const { return impl_.key(); }
+Status CoalescingIterator::status() const { return impl_.status(); }
 
 }  // namespace ROCKSDB_NAMESPACE
