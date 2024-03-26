@@ -50,6 +50,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -352,11 +353,15 @@ class DBImpl : public DB {
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
   // UNDER CONSTRUCTION - DO NOT USE
-  // Return a cross-column-family iterator from a consistent database state.
   std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const CoalescingOptions& coalescing_options) override;
+
+  // UNDER CONSTRUCTION - DO NOT USE
+  std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
 
   // Create a timestamped snapshot. This snapshot can be shared by multiple
   // readers. If any of them uses it for write conflict checking, then

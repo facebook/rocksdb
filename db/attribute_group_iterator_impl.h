@@ -8,7 +8,7 @@
 #include <variant>
 
 #include "db/multi_cf_iterator_impl.h"
-#include "multi_cf_iterator_impl.h"
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -17,21 +17,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// UNDER CONSTRUCTION - DO NOT USE
-// A cross-column-family iterator that collects and returns attribute groups for
-// each key in order provided by comparator
-class AttributeGroupIterator : public IteratorBase {
+class AttributeGroupIteratorImpl : public AttributeGroupIterator {
  public:
-  AttributeGroupIterator(
+  AttributeGroupIteratorImpl(
       const Comparator* comparator,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const std::vector<Iterator*>& child_iterators)
       : impl_(comparator, column_families, child_iterators) {}
-  ~AttributeGroupIterator() override {}
+  ~AttributeGroupIteratorImpl() override {}
 
   // No copy allowed
-  AttributeGroupIterator(const AttributeGroupIterator&) = delete;
-  AttributeGroupIterator& operator=(const AttributeGroupIterator&) = delete;
+  AttributeGroupIteratorImpl(const AttributeGroupIteratorImpl&) = delete;
+  AttributeGroupIteratorImpl& operator=(const AttributeGroupIteratorImpl&) =
+      delete;
 
   bool Valid() const override;
   void SeekToFirst() override;
@@ -43,7 +41,7 @@ class AttributeGroupIterator : public IteratorBase {
   Slice key() const override;
   Status status() const override;
 
-  AttributeGroups attribute_groups() const {
+  AttributeGroups attribute_groups() const override {
     // TODO - Implement
     assert(false);
     return kNoAttributeGroups;
@@ -52,5 +50,32 @@ class AttributeGroupIterator : public IteratorBase {
  private:
   MultiCfIteratorImpl impl_;
 };
+
+namespace {
+class EmptyAttributeGroupIterator : public AttributeGroupIterator {
+ public:
+  explicit EmptyAttributeGroupIterator(const Status& s) : status_(s) {}
+  bool Valid() const override { return false; }
+  void Seek(const Slice& /*target*/) override {}
+  void SeekForPrev(const Slice& /*target*/) override {}
+  void SeekToFirst() override {}
+  void SeekToLast() override {}
+  void Next() override { assert(false); }
+  void Prev() override { assert(false); }
+  Slice key() const override {
+    assert(false);
+    return Slice();
+  }
+  Status status() const override { return status_; }
+
+  AttributeGroups attribute_groups() const override {
+    return kNoAttributeGroups;
+  }
+
+ private:
+  Status status_;
+};
+
+}  // namespace
 
 }  // namespace ROCKSDB_NAMESPACE

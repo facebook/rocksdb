@@ -17,7 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "options.h"
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
@@ -981,6 +981,13 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const CoalescingOptions& coalescing_options) = 0;
+
+  // UNDER CONSTRUCTION - DO NOT USE
+  // A cross-column-family iterator that collects and returns attribute groups
+  // for each key in order provided by comparator
+  virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB

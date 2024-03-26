@@ -268,6 +268,13 @@ class StackableDB : public DB {
                                       coalescing_options);
   }
 
+  using DB::NewAttributeGroupIterator;
+  std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override {
+    return db_->NewAttributeGroupIterator(options, column_families);
+  }
+
   const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
   void ReleaseSnapshot(const Snapshot* snapshot) override {
