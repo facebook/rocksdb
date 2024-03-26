@@ -6,7 +6,7 @@
 #include <memory>
 
 #include "db/db_test_util.h"
-#include "rocksdb/wide_columns.h"
+#include "rocksdb/attribute_groups.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -430,12 +430,33 @@ class AttributeGroupIteratorTest : public DBTestBase {
 
   // TODO - Verify AttributeGroup Iterator
   void verifyAttributeGroupIterator(
-      const std::vector<ColumnFamilyHandle*>& /*cfhs*/,
-      const std::vector<Slice>& /*expected_keys*/,
-      const std::vector<AttributeGroups>& /*expected_attribute_groups*/) {}
+      const std::vector<ColumnFamilyHandle*>& cfhs,
+      const std::vector<Slice>& expected_keys,
+      const std::vector<AttributeGroups>& /*expected_attribute_groups*/) {
+    int i = 0;
+    std::unique_ptr<AttributeGroupIterator> iter =
+        db_->NewAttributeGroupIterator(ReadOptions(), cfhs);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(expected_keys[i], iter->key());
+      // TODO - uncomment this after implementing attribute_groups()
+      // ASSERT_EQ(expected_attribute_groups[i], iter->attribute_groups());
+      ++i;
+    }
+    ASSERT_EQ(expected_keys.size(), i);
+    ASSERT_OK(iter->status());
+
+    int rev_i = i - 1;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(expected_keys[rev_i], iter->key());
+      // TODO - uncomment this after implementing attribute_groups()
+      // ASSERT_EQ(expected_attribute_groups[rev_i], iter->attribute_groups());
+      rev_i--;
+    }
+    ASSERT_OK(iter->status());
+  }
 };
 
-TEST_F(AttributeGroupIteratorTest, DISABLED_IterateAttributeGroups) {
+TEST_F(AttributeGroupIteratorTest, IterateAttributeGroups) {
   // Set up the DB and Column Families
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
