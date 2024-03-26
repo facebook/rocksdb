@@ -8,10 +8,12 @@
 
 #include <cinttypes>
 
+#include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/utilities/types_util.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -576,6 +578,195 @@ TEST_F(SstFileReaderTest, VerifyNumEntriesCorruption) {
       << " entries when excluding range deletions,"
       << " but scanning the table returned " << num_keys << " entries";
   ASSERT_TRUE(std::strstr(oss.str().c_str(), s.getState()));
+}
+
+class SstFileReaderTableIteratorTest : public DBTestBase {
+ public:
+  SstFileReaderTableIteratorTest()
+      : DBTestBase("sst_file_reader_table_iterator_test",
+                   /*env_do_fsync=*/false) {}
+
+  void VerifyTableEntry(Iterator* iter, const std::string& user_key,
+                        ValueType value_type,
+                        std::optional<std::string> expected_value,
+                        bool backward_iteration = false) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(iter->status().ok());
+    ParsedInternalKey pikey;
+    ASSERT_OK(ParseInternalKey(iter->key(), &pikey, /*log_err_key=*/false));
+    ASSERT_EQ(pikey.user_key, user_key);
+    ASSERT_EQ(pikey.type, value_type);
+    if (expected_value.has_value()) {
+      ASSERT_EQ(iter->value(), expected_value.value());
+    }
+    if (!backward_iteration) {
+      iter->Next();
+    } else {
+      iter->Prev();
+    }
+  }
+};
+
+TEST_F(SstFileReaderTableIteratorTest, Basic) {
+  Options options = CurrentOptions();
+  const Comparator* ucmp = BytewiseComparator();
+  options.comparator = ucmp;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create a L0 sst file with 4 entries, two for each user key.
+  // The file should have these entries in ascending internal key order:
+  // 'bar, seq: 4, type: kTypeValue => val2'
+  // 'bar, seq: 3, type: kTypeDeletion'
+  // 'foo, seq: 2, type: kTypeDeletion'
+  // 'foo, seq: 1, type: kTypeValue => val1'
+  ASSERT_OK(Put("foo", "val1"));
+  const Snapshot* snapshot1 = dbfull()->GetSnapshot();
+  ASSERT_OK(Delete("foo"));
+  ASSERT_OK(Delete("bar"));
+  const Snapshot* snapshot2 = dbfull()->GetSnapshot();
+  ASSERT_OK(Put("bar", "val2"));
+
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_TRUE(files.size() == 1);
+  ASSERT_TRUE(files[0].level == 0);
+  std::string file_name = files[0].directory + "/" + files[0].relative_filename;
+
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(file_name));
+  ASSERT_OK(reader.VerifyChecksum());
+
+  // When iterating the file as a DB iterator, only one data entry for "bar" is
+  // visible.
+  std::unique_ptr<Iterator> db_iter(reader.NewIterator(ReadOptions()));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key(), "bar");
+  ASSERT_EQ(db_iter->value(), "val2");
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+  db_iter.reset();
+
+  // When iterating the file with a raw table iterator, all the data entries are
+  // surfaced in ascending internal key order.
+  std::unique_ptr<Iterator> table_iter = reader.NewTableIterator();
+
+  table_iter->SeekToFirst();
+  VerifyTableEntry(table_iter.get(), "bar", kTypeValue, "val2");
+  VerifyTableEntry(table_iter.get(), "bar", kTypeDeletion, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeDeletion, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeValue, "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  std::string seek_key_buf;
+  ASSERT_OK(GetInternalKeyForSeek("foo", ucmp, &seek_key_buf));
+  Slice seek_target = seek_key_buf;
+  table_iter->Seek(seek_target);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeDeletion, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeValue, "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  ASSERT_OK(GetInternalKeyForSeekForPrev("bar", ucmp, &seek_key_buf));
+  Slice seek_for_prev_target = seek_key_buf;
+  table_iter->SeekForPrev(seek_for_prev_target);
+  VerifyTableEntry(table_iter.get(), "bar", kTypeDeletion, std::nullopt,
+                   /*backward_iteration=*/true);
+  VerifyTableEntry(table_iter.get(), "bar", kTypeValue, "val2",
+                   /*backward_iteration=*/true);
+  ASSERT_FALSE(table_iter->Valid());
+
+  dbfull()->ReleaseSnapshot(snapshot1);
+  dbfull()->ReleaseSnapshot(snapshot2);
+  Close();
+}
+
+TEST_F(SstFileReaderTableIteratorTest, UserDefinedTimestampsEnabled) {
+  Options options = CurrentOptions();
+  const Comparator* ucmp = test::BytewiseComparatorWithU64TsWrapper();
+  options.comparator = ucmp;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create a L0 sst file with 4 entries, two for each user key.
+  // The file should have these entries in ascending internal key order:
+  // 'bar, ts=3, seq: 4, type: kTypeValue => val2'
+  // 'bar, ts=2, seq: 3, type: kTypeDeletionWithTimestamp'
+  // 'foo, ts=4, seq: 2, type: kTypeDeletionWithTimestamp'
+  // 'foo, ts=3, seq: 1, type: kTypeValue => val1'
+  WriteOptions wopt;
+  ColumnFamilyHandle* cfd = db_->DefaultColumnFamily();
+  ASSERT_OK(db_->Put(wopt, cfd, "foo", EncodeAsUint64(3), "val1"));
+  ASSERT_OK(db_->Delete(wopt, cfd, "foo", EncodeAsUint64(4)));
+  ASSERT_OK(db_->Delete(wopt, cfd, "bar", EncodeAsUint64(2)));
+  ASSERT_OK(db_->Put(wopt, cfd, "bar", EncodeAsUint64(3), "val2"));
+
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_TRUE(files.size() == 1);
+  ASSERT_TRUE(files[0].level == 0);
+  std::string file_name = files[0].directory + "/" + files[0].relative_filename;
+
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(file_name));
+  ASSERT_OK(reader.VerifyChecksum());
+
+  // When iterating the file as a DB iterator, only one data entry for "bar" is
+  // visible.
+  ReadOptions ropts;
+  std::string read_ts = EncodeAsUint64(4);
+  Slice read_ts_slice = read_ts;
+  ropts.timestamp = &read_ts_slice;
+  std::unique_ptr<Iterator> db_iter(reader.NewIterator(ropts));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key(), "bar");
+  ASSERT_EQ(db_iter->value(), "val2");
+  ASSERT_EQ(db_iter->timestamp(), EncodeAsUint64(3));
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+  db_iter.reset();
+
+  std::unique_ptr<Iterator> table_iter = reader.NewTableIterator();
+
+  table_iter->SeekToFirst();
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(3), kTypeValue,
+                   "val2");
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(2),
+                   kTypeDeletionWithTimestamp, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(4),
+                   kTypeDeletionWithTimestamp, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(3), kTypeValue,
+                   "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  std::string seek_key_buf;
+  ASSERT_OK(GetInternalKeyForSeek("foo", ucmp, &seek_key_buf));
+  Slice seek_target = seek_key_buf;
+  table_iter->Seek(seek_target);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(4),
+                   kTypeDeletionWithTimestamp, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(3), kTypeValue,
+                   "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  ASSERT_OK(GetInternalKeyForSeekForPrev("bar", ucmp, &seek_key_buf));
+  Slice seek_for_prev_target = seek_key_buf;
+  table_iter->SeekForPrev(seek_for_prev_target);
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(2),
+                   kTypeDeletionWithTimestamp, std::nullopt,
+                   /*backward_iteration=*/true);
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(3), kTypeValue,
+                   "val2", /*backward_iteration=*/true);
+  ASSERT_FALSE(table_iter->Valid());
+
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

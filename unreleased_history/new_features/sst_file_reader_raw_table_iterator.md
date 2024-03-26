@@ -1,0 +1,1 @@
+*Adds a `SstFileReader::NewTableIterator` API to support programmatically read a SST file as a raw table file. 
