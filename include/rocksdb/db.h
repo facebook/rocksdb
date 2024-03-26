@@ -977,7 +977,7 @@ class DB {
   // If a key exists in more than one column family, it chooses value/columns
   // based on the coalescing rule provided by CoalescingOptions. See
   // CoalescingOptions in options.h for details
-  virtual std::unique_ptr<Iterator> NewMultiCfIterator(
+  virtual std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const CoalescingOptions& coalescing_options) = 0;

@@ -7,13 +7,13 @@
 
 #include <variant>
 
+#include "db/multi_cf_iterator_impl.h"
 #include "multi_cf_iterator_impl.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "util/heap.h"
 #include "util/overload.h"
-#include "db/multi_cf_iterator_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -22,9 +22,10 @@ namespace ROCKSDB_NAMESPACE {
 // each key in order provided by comparator
 class AttributeGroupIterator : public IteratorBase {
  public:
-  AttributeGroupIterator(const Comparator* comparator,
-                  const std::vector<ColumnFamilyHandle*>& column_families,
-                  const std::vector<Iterator*>& child_iterators)
+  AttributeGroupIterator(
+      const Comparator* comparator,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Iterator*>& child_iterators)
       : impl_(comparator, column_families, child_iterators) {}
   ~AttributeGroupIterator() override {}
 

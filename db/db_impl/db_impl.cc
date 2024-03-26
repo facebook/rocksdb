@@ -3744,7 +3744,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   return db_iter;
 }
 
-std::unique_ptr<Iterator> DBImpl::NewMultiCfIterator(
+std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     const CoalescingOptions& coalesing_options) {
