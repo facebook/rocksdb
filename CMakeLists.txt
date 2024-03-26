@@ -653,7 +653,7 @@ set(SOURCES
         cache/sharded_cache.cc
         cache/tiered_secondary_cache.cc
         db/arena_wrapped_db_iter.cc
-        db/attribute_group_iterator.cc
+        db/attribute_group_iterator_impl.cc
         db/blob/blob_contents.cc
         db/blob/blob_fetcher.cc
         db/blob/blob_file_addition.cc

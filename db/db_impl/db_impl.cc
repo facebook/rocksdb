@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/attribute_group_iterator_impl.h"
 #include "db/builder.h"
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
@@ -3760,6 +3761,32 @@ std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
         std::move(child_iterators));
   }
   return std::unique_ptr<Iterator>(NewErrorIterator(s));
+}
+
+std::unique_ptr<AttributeGroupIterator> DBImpl::NewAttributeGroupIterator(
+    const ReadOptions& _read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  if (column_families.size() == 0) {
+    return std::make_unique<EmptyAttributeGroupIterator>(
+        Status::InvalidArgument("No Column Family was provided"));
+  }
+  const Comparator* first_comparator = column_families[0]->GetComparator();
+  for (size_t i = 1; i < column_families.size(); ++i) {
+    const Comparator* cf_comparator = column_families[i]->GetComparator();
+    if (first_comparator != cf_comparator &&
+        first_comparator->GetId().compare(cf_comparator->GetId()) != 0) {
+      return std::make_unique<EmptyAttributeGroupIterator>(
+          Status::InvalidArgument(
+              "Different comparators are being used across CFs"));
+    }
+  }
+  std::vector<Iterator*> child_iterators;
+  Status s = NewIterators(_read_options, column_families, &child_iterators);
+  if (s.ok()) {
+    return std::make_unique<AttributeGroupIteratorImpl>(
+        first_comparator, column_families, std::move(child_iterators));
+  }
+  return std::make_unique<EmptyAttributeGroupIterator>(s);
 }
 
 Status DBImpl::NewIterators(

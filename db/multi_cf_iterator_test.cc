@@ -5,8 +5,8 @@
 
 #include <memory>
 
-#include "attribute_group_iterator.h"
 #include "db/db_test_util.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
