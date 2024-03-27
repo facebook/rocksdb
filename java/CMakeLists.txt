@@ -791,10 +791,19 @@ endif()
 
 option(WITH_JNI_EXPORT_ROCKSDB "Export ROCKSDB namespace in rocksdbjni.dll (Only on Windows)" OFF)
 if(WITH_JNI_EXPORT_ROCKSDB)
+    message("CMAKE_CXX_COMPILER : ${CMAKE_CXX_COMPILER}")
+
+    set(VC_DUMPBIN_HINT ${CMAKE_CXX_COMPILER})
+    cmake_path(REMOVE_FILENAME VC_DUMPBIN_HINT)
+
+    message("VC_DUMPBIN_HINT : ${VC_DUMPBIN_HINT}")
     find_program(
             VC_DUMPBIN dumpbin
+            HINTS ${VC_DUMPBIN_HINT}
             REQUIRED
     )
+    message("VC_DUMPBIN : ${VC_DUMPBIN}")
+
     set(ROCKSDBJNIDEF rocksdbjnidef)
     set(ROCKSDBJNI_DEF_FILENAME rocksdbjni.def)
 
