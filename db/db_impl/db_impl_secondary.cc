@@ -119,10 +119,10 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   if (!log_readers_.empty()) {
     log_number_min = log_readers_.begin()->first;
   }
-  for (size_t i = 0; i < filenames.size(); i++) {
+  for (const auto& fname : filenames) {
     uint64_t number;
     FileType type;
-    if (ParseFileName(filenames[i], &number, &type) && type == kWalFile &&
+    if (ParseFileName(fname, &number, &type) && type == kWalFile &&
         number >= log_number_min) {
       logs->push_back(number);
     }
@@ -241,8 +241,7 @@ Status DBImplSecondary::RecoverLogFiles(
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
       if (status.ok()) {
         for (const auto id : column_family_ids) {
-          ColumnFamilyData* cfd =
-              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(id);
           if (cfd == nullptr) {
             continue;
           }
@@ -297,16 +296,14 @@ Status DBImplSecondary::RecoverLogFiles(
       // needed for secondary instances
       if (status.ok()) {
         for (const auto id : column_family_ids) {
-          ColumnFamilyData* cfd =
-              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(id);
           if (cfd == nullptr) {
             continue;
           }
-          std::unordered_map<ColumnFamilyData*, uint64_t>::iterator iter =
-              cfd_to_current_log_.find(cfd);
-          if (iter == cfd_to_current_log_.end()) {
-            cfd_to_current_log_.insert({cfd, log_number});
-          } else if (log_number > iter->second) {
+          decltype(cfd_to_current_log_.find(cfd)) iter;
+          bool ok = false;
+          std::tie(iter, ok) = cfd_to_current_log_.insert({cfd, log_number});
+          if (!ok && log_number > iter->second) {
             iter->second = log_number;
           }
         }
