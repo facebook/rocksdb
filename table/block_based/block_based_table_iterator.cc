@@ -196,7 +196,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 
   // Call Seek() rather than SeekForPrev() in the index block, because the
   // target data block will likely to contain the position for `target`, the
-  // same as Seek(), rather than than before.
+  // same as Seek(), rather than before.
   // For example, if we have three data blocks, each containing two keys:
   //   [2, 4]  [6, 8] [10, 12]
   //  (the keys in the index block would be [4, 8, 12])

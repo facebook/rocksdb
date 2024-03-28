@@ -84,7 +84,7 @@ class concurrent_tree {
     //         to ones performed on an acquired keyrange over -inf, +inf.
     // rationale: this provides the user with a serialization point for
     // descending
-    //            or modifying the the tree. it also proives a convenient way of
+    //            or modifying the tree. it also proives a convenient way of
     //            doing serializable operations on the tree.
     // There are two valid sequences of calls:
     //  - prepare, acquire, [operations], release
