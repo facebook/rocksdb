@@ -729,7 +729,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         }
 
         // Call the *saver function on each entry/block until it returns false
-        for (; biter->Valid(); biter->Next()) {
+        for (; biter->status().ok() && biter->Valid(); biter->Next()) {
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
               biter->key(), &parsed_key, false /* log_err_key */);  // TODO
@@ -754,9 +754,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             done = true;
             break;
           }
-          if (s.ok()) {
-            s = biter->status();
-          }
         }
         // Write the block cache access.
         // XXX: There appear to be 'break' statements above that bypass this
@@ -779,8 +776,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
               *lookup_data_block_context, lookup_data_block_context->block_key,
               referenced_key, does_referenced_key_exist, referenced_data_size);
         }
-        s = biter->status();
-        if (done) {
+        if (s.ok()) {
+          s = biter->status();
+        }
+        if (done || !s.ok()) {
           // Avoid the extra Next which is expensive in two-level indexes
           break;
         }
