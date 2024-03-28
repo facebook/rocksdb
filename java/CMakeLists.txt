@@ -284,6 +284,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WalProcessingOption.java
   src/main/java/org/rocksdb/WALRecoveryMode.java
   src/main/java/org/rocksdb/WBWIRocksIterator.java
+  src/main/java/org/rocksdb/WideColumn.java
   src/main/java/org/rocksdb/WriteBatch.java
   src/main/java/org/rocksdb/WriteBatchInterface.java
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
@@ -417,6 +418,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/MemoryUtilTest.java
   src/test/java/org/rocksdb/TableFilterTest.java
   src/test/java/org/rocksdb/TtlDBTest.java
+  src/test/java/org/rocksdb/WideColumnTest.java
   src/test/java/org/rocksdb/util/StdErrLoggerTest.java
 )
 
@@ -516,6 +518,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.MemoryUtilTest
   org.rocksdb.TableFilterTest
   org.rocksdb.TtlDBTest
+  org.rocksdb.WideColumnTest
   org.rocksdb.util.StdErrLoggerTest
 )
 
