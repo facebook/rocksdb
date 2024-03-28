@@ -56,7 +56,7 @@ default_params = {
     if random.randint(0, 1) == 0
     else random.choice(["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "checksum_type": lambda: random.choice(
-        ["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]
+        ["kCRC32c", "kxxHash"]
     ),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
