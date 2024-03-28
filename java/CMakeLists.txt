@@ -46,6 +46,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/hyper_clock_cache.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
+        rocksjni/jni_merge_operator_v2.cc
         rocksjni/jni_multiget_helpers.cc
         rocksjni/jnicallback.cc
         rocksjni/loggerjnicallback.cc
@@ -177,6 +178,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
   src/main/java/org/rocksdb/ImportColumnFamilyOptions.java
+  src/main/java/org/rocksdb/InBuiltMergeOperator.java
   src/main/java/org/rocksdb/HyperClockCache.java
   src/main/java/org/rocksdb/IndexShorteningMode.java
   src/main/java/org/rocksdb/IndexType.java
@@ -197,6 +199,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/MemTableConfig.java
   src/main/java/org/rocksdb/MemTableInfo.java
   src/main/java/org/rocksdb/MergeOperator.java
+  src/main/java/org/rocksdb/MergeOperatorV2.java
+  src/main/java/org/rocksdb/MergeOperatorOutput.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/MutableDBOptions.java
@@ -386,6 +390,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/WalFilterTest.java
   src/test/java/org/rocksdb/AbstractTransactionTest.java
   src/test/java/org/rocksdb/MergeTest.java
+  src/test/java/org/rocksdb/MergeOperatorV2Test.java
   src/test/java/org/rocksdb/OptionsTest.java
   src/test/java/org/rocksdb/WriteBatchThreadedTest.java
   src/test/java/org/rocksdb/MultiGetManyKeysTest.java
@@ -435,6 +440,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.SnapshotTest
   org.rocksdb.CompactionJobStatsTest
   org.rocksdb.MemTableTest
+  org.rocksdb.MergeOperatorV2Test
   org.rocksdb.CompactionFilterFactoryTest
   # org.rocksdb.DefaultEnvTest
   org.rocksdb.DBOptionsTest
