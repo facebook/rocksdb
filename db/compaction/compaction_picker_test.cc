@@ -2465,7 +2465,7 @@ TEST_F(CompactionPickerTest, IsBottommostLevelTest) {
   DeleteVersionStorage();
 }
 
-TEST_F(CompactionPickerTest, IgnoreCompactionLimitWhenAddFileFromInputLevel) {
+TEST_F(CompactionPickerTest, CompactionLimitWhenAddFileFromInputLevel) {
   mutable_cf_options_.max_bytes_for_level_base = 1000000u;
   mutable_cf_options_.max_compaction_bytes = 800000u;
   ioptions_.level_compaction_dynamic_level_bytes = false;
@@ -2473,8 +2473,10 @@ TEST_F(CompactionPickerTest, IgnoreCompactionLimitWhenAddFileFromInputLevel) {
   // A compaction should be triggered and pick file 2 and 5.
   // It pulls in other compaction input file from the input level L1
   // without pulling in more output level files.
-  // Files 1, 3, 4 will be included in the compaction.
+  // Files 1, 3, 4 are eligible.
   // File 6 is excluded since it overlaps with file 7.
+  // It can expand input level since in this case, the limit on compaction size
+  // is 2 * max_compaction_bytes.
   Add(1, 1U, "100", "150", 300000U);
   Add(1, 2U, "151", "200", 300001U, 0, 0);
   Add(1, 3U, "201", "250", 300000U, 0, 0);
@@ -2495,6 +2497,38 @@ TEST_F(CompactionPickerTest, IgnoreCompactionLimitWhenAddFileFromInputLevel) {
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
   ASSERT_EQ(3U, compaction->input(0, 2)->fd.GetNumber());
   ASSERT_EQ(4U, compaction->input(0, 3)->fd.GetNumber());
+  ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, HitCompactionLimitWhenAddFileFromInputLevel) {
+  mutable_cf_options_.max_bytes_for_level_base = 1000000u;
+  mutable_cf_options_.max_compaction_bytes = 800000u;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  NewVersionStorage(6, kCompactionStyleLevel);
+  // A compaction should be triggered and pick file 2 and 5.
+  // It pulls in other compaction input file from the input level L1
+  // without pulling in more output level files.
+  // Files 1, 3, 4 are eligible.
+  // File 6 is excluded since it overlaps with file 7.
+  // It can not expand input level since total compaction size hit the limit
+  // 2 * max_compaction_bytes.
+  Add(1, 1U, "100", "150", 400000U);
+  Add(1, 2U, "151", "200", 400001U, 0, 0);
+  Add(1, 3U, "201", "250", 400000U, 0, 0);
+  Add(1, 4U, "251", "300", 400000U, 0, 0);
+  Add(1, 6U, "325", "400", 400000U, 0, 0);
+  Add(2, 5U, "100", "350", 1U);
+  Add(2, 7U, "375", "425", 1U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(2U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
 }
 
