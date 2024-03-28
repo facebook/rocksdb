@@ -5,14 +5,17 @@
 
 package org.rocksdb;
 
-import org.junit.Test;
-
-import java.util.Random;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class TransactionOptionsTest {
+import java.util.Random;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
+public class TransactionOptionsTest {
+  @BeforeClass
+  public static void beforeAll() {
+    RocksDB.loadLibrary();
+  }
   private static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
 

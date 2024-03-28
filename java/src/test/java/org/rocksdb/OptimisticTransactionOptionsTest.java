@@ -5,17 +5,22 @@
 
 package org.rocksdb;
 
-import org.junit.Test;
-import org.rocksdb.util.BytewiseComparator;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.rocksdb.util.BytewiseComparator;
 
 public class OptimisticTransactionOptionsTest {
 
   private static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
+
+  @BeforeClass
+  public static void beforeAll() {
+    RocksDB.loadLibrary();
+  }
 
   @Test
   public void setSnapshot() {

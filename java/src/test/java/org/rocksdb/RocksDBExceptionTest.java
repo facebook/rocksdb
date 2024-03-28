@@ -5,14 +5,19 @@
 
 package org.rocksdb;
 
-import org.junit.Test;
-
-import org.rocksdb.Status.Code;
-import org.rocksdb.Status.SubCode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.rocksdb.Status.Code;
+import org.rocksdb.Status.SubCode;
+
 public class RocksDBExceptionTest {
+  @BeforeClass
+  public static void beforeAll() {
+    RocksDB.loadLibrary();
+  }
 
   @Test
   public void exception() {
