@@ -2537,7 +2537,8 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
     bool non_ok_status_allowed =
         status.IsManualCompactionPaused() ||
         (status.getState() && std::strstr(status.getState(), "injected")) ||
-        status.IsInvalidArgument() || status.IsNotSupported();
+        status.IsAborted() || status.IsInvalidArgument() ||
+        status.IsNotSupported();
     fprintf(non_ok_status_allowed ? stdout : stderr,
             "Unable to perform CompactRange(): %s under specified "
             "CompactRangeOptions: %s (Empty string or "
