@@ -150,7 +150,8 @@ struct IOOptions {
         rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_),
-        do_not_recurse(false) {}
+        do_not_recurse(false),
+        verify_and_reconstruct_read(false) {}
 };
 
 struct DirFsyncOptions {
@@ -788,6 +789,8 @@ class FSSequentialFile {
   // SequentialFileWrapper too.
 };
 
+using FSAllocationPtr = std::unique_ptr<void, std::function<void(void*)>>;
+
 // A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
   // Input parameter that represents the file offset in bytes.
@@ -854,7 +857,7 @@ struct FSReadRequest {
   // - FSReadRequest::result should point to fs_scratch.
   // - This is needed only if FSSupportedOps::kFSBuffer support is provided by
   // underlying FS.
-  std::unique_ptr<void, std::function<void(void*)>> fs_scratch;
+  FSAllocationPtr fs_scratch;
 };
 
 // A file abstraction for randomly reading the contents of a file.

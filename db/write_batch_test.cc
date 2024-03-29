@@ -21,7 +21,6 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -55,13 +54,13 @@ static std::string PrintContents(WriteBatch* b,
   int merge_count = 0;
   for (int i = 0; i < 2; ++i) {
     Arena arena;
-    ScopedArenaIterator arena_iter_guard;
+    ScopedArenaPtr<InternalIterator> arena_iter_guard;
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
       iter = mem->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
                               &arena);
-      arena_iter_guard.set(iter);
+      arena_iter_guard.reset(iter);
     } else {
       iter = mem->NewRangeTombstoneIterator(ReadOptions(),
                                             kMaxSequenceNumber /* read_seq */,
@@ -406,12 +405,19 @@ TEST_F(WriteBatchTest, PutNotImplemented) {
 TEST_F(WriteBatchTest, TimedPutNotImplemented) {
   WriteBatch batch;
   ASSERT_OK(
-      batch.TimedPut(0, Slice("k1"), Slice("v1"), /*unix_write_time=*/30));
+      batch.TimedPut(0, Slice("k1"), Slice("v1"), /*write_unix_time=*/30));
   ASSERT_EQ(1u, batch.Count());
   ASSERT_EQ("TimedPut(k1, v1, 30)@0", PrintContents(&batch));
 
   WriteBatch::Handler handler;
   ASSERT_TRUE(batch.Iterate(&handler).IsInvalidArgument());
+
+  batch.Clear();
+  ASSERT_OK(
+      batch.TimedPut(0, Slice("k1"), Slice("v1"),
+                     /*write_unix_time=*/std::numeric_limits<uint64_t>::max()));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ("Put(k1, v1)@0", PrintContents(&batch));
 }
 
 TEST_F(WriteBatchTest, DeleteNotImplemented) {

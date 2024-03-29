@@ -72,6 +72,10 @@ class BlockFetcher {
     if (CheckFSFeatureSupport(ioptions_.fs.get(), FSSupportedOps::kFSBuffer)) {
       use_fs_scratch_ = true;
     }
+    if (CheckFSFeatureSupport(ioptions_.fs.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      retry_corrupt_read_ = true;
+    }
   }
 
   IOStatus ReadBlockContents();
@@ -132,6 +136,7 @@ class BlockFetcher {
   CompressionType compression_type_;
   bool for_compaction_ = false;
   bool use_fs_scratch_ = false;
+  bool retry_corrupt_read_ = false;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();
@@ -147,6 +152,7 @@ class BlockFetcher {
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void ProcessTrailerIfPresent();
+  void ReadBlock(bool retry, FSAllocationPtr& fs_buf);
 
   void ReleaseFileSystemProvidedBuffer(FSReadRequest* read_req) {
     if (use_fs_scratch_) {

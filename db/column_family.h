@@ -244,7 +244,7 @@ struct SuperVersion {
   // Share the ownership of the seqno to time mapping object referred to in this
   // SuperVersion. To be used by the new SuperVersion to be installed after this
   // one if seqno to time mapping does not change in between these two
-  // SuperVersions.
+  // SuperVersions. Or to share the ownership of the mapping with a FlushJob.
   std::shared_ptr<const SeqnoToTimeMapping> ShareSeqnoToTimeMapping() {
     return seqno_to_time_mapping;
   }

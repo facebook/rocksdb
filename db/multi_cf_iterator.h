@@ -5,10 +5,13 @@
 
 #pragma once
 
+#include <variant>
+
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "util/heap.h"
+#include "util/overload.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -23,7 +26,8 @@ class MultiCfIterator : public Iterator {
                   const std::vector<ColumnFamilyHandle*>& column_families,
                   const std::vector<Iterator*>& child_iterators)
       : comparator_(comparator),
-        min_heap_(MultiCfMinHeapItemComparator(comparator_)) {
+        heap_(MultiCfMinHeap(
+            MultiCfHeapItemComparator<std::greater<int>>(comparator_))) {
     assert(column_families.size() > 0 &&
            column_families.size() == child_iterators.size());
     cfh_iter_pairs_.reserve(column_families.size());
@@ -52,11 +56,11 @@ class MultiCfIterator : public Iterator {
     int order;
   };
 
-  class MultiCfMinHeapItemComparator {
+  template <typename CompareOp>
+  class MultiCfHeapItemComparator {
    public:
-    explicit MultiCfMinHeapItemComparator(const Comparator* comparator)
+    explicit MultiCfHeapItemComparator(const Comparator* comparator)
         : comparator_(comparator) {}
-
     bool operator()(const MultiCfIteratorInfo& a,
                     const MultiCfIteratorInfo& b) const {
       assert(a.iterator);
@@ -65,52 +69,91 @@ class MultiCfIterator : public Iterator {
       assert(b.iterator->Valid());
       int c = comparator_->Compare(a.iterator->key(), b.iterator->key());
       assert(c != 0 || a.order != b.order);
-      return c == 0 ? a.order - b.order > 0 : c > 0;
+      return c == 0 ? a.order - b.order > 0 : CompareOp()(c, 0);
     }
 
    private:
     const Comparator* comparator_;
   };
-
   const Comparator* comparator_;
   using MultiCfMinHeap =
-      BinaryHeap<MultiCfIteratorInfo, MultiCfMinHeapItemComparator>;
-  MultiCfMinHeap min_heap_;
-  // TODO: MaxHeap for Reverse Iteration
+      BinaryHeap<MultiCfIteratorInfo,
+                 MultiCfHeapItemComparator<std::greater<int>>>;
+  using MultiCfMaxHeap = BinaryHeap<MultiCfIteratorInfo,
+                                    MultiCfHeapItemComparator<std::less<int>>>;
+
+  using MultiCfIterHeap = std::variant<MultiCfMinHeap, MultiCfMaxHeap>;
+
+  MultiCfIterHeap heap_;
+
   // TODO: Lower and Upper bounds
+
+  Iterator* current() const {
+    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
+      auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
+      return max_heap.top().iterator;
+    }
+    auto& min_heap = std::get<MultiCfMinHeap>(heap_);
+    return min_heap.top().iterator;
+  }
 
   Slice key() const override {
     assert(Valid());
-    return min_heap_.top().iterator->key();
+    return current()->key();
   }
-  bool Valid() const override { return !min_heap_.empty() && status_.ok(); }
+  Slice value() const override {
+    assert(Valid());
+    return current()->value();
+  }
+  const WideColumns& columns() const override {
+    assert(Valid());
+    return current()->columns();
+  }
+
+  bool Valid() const override {
+    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
+      auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
+      return !max_heap.empty() && status_.ok();
+    }
+    auto& min_heap = std::get<MultiCfMinHeap>(heap_);
+    return !min_heap.empty() && status_.ok();
+  }
+
   Status status() const override { return status_; }
   void considerStatus(Status s) {
     if (!s.ok() && status_.ok()) {
       status_ = std::move(s);
     }
   }
-  void Reset() {
-    min_heap_.clear();
-    status_ = Status::OK();
+
+  template <typename HeapType, typename InitFunc>
+  HeapType& GetHeap(InitFunc initFunc) {
+    if (!std::holds_alternative<HeapType>(heap_)) {
+      initFunc();
+    }
+    return std::get<HeapType>(heap_);
   }
+
+  void InitMinHeap() {
+    heap_.emplace<MultiCfMinHeap>(
+        MultiCfHeapItemComparator<std::greater<int>>(comparator_));
+  }
+  void InitMaxHeap() {
+    heap_.emplace<MultiCfMaxHeap>(
+        MultiCfHeapItemComparator<std::less<int>>(comparator_));
+  }
+
+  template <typename BinaryHeap, typename ChildSeekFuncType>
+  void SeekCommon(BinaryHeap& heap, ChildSeekFuncType child_seek_func);
+  template <typename BinaryHeap, typename AdvanceFuncType>
+  void AdvanceIterator(BinaryHeap& heap, AdvanceFuncType advance_func);
 
   void SeekToFirst() override;
+  void SeekToLast() override;
+  void Seek(const Slice& /*target*/) override;
+  void SeekForPrev(const Slice& /*target*/) override;
   void Next() override;
-
-  // TODO - Implement these
-  void Seek(const Slice& /*target*/) override {}
-  void SeekForPrev(const Slice& /*target*/) override {}
-  void SeekToLast() override {}
-  void Prev() override { assert(false); }
-  Slice value() const override {
-    assert(Valid());
-    return min_heap_.top().iterator->value();
-  }
-  const WideColumns& columns() const override {
-    assert(Valid());
-    return min_heap_.top().iterator->columns();
-  }
+  void Prev() override;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

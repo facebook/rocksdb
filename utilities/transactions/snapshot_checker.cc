@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
     WritePreparedTxnDB* txn_db)
-    : txn_db_(txn_db){};
+    : txn_db_(txn_db){}
 
 SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
     SequenceNumber sequence, SequenceNumber snapshot_sequence) const {

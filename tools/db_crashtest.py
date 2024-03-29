@@ -96,6 +96,7 @@ default_params = {
     "max_bytes_for_level_base": 10485760,
     # max_key has to be the same across invocations for verification to work, hence no lambda
     "max_key": random.choice([100000, 25000000]),
+    "max_sequential_skip_in_iterations": lambda: random.choice([1, 2, 8, 16]),
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
@@ -261,7 +262,7 @@ default_params = {
     "use_adaptive_mutex_lru": lambda: random.choice([0, 1]),
     "compress_format_version": lambda: random.choice([1, 2]),
     "manifest_preallocation_size": lambda: random.choice([0, 5 * 1024]),
-    "enable_checksum_handoff": 0,
+    "enable_checksum_handoff": lambda: random.choice([0, 1]),
     "max_total_wal_size": lambda: random.choice([0] * 4 + [64 * 1024 * 1024]),
     "high_pri_pool_ratio": lambda: random.choice([0, 0.5]),
     "low_pri_pool_ratio": lambda: random.choice([0, 0.5]),
@@ -770,6 +771,10 @@ def finalize_and_sanitize(src_params):
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
           dest_params["disable_wal"] = 0
+    if dest_params.get("disable_wal") == 1:
+        # disableWAL and recycle_log_file_num options are not mutually
+        # compatible at the moment
+        dest_params["recycle_log_file_num"] = 0
     return dest_params
 
 

@@ -2833,8 +2833,8 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
   Arena arena;
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
-  iter.set(
+  ScopedArenaPtr<InternalIterator> iter;
+  iter.reset(
       dbfull()->NewInternalIterator(read_options, &arena, kMaxSequenceNumber));
 
   auto k = Key(4);

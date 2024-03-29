@@ -5267,6 +5267,8 @@ class TickerTypeJni {
         return -0x52;
       case ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS:
         return -0x53;
+      case ROCKSDB_NAMESPACE::Tickers::SST_FOOTER_CORRUPTION_COUNT:
+        return -0x55;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5722,6 +5724,8 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL;
       case -0x53:
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
+      case -0x55:
+        return ROCKSDB_NAMESPACE::Tickers::SST_FOOTER_CORRUPTION_COUNT;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

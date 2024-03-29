@@ -214,16 +214,42 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
       if (options.verify_checksums) {
         PERF_TIMER_GUARD(block_checksum_time);
-        const char* data = req.result.data();
+        const char* data = serialized_block.data.data();
         // Since the scratch might be shared, the offset of the data block in
         // the buffer might not be 0. req.result.data() only point to the
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
         // beyond the payload size.
-        s = VerifyBlockChecksum(footer, data + req_offset, handle.size(),
+        s = VerifyBlockChecksum(footer, data, handle.size(),
                                 rep_->file->file_name(), handle.offset());
         RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
+        if (!s.ok() &&
+            CheckFSFeatureSupport(ioptions.fs.get(),
+                                  FSSupportedOps::kVerifyAndReconstructRead)) {
+          assert(s.IsCorruption());
+          assert(!ioptions.allow_mmap_reads);
+          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+
+          // Repeat the read for this particular block using the regular
+          // synchronous Read API. We can use the same chunk of memory
+          // pointed to by data, since the size is identical and we know
+          // its not a memory mapped file
+          Slice result;
+          IOOptions opts;
+          IOStatus io_s = file->PrepareIOOptions(options, opts);
+          opts.verify_and_reconstruct_read = true;
+          io_s = file->Read(opts, handle.offset(), BlockSizeWithTrailer(handle),
+                            &result, const_cast<char*>(data), nullptr);
+          if (io_s.ok()) {
+            assert(result.data() == data);
+            assert(result.size() == BlockSizeWithTrailer(handle));
+            s = VerifyBlockChecksum(footer, data, handle.size(),
+                                    rep_->file->file_name(), handle.offset());
+          } else {
+            s = io_s;
+          }
+        }
       }
     } else if (!use_shared_buffer) {
       // Free the allocated scratch buffer.
@@ -703,15 +729,23 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         }
 
         // Call the *saver function on each entry/block until it returns false
-        for (; biter->Valid(); biter->Next()) {
+        for (; biter->status().ok() && biter->Valid(); biter->Next()) {
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
               biter->key(), &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
+            break;
           }
-          if (!get_context->SaveValue(parsed_key, biter->value(), &matched,
-                                      value_pinner)) {
+          Status read_status;
+          bool ret = get_context->SaveValue(
+              parsed_key, biter->value(), &matched, &read_status,
+              value_pinner ? value_pinner : nullptr);
+          if (!read_status.ok()) {
+            s = read_status;
+            break;
+          }
+          if (!ret) {
             if (get_context->State() == GetContext::GetState::kFound) {
               does_referenced_key_exist = true;
               referenced_data_size =
@@ -720,7 +754,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             done = true;
             break;
           }
-          s = biter->status();
         }
         // Write the block cache access.
         // XXX: There appear to be 'break' statements above that bypass this
@@ -743,8 +776,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
               *lookup_data_block_context, lookup_data_block_context->block_key,
               referenced_key, does_referenced_key_exist, referenced_data_size);
         }
-        s = biter->status();
-        if (done) {
+        if (s.ok()) {
+          s = biter->status();
+        }
+        if (done || !s.ok()) {
           // Avoid the extra Next which is expensive in two-level indexes
           break;
         }

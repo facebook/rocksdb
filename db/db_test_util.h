@@ -41,7 +41,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "table/mock_table.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -1175,6 +1174,9 @@ class DBTestBase : public testing::Test {
 
   Status Put(int cf, const Slice& k, const Slice& v,
              WriteOptions wo = WriteOptions());
+
+  Status TimedPut(const Slice& k, const Slice& v, uint64_t write_unix_time,
+                  WriteOptions wo = WriteOptions());
 
   Status TimedPut(int cf, const Slice& k, const Slice& v,
                   uint64_t write_unix_time, WriteOptions wo = WriteOptions());

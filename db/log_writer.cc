@@ -74,6 +74,9 @@ IOStatus Writer::Close(const WriteOptions& write_options) {
 
 IOStatus Writer::AddRecord(const WriteOptions& write_options,
                            const Slice& slice) {
+  if (dest_->seen_error()) {
+    return IOStatus::IOError("Seen error. Skip writing buffer.");
+  }
   const char* ptr = slice.data();
   size_t left = slice.size();
 
@@ -180,6 +183,10 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
   if (compression_type_ == kNoCompression) {
     // No need to add a record
     return IOStatus::OK();
+  }
+
+  if (dest_->seen_error()) {
+    return IOStatus::IOError("Seen error. Skip writing buffer.");
   }
 
   CompressionTypeRecord record(compression_type_);

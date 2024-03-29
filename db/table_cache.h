@@ -273,6 +273,7 @@ class TableCache {
   // user key to row_cache_key at offset prefix_size
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
                        size_t prefix_size, GetContext* get_context,
+                       Status* read_status,
                        SequenceNumber seq_no = kMaxSequenceNumber);
 
   const ImmutableOptions& ioptions_;

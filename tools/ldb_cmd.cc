@@ -38,7 +38,6 @@
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
 #include "util/cast_util.h"
@@ -123,7 +122,7 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
                   bool is_value_hex, bool dump_uncompressed_blobs);
-};  // namespace
+}  // namespace
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
     int argc, char const* const* argv, const Options& options,

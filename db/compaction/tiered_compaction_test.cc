@@ -2296,6 +2296,9 @@ TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
   const int kNumLevels = 7;
   const int kNumKeys = 100;
   const int kSecondsPerRecording = 101;
+  const int kKeyWithWriteTime = 25;
+  const uint64_t kUserSpecifiedWriteTime =
+      kMockStartTime + kSecondsPerRecording * 15;
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
@@ -2309,7 +2312,12 @@ TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
   for (int i = 0; i < kNumKeys; i++) {
     dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
-    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    if (i == kKeyWithWriteTime) {
+      ASSERT_OK(
+          TimedPut(Key(i), rnd.RandomString(100), kUserSpecifiedWriteTime));
+    } else {
+      ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    }
   }
 
   ReadOptions ropts;
@@ -2323,6 +2331,8 @@ TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
     for (iter->SeekToFirst(), i = 0; iter->Valid(); iter->Next(), i++) {
       if (start_time == 0) {
         start_time = VerifyKeyAndGetWriteTime(iter.get(), Key(i));
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), kUserSpecifiedWriteTime);
       } else {
         VerifyKeyAndWriteTime(iter.get(), Key(i),
                               start_time + kSecondsPerRecording * (i + 1));
@@ -2339,6 +2349,8 @@ TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
          iter->Prev(), i--) {
       if (i == 0) {
         VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), kUserSpecifiedWriteTime);
       } else {
         VerifyKeyAndWriteTime(iter.get(), Key(i),
                               start_time + kSecondsPerRecording * (i + 1));
@@ -2346,6 +2358,30 @@ TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
     }
     ASSERT_OK(iter->status());
   }
+
+  // Reopen the DB and disable the seqno to time recording, data with user
+  // specified write time can still get a write time before it's flushed.
+  options.preserve_internal_time_seconds = 0;
+  DestroyAndReopen(options);
+  ASSERT_OK(TimedPut(Key(kKeyWithWriteTime), rnd.RandomString(100),
+                     kUserSpecifiedWriteTime));
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->Seek(Key(kKeyWithWriteTime));
+    VerifyKeyAndWriteTime(iter.get(), Key(kKeyWithWriteTime),
+                          kUserSpecifiedWriteTime);
+    ASSERT_OK(iter->status());
+  }
+
+  ASSERT_OK(Flush());
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->Seek(Key(kKeyWithWriteTime));
+    VerifyKeyAndWriteTime(iter.get(), Key(kKeyWithWriteTime),
+                          std::numeric_limits<uint64_t>::max());
+    ASSERT_OK(iter->status());
+  }
+
   Close();
 }
 
@@ -2354,6 +2390,9 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
   const int kNumLevels = 7;
   const int kNumKeys = 100;
   const int kSecondsPerRecording = 101;
+  const int kKeyWithWriteTime = 25;
+  const uint64_t kUserSpecifiedWriteTime =
+      kMockStartTime + kSecondsPerRecording * 15;
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
@@ -2367,7 +2406,12 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
   for (int i = 0; i < kNumKeys; i++) {
     dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
-    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    if (i == kKeyWithWriteTime) {
+      ASSERT_OK(
+          TimedPut(Key(i), rnd.RandomString(100), kUserSpecifiedWriteTime));
+    } else {
+      ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    }
   }
 
   ASSERT_OK(Flush());
@@ -2383,6 +2427,12 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
     for (iter->SeekToFirst(), i = 0; iter->Valid(); iter->Next(), i++) {
       if (start_time == 0) {
         start_time = VerifyKeyAndGetWriteTime(iter.get(), Key(i));
+      } else if (i == kKeyWithWriteTime) {
+        // It's not precisely kUserSpecifiedWriteTime, instead it has a margin
+        // of error that is one recording apart while we convert write time to
+        // sequence number, and then back to write time.
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              kUserSpecifiedWriteTime - kSecondsPerRecording);
       } else {
         VerifyKeyAndWriteTime(iter.get(), Key(i),
                               start_time + kSecondsPerRecording * (i + 1));
@@ -2399,6 +2449,9 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
          iter->Prev(), i--) {
       if (i == 0) {
         VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              kUserSpecifiedWriteTime - kSecondsPerRecording);
       } else {
         VerifyKeyAndWriteTime(iter.get(), Key(i),
                               start_time + kSecondsPerRecording * (i + 1));
@@ -2428,6 +2481,9 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
     for (iter->Next(), i = 0; iter->Valid(); iter->Next(), i++) {
       if (i == 0) {
         VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              kUserSpecifiedWriteTime - kSecondsPerRecording);
       } else {
         VerifyKeyAndWriteTime(iter.get(), Key(i),
                               start_time + kSecondsPerRecording * (i + 1));
