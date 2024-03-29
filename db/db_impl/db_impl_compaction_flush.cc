@@ -1774,6 +1774,8 @@ void DBImpl::NotifyOnCompactionCompleted(
 
 // REQUIREMENT: block all background work by calling PauseBackgroundWork()
 // before calling this function
+// TODO (hx235): Replace Status::NotSupported() with Status::Aborted() for
+// better semantics like CompactFiles()
 Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   assert(level < cfd->NumberLevels());
   if (target_level >= cfd->NumberLevels()) {
@@ -1809,6 +1811,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   if (to_level != level) {
     std::vector<CompactionInputFiles> input(1);
     input[0].level = level;
+    // TODO (hx235): Only refit the output files in the current manual
+    // compaction instead of all the files in the output level
     for (auto& f : vstorage->LevelFiles(level)) {
       input[0].files.push_back(f);
     }
@@ -1840,6 +1844,12 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       }
     } else {
       // to_level < level
+      if (to_level == 0 && input[0].files.size() > 1) {
+        refitting_level_ = false;
+        return Status::Aborted(
+            "Moving more than 1 file from non-L0 to L0 is not allowed as it "
+            "does not bring any benefit to read nor write throughput.");
+      }
       // Check levels are empty for a trivial move
       for (int l = to_level; l < level; l++) {
         if (vstorage->NumLevelFiles(l) > 0) {
