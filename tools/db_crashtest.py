@@ -161,7 +161,9 @@ default_params = {
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
-    "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
+    # TODO(hx235): Enable `wal_bytes_per_sync` after fixing the DB recovery such
+    # that it won't recover past the WAL data hole created by this option
+    "wal_bytes_per_sync": 0,
     "compaction_readahead_size": lambda: random.choice(
         [0, 0, 1024 * 1024]),
     "db_write_buffer_size": lambda: random.choice(
