@@ -5,16 +5,8 @@
 
 #pragma once
 
-#include <memory>
-#include <variant>
-
 #include "db/multi_cf_iterator_impl.h"
 #include "rocksdb/attribute_groups.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
-#include "util/heap.h"
-#include "util/overload.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -24,7 +16,11 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
       const Comparator* comparator,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const std::vector<Iterator*>& child_iterators)
-      : impl_(comparator, column_families, child_iterators) {}
+      : impl_(
+            comparator, column_families, child_iterators, [this]() { Reset(); },
+            [this](ColumnFamilyHandle* cfh, Iterator* iter) {
+              AddToAttributeGroups(cfh, iter->columns());
+            }) {}
   ~AttributeGroupIteratorImpl() override {}
 
   // No copy allowed
@@ -32,24 +28,28 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
   AttributeGroupIteratorImpl& operator=(const AttributeGroupIteratorImpl&) =
       delete;
 
-  bool Valid() const override;
-  void SeekToFirst() override;
-  void SeekToLast() override;
-  void Seek(const Slice& target) override;
-  void SeekForPrev(const Slice& target) override;
-  void Next() override;
-  void Prev() override;
-  Slice key() const override;
-  Status status() const override;
+  bool Valid() const override { return impl_.Valid(); }
+  void SeekToFirst() override { impl_.SeekToFirst(); }
+  void SeekToLast() override { impl_.SeekToLast(); }
+  void Seek(const Slice& target) override { impl_.Seek(target); }
+  void SeekForPrev(const Slice& target) override { impl_.SeekForPrev(target); }
+  void Next() override { impl_.Next(); }
+  void Prev() override { impl_.Prev(); }
+  Slice key() const override { return impl_.key(); }
+  Status status() const override { return impl_.status(); }
 
-  AttributeGroups attribute_groups() const override {
-    // TODO - Implement
-    assert(false);
-    return kNoAttributeGroups;
+  const AttributeGroups& attribute_groups() const override {
+    assert(Valid());
+    return attribute_groups_;
   }
+
+  void Reset() { attribute_groups_.clear(); }
 
  private:
   MultiCfIteratorImpl impl_;
+  AttributeGroups attribute_groups_;
+  void AddToAttributeGroups(ColumnFamilyHandle* cfh,
+                            const WideColumns& columns);
 };
 
 class EmptyAttributeGroupIterator : public AttributeGroupIterator {
@@ -68,7 +68,7 @@ class EmptyAttributeGroupIterator : public AttributeGroupIterator {
   }
   Status status() const override { return status_; }
 
-  AttributeGroups attribute_groups() const override {
+  const AttributeGroups& attribute_groups() const override {
     return kNoAttributeGroups;
   }
 

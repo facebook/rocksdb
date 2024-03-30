@@ -2226,24 +2226,4 @@ struct WaitForCompactOptions {
   std::chrono::microseconds timeout = std::chrono::microseconds::zero();
 };
 
-// Options for Coalescing Iterator
-enum class CoalescingRule {
-  // Choose the value or columns from the first column family that contains
-  // the key. CF is selected based on the order of column_families provided
-  // during the creation of the iterator.
-  // e.g. if 'foo ==> {"col_1": "v1", "col_2": "v2"}' and 'foobar ==>
-  // {"col_1": "vx"}' are in CF1, and 'foo ==> {"col_1": "v3", "col_4": "v4"}
-  // in CF2, and the iterator is currently at 'foo' with column_families
-  // parameter provided as [CF1,CF2] the columns() function will return
-  // {"col_1": "v1", "col_2": "v2"}, and the Next() function will bypass the
-  // key 'foo' in CF2 and proceed to 'foobar'.
-  // If the column_families parameter is provided as [CF2,CF1], then when at
-  // 'foo', the columns() function will return {"col_1": "v3", "col_4": "v4"}
-  kChooseFromFirstCfContainingKey,
-};
-
-struct CoalescingOptions {
-  CoalescingRule rule = CoalescingRule::kChooseFromFirstCfContainingKey;
-};
-
 }  // namespace ROCKSDB_NAMESPACE

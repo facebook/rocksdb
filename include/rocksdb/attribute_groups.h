@@ -5,16 +5,7 @@
 
 #pragma once
 
-#include <ostream>
-#include <tuple>
-#include <utility>
-#include <vector>
-
-#include "rocksdb/comparator.h"
 #include "rocksdb/iterator_base.h"
-#include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -98,7 +89,7 @@ class AttributeGroupIterator : public IteratorBase {
   AttributeGroupIterator(const AttributeGroupIterator&) = delete;
   AttributeGroupIterator& operator=(const AttributeGroupIterator&) = delete;
 
-  virtual AttributeGroups attribute_groups() const = 0;
+  virtual const AttributeGroups& attribute_groups() const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

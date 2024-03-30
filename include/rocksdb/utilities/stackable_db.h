@@ -262,10 +262,8 @@ class StackableDB : public DB {
   using DB::NewCoalescingIterator;
   std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const CoalescingOptions& coalescing_options) override {
-    return db_->NewCoalescingIterator(options, column_families,
-                                      coalescing_options);
+      const std::vector<ColumnFamilyHandle*>& column_families) override {
+    return db_->NewCoalescingIterator(options, column_families);
   }
 
   using DB::NewAttributeGroupIterator;

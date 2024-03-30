@@ -974,13 +974,21 @@ class DB {
 
   // UNDER CONSTRUCTION - DO NOT USE
   // Return a cross-column-family iterator from a consistent database state.
-  // If a key exists in more than one column family, it chooses value/columns
-  // based on the coalescing rule provided by CoalescingOptions. See
-  // CoalescingOptions in options.h for details
+  //
+  // If a key exists in more than one column family, value() will be determined
+  // by the wide column value of kDefaultColumnName after coalesced as described
+  // below.
+  //
+  // Each wide column will be independently shadowed by the CFs.
+  // For example, if CF1 has "key_1" ==> {"col_1": "foo",
+  // "col_2", "baz"} and CF2 has "key_1" ==> {"col_2": "quux", "col_3", "bla"},
+  // and when the iterator is at key_1, columns() will return
+  // {"col_1": "foo", "col_2", "quux", "col_3", "bla"}
+  // In this example, value() will be empty, because none of them have values
+  // for kDefaultColumnName
   virtual std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const CoalescingOptions& coalescing_options) = 0;
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
   // UNDER CONSTRUCTION - DO NOT USE
   // A cross-column-family iterator that collects and returns attribute groups

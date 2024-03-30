@@ -10,15 +10,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class CoalescingIteratorTest
-    : public DBTestBase,
-      public testing::WithParamInterface<CoalescingRule> {
+class CoalescingIteratorTest : public DBTestBase {
  public:
   CoalescingIteratorTest()
-      : DBTestBase("coalescing_iterator_test", /*env_do_fsync=*/true) {
-    coalesing_options_.rule = GetParam();
-  }
-  CoalescingOptions coalesing_options_;
+      : DBTestBase("coalescing_iterator_test", /*env_do_fsync=*/true) {}
 
   // Verify Iteration of CoalescingIterator
   // by SeekToFirst() + Next() and SeekToLast() + Prev()
@@ -29,7 +24,7 @@ class CoalescingIteratorTest
                                     expected_wide_columns = std::nullopt) {
     int i = 0;
     std::unique_ptr<Iterator> iter =
-        db_->NewCoalescingIterator(ReadOptions(), cfhs, coalesing_options_);
+        db_->NewCoalescingIterator(ReadOptions(), cfhs);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(expected_keys[i], iter->key());
       ASSERT_EQ(expected_values[i], iter->value());
@@ -67,25 +62,20 @@ class CoalescingIteratorTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(
-    CoalescingIteratorTest, CoalescingIteratorTest,
-    testing::Values(CoalescingRule::kChooseFromFirstCfContainingKey));
-
-TEST_P(CoalescingIteratorTest, InvalidArguments) {
+TEST_F(CoalescingIteratorTest, InvalidArguments) {
   Options options = GetDefaultOptions();
   {
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
 
     // Invalid - No CF is provided
     std::unique_ptr<Iterator> iter_with_no_cf =
-        db_->NewCoalescingIterator(ReadOptions(), {}, coalesing_options_);
+        db_->NewCoalescingIterator(ReadOptions(), {});
     ASSERT_NOK(iter_with_no_cf->status());
     ASSERT_TRUE(iter_with_no_cf->status().IsInvalidArgument());
   }
 }
 
-// TODO - generate expected values and verify per coalesing_options_
-TEST_P(CoalescingIteratorTest, SimpleValues) {
+TEST_F(CoalescingIteratorTest, SimpleValues) {
   Options options = GetDefaultOptions();
   {
     // Case 1: Unique key per CF
@@ -116,8 +106,8 @@ TEST_P(CoalescingIteratorTest, SimpleValues) {
 
     // Verify Seek()
     {
-      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
-          ReadOptions(), cfhs_order_0_1_2_3, coalesing_options_);
+      std::unique_ptr<Iterator> iter =
+          db_->NewCoalescingIterator(ReadOptions(), cfhs_order_0_1_2_3);
       iter->Seek("");
       ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
       iter->Seek("key_1");
@@ -131,8 +121,8 @@ TEST_P(CoalescingIteratorTest, SimpleValues) {
     }
     // Verify SeekForPrev()
     {
-      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
-          ReadOptions(), cfhs_order_0_1_2_3, coalesing_options_);
+      std::unique_ptr<Iterator> iter =
+          db_->NewCoalescingIterator(ReadOptions(), cfhs_order_0_1_2_3);
       iter->SeekForPrev("");
       ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
       iter->SeekForPrev("key_1");
@@ -168,58 +158,58 @@ TEST_P(CoalescingIteratorTest, SimpleValues) {
     // Test for iteration over CFs default->1->2->3
     std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
         handles_[0], handles_[1], handles_[2], handles_[3]};
-    std::vector<Slice> expected_values = {"key_1_cf_0_val", "key_2_cf_1_val",
-                                          "key_3_cf_0_val"};
+    std::vector<Slice> expected_values = {"key_1_cf_3_val", "key_2_cf_2_val",
+                                          "key_3_cf_3_val"};
     verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                              expected_values);
 
     // Test for iteration over CFs 3->2->default_cf->1
     std::vector<ColumnFamilyHandle*> cfhs_order_3_2_0_1 = {
         handles_[3], handles_[2], handles_[0], handles_[1]};
-    expected_values = {"key_1_cf_3_val", "key_2_cf_2_val", "key_3_cf_3_val"};
+    expected_values = {"key_1_cf_0_val", "key_2_cf_1_val", "key_3_cf_1_val"};
     verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
                              expected_values);
 
     // Verify Seek()
     {
-      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
-          ReadOptions(), cfhs_order_3_2_0_1, coalesing_options_);
+      std::unique_ptr<Iterator> iter =
+          db_->NewCoalescingIterator(ReadOptions(), cfhs_order_3_2_0_1);
       iter->Seek("");
-      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
       iter->Seek("key_1");
-      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
       iter->Seek("key_2");
-      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_2_val");
+      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_1_val");
       iter->Next();
-      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_3_val");
+      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_1_val");
       iter->Seek("key_x");
       ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
     }
     // Verify SeekForPrev()
     {
-      std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(
-          ReadOptions(), cfhs_order_3_2_0_1, coalesing_options_);
+      std::unique_ptr<Iterator> iter =
+          db_->NewCoalescingIterator(ReadOptions(), cfhs_order_3_2_0_1);
       iter->SeekForPrev("");
       ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
       iter->SeekForPrev("key_1");
-      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
+      ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
       iter->Next();
-      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_2_val");
+      ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_1_val");
       iter->SeekForPrev("key_x");
-      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_3_val");
+      ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_1_val");
       iter->Next();
       ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
     }
   }
 }
 
-TEST_P(CoalescingIteratorTest, EmptyCfs) {
+TEST_F(CoalescingIteratorTest, EmptyCfs) {
   Options options = GetDefaultOptions();
   {
     // Case 1: No keys in any of the CFs
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
     std::unique_ptr<Iterator> iter =
-        db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
+        db_->NewCoalescingIterator(ReadOptions(), handles_);
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
     iter->SeekToLast();
@@ -235,7 +225,7 @@ TEST_P(CoalescingIteratorTest, EmptyCfs) {
     // Case 2: A single key exists in only one of the CF. Rest CFs are empty.
     ASSERT_OK(Put(1, "key_1", "key_1_cf_1_val"));
     std::unique_ptr<Iterator> iter =
-        db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
+        db_->NewCoalescingIterator(ReadOptions(), handles_);
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_1_val");
     iter->Next();
@@ -249,22 +239,21 @@ TEST_P(CoalescingIteratorTest, EmptyCfs) {
     // Case 3: same key exists in all of the CFs except one (cf_2)
     ASSERT_OK(Put(0, "key_1", "key_1_cf_0_val"));
     ASSERT_OK(Put(3, "key_1", "key_1_cf_3_val"));
-    // handles_ are in the order of 0->1->2->3. We should expect value from cf_0
+    // handles_ are in the order of 0->1->2->3
     std::unique_ptr<Iterator> iter =
-        db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
+        db_->NewCoalescingIterator(ReadOptions(), handles_);
     iter->SeekToFirst();
-    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
     iter->Next();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
     iter->SeekToLast();
-    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_3_val");
     iter->Prev();
     ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
   }
 }
 
-// TODO - generate expected values and verify per coalesing_options_
-TEST_P(CoalescingIteratorTest, WideColumns) {
+TEST_F(CoalescingIteratorTest, WideColumns) {
   // Set up the DB and Column Families
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
@@ -273,30 +262,65 @@ TEST_P(CoalescingIteratorTest, WideColumns) {
   WideColumns key_1_columns_in_cf_2{
       {kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
       {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
-      {"cf_2_col_name_2", "cf_2_col_val_2_key_1"}};
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_1"},
+      {"cf_overlap_col_name", "cf_2_overlap_value_key_1"}};
   WideColumns key_1_columns_in_cf_3{
       {"cf_3_col_name_1", "cf_3_col_val_1_key_1"},
       {"cf_3_col_name_2", "cf_3_col_val_2_key_1"},
-      {"cf_3_col_name_3", "cf_3_col_val_3_key_1"}};
+      {"cf_3_col_name_3", "cf_3_col_val_3_key_1"},
+      {"cf_overlap_col_name", "cf_3_overlap_value_key_1"}};
+  WideColumns key_1_expected_columns_cfh_order_2_3{
+      {kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_1"},
+      {"cf_3_col_name_1", "cf_3_col_val_1_key_1"},
+      {"cf_3_col_name_2", "cf_3_col_val_2_key_1"},
+      {"cf_3_col_name_3", "cf_3_col_val_3_key_1"},
+      {"cf_overlap_col_name", "cf_3_overlap_value_key_1"}};
+  WideColumns key_1_expected_columns_cfh_order_3_2{
+      {kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_1"},
+      {"cf_3_col_name_1", "cf_3_col_val_1_key_1"},
+      {"cf_3_col_name_2", "cf_3_col_val_2_key_1"},
+      {"cf_3_col_name_3", "cf_3_col_val_3_key_1"},
+      {"cf_overlap_col_name", "cf_2_overlap_value_key_1"}};
 
   constexpr char key_2[] = "key_2";
   WideColumns key_2_columns_in_cf_1{
-      {"cf_1_col_name_1", "cf_1_col_val_1_key_2"}};
+      {"cf_overlap_col_name", "cf_1_overlap_value_key_2"}};
   WideColumns key_2_columns_in_cf_2{
       {"cf_2_col_name_1", "cf_2_col_val_1_key_2"},
-      {"cf_2_col_name_2", "cf_2_col_val_2_key_2"}};
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_2"},
+      {"cf_overlap_col_name", "cf_2_overlap_value_key_2"}};
+  WideColumns key_2_expected_columns_cfh_order_1_2{
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_2"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_2"},
+      {"cf_overlap_col_name", "cf_2_overlap_value_key_2"}};
+  WideColumns key_2_expected_columns_cfh_order_2_1{
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_2"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_2"},
+      {"cf_overlap_col_name", "cf_1_overlap_value_key_2"}};
 
   constexpr char key_3[] = "key_3";
   WideColumns key_3_columns_in_cf_1{
       {"cf_1_col_name_1", "cf_1_col_val_1_key_3"}};
   WideColumns key_3_columns_in_cf_3{
       {"cf_3_col_name_1", "cf_3_col_val_1_key_3"}};
+  WideColumns key_3_expected_columns{
+      {"cf_1_col_name_1", "cf_1_col_val_1_key_3"},
+      {"cf_3_col_name_1", "cf_3_col_val_1_key_3"},
+  };
 
   constexpr char key_4[] = "key_4";
   WideColumns key_4_columns_in_cf_0{
       {"cf_0_col_name_1", "cf_0_col_val_1_key_4"}};
   WideColumns key_4_columns_in_cf_2{
       {"cf_2_col_name_1", "cf_2_col_val_1_key_4"}};
+  WideColumns key_4_expected_columns{
+      {"cf_0_col_name_1", "cf_0_col_val_1_key_4"},
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_4"},
+  };
 
   // Use AttributeGroup PutEntity API to insert them together
   AttributeGroups key_1_attribute_groups{
@@ -317,29 +341,45 @@ TEST_P(CoalescingIteratorTest, WideColumns) {
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_3, key_3_attribute_groups));
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_4, key_4_attribute_groups));
 
-  // Test for iteration over CF default->1->2->3
-  std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
-      handles_[0], handles_[1], handles_[2], handles_[3]};
+  // Keys should be returned in order regardless of cfh order
   std::vector<Slice> expected_keys = {key_1, key_2, key_3, key_4};
-  // Pick what DBIter would return for value() in the first CF that key exists
+
   // Since value for kDefaultWideColumnName only exists for key_1, rest will
-  // return empty value
+  // return empty value after coalesced
   std::vector<Slice> expected_values = {"cf_2_col_val_0_key_1", "", "", ""};
 
-  // Pick columns from the first CF that the key exists and value is stored as
-  // wide column
-  std::vector<WideColumns> expected_wide_columns = {
-      {{kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
-       {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
-       {"cf_2_col_name_2", "cf_2_col_val_2_key_1"}},
-      {{"cf_1_col_name_1", "cf_1_col_val_1_key_2"}},
-      {{"cf_1_col_name_1", "cf_1_col_val_1_key_3"}},
-      {{"cf_0_col_name_1", "cf_0_col_val_1_key_4"}}};
-  verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys, expected_values,
-                           expected_wide_columns);
+  // Test for iteration over CF default->1->2->3
+  {
+    std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
+        handles_[0], handles_[1], handles_[2], handles_[3]};
+
+    // Coalesced columns
+    std::vector<WideColumns> expected_wide_columns_0_1_2_3 = {
+        key_1_expected_columns_cfh_order_2_3,
+        key_2_expected_columns_cfh_order_1_2, key_3_expected_columns,
+        key_4_expected_columns};
+
+    verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys, expected_values,
+                             expected_wide_columns_0_1_2_3);
+  }
+
+  // Test for iteration over CF 3->2->default->1
+  {
+    std::vector<ColumnFamilyHandle*> cfhs_order_3_2_0_1 = {
+        handles_[3], handles_[2], handles_[0], handles_[1]};
+
+    // Coalesced columns
+    std::vector<WideColumns> expected_wide_columns_3_2_0_1 = {
+        key_1_expected_columns_cfh_order_3_2,
+        key_2_expected_columns_cfh_order_2_1, key_3_expected_columns,
+        key_4_expected_columns};
+
+    verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys, expected_values,
+                             expected_wide_columns_3_2_0_1);
+  }
 }
 
-TEST_P(CoalescingIteratorTest, DifferentComparatorsInMultiCFs) {
+TEST_F(CoalescingIteratorTest, DifferentComparatorsInMultiCFs) {
   // This test creates two column families with two different comparators.
   // Attempting to create the MultiCFIterator should fail.
   Options options = GetDefaultOptions();
@@ -361,12 +401,12 @@ TEST_P(CoalescingIteratorTest, DifferentComparatorsInMultiCFs) {
   verifyExpectedKeys(handles_[1], {"key_3", "key_2", "key_1"});
 
   std::unique_ptr<Iterator> iter =
-      db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
+      db_->NewCoalescingIterator(ReadOptions(), handles_);
   ASSERT_NOK(iter->status());
   ASSERT_TRUE(iter->status().IsInvalidArgument());
 }
 
-TEST_P(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
+TEST_F(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
   // This test creates two column families with the same custom test
   // comparators (but instantiated independently). Attempting to create the
   // MultiCFIterator should not fail.
@@ -409,12 +449,12 @@ TEST_P(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
   std::vector<Slice> expected_keys = {
       "key_001_003", "key_001_002", "key_001_001", "key_002_003", "key_002_002",
       "key_002_001", "key_003_006", "key_003_005", "key_003_004"};
-  std::vector<Slice> expected_values = {"value_0_1", "value_0_2", "value_0_3",
+  std::vector<Slice> expected_values = {"value_1_1", "value_1_2", "value_1_3",
                                         "value_0_4", "value_0_5", "value_0_6",
                                         "value_1_4", "value_1_5", "value_1_6"};
   int i = 0;
   std::unique_ptr<Iterator> iter =
-      db_->NewCoalescingIterator(ReadOptions(), handles_, coalesing_options_);
+      db_->NewCoalescingIterator(ReadOptions(), handles_);
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ASSERT_EQ(expected_keys[i], iter->key());
     ASSERT_EQ(expected_values[i], iter->value());

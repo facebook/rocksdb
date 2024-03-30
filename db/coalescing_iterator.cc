@@ -5,18 +5,42 @@
 
 #include "db/coalescing_iterator.h"
 
+#include "db/wide/wide_columns_helper.h"
+
 namespace ROCKSDB_NAMESPACE {
 
-bool CoalescingIterator::Valid() const { return impl_.Valid(); }
-void CoalescingIterator::SeekToFirst() { impl_.SeekToFirst(); }
-void CoalescingIterator::SeekToLast() { impl_.SeekToLast(); }
-void CoalescingIterator::Seek(const Slice& target) { impl_.Seek(target); }
-void CoalescingIterator::SeekForPrev(const Slice& target) {
-  impl_.SeekForPrev(target);
+void CoalescingIterator::Coalesce(const WideColumns& columns) {
+  WideColumns coalesced;
+  coalesced.reserve(wide_columns_.size() + columns.size());
+  auto base_cols = wide_columns_.begin();
+  auto new_cols = columns.begin();
+  while (base_cols != wide_columns_.end() && new_cols != columns.end()) {
+    auto comparison = base_cols->name().compare(new_cols->name());
+    if (comparison < 0) {
+      coalesced.push_back(*base_cols);
+      ++base_cols;
+    } else if (comparison > 0) {
+      coalesced.push_back(*new_cols);
+      ++new_cols;
+    } else {
+      coalesced.push_back(*new_cols);
+      ++new_cols;
+      ++base_cols;
+    }
+  }
+  while (base_cols != wide_columns_.end()) {
+    coalesced.push_back(*base_cols);
+    ++base_cols;
+  }
+  while (new_cols != columns.end()) {
+    coalesced.push_back(*new_cols);
+    ++new_cols;
+  }
+  wide_columns_.swap(coalesced);
+
+  if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+    value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+  }
 }
-void CoalescingIterator::Next() { impl_.Next(); }
-void CoalescingIterator::Prev() { impl_.Prev(); }
-Slice CoalescingIterator::key() const { return impl_.key(); }
-Status CoalescingIterator::status() const { return impl_.status(); }
 
 }  // namespace ROCKSDB_NAMESPACE

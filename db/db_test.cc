@@ -3202,8 +3202,7 @@ class ModelDB : public DB {
   // UNDER CONSTRUCTION - DO NOT USE
   std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& /*options*/,
-      const std::vector<ColumnFamilyHandle*>& /*column_families*/,
-      const CoalescingOptions& /*coalescing_options*/) override {
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
     return nullptr;
   }
 
