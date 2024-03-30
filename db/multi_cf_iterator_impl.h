@@ -111,7 +111,6 @@ class MultiCfIteratorImpl {
 
   struct MultiCfIteratorInfo {
     Iterator* iterator;
-    ColumnFamilyHandle* cfh;
     int order;
   };
 
@@ -193,7 +192,7 @@ class MultiCfIteratorImpl {
       child_seek_func(iter.get());
       if (iter->Valid()) {
         assert(iter->status().ok());
-        heap.push(MultiCfIteratorInfo{iter.get(), cfh, i});
+        heap.push(MultiCfIteratorInfo{iter.get(), i});
       } else {
         considerStatus(iter->status());
         if (!status_.ok()) {
@@ -244,14 +243,16 @@ class MultiCfIteratorImpl {
     // 3. Add the top iterator back without advancing it
     assert(!heap.empty());
     auto top = heap.top();
-    populate_func_(top.cfh, top.iterator);
+    auto& [top_cfh, top_iter] = cfh_iter_pairs_[top.order];
+    populate_func_(top_cfh, top_iter.get());
     heap.pop();
     if (!heap.empty()) {
       auto* current = heap.top().iterator;
       while (current->Valid() &&
              comparator_->Compare(top.iterator->key(), current->key()) == 0) {
         assert(current->status().ok());
-        populate_func_(heap.top().cfh, heap.top().iterator);
+        auto& [curr_cfh, curr_iter] = cfh_iter_pairs_[heap.top().order];
+        populate_func_(curr_cfh, curr_iter.get());
         advance_func(current);
         if (current->Valid()) {
           heap.replace_top(heap.top());
