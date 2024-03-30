@@ -188,7 +188,8 @@ class MultiCfIteratorImpl {
     reset_func_();
     heap.clear();
     int i = 0;
-    for (auto& [cfh, iter] : cfh_iter_pairs_) {
+    for (auto& cfh_iter_pair : cfh_iter_pairs_) {
+      auto& iter = cfh_iter_pair.second;
       child_seek_func(iter.get());
       if (iter->Valid()) {
         assert(iter->status().ok());
