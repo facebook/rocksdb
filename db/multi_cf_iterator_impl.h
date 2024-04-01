@@ -27,8 +27,8 @@ class MultiCfIteratorImpl {
       : comparator_(comparator),
         heap_(MultiCfMinHeap(
             MultiCfHeapItemComparator<std::greater<int>>(comparator_))),
-        reset_func_(reset_func),
-        populate_func_(populate_func) {
+        reset_func_(std::move(reset_func)),
+        populate_func_(std::move(populate_func)) {
     assert(column_families.size() > 0 &&
            column_families.size() == child_iterators.size());
     cfh_iter_pairs_.reserve(column_families.size());
