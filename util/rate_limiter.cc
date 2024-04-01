@@ -25,58 +25,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// void TGprintStackTrace() {
-//     void *array[10];
-//     size_t size;
-//     char **strings;
-//     size_t i;
-
-//     size = backtrace(array, 10);
-//     strings = backtrace_symbols(array, size);
-
-//     printf("Obtained %zd stack frames.\n", size);
-
-//     for (i = 0; i < size; i++)
-//         printf("%s\n", strings[i]);
-
-//     free(strings);
-// }
-
-void RateLimiter::TGprintStackTrace() {
-  void *array[10];
-  size_t size;
-  char **strings;
-  size_t i;
-
-  size = backtrace(array, 10);
-  strings = backtrace_symbols(array, size);
-
-  printf("Obtained %zd stack frames.\n", size);
-
-  for (i = 0; i < size; i++)
-      printf("%s\n", strings[i]);
-
-  free(strings);
-}
-
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
                                  Env::IOPriority io_priority, Statistics* stats,
                                  RateLimiter::OpType op_type) {
-  if (op_type == RateLimiter::OpType::kWrite) {
-    // TGprintStackTrace();
-    auto& thread_metadata = TG_GetThreadMetadata();
-    // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
-    calls_per_client_[thread_metadata.client_id]++;
-    if (total_calls_++ >= 1000) {
-      total_calls_ = 0;
-      std::cout << "[TGRIGGS_LOG] RL for clients: ";
-      for (const auto& calls : calls_per_client_) {
-        std::cout << calls << ", ";
-      }
-      std::cout << std::endl;
-    }
-  }
-
   if (io_priority < Env::IO_TOTAL && IsRateLimited(op_type)) {
     bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes()));
 
@@ -176,8 +127,37 @@ Status GenericRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
   return Status::OK();
 }
 
+void GenericRateLimiter::TGprintStackTrace() {
+  void *array[10];
+  size_t size;
+  char **strings;
+  size_t i;
+
+  size = backtrace(array, 10);
+  strings = backtrace_symbols(array, size);
+
+  printf("Obtained %zd stack frames.\n", size);
+
+  for (i = 0; i < size; i++)
+      printf("%s\n", strings[i]);
+
+  free(strings);
+}
+
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
+  // TGprintStackTrace();
+  auto& thread_metadata = TG_GetThreadMetadata();
+  // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
+  calls_per_client_[thread_metadata.client_id]++;
+  if (total_calls_++ >= 1000) {
+    total_calls_ = 0;
+    std::cout << "[TGRIGGS_LOG] RL for clients: ";
+    for (const auto& calls : calls_per_client_) {
+      std::cout << calls << ", ";
+    }
+    std::cout << std::endl;
+  }
 
   assert(bytes <= GetSingleBurstBytes());
   bytes = std::max(static_cast<int64_t>(0), bytes);

@@ -116,6 +116,8 @@ class GenericRateLimiter : public RateLimiter {
   Status TuneLocked();
   void SetBytesPerSecondLocked(int64_t bytes_per_second);
 
+  void TGprintStackTrace();
+
   uint64_t NowMicrosMonotonicLocked() {
     return clock_->NowNanos() / std::milli::den;
   }
@@ -151,6 +153,9 @@ class GenericRateLimiter : public RateLimiter {
   int64_t num_drains_;
   const int64_t max_bytes_per_sec_;
   std::chrono::microseconds tuned_time_;
+
+  int calls_per_client_[4];
+  int total_calls_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
