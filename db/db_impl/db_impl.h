@@ -2416,10 +2416,12 @@ class DBImpl : public DB {
 
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
 
-  Status GetChildIteratorsForMultiCfIterator(
-      const ReadOptions& read_options,
+  template <typename IterType, typename ImplType,
+            typename ErrorIteratorFuncType>
+  std::unique_ptr<IterType> NewMultiCfIterator(
+      const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* child_iterators);
+      ErrorIteratorFuncType error_iterator_func);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;

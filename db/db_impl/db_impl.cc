@@ -3739,48 +3739,46 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
-  std::vector<Iterator*> child_iterators;
-  Status s = GetChildIteratorsForMultiCfIterator(_read_options, column_families,
-                                                 &child_iterators);
-  if (!s.ok()) {
-    return std::unique_ptr<Iterator>(NewErrorIterator(s));
-  }
-  return std::make_unique<CoalescingIterator>(
-      column_families[0]->GetComparator(), column_families,
-      std::move(child_iterators));
+  return NewMultiCfIterator<Iterator, CoalescingIterator>(
+      _read_options, column_families, [](const Status& s) {
+        return std::unique_ptr<Iterator>(NewErrorIterator(s));
+      });
 }
 
 std::unique_ptr<AttributeGroupIterator> DBImpl::NewAttributeGroupIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
-  std::vector<Iterator*> child_iterators;
-  Status s = GetChildIteratorsForMultiCfIterator(_read_options, column_families,
-                                                 &child_iterators);
-  if (!s.ok()) {
-    return NewAttributeGroupErrorIterator(s);
-  }
-  return std::make_unique<AttributeGroupIteratorImpl>(
-      column_families[0]->GetComparator(), column_families,
-      std::move(child_iterators));
+  return NewMultiCfIterator<AttributeGroupIterator, AttributeGroupIteratorImpl>(
+      _read_options, column_families,
+      [](const Status& s) { return NewAttributeGroupErrorIterator(s); });
 }
 
-Status DBImpl::GetChildIteratorsForMultiCfIterator(
-    const ReadOptions& read_options,
+template <typename IterType, typename ImplType, typename ErrorIteratorFuncType>
+std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
-    std::vector<Iterator*>* child_iterators) {
+    ErrorIteratorFuncType error_iterator_func) {
   if (column_families.size() == 0) {
-    return Status::InvalidArgument("No Column Family was provided");
+    return error_iterator_func(
+        Status::InvalidArgument("No Column Family was provided"));
   }
   const Comparator* first_comparator = column_families[0]->GetComparator();
   for (size_t i = 1; i < column_families.size(); ++i) {
     const Comparator* cf_comparator = column_families[i]->GetComparator();
     if (first_comparator != cf_comparator &&
         first_comparator->GetId().compare(cf_comparator->GetId()) != 0) {
-      return Status::InvalidArgument(
-          "Different comparators are being used across CFs");
+      return error_iterator_func(Status::InvalidArgument(
+          "Different comparators are being used across CFs"));
     }
   }
-  return NewIterators(read_options, column_families, child_iterators);
+  std::vector<Iterator*> child_iterators;
+  Status s = NewIterators(_read_options, column_families, &child_iterators);
+  if (!s.ok()) {
+    return error_iterator_func(s);
+  }
+  return std::make_unique<ImplType>(column_families[0]->GetComparator(),
+                                    column_families,
+                                    std::move(child_iterators));
 }
 
 Status DBImpl::NewIterators(
