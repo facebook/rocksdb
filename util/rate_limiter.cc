@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <iostream>
 
 #include "monitoring/statistics_impl.h"
 #include "port/port.h"
@@ -20,6 +21,7 @@
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 #include "util/rate_limiter_impl.h"
+#include "util/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -60,9 +62,20 @@ void RateLimiter::TGprintStackTrace() {
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
                                  Env::IOPriority io_priority, Statistics* stats,
                                  RateLimiter::OpType op_type) {
-  // if (op_type == RateLimiter::OpType::kRead) {
-  //   TGprintStackTrace();
-  // }
+  if (op_type == RateLimiter::OpType::kWrite) {
+    // TGprintStackTrace();
+    auto& thread_metadata = TG_GetThreadMetadata();
+    // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
+    calls_per_client_[thread_metadata.client_id]++;
+    if (total_calls_++ >= 1000) {
+      total_calls_ = 0;
+      std::cout << "[TGRIGGS_LOG] RL for clients: ";
+      for (const auto& calls : calls_per_client_) {
+        std::cout << calls << ", ";
+      }
+      std::cout << std::endl;
+    }
+  }
 
   if (io_priority < Env::IO_TOTAL && IsRateLimited(op_type)) {
     bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes()));
@@ -163,10 +176,9 @@ Status GenericRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
   return Status::OK();
 }
 
-
-
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
+
   assert(bytes <= GetSingleBurstBytes());
   bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("GenericRateLimiter::Request");

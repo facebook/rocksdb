@@ -651,8 +651,18 @@ void TG_SetThreadMetadata(std::string key) {
 
 Status CompactionJob::Run() {
 
-  TG_SetThreadMetadata(compact_->compaction->GetSmallestUserKey().ToString());
+  // for (const auto& sc_state : compact_->sub_compact_states) {
+  //   std::cout << "[TGRIGGS_LOG] found subcompaction\n";
+  //   if (sc_state.start.has_value()) {
+  //     std::cout << "[TGRIGGS_LOG] start= " << sc_state.start.value().ToString() << std::endl;
+  //   }
+  //   if (sc_state.end.has_value()) {
+  //     std::cout << "[TGRIGGS_LOG] end= " << sc_state.end.value().ToString() << std::endl;
+  //   }
+  // }
 
+  TG_SetThreadMetadata(compact_->compaction->GetSmallestUserKey().ToString());
+  std::cout << "[TGRIGGS_LOG] start,end: " << compact_->compaction->GetSmallestUserKey().ToString() << ", " << compact_->compaction->GetLargestUserKey().ToString() << std::endl;
   std::cout << "[TGRIGGS_LOG] compaction client_id: " << TG_GetThreadMetadata().client_id << std::endl;
 
   AutoThreadOperationStageUpdater stage_updater(
@@ -1340,6 +1350,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       db_options_.info_log, full_history_ts_low, preserve_time_min_seqno_,
       preclude_last_level_min_seqno_);
   c_iter->SeekToFirst();
+
+  std::cout << "[TGRIGGS_LOG] c_iter user_key: " << c_iter->user_key().ToString() << std::endl;;
 
   // Assign range delete aggregator to the target output level, which makes sure
   // it only output to single level

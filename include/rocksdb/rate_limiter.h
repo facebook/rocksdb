@@ -137,6 +137,8 @@ class RateLimiter {
 
  private:
   const Mode mode_;
+  int calls_per_client_[4];
+  int total_calls_;
 };
 
 // Create a RateLimiter object, which can be shared among RocksDB instances to
