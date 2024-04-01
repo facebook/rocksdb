@@ -230,6 +230,7 @@ LIB_SOURCES =                                                   \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
+  util/tg_thread_local.cc					\
   util/async_file_reader.cc					\
   util/build_version.cc                                         \
   util/cleanable.cc                                             \

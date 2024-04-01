@@ -130,6 +130,7 @@ class RateLimiter {
     }
     return true;
   }
+  virtual void TGprintStackTrace();
 
  protected:
   Mode GetMode() { return mode_; }

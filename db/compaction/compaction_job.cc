@@ -16,6 +16,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 #include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_addition.h"
@@ -56,6 +57,7 @@
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
+#include "util/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -624,7 +626,35 @@ void CompactionJob::GenSubcompactionBoundaries() {
                extra_num_subcompaction_threads_reserved_));
 }
 
+int TG_StringKeyToIntKey(std::string key) {
+  try {
+    // Remove the first 4 characters ("user")
+    std::string numPart = key.substr(4);
+    return std::stoi(numPart);
+  } catch (const std::exception& e) {
+      return -1;
+  }
+}
+
+void TG_SetThreadMetadata(std::string key) {
+  auto& thread_metadata = TG_GetThreadMetadata();
+  int key_num = TG_StringKeyToIntKey(key);
+  if (key_num == -1) {
+    thread_metadata.client_id = -1;
+    return;
+  }
+
+  int client_id = key_num / (6250000 / 4);
+  thread_metadata.client_id = client_id;
+  return;
+}
+
 Status CompactionJob::Run() {
+
+  TG_SetThreadMetadata(compact_->compaction->GetSmallestUserKey().ToString());
+
+  std::cout << "[TGRIGGS_LOG] compaction client_id: " << TG_GetThreadMetadata().client_id << std::endl;
+
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
   TEST_SYNC_POINT("CompactionJob::Run():Start");

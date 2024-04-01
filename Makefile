@@ -78,13 +78,14 @@ endif
 # Mode "static" means to link against static libraries (.a)
 # Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
 #
-ifeq ($(DEBUG_LEVEL), 0)
-# For optimized, set the default LIB_MODE to static for code size/efficiency
-	LIB_MODE?=static
-else
-# For debug, set the default LIB_MODE to shared for efficient `make check` etc.
-	LIB_MODE?=shared
-endif
+LIB_MODE?=static
+# ifeq ($(DEBUG_LEVEL), 0)
+# # For optimized, set the default LIB_MODE to static for code size/efficiency
+# 	LIB_MODE?=static
+# else
+# # For debug, set the default LIB_MODE to shared for efficient `make check` etc.
+# 	LIB_MODE?=shared
+# endif
 
 $(info $$DEBUG_LEVEL is $(DEBUG_LEVEL), $$LIB_MODE is $(LIB_MODE))
 
@@ -1301,701 +1302,701 @@ $(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(TESTUTIL) $(SHA
 	$(AM_V_AR)rm -f $@ $(STATIC_STRESS_LIBRARY)
 	$(AM_SHARE)
 
-librocksdb_env_basic_test.a: $(OBJ_DIR)/env/env_basic_test.o $(LIB_OBJECTS) $(TESTHARNESS)
-	$(AM_V_AR)rm -f $@
-	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
+# librocksdb_env_basic_test.a: $(OBJ_DIR)/env/env_basic_test.o $(LIB_OBJECTS) $(TESTHARNESS)
+# 	$(AM_V_AR)rm -f $@
+# 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-db_bench: $(OBJ_DIR)/tools/db_bench.o $(BENCH_OBJECTS) $(TESTUTIL) $(LIBRARY)
-	$(AM_LINK)
+# db_bench: $(OBJ_DIR)/tools/db_bench.o $(BENCH_OBJECTS) $(TESTUTIL) $(LIBRARY)
+# 	$(AM_LINK)
 
-trace_analyzer: $(OBJ_DIR)/tools/trace_analyzer.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# trace_analyzer: $(OBJ_DIR)/tools/trace_analyzer.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
-	$(AM_LINK)
+# cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
+# 	$(AM_LINK)
 
-persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
-	$(AM_LINK)
+# persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
+# 	$(AM_LINK)
 
-memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
-	$(AM_LINK)
+# memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
+# 	$(AM_LINK)
 
-filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
-	$(AM_LINK)
+# filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
+# 	$(AM_LINK)
 
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
-	$(AM_LINK)
+# write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
+# 	$(AM_LINK)
 
-db_sanity_test: $(OBJ_DIR)/tools/db_sanity_test.o $(LIBRARY)
-	$(AM_LINK)
+# db_sanity_test: $(OBJ_DIR)/tools/db_sanity_test.o $(LIBRARY)
+# 	$(AM_LINK)
 
-db_repl_stress: $(OBJ_DIR)/tools/db_repl_stress.o $(LIBRARY)
-	$(AM_LINK)
+# db_repl_stress: $(OBJ_DIR)/tools/db_repl_stress.o $(LIBRARY)
+# 	$(AM_LINK)
 
-define MakeTestRule
-$(notdir $(1:%.cc=%)): $(1:%.cc=$$(OBJ_DIR)/%.o) $$(TEST_LIBRARY) $$(LIBRARY)
-	$$(AM_LINK)
-endef
+# define MakeTestRule
+# $(notdir $(1:%.cc=%)): $(1:%.cc=$$(OBJ_DIR)/%.o) $$(TEST_LIBRARY) $$(LIBRARY)
+# 	$$(AM_LINK)
+# endef
 
-# For each PLUGIN test, create a rule to generate the test executable
-$(foreach test, $(ROCKSDB_PLUGIN_TESTS), $(eval $(call MakeTestRule, $(test))))
+# # For each PLUGIN test, create a rule to generate the test executable
+# $(foreach test, $(ROCKSDB_PLUGIN_TESTS), $(eval $(call MakeTestRule, $(test))))
 
-arena_test: $(OBJ_DIR)/memory/arena_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# arena_test: $(OBJ_DIR)/memory/arena_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-memory_allocator_test: memory/memory_allocator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# memory_allocator_test: memory/memory_allocator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-autovector_test: $(OBJ_DIR)/util/autovector_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# autovector_test: $(OBJ_DIR)/util/autovector_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-column_family_test: $(OBJ_DIR)/db/column_family_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# column_family_test: $(OBJ_DIR)/db/column_family_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-table_properties_collector_test: $(OBJ_DIR)/db/table_properties_collector_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# table_properties_collector_test: $(OBJ_DIR)/db/table_properties_collector_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-bloom_test: $(OBJ_DIR)/util/bloom_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# bloom_test: $(OBJ_DIR)/util/bloom_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-dynamic_bloom_test: $(OBJ_DIR)/util/dynamic_bloom_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# dynamic_bloom_test: $(OBJ_DIR)/util/dynamic_bloom_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-c_test: $(OBJ_DIR)/db/c_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# c_test: $(OBJ_DIR)/db/c_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cache_test: $(OBJ_DIR)/cache/cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cache_test: $(OBJ_DIR)/cache/cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-coding_test: $(OBJ_DIR)/util/coding_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# coding_test: $(OBJ_DIR)/util/coding_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-hash_test: $(OBJ_DIR)/util/hash_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# hash_test: $(OBJ_DIR)/util/hash_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-random_test: $(OBJ_DIR)/util/random_test.o  $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# random_test: $(OBJ_DIR)/util/random_test.o  $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-ribbon_test: $(OBJ_DIR)/util/ribbon_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# ribbon_test: $(OBJ_DIR)/util/ribbon_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/option_change_migration_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/option_change_migration_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-agg_merge_test: $(OBJ_DIR)/utilities/agg_merge/agg_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# agg_merge_test: $(OBJ_DIR)/utilities/agg_merge/agg_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-stringappend_test: $(OBJ_DIR)/utilities/merge_operators/string_append/stringappend_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# stringappend_test: $(OBJ_DIR)/utilities/merge_operators/string_append/stringappend_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cassandra_format_test: $(OBJ_DIR)/utilities/cassandra/cassandra_format_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cassandra_format_test: $(OBJ_DIR)/utilities/cassandra/cassandra_format_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cassandra_functional_test: $(OBJ_DIR)/utilities/cassandra/cassandra_functional_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cassandra_functional_test: $(OBJ_DIR)/utilities/cassandra/cassandra_functional_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cassandra_row_merge_test: $(OBJ_DIR)/utilities/cassandra/cassandra_row_merge_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cassandra_row_merge_test: $(OBJ_DIR)/utilities/cassandra/cassandra_row_merge_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cassandra_serialize_test: $(OBJ_DIR)/utilities/cassandra/cassandra_serialize_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cassandra_serialize_test: $(OBJ_DIR)/utilities/cassandra/cassandra_serialize_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-hash_table_test: $(OBJ_DIR)/utilities/persistent_cache/hash_table_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# hash_table_test: $(OBJ_DIR)/utilities/persistent_cache/hash_table_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-histogram_test: $(OBJ_DIR)/monitoring/histogram_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# histogram_test: $(OBJ_DIR)/monitoring/histogram_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-thread_local_test: $(OBJ_DIR)/util/thread_local_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# thread_local_test: $(OBJ_DIR)/util/thread_local_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-work_queue_test: $(OBJ_DIR)/util/work_queue_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# work_queue_test: $(OBJ_DIR)/util/work_queue_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-udt_util_test: $(OBJ_DIR)/util/udt_util_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# udt_util_test: $(OBJ_DIR)/util/udt_util_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-corruption_test: $(OBJ_DIR)/db/corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# corruption_test: $(OBJ_DIR)/db/corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-crc32c_test: $(OBJ_DIR)/util/crc32c_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# crc32c_test: $(OBJ_DIR)/util/crc32c_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-slice_test: $(OBJ_DIR)/util/slice_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# slice_test: $(OBJ_DIR)/util/slice_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-slice_transform_test: $(OBJ_DIR)/util/slice_transform_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# slice_transform_test: $(OBJ_DIR)/util/slice_transform_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_wide_basic_test: $(OBJ_DIR)/db/wide/db_wide_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_wide_basic_test: $(OBJ_DIR)/db/wide/db_wide_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_with_timestamp_compaction_test: db/db_with_timestamp_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_with_timestamp_compaction_test: db/db_with_timestamp_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_encryption_test: $(OBJ_DIR)/db/db_encryption_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_encryption_test: $(OBJ_DIR)/db/db_encryption_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_logical_block_size_cache_test: $(OBJ_DIR)/db/db_logical_block_size_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_logical_block_size_cache_test: $(OBJ_DIR)/db/db_logical_block_size_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_blob_index_test: $(OBJ_DIR)/db/blob/db_blob_index_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_blob_index_test: $(OBJ_DIR)/db/blob/db_blob_index_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_block_cache_test: $(OBJ_DIR)/db/db_block_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_block_cache_test: $(OBJ_DIR)/db/db_block_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_bloom_filter_test: $(OBJ_DIR)/db/db_bloom_filter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_bloom_filter_test: $(OBJ_DIR)/db/db_bloom_filter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_log_iter_test: $(OBJ_DIR)/db/db_log_iter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_log_iter_test: $(OBJ_DIR)/db/db_log_iter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_compaction_filter_test: $(OBJ_DIR)/db/db_compaction_filter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_compaction_filter_test: $(OBJ_DIR)/db/db_compaction_filter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_compaction_test: $(OBJ_DIR)/db/db_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_compaction_test: $(OBJ_DIR)/db/db_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_clip_test: $(OBJ_DIR)/db/db_clip_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_clip_test: $(OBJ_DIR)/db/db_clip_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_dynamic_level_test: $(OBJ_DIR)/db/db_dynamic_level_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_dynamic_level_test: $(OBJ_DIR)/db/db_dynamic_level_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_flush_test: $(OBJ_DIR)/db/db_flush_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_flush_test: $(OBJ_DIR)/db/db_flush_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_inplace_update_test: $(OBJ_DIR)/db/db_inplace_update_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_inplace_update_test: $(OBJ_DIR)/db/db_inplace_update_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_iterator_test: $(OBJ_DIR)/db/db_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_iterator_test: $(OBJ_DIR)/db/db_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_kv_checksum_test: $(OBJ_DIR)/db/db_kv_checksum_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_kv_checksum_test: $(OBJ_DIR)/db/db_kv_checksum_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_memtable_test: $(OBJ_DIR)/db/db_memtable_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_memtable_test: $(OBJ_DIR)/db/db_memtable_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_merge_operator_test: $(OBJ_DIR)/db/db_merge_operator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_merge_operator_test: $(OBJ_DIR)/db/db_merge_operator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_merge_operand_test: $(OBJ_DIR)/db/db_merge_operand_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_merge_operand_test: $(OBJ_DIR)/db/db_merge_operand_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_options_test: $(OBJ_DIR)/db/db_options_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_options_test: $(OBJ_DIR)/db/db_options_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_range_del_test: $(OBJ_DIR)/db/db_range_del_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_range_del_test: $(OBJ_DIR)/db/db_range_del_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_rate_limiter_test: $(OBJ_DIR)/db/db_rate_limiter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_rate_limiter_test: $(OBJ_DIR)/db/db_rate_limiter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_sst_test: $(OBJ_DIR)/db/db_sst_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_sst_test: $(OBJ_DIR)/db/db_sst_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_statistics_test: $(OBJ_DIR)/db/db_statistics_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_statistics_test: $(OBJ_DIR)/db/db_statistics_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_write_test: $(OBJ_DIR)/db/db_write_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_write_test: $(OBJ_DIR)/db/db_write_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-error_handler_fs_test: $(OBJ_DIR)/db/error_handler_fs_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# error_handler_fs_test: $(OBJ_DIR)/db/error_handler_fs_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-external_sst_file_basic_test: $(OBJ_DIR)/db/external_sst_file_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# external_sst_file_basic_test: $(OBJ_DIR)/db/external_sst_file_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-external_sst_file_test: $(OBJ_DIR)/db/external_sst_file_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# external_sst_file_test: $(OBJ_DIR)/db/external_sst_file_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-import_column_family_test: $(OBJ_DIR)/db/import_column_family_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# import_column_family_test: $(OBJ_DIR)/db/import_column_family_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_tailing_iter_test: $(OBJ_DIR)/db/db_tailing_iter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_tailing_iter_test: $(OBJ_DIR)/db/db_tailing_iter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_iter_test: $(OBJ_DIR)/db/db_iter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_iter_test: $(OBJ_DIR)/db/db_iter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_iter_stress_test: $(OBJ_DIR)/db/db_iter_stress_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_iter_stress_test: $(OBJ_DIR)/db/db_iter_stress_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_universal_compaction_test: $(OBJ_DIR)/db/db_universal_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_universal_compaction_test: $(OBJ_DIR)/db/db_universal_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_wal_test: $(OBJ_DIR)/db/db_wal_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_wal_test: $(OBJ_DIR)/db/db_wal_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_io_failure_test: $(OBJ_DIR)/db/db_io_failure_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_io_failure_test: $(OBJ_DIR)/db/db_io_failure_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_properties_test: $(OBJ_DIR)/db/db_properties_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_properties_test: $(OBJ_DIR)/db/db_properties_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_table_properties_test: $(OBJ_DIR)/db/db_table_properties_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_table_properties_test: $(OBJ_DIR)/db/db_table_properties_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-log_write_bench: $(OBJ_DIR)/util/log_write_bench.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK) $(PROFILING_FLAGS)
+# log_write_bench: $(OBJ_DIR)/util/log_write_bench.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK) $(PROFILING_FLAGS)
 
-seqno_time_test: $(OBJ_DIR)/db/seqno_time_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# seqno_time_test: $(OBJ_DIR)/db/seqno_time_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-plain_table_db_test: $(OBJ_DIR)/db/plain_table_db_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# plain_table_db_test: $(OBJ_DIR)/db/plain_table_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-comparator_db_test: $(OBJ_DIR)/db/comparator_db_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# comparator_db_test: $(OBJ_DIR)/db/comparator_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-table_reader_bench: $(OBJ_DIR)/table/table_reader_bench.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK) $(PROFILING_FLAGS)
+# table_reader_bench: $(OBJ_DIR)/table/table_reader_bench.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK) $(PROFILING_FLAGS)
 
-perf_context_test: $(OBJ_DIR)/db/perf_context_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# perf_context_test: $(OBJ_DIR)/db/perf_context_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-prefix_test: $(OBJ_DIR)/db/prefix_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# prefix_test: $(OBJ_DIR)/db/prefix_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cache_simulator_test: $(OBJ_DIR)/utilities/simulator_cache/cache_simulator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cache_simulator_test: $(OBJ_DIR)/utilities/simulator_cache/cache_simulator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-sim_cache_test: $(OBJ_DIR)/utilities/simulator_cache/sim_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# sim_cache_test: $(OBJ_DIR)/utilities/simulator_cache/sim_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-env_mirror_test: $(OBJ_DIR)/utilities/env_mirror_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# env_mirror_test: $(OBJ_DIR)/utilities/env_mirror_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-env_timed_test: $(OBJ_DIR)/utilities/env_timed_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# env_timed_test: $(OBJ_DIR)/utilities/env_timed_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-object_registry_test: $(OBJ_DIR)/utilities/object_registry_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# object_registry_test: $(OBJ_DIR)/utilities/object_registry_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-ttl_test: $(OBJ_DIR)/utilities/ttl/ttl_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# ttl_test: $(OBJ_DIR)/utilities/ttl/ttl_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_batch_with_index_test: $(OBJ_DIR)/utilities/write_batch_with_index/write_batch_with_index_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_batch_with_index_test: $(OBJ_DIR)/utilities/write_batch_with_index/write_batch_with_index_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-flush_job_test: $(OBJ_DIR)/db/flush_job_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# flush_job_test: $(OBJ_DIR)/db/flush_job_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compaction_iterator_test: $(OBJ_DIR)/db/compaction/compaction_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compaction_iterator_test: $(OBJ_DIR)/db/compaction/compaction_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compaction_job_test: $(OBJ_DIR)/db/compaction/compaction_job_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compaction_job_test: $(OBJ_DIR)/db/compaction/compaction_job_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compaction_job_stats_test: $(OBJ_DIR)/db/compaction/compaction_job_stats_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compaction_job_stats_test: $(OBJ_DIR)/db/compaction/compaction_job_stats_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compaction_service_test: $(OBJ_DIR)/db/compaction/compaction_service_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compaction_service_test: $(OBJ_DIR)/db/compaction/compaction_service_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compact_on_deletion_collector_test: $(OBJ_DIR)/utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compact_on_deletion_collector_test: $(OBJ_DIR)/utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-wal_manager_test: $(OBJ_DIR)/db/wal_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# wal_manager_test: $(OBJ_DIR)/db/wal_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-wal_edit_test: $(OBJ_DIR)/db/wal_edit_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# wal_edit_test: $(OBJ_DIR)/db/wal_edit_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-dbformat_test: $(OBJ_DIR)/db/dbformat_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# dbformat_test: $(OBJ_DIR)/db/dbformat_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-multi_cf_iterator_test: $(OBJ_DIR)/db/multi_cf_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# multi_cf_iterator_test: $(OBJ_DIR)/db/multi_cf_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-env_basic_test: $(OBJ_DIR)/env/env_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# env_basic_test: $(OBJ_DIR)/env/env_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-env_test: $(OBJ_DIR)/env/env_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# env_test: $(OBJ_DIR)/env/env_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-io_posix_test: $(OBJ_DIR)/env/io_posix_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# io_posix_test: $(OBJ_DIR)/env/io_posix_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-fault_injection_test: $(OBJ_DIR)/db/fault_injection_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# fault_injection_test: $(OBJ_DIR)/db/fault_injection_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-rate_limiter_test: $(OBJ_DIR)/util/rate_limiter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# rate_limiter_test: $(OBJ_DIR)/util/rate_limiter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-delete_scheduler_test: $(OBJ_DIR)/file/delete_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# delete_scheduler_test: $(OBJ_DIR)/file/delete_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-filename_test: $(OBJ_DIR)/db/filename_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# filename_test: $(OBJ_DIR)/db/filename_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-random_access_file_reader_test: $(OBJ_DIR)/file/random_access_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# random_access_file_reader_test: $(OBJ_DIR)/file/random_access_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-file_reader_writer_test: $(OBJ_DIR)/util/file_reader_writer_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# file_reader_writer_test: $(OBJ_DIR)/util/file_reader_writer_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-block_based_table_reader_test: table/block_based/block_based_table_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# block_based_table_reader_test: table/block_based/block_based_table_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-full_filter_block_test: $(OBJ_DIR)/table/block_based/full_filter_block_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# full_filter_block_test: $(OBJ_DIR)/table/block_based/full_filter_block_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-partitioned_filter_block_test: $(OBJ_DIR)/table/block_based/partitioned_filter_block_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# partitioned_filter_block_test: $(OBJ_DIR)/table/block_based/partitioned_filter_block_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-log_test: $(OBJ_DIR)/db/log_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# log_test: $(OBJ_DIR)/db/log_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cleanable_test: $(OBJ_DIR)/table/cleanable_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cleanable_test: $(OBJ_DIR)/table/cleanable_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-table_test: $(OBJ_DIR)/table/table_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# table_test: $(OBJ_DIR)/table/table_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-block_fetcher_test: table/block_fetcher_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# block_fetcher_test: table/block_fetcher_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-block_test: $(OBJ_DIR)/table/block_based/block_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# block_test: $(OBJ_DIR)/table/block_based/block_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-data_block_hash_index_test: $(OBJ_DIR)/table/block_based/data_block_hash_index_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# data_block_hash_index_test: $(OBJ_DIR)/table/block_based/data_block_hash_index_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-inlineskiplist_test: $(OBJ_DIR)/memtable/inlineskiplist_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# inlineskiplist_test: $(OBJ_DIR)/memtable/inlineskiplist_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-skiplist_test: $(OBJ_DIR)/memtable/skiplist_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# skiplist_test: $(OBJ_DIR)/memtable/skiplist_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_buffer_manager_test: $(OBJ_DIR)/memtable/write_buffer_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_buffer_manager_test: $(OBJ_DIR)/memtable/write_buffer_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-version_edit_test: $(OBJ_DIR)/db/version_edit_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# version_edit_test: $(OBJ_DIR)/db/version_edit_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-version_set_test: $(OBJ_DIR)/db/version_set_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# version_set_test: $(OBJ_DIR)/db/version_set_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compaction_picker_test: $(OBJ_DIR)/db/compaction/compaction_picker_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compaction_picker_test: $(OBJ_DIR)/db/compaction/compaction_picker_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-version_builder_test: $(OBJ_DIR)/db/version_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# version_builder_test: $(OBJ_DIR)/db/version_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-file_indexer_test: $(OBJ_DIR)/db/file_indexer_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# file_indexer_test: $(OBJ_DIR)/db/file_indexer_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-reduce_levels_test: $(OBJ_DIR)/tools/reduce_levels_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# reduce_levels_test: $(OBJ_DIR)/tools/reduce_levels_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_batch_test: $(OBJ_DIR)/db/write_batch_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_batch_test: $(OBJ_DIR)/db/write_batch_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_controller_test: $(OBJ_DIR)/db/write_controller_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_controller_test: $(OBJ_DIR)/db/write_controller_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-merge_helper_test: $(OBJ_DIR)/db/merge_helper_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# merge_helper_test: $(OBJ_DIR)/db/merge_helper_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-memory_test: $(OBJ_DIR)/utilities/memory/memory_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# memory_test: $(OBJ_DIR)/utilities/memory/memory_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-merge_test: $(OBJ_DIR)/db/merge_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# merge_test: $(OBJ_DIR)/db/merge_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-merger_test: $(OBJ_DIR)/table/merger_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# merger_test: $(OBJ_DIR)/table/merger_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-util_merge_operators_test: $(OBJ_DIR)/utilities/util_merge_operators_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# util_merge_operators_test: $(OBJ_DIR)/utilities/util_merge_operators_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-options_file_test: $(OBJ_DIR)/db/options_file_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# options_file_test: $(OBJ_DIR)/db/options_file_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-deletefile_test: $(OBJ_DIR)/db/deletefile_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# deletefile_test: $(OBJ_DIR)/db/deletefile_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-obsolete_files_test: $(OBJ_DIR)/db/obsolete_files_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# obsolete_files_test: $(OBJ_DIR)/db/obsolete_files_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-rocksdb_dump: $(OBJ_DIR)/tools/dump/rocksdb_dump.o $(LIBRARY)
-	$(AM_LINK)
+# rocksdb_dump: $(OBJ_DIR)/tools/dump/rocksdb_dump.o $(LIBRARY)
+# 	$(AM_LINK)
 
-rocksdb_undump: $(OBJ_DIR)/tools/dump/rocksdb_undump.o $(LIBRARY)
-	$(AM_LINK)
+# rocksdb_undump: $(OBJ_DIR)/tools/dump/rocksdb_undump.o $(LIBRARY)
+# 	$(AM_LINK)
 
-cuckoo_table_builder_test: $(OBJ_DIR)/table/cuckoo/cuckoo_table_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cuckoo_table_builder_test: $(OBJ_DIR)/table/cuckoo/cuckoo_table_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cuckoo_table_reader_test: $(OBJ_DIR)/table/cuckoo/cuckoo_table_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cuckoo_table_reader_test: $(OBJ_DIR)/table/cuckoo/cuckoo_table_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-cuckoo_table_db_test: $(OBJ_DIR)/db/cuckoo_table_db_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cuckoo_table_db_test: $(OBJ_DIR)/db/cuckoo_table_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-listener_test: $(OBJ_DIR)/db/listener_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# listener_test: $(OBJ_DIR)/db/listener_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-string_util_test: $(OBJ_DIR)/util/string_util_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# string_util_test: $(OBJ_DIR)/util/string_util_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-thread_list_test: $(OBJ_DIR)/util/thread_list_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# thread_list_test: $(OBJ_DIR)/util/thread_list_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compact_files_test: $(OBJ_DIR)/db/compact_files_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compact_files_test: $(OBJ_DIR)/db/compact_files_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-configurable_test: options/configurable_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# configurable_test: options/configurable_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-customizable_test: options/customizable_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# customizable_test: options/customizable_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-options_test: $(OBJ_DIR)/options/options_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# options_test: $(OBJ_DIR)/options/options_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-options_settable_test: $(OBJ_DIR)/options/options_settable_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# options_settable_test: $(OBJ_DIR)/options/options_settable_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-options_util_test: $(OBJ_DIR)/utilities/options/options_util_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# options_util_test: $(OBJ_DIR)/utilities/options/options_util_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_bench_tool_test: $(OBJ_DIR)/tools/db_bench_tool_test.o $(BENCH_OBJECTS) $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_bench_tool_test: $(OBJ_DIR)/tools/db_bench_tool_test.o $(BENCH_OBJECTS) $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-trace_analyzer_test: $(OBJ_DIR)/tools/trace_analyzer_test.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# trace_analyzer_test: $(OBJ_DIR)/tools/trace_analyzer_test.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-event_logger_test: $(OBJ_DIR)/logging/event_logger_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# event_logger_test: $(OBJ_DIR)/logging/event_logger_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-timer_queue_test: $(OBJ_DIR)/util/timer_queue_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# timer_queue_test: $(OBJ_DIR)/util/timer_queue_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-sst_dump_test: $(OBJ_DIR)/tools/sst_dump_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# sst_dump_test: $(OBJ_DIR)/tools/sst_dump_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-optimistic_transaction_test: $(OBJ_DIR)/utilities/transactions/optimistic_transaction_test.o  $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# optimistic_transaction_test: $(OBJ_DIR)/utilities/transactions/optimistic_transaction_test.o  $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-mock_env_test : $(OBJ_DIR)/env/mock_env_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# mock_env_test : $(OBJ_DIR)/env/mock_env_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-manual_compaction_test: $(OBJ_DIR)/db/manual_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# manual_compaction_test: $(OBJ_DIR)/db/manual_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-filelock_test: $(OBJ_DIR)/util/filelock_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# filelock_test: $(OBJ_DIR)/util/filelock_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-auto_roll_logger_test: $(OBJ_DIR)/logging/auto_roll_logger_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# auto_roll_logger_test: $(OBJ_DIR)/logging/auto_roll_logger_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-env_logger_test: $(OBJ_DIR)/logging/env_logger_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# env_logger_test: $(OBJ_DIR)/logging/env_logger_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-memtable_list_test: $(OBJ_DIR)/db/memtable_list_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# memtable_list_test: $(OBJ_DIR)/db/memtable_list_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-heap_test: $(OBJ_DIR)/util/heap_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# heap_test: $(OBJ_DIR)/util/heap_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_committed_transaction_ts_test: $(OBJ_DIR)/utilities/transactions/write_committed_transaction_ts_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_committed_transaction_ts_test: $(OBJ_DIR)/utilities/transactions/write_committed_transaction_ts_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_prepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_prepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unprepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unprepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-timestamped_snapshot_test: $(OBJ_DIR)/utilities/transactions/timestamped_snapshot_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# timestamped_snapshot_test: $(OBJ_DIR)/utilities/transactions/timestamped_snapshot_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-tiered_compaction_test: $(OBJ_DIR)/db/compaction/tiered_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# tiered_compaction_test: $(OBJ_DIR)/db/compaction/tiered_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-sst_dump: $(OBJ_DIR)/tools/sst_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# sst_dump: $(OBJ_DIR)/tools/sst_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_dump: $(OBJ_DIR)/tools/blob_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_dump: $(OBJ_DIR)/tools/blob_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-repair_test: $(OBJ_DIR)/db/repair_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# repair_test: $(OBJ_DIR)/db/repair_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-ldb_cmd_test: $(OBJ_DIR)/tools/ldb_cmd_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# ldb_cmd_test: $(OBJ_DIR)/tools/ldb_cmd_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-ldb: $(OBJ_DIR)/tools/ldb.o $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# ldb: $(OBJ_DIR)/tools/ldb.o $(TOOLS_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-iostats_context_test: $(OBJ_DIR)/monitoring/iostats_context_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+# iostats_context_test: $(OBJ_DIR)/monitoring/iostats_context_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
-persistent_cache_test: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# persistent_cache_test: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-statistics_test: $(OBJ_DIR)/monitoring/statistics_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# statistics_test: $(OBJ_DIR)/monitoring/statistics_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-stats_history_test: $(OBJ_DIR)/monitoring/stats_history_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# stats_history_test: $(OBJ_DIR)/monitoring/stats_history_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-compressed_secondary_cache_test: $(OBJ_DIR)/cache/compressed_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# compressed_secondary_cache_test: $(OBJ_DIR)/cache/compressed_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-lru_cache_test: $(OBJ_DIR)/cache/lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# lru_cache_test: $(OBJ_DIR)/cache/lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-tiered_secondary_cache_test: $(OBJ_DIR)/cache/tiered_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# tiered_secondary_cache_test: $(OBJ_DIR)/cache/tiered_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-range_del_aggregator_test: $(OBJ_DIR)/db/range_del_aggregator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# range_del_aggregator_test: $(OBJ_DIR)/db/range_del_aggregator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-range_del_aggregator_bench: $(OBJ_DIR)/db/range_del_aggregator_bench.o $(LIBRARY)
-	$(AM_LINK)
+# range_del_aggregator_bench: $(OBJ_DIR)/db/range_del_aggregator_bench.o $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_db_test: $(OBJ_DIR)/utilities/blob_db/blob_db_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_db_test: $(OBJ_DIR)/utilities/blob_db/blob_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-repeatable_thread_test: $(OBJ_DIR)/util/repeatable_thread_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# repeatable_thread_test: $(OBJ_DIR)/util/repeatable_thread_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-range_locking_test: utilities/transactions/lock/range/range_locking_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# range_locking_test: utilities/transactions/lock/range/range_locking_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-range_tombstone_fragmenter_test: $(OBJ_DIR)/db/range_tombstone_fragmenter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# range_tombstone_fragmenter_test: $(OBJ_DIR)/db/range_tombstone_fragmenter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-sst_file_reader_test: $(OBJ_DIR)/table/sst_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# sst_file_reader_test: $(OBJ_DIR)/table/sst_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_secondary_test: $(OBJ_DIR)/db/db_secondary_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_secondary_test: $(OBJ_DIR)/db/db_secondary_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-block_cache_tracer_test: $(OBJ_DIR)/trace_replay/block_cache_tracer_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# block_cache_tracer_test: $(OBJ_DIR)/trace_replay/block_cache_tracer_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-block_cache_trace_analyzer_test: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer_test.o $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# block_cache_trace_analyzer_test: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer_test.o $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-defer_test: $(OBJ_DIR)/util/defer_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# defer_test: $(OBJ_DIR)/util/defer_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_counting_iterator_test: $(OBJ_DIR)/db/blob/blob_counting_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_counting_iterator_test: $(OBJ_DIR)/db/blob/blob_counting_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_file_cache_test: $(OBJ_DIR)/db/blob/blob_file_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_file_cache_test: $(OBJ_DIR)/db/blob/blob_file_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_source_test: $(OBJ_DIR)/db/blob/blob_source_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_source_test: $(OBJ_DIR)/db/blob/blob_source_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-blob_garbage_meter_test: $(OBJ_DIR)/db/blob/blob_garbage_meter_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# blob_garbage_meter_test: $(OBJ_DIR)/db/blob/blob_garbage_meter_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-periodic_task_scheduler_test: $(OBJ_DIR)/db/periodic_task_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# periodic_task_scheduler_test: $(OBJ_DIR)/db/periodic_task_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-io_tracer_test: $(OBJ_DIR)/trace_replay/io_tracer_test.o $(OBJ_DIR)/trace_replay/io_tracer.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# io_tracer_test: $(OBJ_DIR)/trace_replay/io_tracer_test.o $(OBJ_DIR)/trace_replay/io_tracer.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-prefetch_test: $(OBJ_DIR)/file/prefetch_test.o  $(OBJ_DIR)/tools/io_tracer_parser_tool.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# prefetch_test: $(OBJ_DIR)/file/prefetch_test.o  $(OBJ_DIR)/tools/io_tracer_parser_tool.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-io_tracer_parser_test: $(OBJ_DIR)/tools/io_tracer_parser_test.o $(OBJ_DIR)/tools/io_tracer_parser_tool.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# io_tracer_parser_test: $(OBJ_DIR)/tools/io_tracer_parser_test.o $(OBJ_DIR)/tools/io_tracer_parser_tool.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_blob_corruption_test: $(OBJ_DIR)/db/blob/db_blob_corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_blob_corruption_test: $(OBJ_DIR)/db/blob/db_blob_corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-db_write_buffer_manager_test: $(OBJ_DIR)/db/db_write_buffer_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# db_write_buffer_manager_test: $(OBJ_DIR)/db/db_write_buffer_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
-	$(AM_LINK)
+# ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
+# 	$(AM_LINK)
 
-db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
-	$(AM_LINK)
+# db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
+# 	$(AM_LINK)
 
-cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-wide_column_serialization_test: $(OBJ_DIR)/db/wide/wide_column_serialization_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# wide_column_serialization_test: $(OBJ_DIR)/db/wide/wide_column_serialization_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
-wide_columns_helper_test: $(OBJ_DIR)/db/wide/wide_columns_helper_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
+# wide_columns_helper_test: $(OBJ_DIR)/db/wide/wide_columns_helper_test.o $(TEST_LIBRARY) $(LIBRARY)
+# 	$(AM_LINK)
 
 #-------------------------------------------------
 # make install related stuff

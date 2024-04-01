@@ -9,6 +9,11 @@
 
 #include <algorithm>
 
+#include <execinfo.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
 #include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
@@ -17,9 +22,48 @@
 #include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// void TGprintStackTrace() {
+//     void *array[10];
+//     size_t size;
+//     char **strings;
+//     size_t i;
+
+//     size = backtrace(array, 10);
+//     strings = backtrace_symbols(array, size);
+
+//     printf("Obtained %zd stack frames.\n", size);
+
+//     for (i = 0; i < size; i++)
+//         printf("%s\n", strings[i]);
+
+//     free(strings);
+// }
+
+void RateLimiter::TGprintStackTrace() {
+  void *array[10];
+  size_t size;
+  char **strings;
+  size_t i;
+
+  size = backtrace(array, 10);
+  strings = backtrace_symbols(array, size);
+
+  printf("Obtained %zd stack frames.\n", size);
+
+  for (i = 0; i < size; i++)
+      printf("%s\n", strings[i]);
+
+  free(strings);
+}
+
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
                                  Env::IOPriority io_priority, Statistics* stats,
                                  RateLimiter::OpType op_type) {
+  // if (op_type == RateLimiter::OpType::kRead) {
+  //   TGprintStackTrace();
+  // }
+
   if (io_priority < Env::IO_TOTAL && IsRateLimited(op_type)) {
     bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes()));
 
@@ -118,6 +162,8 @@ Status GenericRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
   raw_single_burst_bytes_.store(single_burst_bytes, std::memory_order_relaxed);
   return Status::OK();
 }
+
+
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
