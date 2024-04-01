@@ -242,7 +242,6 @@ default_params = {
     "advise_random_on_open": lambda: random.choice([0] + [1] * 3),
     "WAL_ttl_seconds": lambda: random.choice([0, 60]),
     "WAL_size_limit_MB": lambda: random.choice([0, 1]),
-    "wal_bytes_per_sync": lambda: random.choice([0, 1024 * 1024]),
     "strict_bytes_per_sync": lambda: random.choice([0, 1]),
     "avoid_flush_during_shutdown": lambda: random.choice([0, 1]),
     "fill_cache": lambda: random.choice([0, 1]),
