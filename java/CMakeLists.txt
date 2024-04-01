@@ -418,6 +418,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/TableFilterTest.java
   src/test/java/org/rocksdb/TtlDBTest.java
   src/test/java/org/rocksdb/util/StdErrLoggerTest.java
+  src/test/java/org/rocksdb/SequenceNumberAllocationTest.java
 )
 
 set(JAVA_TEST_RUNNING_CLASSES
@@ -517,6 +518,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.TableFilterTest
   org.rocksdb.TtlDBTest
   org.rocksdb.util.StdErrLoggerTest
+  org.rocksdb.SequenceNumberAllocationTest
 )
 
 include(FindJava)
