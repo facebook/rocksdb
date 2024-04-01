@@ -67,6 +67,10 @@ class CacheDumpReader {
 // dump or load process related control variables can be added here.
 struct CacheDumpOptions {
   SystemClock* clock;
+  // Max duration time in ms for dumper or loader
+  uint64_t max_duration_time_ms = 0;
+  // Max size bytes for dumper or loader
+  uint64_t max_size_bytes = 0;
 };
 
 // NOTE that: this class is EXPERIMENTAL! May be changed in the future!

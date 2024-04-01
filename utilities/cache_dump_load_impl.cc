@@ -6,6 +6,8 @@
 #include "cache/cache_key.h"
 #include "table/block_based/block_based_table_reader.h"
 
+#include <limits>
+
 #include "cache/cache_entry_roles.h"
 #include "file/writable_file_writer.h"
 #include "port/lang.h"
@@ -70,6 +72,13 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
   // Set the sequence number
   sequence_num_ = 0;
 
+  // Set deadline
+  if (options_.max_duration_time_ms > 0) {
+    deadline_ts_ = clock_->NowMicros() + options_.max_duration_time_ms * 1000;
+  } else {
+    deadline_ts_ = std::numeric_limits<uint64_t>::max();
+  }
+
   // Dump stage, first, we write the hader
   IOStatus io_s = WriteHeader();
   if (!io_s.ok()) {
@@ -117,6 +126,16 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
       return;
     }
 
+    if (options_.max_size_bytes > 0 &&
+        dumped_size_bytes_ > options_.max_size_bytes) {
+      return;
+    }
+
+    uint64_t timestamp = clock_->NowMicros();
+    if (timestamp > deadline_ts_) {
+      return;
+    }
+
     CacheEntryRole role = helper->role;
     CacheDumpUnitType type = CacheDumpUnitType::kBlockTypeMax;
 
@@ -154,7 +173,8 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
 
     if (s.ok()) {
       // Write it out
-      WriteBlock(type, key, buf).PermitUncheckedError();
+      WriteBlock(type, key, buf, timestamp).PermitUncheckedError();
+      dumped_size_bytes_ += len;
     }
   };
 }
@@ -168,8 +188,7 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
 // First, we write the metadata first, which is a fixed size string. Then, we
 // Append the dump unit string to the writer.
 IOStatus CacheDumperImpl::WriteBlock(CacheDumpUnitType type, const Slice& key,
-                                     const Slice& value) {
-  uint64_t timestamp = clock_->NowMicros();
+                                     const Slice& value, uint64_t timestamp) {
   uint32_t value_checksum = crc32c::Value(value.data(), value.size());
 
   // First, serialize the block information in a string
@@ -219,7 +238,8 @@ IOStatus CacheDumperImpl::WriteHeader() {
        "block_size, block_data, block_checksum> cache_value\n";
   std::string header_value(s.str());
   CacheDumpUnitType type = CacheDumpUnitType::kHeader;
-  return WriteBlock(type, header_key, header_value);
+  uint64_t timestamp = clock_->NowMicros();
+  return WriteBlock(type, header_key, header_value, timestamp);
 }
 
 // Write the footer after all the blocks are stored to indicate the ending.
@@ -227,7 +247,8 @@ IOStatus CacheDumperImpl::WriteFooter() {
   std::string footer_key = "footer";
   std::string footer_value("cache dump completed");
   CacheDumpUnitType type = CacheDumpUnitType::kFooter;
-  return WriteBlock(type, footer_key, footer_value);
+  uint64_t timestamp = clock_->NowMicros();
+  return WriteBlock(type, footer_key, footer_value, timestamp);
 }
 
 // This is the main function to restore the cache entries to secondary cache.

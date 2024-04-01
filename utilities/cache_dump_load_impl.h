@@ -103,7 +103,7 @@ class CacheDumperImpl : public CacheDumper {
 
  private:
   IOStatus WriteBlock(CacheDumpUnitType type, const Slice& key,
-                      const Slice& value);
+                      const Slice& value, uint64_t timestamp);
   IOStatus WriteHeader();
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
@@ -121,6 +121,9 @@ class CacheDumperImpl : public CacheDumper {
   // improvement can be applied like BloomFilter or others to speedup the
   // filtering.
   std::set<std::string> prefix_filter_;
+  // Deadline for dumper in microseconds.
+  uint64_t deadline_ts_;
+  uint64_t dumped_size_bytes_;
 };
 
 // The default implementation of CacheDumpedLoader
