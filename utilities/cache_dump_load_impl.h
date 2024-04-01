@@ -96,7 +96,9 @@ class CacheDumperImpl : public CacheDumper {
   CacheDumperImpl(const CacheDumpOptions& dump_options,
                   const std::shared_ptr<Cache>& cache,
                   std::unique_ptr<CacheDumpWriter>&& writer)
-      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {}
+      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {
+    dumped_size_bytes_ = 0;
+  }
   ~CacheDumperImpl() { writer_.reset(); }
   Status SetDumpFilter(std::vector<DB*> db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
