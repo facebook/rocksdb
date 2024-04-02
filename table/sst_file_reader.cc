@@ -37,7 +37,7 @@ struct SstFileReader::Rep {
         ioptions(options),
         moptions(ColumnFamilyOptions(options)) {
     roptions_for_table_iter =
-        ReadOptions(/*verify_checksum=*/true, /*fill_cache=*/false);
+        ReadOptions(/*_verify_checksums=*/true, /*_fill_cache=*/false);
   }
 };
 
