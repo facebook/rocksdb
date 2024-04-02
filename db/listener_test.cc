@@ -30,6 +30,7 @@
 #include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter_impl.h"
+#include "util/rate_limiter_multi_tenant_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 

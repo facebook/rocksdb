@@ -23,6 +23,7 @@
 #include "util/crc32c.h"
 #include "util/random.h"
 #include "util/rate_limiter_impl.h"
+#include "util/rate_limiter_multi_tenant_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 inline Histograms GetFileWriteHistograms(Histograms file_writer_hist,

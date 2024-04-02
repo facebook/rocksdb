@@ -20,6 +20,7 @@
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/rate_limiter_impl.h"
+#include "util/rate_limiter_multi_tenant_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 

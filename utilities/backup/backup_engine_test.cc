@@ -50,6 +50,7 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/backup/backup_engine_impl.h"
+#include "util/rate_limiter_multi_tenant_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 

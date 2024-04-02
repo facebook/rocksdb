@@ -26,6 +26,7 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter_impl.h"
+#include "util/rate_limiter_multi_tenant_impl.h"
 #include "util/string_util.h"
 #include "util/udt_util.h"
 

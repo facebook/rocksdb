@@ -76,6 +76,7 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
   }
+  std::cout << "[TGRIGGS_LOG] rate_bytes_per_sec_ = " << rate_bytes_per_sec_ << std::endl;
 }
 
 MultiTenantRateLimiter::~MultiTenantRateLimiter() {
@@ -145,6 +146,12 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   // TGprintStackTrace();
   auto& thread_metadata = TG_GetThreadMetadata();
+
+  if (thread_metadata.client_id == -1) {
+    std::cout << "[TGRIGGS_LOG] un-set client id";
+    return;
+  }
+
   // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
   calls_per_client_[thread_metadata.client_id]++;
   if (total_calls_++ >= 1000) {
@@ -314,15 +321,17 @@ MultiTenantRateLimiter::GeneratePriorityIterationOrderLocked() {
 // 3) for flush: belongs to MULTIPLE client_id's, draw from each?? even if goes below zero??
 //     a) idea: never block flush (except behind user requests) even if tokens are out
 // 4) how to refresh tokens?
-
-
 void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   TEST_SYNC_POINT_CALLBACK(
       "MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked", &request_mutex_);
   next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
+
   // Carry over the left over quota from the last period
+  // TODO: don't understand how this ^^ is happening?
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
+
+  // TODO: are we breaking an invariant commenting this out?
   // assert(available_bytes_ == 0);
   // available_bytes_ = refill_bytes_per_period;
 
@@ -331,15 +340,15 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
     available_bytes_arr_[i] = refill_bytes_per_period;
   }
 
+  int client_order[kTGNumClients] = {0, 1, 2, 3};
+  std::random_shuffle(std::begin(client_order), std::end(client_order));
 
   // Logic
   // 1) iterate through each client (in random order)
   // 2) for each client, do strict priority order from IO_USER to IO_LOW
-  int client_order[kTGNumClients] = {0, 1, 2, 3};
-  std::random_shuffle(std::begin(client_order), std::end(client_order));
   for (int i = 0; i < kTGNumClients; ++i) {
     for (int j = Env::IO_TOTAL - 1; j >= Env::IO_LOW; --j) {
-      auto* queue = &multi_tenant_queue_[i][j];
+      auto* queue = &multi_tenant_queue_[client_order[i]][j];
       while (!queue->empty()) {
         auto* next_req = queue->front();
         if (available_bytes_arr_[i] < next_req->request_bytes) {
@@ -362,7 +371,6 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
         // Quota granted, signal the thread to exit
         next_req->cv.Signal();
       }
-
     }
   }
 
