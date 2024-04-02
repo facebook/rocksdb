@@ -2329,7 +2329,7 @@ XXH32_finalize(xxh_u32 hash, const xxh_u8* ptr, size_t len, XXH_alignment align)
     hash  = XXH_rotl32(hash, 17) * XXH_PRIME32_4;     \
 } while (0)
 
-    if (ptr==NULL) XXH_ASSERT(len == 0)
+    if (ptr==nullptr) XXH_ASSERT(len == 0)
 
     /* Compact rerolled version; generally faster */
     if (!XXH32_ENDJMP) {
@@ -2409,7 +2409,7 @@ XXH32_endian_align(const xxh_u8* input, size_t len, xxh_u32 seed, XXH_alignment 
 {
     xxh_u32 h32;
 
-    if (input==NULL) XXH_ASSERT(len == 0)
+    if (input==nullptr) XXH_ASSERT(len == 0)
 
     if (len>=16) {
         const xxh_u8* const bEnd = input + len;
@@ -2495,7 +2495,7 @@ XXH_PUBLIC_API XXH_errorcode XXH32_reset(XXH32_state_t* statePtr, XXH32_hash_t s
 XXH_PUBLIC_API XXH_errorcode
 XXH32_update(XXH32_state_t* state, const void* input, size_t len)
 {
-    if (input==NULL) {
+    if (input==nullptr) {
         XXH_ASSERT(len == 0)
         return XXH_OK;
     }
@@ -2802,7 +2802,7 @@ static xxh_u64 XXH64_avalanche(xxh_u64 hash)
 static XXH_PUREF xxh_u64
 XXH64_finalize(xxh_u64 hash, const xxh_u8* ptr, size_t len, XXH_alignment align)
 {
-    if (ptr==NULL) XXH_ASSERT(len == 0)
+    if (ptr==nullptr) XXH_ASSERT(len == 0)
     len &= 31;
     while (len >= 8) {
         xxh_u64 const k1 = XXH64_round(0, XXH_get64bits(ptr));
@@ -2847,7 +2847,7 @@ XXH_FORCE_INLINE XXH_PUREF xxh_u64
 XXH64_endian_align(const xxh_u8* input, size_t len, xxh_u64 seed, XXH_alignment align)
 {
     xxh_u64 h64;
-    if (input==NULL) XXH_ASSERT(len == 0)
+    if (input==nullptr) XXH_ASSERT(len == 0)
 
     if (len>=32) {
         const xxh_u8* const bEnd = input + len;
@@ -2936,7 +2936,7 @@ XXH_PUBLIC_API XXH_errorcode XXH64_reset(XXH_NOESCAPE XXH64_state_t* statePtr, X
 XXH_PUBLIC_API XXH_errorcode
 XXH64_update (XXH_NOESCAPE XXH64_state_t* state, XXH_NOESCAPE const void* input, size_t len)
 {
-    if (input==NULL) {
+    if (input==nullptr) {
         XXH_ASSERT(len == 0)
         return XXH_OK;
     }
@@ -5331,7 +5331,7 @@ XXH_PUBLIC_API XXH64_hash_t
 XXH3_64bits_withSecretandSeed(XXH_NOESCAPE const void* input, size_t length, XXH_NOESCAPE const void* secret, size_t secretSize, XXH64_hash_t seed)
 {
     if (length <= XXH3_MIDSIZE_MAX)
-        return XXH3_64bits_internal(input, length, seed, XXH3_kSecret, sizeof(XXH3_kSecret), NULL);
+        return XXH3_64bits_internal(input, length, seed, XXH3_kSecret, sizeof(XXH3_kSecret), nullptr);
     return XXH3_hashLong_64b_withSecret(input, length, seed, (const xxh_u8*)secret, secretSize);
 }
 
@@ -5368,7 +5368,7 @@ static XXH_MALLOCF void* XXH_alignedMalloc(size_t s, size_t align)
     XXH_ASSERT(s != 0 && s < (s + align))  /* empty/overflow */
     {   /* Overallocate to make room for manual realignment and an offset byte */
         xxh_u8* base = (xxh_u8*)XXH_malloc(s + align);
-        if (base != NULL) {
+        if (base != nullptr) {
             /*
              * Get the offset needed to align this pointer.
              *
@@ -5385,7 +5385,7 @@ static XXH_MALLOCF void* XXH_alignedMalloc(size_t s, size_t align)
             ptr[-1] = (xxh_u8)offset;
             return ptr;
         }
-        return NULL;
+        return nullptr;
     }
 }
 /*
