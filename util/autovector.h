@@ -371,6 +371,9 @@ autovector<T, kSize>& autovector<T, kSize>::assign(
 
   // copy array
   num_stack_items_ = other.num_stack_items_;
+  for (size_t i = 0; i < num_stack_items_; ++i) {
+    new ((void*)(&values_[i])) value_type();
+  }
   std::copy(other.values_, other.values_ + num_stack_items_, values_);
 
   return *this;
@@ -385,6 +388,7 @@ autovector<T, kSize>& autovector<T, kSize>::operator=(
   num_stack_items_ = n;
   other.num_stack_items_ = 0;
   for (size_t i = 0; i < n; ++i) {
+    new ((void*)(&values_[i])) value_type();
     values_[i] = std::move(other.values_[i]);
   }
   return *this;
