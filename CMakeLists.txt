@@ -866,6 +866,7 @@ set(SOURCES
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
         util/tg_thread_local.cc
+        util/rate_limiter_multi_tenant.cc
         util/async_file_reader.cc
         util/cleanable.cc
         util/coding.cc
