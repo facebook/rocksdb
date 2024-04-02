@@ -2605,7 +2605,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
       mutex_.Unlock();
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                      "Waiting after background flush error: %s"
+                      "Waiting after background flush error: %s, "
                       "Accumulated background error counts: %" PRIu64,
                       s.ToString().c_str(), error_cnt);
       log_buffer.FlushBufferToLog();
