@@ -54,55 +54,29 @@ jlong Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2(
 /*
  * Class:     org_rocksdb_TransactionDB
  * Method:    open
- * Signature: (JJLjava/lang/String;[[B[J)[J
+ * Signature: (JJLjava/lang/String;[J)[J
  */
-jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
+jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3J(
     JNIEnv* env, jclass, jlong jdb_options_handle, jlong jtxn_db_options_handle,
-    jstring jdb_path, jobjectArray jcolumn_names,
-    jlongArray jcolumn_options_handles) {
+    jstring jdb_path, jlongArray jcf_descriptors) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
   }
 
-  const jsize len_cols = env->GetArrayLength(jcolumn_names);
-  jlong* jco = env->GetLongArrayElements(jcolumn_options_handles, nullptr);
-  if (jco == nullptr) {
+  const jsize len_cols = env->GetArrayLength(jcf_descriptors);
+  auto cf_descriptors = std::make_unique<jlong[]>(len_cols);
+  env->GetLongArrayRegion(jcf_descriptors, 0, len_cols, cf_descriptors.get());
+  if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     env->ReleaseStringUTFChars(jdb_path, db_path);
     return nullptr;
   }
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < len_cols; i++) {
-    const jobject jcn = env->GetObjectArrayElement(jcolumn_names, i);
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      env->ReleaseLongArrayElements(jcolumn_options_handles, jco, JNI_ABORT);
-      env->ReleaseStringUTFChars(jdb_path, db_path);
-      return nullptr;
-    }
-    const jbyteArray jcn_ba = reinterpret_cast<jbyteArray>(jcn);
-    jbyte* jcf_name = env->GetByteArrayElements(jcn_ba, nullptr);
-    if (jcf_name == nullptr) {
-      // exception thrown: OutOfMemoryError
-      env->DeleteLocalRef(jcn);
-      env->ReleaseLongArrayElements(jcolumn_options_handles, jco, JNI_ABORT);
-      env->ReleaseStringUTFChars(jdb_path, db_path);
-      return nullptr;
-    }
-
-    const int jcf_name_len = env->GetArrayLength(jcn_ba);
-    const std::string cf_name(reinterpret_cast<char*>(jcf_name), jcf_name_len);
-    const ROCKSDB_NAMESPACE::ColumnFamilyOptions* cf_options =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jco[i]);
-    column_families.push_back(
-        ROCKSDB_NAMESPACE::ColumnFamilyDescriptor(cf_name, *cf_options));
-
-    env->ReleaseByteArrayElements(jcn_ba, jcf_name, JNI_ABORT);
-    env->DeleteLocalRef(jcn);
+    column_families.push_back(*reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptors[i]));
   }
-  env->ReleaseLongArrayElements(jcolumn_options_handles, jco, JNI_ABORT);
 
   auto* db_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jdb_options_handle);

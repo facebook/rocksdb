@@ -315,14 +315,15 @@ public class RocksDB extends RocksObject {
   public static RocksDB open(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
-    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
-    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+
+    final long[] cfDescriptors = new long[columnFamilyDescriptors.size()];
+
     int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.getName();
-      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      cfDescriptors[i] = cfDescriptor.nativeHandle_;
+
       if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
         defaultColumnFamilyIndex = i;
       }
@@ -332,8 +333,7 @@ public class RocksDB extends RocksObject {
           "You must provide the default column family in your columnFamilyDescriptors");
     }
 
-    final long[] handles = open(options.nativeHandle_, path, cfNames,
-        cfOptionHandles);
+    final long[] handles = open(options.nativeHandle_, path, cfDescriptors);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -508,14 +508,13 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
 
-    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
-    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
+
     int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.getName();
-      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
       if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
         defaultColumnFamilyIndex = i;
       }
@@ -526,7 +525,7 @@ public class RocksDB extends RocksObject {
     }
 
     final long[] handles =
-        openROnly(options.nativeHandle_, path, cfNames, cfOptionHandles, errorIfWalFileExists);
+        openROnly(options.nativeHandle_, path, cfDescriptorHandles, errorIfWalFileExists);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -616,16 +615,15 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
 
-    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
-    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
+
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
-      cfNames[i] = cfDescriptor.getName();
-      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
     }
 
     final long[] handles =
-        openAsSecondary(options.nativeHandle_, path, secondaryPath, cfNames, cfOptionHandles);
+        openAsSecondary(options.nativeHandle_, path, secondaryPath, cfDescriptorHandles);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -733,9 +731,7 @@ public class RocksDB extends RocksObject {
       final ColumnFamilyDescriptor columnFamilyDescriptor)
       throws RocksDBException {
     final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
-        createColumnFamily(nativeHandle_, columnFamilyDescriptor.getName(),
-            columnFamilyDescriptor.getName().length,
-            columnFamilyDescriptor.getOptions().nativeHandle_));
+        createColumnFamily(nativeHandle_, columnFamilyDescriptor.nativeHandle_));
     ownedColumnFamilyHandles.add(columnFamilyHandle);
     return columnFamilyHandle;
   }
@@ -781,16 +777,13 @@ public class RocksDB extends RocksObject {
   public List<ColumnFamilyHandle> createColumnFamilies(
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors)
       throws RocksDBException {
-    final long[] cfOptsHandles = new long[columnFamilyDescriptors.size()];
-    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
+    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
+
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor columnFamilyDescriptor
-          = columnFamilyDescriptors.get(i);
-      cfOptsHandles[i] = columnFamilyDescriptor.getOptions().nativeHandle_;
-      cfNames[i] = columnFamilyDescriptor.getName();
+      cfDescriptorHandles[i] = columnFamilyDescriptors.get(i).nativeHandle_;
     }
     final long[] cfHandles = createColumnFamilies(nativeHandle_,
-        cfOptsHandles, cfNames);
+            cfDescriptorHandles);
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
@@ -4809,9 +4802,7 @@ public class RocksDB extends RocksObject {
   /**
    * @param optionsHandle Native handle pointing to an Options object
    * @param path The directory path for the database files
-   * @param columnFamilyNames An array of column family names
-   * @param columnFamilyOptions An array of native handles pointing to
-   *                            ColumnFamilyOptions objects
+   * @param columnFamilyDescriptors An array of column family descriptor handles
    *
    * @return An array of native handles, [0] is the handle of the RocksDB object
    *   [1..1+n] are handles of the ColumnFamilyReferences
@@ -4819,7 +4810,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if the database could not be opened
    */
   private static native long[] open(final long optionsHandle, final String path,
-      final byte[][] columnFamilyNames, final long[] columnFamilyOptions) throws RocksDBException;
+       final long[] columnFamilyDescriptors) throws RocksDBException;
 
   private static native long openROnly(final long optionsHandle, final String path,
       final boolean errorIfWalFileExists) throws RocksDBException;
@@ -4827,9 +4818,7 @@ public class RocksDB extends RocksObject {
   /**
    * @param optionsHandle Native handle pointing to an Options object
    * @param path The directory path for the database files
-   * @param columnFamilyNames An array of column family names
-   * @param columnFamilyOptions An array of native handles pointing to
-   *                            ColumnFamilyOptions objects
+   * @param columnFamilyDescriptors An array of column family descriptor handles
    *
    * @return An array of native handles, [0] is the handle of the RocksDB object
    *   [1..1+n] are handles of the ColumnFamilyReferences
@@ -4837,15 +4826,14 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if the database could not be opened
    */
   private static native long[] openROnly(final long optionsHandle, final String path,
-      final byte[][] columnFamilyNames, final long[] columnFamilyOptions,
+      final long[] columnFamilyDescriptors,
       final boolean errorIfWalFileExists) throws RocksDBException;
 
   private static native long openAsSecondary(final long optionsHandle, final String path,
       final String secondaryPath) throws RocksDBException;
 
   private static native long[] openAsSecondary(final long optionsHandle, final String path,
-      final String secondaryPath, final byte[][] columnFamilyNames,
-      final long[] columnFamilyOptions) throws RocksDBException;
+      final String secondaryPath, final long[] columnFamilyDescriptors) throws RocksDBException;
 
   @Override
   protected void disposeInternal(final long handle) {
@@ -4856,13 +4844,12 @@ public class RocksDB extends RocksObject {
   private static native void closeDatabase(final long handle) throws RocksDBException;
   private static native byte[][] listColumnFamilies(final long optionsHandle, final String path)
       throws RocksDBException;
-  private static native long createColumnFamily(final long handle, final byte[] columnFamilyName,
-      final int columnFamilyNamelen, final long columnFamilyOptions) throws RocksDBException;
+  private static native long createColumnFamily(final long handle, final long columnFamilyDescriptor) throws RocksDBException;
   private static native long[] createColumnFamilies(
       final long handle, final long columnFamilyOptionsHandle, final byte[][] columnFamilyNames)
       throws RocksDBException;
   private static native long[] createColumnFamilies(
-      final long handle, final long[] columnFamilyOptionsHandles, final byte[][] columnFamilyNames)
+      final long handle, final long[] columnFamilyDescriptorHandles)
       throws RocksDBException;
   private static native long createColumnFamilyWithImport(final long handle,
       final byte[] columnFamilyName, final int columnFamilyNamelen, final long columnFamilyOptions,
