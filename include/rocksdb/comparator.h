@@ -120,6 +120,28 @@ class Comparator : public Customizable, public CompareInterface {
 
   inline size_t timestamp_size() const { return timestamp_size_; }
 
+  // Return what this Comparator considers as the maximum timestamp.
+  // The default implementation only works for when `timestamp_size_` is 0,
+  // subclasses for which this is not the case needs to override this function.
+  virtual Slice GetMaxTimestamp() const {
+    if (timestamp_size_ == 0) {
+      return Slice();
+    }
+    assert(false);
+    return Slice();
+  }
+
+  // Return what this Comparator considers as the min timestamp.
+  // The default implementation only works for when `timestamp_size_` is 0,
+  // subclasses for which this is not the case needs to override this function.
+  virtual Slice GetMinTimestamp() const {
+    if (timestamp_size_ == 0) {
+      return Slice();
+    }
+    assert(false);
+    return Slice();
+  }
+
   int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
     return CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
   }
