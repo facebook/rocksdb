@@ -184,12 +184,18 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     return;
   }
 
+  // Extract client ID from thread-local metadata.
+  int client_id = TG_GetThreadMetadata().client_id;
+
   // Flush - don't block them (for now)
   // TODO:
   //    Idea: give support for splitting across certain clients
   if (thread_metadata.client_id == -1) {
     // std::cout << "[TGRIGGS_LOG] un-set client id" << std::endl;
-    return;
+
+    // Assiggn flushes to client 1
+    client_id = 1;
+    // return;
   }
 
   // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
@@ -208,9 +214,6 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     std::cout << std::endl;
   }
 
-  // Extract client ID from thread-local metadata.
-  int client_id = TG_GetThreadMetadata().client_id;
-
   assert(bytes <= GetSingleBurstBytes());
   bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("MultiTenantRateLimiter::Request");
@@ -226,10 +229,6 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   }
 
   ++total_requests_[pri];
-
-
-  // TODO: handle flush.
-
 
   // Draw from per-client token buckets.
   if (available_bytes_arr_[client_id] > 0) {
