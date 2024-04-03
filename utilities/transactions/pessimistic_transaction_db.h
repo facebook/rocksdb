@@ -110,7 +110,8 @@ class PessimisticTransactionDB : public TransactionDB {
   Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) override {
     const std::vector<const ExportImportFilesMetaData*>& metadatas{&metadata};
     return CreateColumnFamilyWithImport(options, column_family_name,
                                         import_options, metadatas, handle);

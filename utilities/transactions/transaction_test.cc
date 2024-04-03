@@ -2984,7 +2984,6 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 TEST_P(TransactionTest, WriteImportedColumnFamilyTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  TransactionOptions txn_options;
   ColumnFamilyOptions cf_options;
   ImportColumnFamilyOptions import_options;
   ExportImportFilesMetaData* metadata_ptr = nullptr;
@@ -3009,7 +3008,8 @@ TEST_P(TransactionTest, WriteImportedColumnFamilyTest) {
     Checkpoint* checkpoint = nullptr;
     s = Checkpoint::Create(db, &checkpoint);
     ASSERT_OK(s);
-    s = checkpoint->ExportColumnFamily(export_cf, export_files_dir, &metadata_ptr);
+    s = checkpoint->ExportColumnFamily(export_cf, export_files_dir,
+                                       &metadata_ptr);
     ASSERT_OK(s);
     ASSERT_NE(metadata_ptr, nullptr);
     delete checkpoint;

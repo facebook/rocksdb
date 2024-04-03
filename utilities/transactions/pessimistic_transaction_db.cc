@@ -437,7 +437,8 @@ Status PessimisticTransactionDB::CreateColumnFamilyWithImport(
     return s;
   }
 
-  s = db_->CreateColumnFamilyWithImport(options, column_family_name, import_options, metadatas, handle);
+  s = db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                        import_options, metadatas, handle);
   if (s.ok()) {
     lock_manager_->AddColumnFamily(*handle);
     UpdateCFComparatorMap(*handle);
