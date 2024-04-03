@@ -95,7 +95,7 @@ jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
 
 jlongArray rocksdb_open_helper(
     JNIEnv* env, jlong jopt_handle, jstring jdb_path,
-    jobjectArray jcolumn_names, jlongArray jcolumn_options,
+    jlongArray jcf_descriptors,
     std::function<ROCKSDB_NAMESPACE::Status(
         const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
@@ -108,35 +108,19 @@ jlongArray rocksdb_open_helper(
     return nullptr;
   }
 
-  const jsize len_cols = env->GetArrayLength(jcolumn_names);
-  jlong* jco = env->GetLongArrayElements(jcolumn_options, nullptr);
-  if (jco == nullptr) {
-    // exception thrown: OutOfMemoryError
+  const jsize len_cols = env->GetArrayLength(jcf_descriptors);
+  auto cf_descriptors = std::make_unique<jlong[]>(len_cols);
+  env->GetLongArrayRegion(jcf_descriptors, 0, len_cols, cf_descriptors.get());
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
     env->ReleaseStringUTFChars(jdb_path, db_path);
     return nullptr;
   }
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
-  jboolean has_exception = JNI_FALSE;
-  ROCKSDB_NAMESPACE::JniUtil::byteStrings<std::string>(
-      env, jcolumn_names,
-      [](const char* str_data, const size_t str_len) {
-        return std::string(str_data, str_len);
-      },
-      [&jco, &column_families](size_t idx, std::string cf_name) {
-        ROCKSDB_NAMESPACE::ColumnFamilyOptions* cf_options =
-            reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jco[idx]);
-        column_families.push_back(
-            ROCKSDB_NAMESPACE::ColumnFamilyDescriptor(cf_name, *cf_options));
-      },
-      &has_exception);
-
-  env->ReleaseLongArrayElements(jcolumn_options, jco, JNI_ABORT);
-
-  if (has_exception == JNI_TRUE) {
-    // exception occurred
-    env->ReleaseStringUTFChars(jdb_path, db_path);
-    return nullptr;
+  column_families.reserve(len_cols);
+  for(int i = 0; i < len_cols ; i++) {
+    column_families.push_back(*reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptors[i]));
   }
 
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jopt_handle);
@@ -183,13 +167,13 @@ jlongArray rocksdb_open_helper(
  * Method:    openROnly
  * Signature: (JLjava/lang/String;[[B[JZ)[J
  */
-jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
+jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3JZ(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-    jobjectArray jcolumn_names, jlongArray jcolumn_options,
+    jlongArray jcf_descriptors,
     jboolean jerror_if_wal_file_exists) {
   const bool error_if_wal_file_exists = jerror_if_wal_file_exists == JNI_TRUE;
   return rocksdb_open_helper(
-      env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
+      env, jopt_handle, jdb_path, jcf_descriptors,
       [error_if_wal_file_exists](
           const ROCKSDB_NAMESPACE::DBOptions& options,
           const std::string& db_path,
@@ -208,11 +192,11 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
  * Method:    open
  * Signature: (JLjava/lang/String;[[B[J)[J
  */
-jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
+jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3J(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-    jobjectArray jcolumn_names, jlongArray jcolumn_options) {
+     jlongArray jcf_descriptors) {
   return rocksdb_open_helper(
-      env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
+      env, jopt_handle, jdb_path, jcf_descriptors,
       (ROCKSDB_NAMESPACE::Status(*)(
           const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
@@ -257,10 +241,10 @@ jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_S
  * Signature: (JLjava/lang/String;Ljava/lang/String;[[B[J)[J
  */
 jlongArray
-Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_2_3_3B_3J(
+Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_2_3J(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-    jstring jsecondary_db_path, jobjectArray jcolumn_names,
-    jlongArray jcolumn_options) {
+    jstring jsecondary_db_path,
+    jlongArray jcf_descriptors) {
   const char* secondary_db_path =
       env->GetStringUTFChars(jsecondary_db_path, nullptr);
   if (secondary_db_path == nullptr) {
@@ -269,7 +253,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
   }
 
   jlongArray jhandles = rocksdb_open_helper(
-      env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
+      env, jopt_handle, jdb_path, jcf_descriptors,
       [secondary_db_path](
           const ROCKSDB_NAMESPACE::DBOptions& options,
           const std::string& db_path,
@@ -346,27 +330,12 @@ jobjectArray Java_org_rocksdb_RocksDB_listColumnFamilies(JNIEnv* env, jclass,
  */
 jlong Java_org_rocksdb_RocksDB_createColumnFamily(JNIEnv* env, jclass,
                                                   jlong jhandle,
-                                                  jbyteArray jcf_name,
-                                                  jint jcf_name_len,
-                                                  jlong jcf_options_handle) {
+                                                  jlong jcf_descriptor) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
-  jboolean has_exception = JNI_FALSE;
-  const std::string cf_name =
-      ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
-          env, jcf_name, jcf_name_len,
-          [](const char* str, const size_t len) {
-            return std::string(str, len);
-          },
-          &has_exception);
-  if (has_exception == JNI_TRUE) {
-    // exception occurred
-    return 0;
-  }
-  auto* cf_options = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(
-      jcf_options_handle);
+  auto* cf_descriptor = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(jcf_descriptor);
   ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
   ROCKSDB_NAMESPACE::Status s =
-      db->CreateColumnFamily(*cf_options, cf_name, &cf_handle);
+      db->CreateColumnFamily(cf_descriptor->options, cf_descriptor->name, &cf_handle);
   if (!s.ok()) {
     // error occurred
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
@@ -421,62 +390,26 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__JJ_3_3B(
  * Method:    createColumnFamilies
  * Signature: (J[J[[B)[J
  */
-jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
-    JNIEnv* env, jclass, jlong jhandle, jlongArray jcf_options_handles,
-    jobjectArray jcf_names) {
+jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J(
+    JNIEnv* env, jclass, jlong jhandle, jlongArray jcf_descriptor_handles) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
-  const jsize jlen = env->GetArrayLength(jcf_options_handles);
+  const jsize jlen = env->GetArrayLength(jcf_descriptor_handles);
+
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> cf_descriptors;
   cf_descriptors.reserve(jlen);
 
-  jlong* jcf_options_handles_elems =
-      env->GetLongArrayElements(jcf_options_handles, nullptr);
-  if (jcf_options_handles_elems == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
+  auto cf_descriptor_handles = std::make_unique<jlong[]>(jlen);
 
-  // extract the column family descriptors
-  jboolean has_exception = JNI_FALSE;
+  env->GetLongArrayRegion(jcf_descriptor_handles, 0, jlen, cf_descriptor_handles.get());
+
   for (jsize i = 0; i < jlen; i++) {
-    auto* cf_options =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(
-            jcf_options_handles_elems[i]);
-    jbyteArray jcf_name =
-        static_cast<jbyteArray>(env->GetObjectArrayElement(jcf_names, i));
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      env->ReleaseLongArrayElements(jcf_options_handles,
-                                    jcf_options_handles_elems, JNI_ABORT);
-      return nullptr;
-    }
-    const std::string cf_name =
-        ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
-            env, jcf_name,
-            [](const char* str, const size_t len) {
-              return std::string(str, len);
-            },
-            &has_exception);
-    if (has_exception == JNI_TRUE) {
-      // exception occurred
-      env->DeleteLocalRef(jcf_name);
-      env->ReleaseLongArrayElements(jcf_options_handles,
-                                    jcf_options_handles_elems, JNI_ABORT);
-      return nullptr;
-    }
-
-    cf_descriptors.push_back(
-        ROCKSDB_NAMESPACE::ColumnFamilyDescriptor(cf_name, *cf_options));
-
-    env->DeleteLocalRef(jcf_name);
+    auto cf_descriptor_handle = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptor_handles[i]);
+    cf_descriptors.push_back(*cf_descriptor_handle);
   }
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   ROCKSDB_NAMESPACE::Status s =
       db->CreateColumnFamilies(cf_descriptors, &cf_handles);
-
-  env->ReleaseLongArrayElements(jcf_options_handles, jcf_options_handles_elems,
-                                JNI_ABORT);
 
   if (!s.ok()) {
     // error occurred
@@ -484,6 +417,7 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
     return nullptr;
   }
 
+  jboolean has_exception = JNI_FALSE;
   jlongArray jcf_handles = ROCKSDB_NAMESPACE::JniUtil::toJPointers<
       ROCKSDB_NAMESPACE::ColumnFamilyHandle>(env, cf_handles, &has_exception);
   if (has_exception == JNI_TRUE) {
