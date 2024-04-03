@@ -346,6 +346,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/transactions/write_unprepared_txn.cc",
         "utilities/transactions/write_unprepared_txn_db.cc",
         "utilities/ttl/db_ttl_impl.cc",
+        "utilities/types_util.cc",
         "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
@@ -5523,6 +5524,12 @@ cpp_unittest_wrapper(name="transaction_test",
 
 cpp_unittest_wrapper(name="ttl_test",
             srcs=["utilities/ttl/ttl_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="types_util_test",
+            srcs=["utilities/types_util_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

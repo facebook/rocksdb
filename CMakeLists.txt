@@ -954,6 +954,7 @@ set(SOURCES
         utilities/transactions/write_prepared_txn_db.cc
         utilities/transactions/write_unprepared_txn.cc
         utilities/transactions/write_unprepared_txn_db.cc
+        utilities/types_util.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/wal_filter.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
@@ -1484,6 +1485,7 @@ if(WITH_TESTS)
         utilities/transactions/lock/range/range_locking_test.cc
         utilities/transactions/timestamped_snapshot_test.cc
         utilities/ttl/ttl_test.cc
+        utilities/types_util_test.cc
         utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
 	${PLUGIN_TESTS}
