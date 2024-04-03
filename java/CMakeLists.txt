@@ -21,6 +21,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/cassandra_value_operator.cc
         rocksjni/checkpoint.cc
         rocksjni/clock_cache.cc
+        rocksjni/columncamilydescriptor.cc
         rocksjni/columnfamilyhandle.cc
         rocksjni/compact_range_options.cc
         rocksjni/compaction_filter.cc
@@ -325,6 +326,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/BytewiseComparatorRegressionTest.java
   src/test/java/org/rocksdb/CheckPointTest.java
   src/test/java/org/rocksdb/ClockCacheTest.java
+  src/test/java/org/rocksdb/ColumnFamilyDescriptorTest.java
   src/test/java/org/rocksdb/ColumnFamilyOptionsTest.java
   src/test/java/org/rocksdb/ColumnFamilyTest.java
   src/test/java/org/rocksdb/CompactRangeOptionsTest.java
@@ -443,6 +445,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.BytewiseComparatorRegressionTest
   org.rocksdb.CheckPointTest
   org.rocksdb.ClockCacheTest
+  org.rocksdb.ColumnFamilyDescriptorTest
   org.rocksdb.ColumnFamilyOptionsTest
   org.rocksdb.ColumnFamilyTest
   org.rocksdb.CompactRangeOptionsTest

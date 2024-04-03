@@ -71,13 +71,13 @@ public class OptimisticTransactionDB extends RocksDB
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
     int defaultColumnFamilyIndex = -1;
-    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
-    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+
+    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
+
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.getName();
-      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
       if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
         defaultColumnFamilyIndex = i;
       }
@@ -87,8 +87,7 @@ public class OptimisticTransactionDB extends RocksDB
           "You must provide the default column family in your columnFamilyDescriptors");
     }
 
-    final long[] handles = open(dbOptions.nativeHandle_, path, cfNames,
-        cfOptionHandles);
+    final long[] handles = open(dbOptions.nativeHandle_, path, cfDescriptorHandles);
     final OptimisticTransactionDB otdb =
         new OptimisticTransactionDB(handles[0]);
 
@@ -232,7 +231,7 @@ public class OptimisticTransactionDB extends RocksDB
   protected static native long open(final long optionsHandle,
       final String path) throws RocksDBException;
   protected static native long[] open(final long handle, final String path,
-      final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
+                                      final long[] columnFamilyDescriptors);
   private static native void closeDatabase(final long handle) throws RocksDBException;
   private static native long beginTransaction(final long handle, final long writeOptionsHandle);
   private static native long beginTransaction(final long handle, final long writeOptionsHandle,
