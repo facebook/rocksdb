@@ -28,6 +28,7 @@
 #include "util/coding.h"
 #include "util/concurrent_task_limiter_impl.h"
 #include "util/udt_util.h"
+#include "util/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -3131,6 +3132,8 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
                                bool* flush_rescheduled_to_retain_udt,
                                Env::Priority thread_pri) {
   mutex_.AssertHeld();
+  auto& thread_metadata = TG_GetThreadMetadata();
+  thread_metadata.client_id = -1;
 
   Status status;
   *reason = FlushReason::kOthers;
@@ -3271,6 +3274,9 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   for (auto cfd : column_families_not_to_flush) {
     cfd->UnrefAndTryDelete();
   }
+
+  // Reset
+  thread_metadata.client_id = 0;
   return status;
 }
 

@@ -76,6 +76,10 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
   }
+  for (int i = 0; i < kTGNumClients; ++i) {
+    calls_per_client_[i] = 0;
+    available_bytes_arr_[i] = 0;
+  }
   std::cout << "[TGRIGGS_LOG] rate_bytes_per_sec_ = " << rate_bytes_per_sec_ << std::endl;
 }
 
@@ -144,11 +148,20 @@ void MultiTenantRateLimiter::TGprintStackTrace() {
 
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
-  // TGprintStackTrace();
   auto& thread_metadata = TG_GetThreadMetadata();
 
+  if (thread_metadata.client_id == 0) {
+    TGprintStackTrace();
+  }
+
+  if (thread_metadata.client_id == -2) {
+    std::cout << "[TGRIGGS_LOG] bad input" << std::endl;
+    return;
+  }
+
+  // Flush - don't block them (for now)
   if (thread_metadata.client_id == -1) {
-    std::cout << "[TGRIGGS_LOG] un-set client id";
+    // std::cout << "[TGRIGGS_LOG] un-set client id" << std::endl;
     return;
   }
 
@@ -156,7 +169,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   calls_per_client_[thread_metadata.client_id]++;
   if (total_calls_++ >= 1000) {
     total_calls_ = 0;
-    std::cout << "[TGRIGGS_LOG] RL for clients: ";
+    std::cout << "[TGRIGGS_LOG] RL calls per-clients: ";
     for (const auto& calls : calls_per_client_) {
       std::cout << calls << ", ";
     }
@@ -202,6 +215,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Request cannot be satisfied at this moment, enqueue
   Req r(bytes, &request_mutex_);
 
+  std::cout << "[TGRIGGS_LOG] Pushing back for client,pri,bytes: " << client_id << "," << pri << "," << bytes << std::endl;
   multi_tenant_queue_[client_id][pri].push_back(&r);
   // queue_[pri].push_back(&r);
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
@@ -340,7 +354,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
     available_bytes_arr_[i] = refill_bytes_per_period;
   }
 
-  int client_order[kTGNumClients] = {0, 1, 2, 3};
+  int client_order[kTGNumClients] = {0, 1, 2, 3, 4};
   std::random_shuffle(std::begin(client_order), std::end(client_order));
 
   // Logic
@@ -366,6 +380,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
         available_bytes_arr_[i] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[j] += next_req->bytes;
+        std::cout << "[TGRIGGS_LOG] Popping client,pri: " << i << "," << j << std::endl;
         queue->pop_front();
 
         // Quota granted, signal the thread to exit

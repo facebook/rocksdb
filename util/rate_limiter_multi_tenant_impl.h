@@ -24,7 +24,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-static const int kTGNumClients = 4;
+// TODO(tgriggs): fix this
+static const int kTGNumClients = 5;
 
 class MultiTenantRateLimiter : public RateLimiter {
  public:
@@ -156,7 +157,7 @@ class MultiTenantRateLimiter : public RateLimiter {
   int64_t available_bytes_arr_[kTGNumClients];
   std::array<std::array<std::deque<Req*>, Env::IO_TOTAL>, kTGNumClients> multi_tenant_queue_;
 
-  int calls_per_client_[4];
+  int calls_per_client_[kTGNumClients];
   int total_calls_;
 
 };
