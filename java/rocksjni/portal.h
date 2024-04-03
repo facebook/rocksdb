@@ -6788,14 +6788,14 @@ class ColumnFamilyDescriptorJni : public JavaClass {
     }
 
     jmethodID mid = env->GetMethodID(jclazz, "<init>",
-                                     "([BLorg/rocksdb/ColumnFamilyOptions;)V");
+                                     "([BLorg/rocksdb/ColumnFamilyOptions;Z)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       env->DeleteLocalRef(jcf_name);
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, jcf_name, cfopts);
+    jobject jcfd = env->NewObject(jclazz, mid, jcf_name, cfopts, JNI_TRUE);
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jcf_name);
       return nullptr;
