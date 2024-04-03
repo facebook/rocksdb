@@ -54,7 +54,7 @@ struct MultiTenantRateLimiter::Req {
 MultiTenantRateLimiter::MultiTenantRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
     RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock,
-    bool auto_tuned, int64_t single_burst_bytes)
+    bool auto_tuned, int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec)
     : RateLimiter(mode),
       refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
@@ -71,7 +71,8 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       wait_until_refill_pending_(false),
-      available_bytes_arr_{} {
+      available_bytes_arr_{},
+      read_rate_bytes_per_sec_(read_rate_bytes_per_sec) {
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
@@ -81,6 +82,17 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
     available_bytes_arr_[i] = 0;
   }
   std::cout << "[TGRIGGS_LOG] rate_bytes_per_sec_ = " << rate_bytes_per_sec_ << std::endl;
+
+  if (read_rate_bytes_per_sec_ > 0) {
+    read_rate_limiter_ = NewMultiTenantRateLimiter(
+        read_rate_bytes_per_sec_, // <rate_limit> MB/s rate limit
+        100 * 1000,        // Refill period = 100ms (default)
+        10,                // Fairness (default)
+        rocksdb::RateLimiter::Mode::kWritesOnly, // Apply only to writes
+        false,              // Disable auto-tuning
+        /* read_rate_limit = */ 0
+    );
+  }
 }
 
 MultiTenantRateLimiter::~MultiTenantRateLimiter() {
@@ -147,11 +159,24 @@ void MultiTenantRateLimiter::TGprintStackTrace() {
 }
 
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
+                                 Statistics* stats, OpType op_type) {
+  if (op_type == RateLimiter::OpType::kRead) {
+    if (read_rate_limiter_ != nullptr) {
+      read_rate_limiter_->Request(bytes, pri, stats);
+    }
+    return;
+  } else {
+    Request(bytes, pri, stats);
+  }
+}
+                                
+
+void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   auto& thread_metadata = TG_GetThreadMetadata();
 
   if (thread_metadata.client_id == 0) {
-    TGprintStackTrace();
+    // TGprintStackTrace();
   }
 
   if (thread_metadata.client_id == -2) {
@@ -160,6 +185,8 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   }
 
   // Flush - don't block them (for now)
+  // TODO:
+  //    Idea: give support for splitting across certain clients
   if (thread_metadata.client_id == -1) {
     // std::cout << "[TGRIGGS_LOG] un-set client id" << std::endl;
     return;
@@ -169,7 +196,12 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   calls_per_client_[thread_metadata.client_id]++;
   if (total_calls_++ >= 1000) {
     total_calls_ = 0;
-    std::cout << "[TGRIGGS_LOG] RL calls per-clients: ";
+    std::cout << "[TGRIGGS_LOG] RL calls per-clients for ";
+    if (read_rate_bytes_per_sec_ == 0) {
+      std::cout << "READ: ";
+    } else {
+      std::cout << "WRITE: ";
+    }
     for (const auto& calls : calls_per_client_) {
       std::cout << calls << ", ";
     }
@@ -184,7 +216,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   TEST_SYNC_POINT("MultiTenantRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
-  MutexLock g(&request_mutex_);
+  MutexLock g_lock(&request_mutex_);
 
   if (stop_) {
     // It is now in the clean-up of ~MultiTenantRateLimiter().
@@ -213,10 +245,10 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   }
 
   // Request cannot be satisfied at this moment, enqueue
-  Req r(bytes, &request_mutex_);
+  Req req(bytes, &request_mutex_);
 
-  std::cout << "[TGRIGGS_LOG] Pushing back for client,pri,bytes: " << client_id << "," << pri << "," << bytes << std::endl;
-  multi_tenant_queue_[client_id][pri].push_back(&r);
+  // std::cout << "[TGRIGGS_LOG] Pushing back for client,pri,bytes: " << client_id << "," << pri << "," << bytes << std::endl;
+  multi_tenant_queue_[client_id][pri].push_back(&req);
   // queue_[pri].push_back(&r);
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
                            &request_mutex_);
@@ -231,14 +263,14 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       if (wait_until_refill_pending_) {
         // Somebody is performing (1). Trust we'll be woken up when our request
         // is granted or we are needed for future duties.
-        r.cv.Wait();
+        req.cv.Wait();
       } else {
         // Whichever thread reaches here first performs duty (1) as described
         // above.
         int64_t wait_until = clock_->NowMicros() + time_until_refill_us;
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         wait_until_refill_pending_ = true;
-        clock_->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
+        clock_->TimedWait(&req.cv, std::chrono::microseconds(wait_until));
         TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostTimedWait",
                                  &time_until_refill_us);
         wait_until_refill_pending_ = false;
@@ -248,7 +280,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // above.
       RefillBytesAndGrantRequestsLocked();
     }
-    if (r.request_bytes == 0) {
+    if (req.request_bytes == 0) {
       // If there is any remaining requests, make sure there exists at least
       // one candidate is awake for future duties by signaling a front request
       // of a queue.
@@ -279,7 +311,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 //       assert(num_found == 1);
 //     }
 // #endif  // NDEBUG
-  } while (!stop_ && r.request_bytes > 0);
+  } while (!stop_ && req.request_bytes > 0);
 
   if (stop_) {
     // It is now in the clean-up of ~MultiTenantRateLimiter().
@@ -380,7 +412,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
         available_bytes_arr_[i] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[j] += next_req->bytes;
-        std::cout << "[TGRIGGS_LOG] Popping client,pri: " << i << "," << j << std::endl;
+        // std::cout << "[TGRIGGS_LOG] Popping client,pri: " << i << "," << j << std::endl;
         queue->pop_front();
 
         // Quota granted, signal the thread to exit
@@ -436,13 +468,14 @@ RateLimiter* NewMultiTenantRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us /* = 100 * 1000 */,
     int32_t fairness /* = 10 */,
     RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */,
-    bool auto_tuned /* = false */, int64_t single_burst_bytes /* = 0 */) {
+    bool auto_tuned /* = false */, int64_t single_burst_bytes /* = 0 */,
+    int64_t read_rate_bytes_per_sec /* = 0 */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
   std::unique_ptr<RateLimiter> limiter(new MultiTenantRateLimiter(
       rate_bytes_per_sec, refill_period_us, fairness, mode,
-      SystemClock::Default(), auto_tuned, single_burst_bytes));
+      SystemClock::Default(), auto_tuned, single_burst_bytes, read_rate_bytes_per_sec));
   return limiter.release();
 }
 

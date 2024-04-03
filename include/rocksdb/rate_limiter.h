@@ -173,6 +173,6 @@ RateLimiter* NewMultiTenantRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us = 100 * 1000,
     int32_t fairness = 10,
     RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly,
-    bool auto_tuned = false, int64_t single_burst_bytes = 0);
+    bool auto_tuned = false, int64_t single_burst_bytes = 0, int64_t read_rate_bytes_per_sec = 0);
 
 }  // namespace ROCKSDB_NAMESPACE

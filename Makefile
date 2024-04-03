@@ -79,13 +79,13 @@ endif
 # Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
 #
 LIB_MODE?=static
-# ifeq ($(DEBUG_LEVEL), 0)
-# # For optimized, set the default LIB_MODE to static for code size/efficiency
-# 	LIB_MODE?=static
-# else
-# # For debug, set the default LIB_MODE to shared for efficient `make check` etc.
-# 	LIB_MODE?=shared
-# endif
+ifeq ($(DEBUG_LEVEL), 0)
+# For optimized, set the default LIB_MODE to static for code size/efficiency
+	LIB_MODE?=static
+else
+# For debug, set the default LIB_MODE to shared for efficient `make check` etc.
+	LIB_MODE?=shared
+endif
 
 $(info $$DEBUG_LEVEL is $(DEBUG_LEVEL), $$LIB_MODE is $(LIB_MODE))
 

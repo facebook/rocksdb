@@ -32,7 +32,7 @@ class MultiTenantRateLimiter : public RateLimiter {
   MultiTenantRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
                      int32_t fairness, RateLimiter::Mode mode,
                      const std::shared_ptr<SystemClock>& clock, bool auto_tuned,
-                     int64_t single_burst_bytes);
+                     int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec);
 
   virtual ~MultiTenantRateLimiter();
 
@@ -48,6 +48,8 @@ class MultiTenantRateLimiter : public RateLimiter {
   using RateLimiter::Request;
   void Request(const int64_t bytes, const Env::IOPriority pri,
                Statistics* stats) override;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+                       Statistics* stats, OpType op_type) override;
 
   int64_t GetSingleBurstBytes() const override {
     int64_t raw_single_burst_bytes =
@@ -160,6 +162,8 @@ class MultiTenantRateLimiter : public RateLimiter {
   int calls_per_client_[kTGNumClients];
   int total_calls_;
 
+  RateLimiter* read_rate_limiter_ = nullptr;
+  int64_t read_rate_bytes_per_sec_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
