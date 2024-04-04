@@ -123,7 +123,7 @@ public class TtlDB extends RocksDB {
     int defaultColumnFamilyIndex = -1;
     final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor =
+      final ColumnFamilyDescriptor cfDescriptor = // NOPMD - CloseResource
           columnFamilyDescriptors.get(i);
       cfDescriptorHandles[i] = columnFamilyDescriptors.get(i).nativeHandle_;
       if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
