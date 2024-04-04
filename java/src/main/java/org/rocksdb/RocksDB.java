@@ -617,7 +617,7 @@ public class RocksDB extends RocksObject {
     final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
 
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor =  // NOPMD - CloseResource
+      final ColumnFamilyDescriptor cfDescriptor = // NOPMD - CloseResource
           columnFamilyDescriptors.get(i);
       cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
     }
