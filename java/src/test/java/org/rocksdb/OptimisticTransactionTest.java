@@ -398,7 +398,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
              new OptimisticTransactionOptions();
 
     return new OptimisticTransactionDBContainer(optimisticTxnOptions,
-        writeOptions, columnFamilyHandles, optimisticTxnDb, columnFamilyOptions,
+        writeOptions, columnFamilyHandles, columnFamilyDescriptors, optimisticTxnDb, columnFamilyOptions,
         options);
   }
 
@@ -412,10 +412,11 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         final OptimisticTransactionOptions optimisticTxnOptions,
         final WriteOptions writeOptions,
         final List<ColumnFamilyHandle> columnFamilyHandles,
+        final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
         final OptimisticTransactionDB optimisticTxnDb,
         final ColumnFamilyOptions columnFamilyOptions,
         final DBOptions options) {
-      super(writeOptions, columnFamilyHandles, columnFamilyOptions,
+      super(writeOptions, columnFamilyDescriptors, columnFamilyHandles, columnFamilyOptions,
           options);
       this.optimisticTxnOptions = optimisticTxnOptions;
       this.optimisticTxnDb = optimisticTxnDb;
@@ -437,6 +438,9 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
     public void close() {
       optimisticTxnOptions.close();
       writeOptions.close();
+      for (ColumnFamilyDescriptor columnFamilyDescriptor : columnFamilyDescriptors) {
+        columnFamilyDescriptor.close();
+      }
       for(final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
         columnFamilyHandle.close();
       }
