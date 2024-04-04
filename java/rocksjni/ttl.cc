@@ -60,8 +60,9 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
                                          jlongArray jcf_descriptors,
                                          jintArray jttls, jboolean jread_only) {
   jboolean has_exception = false;
-  const auto db_path = ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jdb_path, &has_exception);
-  if(has_exception) {
+  const auto db_path =
+      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jdb_path, &has_exception);
+  if (has_exception) {
     return nullptr;
   }
 
@@ -74,8 +75,10 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   column_families.reserve(len_cols);
-  for(int i = 0; i < len_cols ; i++) {
-    column_families.push_back(*reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptors[i]));
+  for (int i = 0; i < len_cols; i++) {
+    column_families.push_back(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
+            cf_descriptors[i]));
   }
 
   std::vector<int32_t> ttl_values;
@@ -157,17 +160,16 @@ void Java_org_rocksdb_TtlDB_closeDatabase(JNIEnv* /* env */, jclass,
  * Method:    createColumnFamilyWithTtl
  * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;[BJI)J;
  */
-jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(JNIEnv* env, jclass,
-                                                       jlong jdb_handle,
-                                                       jlong jcf_descriptor_handle,
-                                                       jint jttl) {
-
+jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jcf_descriptor_handle,
+    jint jttl) {
   auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jdb_handle);
-  auto* cf_descriptor = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(jcf_descriptor_handle);
+  auto* cf_descriptor =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
+          jcf_descriptor_handle);
   ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle;
   ROCKSDB_NAMESPACE::Status s = db_handle->CreateColumnFamilyWithTtl(
-      cf_descriptor->options, cf_descriptor->name, &handle,
-      jttl);
+      cf_descriptor->options, cf_descriptor->name, &handle, jttl);
 
   if (s.ok()) {
     return GET_CPLUSPLUS_POINTER(handle);
