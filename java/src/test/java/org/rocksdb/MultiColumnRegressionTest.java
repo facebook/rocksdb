@@ -97,7 +97,7 @@ public class MultiColumnRegressionTest {
         columnFamilyHandle.close();
       }
     }
-    for (ColumnFamilyDescriptor descriptor: columnFamilyDescriptors) {
+    for (ColumnFamilyDescriptor descriptor : columnFamilyDescriptors) {
       descriptor.close();
     }
   }
@@ -144,7 +144,7 @@ public class MultiColumnRegressionTest {
         columnFamilyHandle.close();
       }
     }
-    for (ColumnFamilyDescriptor descriptor: columnFamilyDescriptors) {
+    for (ColumnFamilyDescriptor descriptor : columnFamilyDescriptors) {
       descriptor.close();
     }
   }

@@ -435,7 +435,7 @@ public class RocksIteratorTest {
       }
 
       // Test case: release iterator after custom CF close
-      try(final ColumnFamilyDescriptor cfd1 = new ColumnFamilyDescriptor("cf1".getBytes())) {
+      try (final ColumnFamilyDescriptor cfd1 = new ColumnFamilyDescriptor("cf1".getBytes())) {
         final ColumnFamilyHandle cfHandle1 = db.createColumnFamily(cfd1);
         db.put(cfHandle1, "key1".getBytes(), "value1".getBytes());
 
@@ -450,7 +450,7 @@ public class RocksIteratorTest {
       }
 
       // Test case: release iterator after custom CF drop & close
-      try(final ColumnFamilyDescriptor cfd2 = new ColumnFamilyDescriptor("cf2".getBytes())) {
+      try (final ColumnFamilyDescriptor cfd2 = new ColumnFamilyDescriptor("cf2".getBytes())) {
         final ColumnFamilyHandle cfHandle2 = db.createColumnFamily(cfd2);
         db.put(cfHandle2, "key2".getBytes(), "value2".getBytes());
 
