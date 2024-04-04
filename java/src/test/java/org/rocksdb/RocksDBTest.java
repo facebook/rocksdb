@@ -66,10 +66,9 @@ public class RocksDBTest {
       try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
            final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()
       ) {
-
-        try (final ColumnFamilyDescriptor columnFamilyDescriptor = new ColumnFamilyDescriptor(col1Name, cfOpts);
-                final ColumnFamilyHandle col1 =
-            db.createColumnFamily(columnFamilyDescriptor)) {
+        try (final ColumnFamilyDescriptor columnFamilyDescriptor =
+                 new ColumnFamilyDescriptor(col1Name, cfOpts);
+             final ColumnFamilyHandle col1 = db.createColumnFamily(columnFamilyDescriptor)) {
           assertThat(col1).isNotNull();
           assertThat(col1.getName()).isEqualTo(col1Name);
         }
@@ -119,13 +118,12 @@ public class RocksDBTest {
 
     cfHandles = new ArrayList<>();
 
-
-    try (final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+    try (final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
          final ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor(col1Name);
          final ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor(col2Name);
-         final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
-             Arrays.asList(defaultCF, cf1, cf2),
-             cfHandles)) {
+         final RocksDB ignored = RocksDB.open(
+             dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF, cf1, cf2), cfHandles)) {
       try {
         assertThat(cfHandles.size()).isEqualTo(3);
         assertThat(cfHandles.get(1)).isNotNull();
@@ -149,13 +147,8 @@ public class RocksDBTest {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
          final ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor(col1Name, cfOpts);
-         final ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor(col2Name, cfOpts)
-    ) {
-
-      cfHandles =
-          db.createColumnFamilies(Arrays.asList(
-                  cf1,
-                  cf2));
+         final ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor(col2Name, cfOpts)) {
+      cfHandles = db.createColumnFamilies(Arrays.asList(cf1, cf2));
       try {
         assertThat(cfHandles).isNotNull();
         assertThat(cfHandles.size()).isEqualTo(2);
@@ -170,13 +163,12 @@ public class RocksDBTest {
 
     cfHandles = new ArrayList<>();
 
-    try (final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+    try (final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
          final ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor(col1Name);
          final ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor(col2Name);
-            final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
-             Arrays.asList(defaultCF,
-                     cf1, cf2),
-             cfHandles)) {
+         final RocksDB ignored = RocksDB.open(
+             dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF, cf1, cf2), cfHandles)) {
       try {
         assertThat(cfHandles.size()).isEqualTo(3);
         assertThat(cfHandles.get(1)).isNotNull();
@@ -711,28 +703,24 @@ public class RocksDBTest {
   @Test
   public void fullCompactRangeColumnFamily()
       throws RocksDBException {
-    try (
-        final DBOptions opt = new DBOptions().
-            setCreateIfMissing(true).
-            setCreateMissingColumnFamilies(true);
-        final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions().
-            setDisableAutoCompactions(true).
-            setCompactionStyle(CompactionStyle.LEVEL).
-            setNumLevels(4).
-            setWriteBufferSize(100 << 10).
-            setLevelZeroFileNumCompactionTrigger(3).
-            setTargetFileSizeBase(200 << 10).
-            setTargetFileSizeMultiplier(1).
-            setMaxBytesForLevelBase(500 << 10).
-            setMaxBytesForLevelMultiplier(1).
-            setDisableAutoCompactions(false);
-        final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-        final ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)
-    ) {
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-                  defaultCF,
-                  cf1);
+    try (final DBOptions opt =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+                                                     .setDisableAutoCompactions(true)
+                                                     .setCompactionStyle(CompactionStyle.LEVEL)
+                                                     .setNumLevels(4)
+                                                     .setWriteBufferSize(100 << 10)
+                                                     .setLevelZeroFileNumCompactionTrigger(3)
+                                                     .setTargetFileSizeBase(200 << 10)
+                                                     .setTargetFileSizeMultiplier(1)
+                                                     .setMaxBytesForLevelBase(500 << 10)
+                                                     .setMaxBytesForLevelMultiplier(1)
+                                                     .setDisableAutoCompactions(false);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor cf1 =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, cf1);
 
       // open database
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
@@ -825,29 +813,24 @@ public class RocksDBTest {
   @Test
   public void compactRangeWithKeysColumnFamily()
       throws RocksDBException {
-    try (final DBOptions opt = new DBOptions().
-        setCreateIfMissing(true).
-        setCreateMissingColumnFamilies(true);
-         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions().
-             setDisableAutoCompactions(true).
-             setCompactionStyle(CompactionStyle.LEVEL).
-             setNumLevels(4).
-             setWriteBufferSize(100 << 10).
-             setLevelZeroFileNumCompactionTrigger(3).
-             setTargetFileSizeBase(200 << 10).
-             setTargetFileSizeMultiplier(1).
-             setMaxBytesForLevelBase(500 << 10).
-             setMaxBytesForLevelMultiplier(1).
-             setDisableAutoCompactions(false);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCf = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)
-    ) {
-
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-                  defaultCF,
-                  newCf
-          );
+    try (final DBOptions opt =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+                                                     .setDisableAutoCompactions(true)
+                                                     .setCompactionStyle(CompactionStyle.LEVEL)
+                                                     .setNumLevels(4)
+                                                     .setWriteBufferSize(100 << 10)
+                                                     .setLevelZeroFileNumCompactionTrigger(3)
+                                                     .setTargetFileSizeBase(200 << 10)
+                                                     .setTargetFileSizeMultiplier(1)
+                                                     .setMaxBytesForLevelBase(500 << 10)
+                                                     .setMaxBytesForLevelMultiplier(1)
+                                                     .setDisableAutoCompactions(false);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCf =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, newCf);
 
       // open database
       final List<ColumnFamilyHandle> columnFamilyHandles =
@@ -878,29 +861,24 @@ public class RocksDBTest {
   @Test
   public void compactRangeWithKeysReduceColumnFamily()
       throws RocksDBException {
-    try (final DBOptions opt = new DBOptions().
-        setCreateIfMissing(true).
-        setCreateMissingColumnFamilies(true);
-         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions().
-             setDisableAutoCompactions(true).
-             setCompactionStyle(CompactionStyle.LEVEL).
-             setNumLevels(4).
-             setWriteBufferSize(100 << 10).
-             setLevelZeroFileNumCompactionTrigger(3).
-             setTargetFileSizeBase(200 << 10).
-             setTargetFileSizeMultiplier(1).
-             setMaxBytesForLevelBase(500 << 10).
-             setMaxBytesForLevelMultiplier(1).
-             setDisableAutoCompactions(false);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts);
-    ) {
-
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-                  defaultCF,
-                  newCF
-          );
+    try (final DBOptions opt =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+                                                     .setDisableAutoCompactions(true)
+                                                     .setCompactionStyle(CompactionStyle.LEVEL)
+                                                     .setNumLevels(4)
+                                                     .setWriteBufferSize(100 << 10)
+                                                     .setLevelZeroFileNumCompactionTrigger(3)
+                                                     .setTargetFileSizeBase(200 << 10)
+                                                     .setTargetFileSizeMultiplier(1)
+                                                     .setMaxBytesForLevelBase(500 << 10)
+                                                     .setMaxBytesForLevelMultiplier(1)
+                                                     .setDisableAutoCompactions(false);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCF =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts);) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, newCF);
 
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
       // open database
@@ -1101,15 +1079,11 @@ public class RocksDBTest {
              setMaxBytesForLevelBase(NUM_L0_FILES * L0_FILE_SIZE * 100)
                  .setMaxBytesForLevelMultiplier(2)
                  .setDisableAutoCompactions(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts);
-         ) {
-
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-                  defaultCF,
-                  newCF
-          );
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCF =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts);) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, newCF);
 
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
       // open database
@@ -1215,19 +1189,14 @@ public class RocksDBTest {
   public void continueBackgroundWorkAfterCancelAllBackgroundWork() throws RocksDBException {
     final int KEY_SIZE = 20;
     final int VALUE_SIZE = 300;
-    try (final DBOptions opt = new DBOptions().
-        setCreateIfMissing(true).
-        setCreateMissingColumnFamilies(true);
+    try (final DBOptions opt =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts);
-    ) {
-
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-                  defaultCF,
-                  newCF
-          );
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCF =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts);) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, newCF);
 
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
       // open the database
@@ -1294,20 +1263,14 @@ public class RocksDBTest {
 
   @Test
   public void setOptions() throws RocksDBException {
-    try (final DBOptions options = new DBOptions()
-             .setCreateIfMissing(true)
-             .setCreateMissingColumnFamilies(true);
-         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
-             .setWriteBufferSize(4096);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCf = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)
-         ) {
-
-
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-                  defaultCF,
-                  newCf);
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions().setWriteBufferSize(4096);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCf =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, newCf);
 
       // open database
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
@@ -1506,21 +1469,17 @@ public class RocksDBTest {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath);
            final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions(options);
-           final ColumnFamilyDescriptor cfDescriptor = new ColumnFamilyDescriptor(cfName,
-                   cfOptions);
-      ) {
+           final ColumnFamilyDescriptor cfDescriptor =
+               new ColumnFamilyDescriptor(cfName, cfOptions);) {
         db.createColumnFamily(cfDescriptor).close();
       }
 
       try (final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions(options);
-      final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOptions);
-      final ColumnFamilyDescriptor cfDescriptor = new ColumnFamilyDescriptor(cfName, cfOptions)
-      ) {
-
-        final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
-                defaultCF,
-                cfDescriptor
-        );
+           final ColumnFamilyDescriptor defaultCF =
+               new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOptions);
+           final ColumnFamilyDescriptor cfDescriptor =
+               new ColumnFamilyDescriptor(cfName, cfOptions)) {
+        final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(defaultCF, cfDescriptor);
         final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
         try (final DBOptions dbOptions = new DBOptions(options);
              final RocksDB db = RocksDB.open(dbOptions, dbPath, cfDescriptors, cfHandles)) {
@@ -1554,12 +1513,10 @@ public class RocksDBTest {
 
   @Test
   public void enableAutoCompaction() throws RocksDBException {
-    try (final DBOptions options = new DBOptions()
-        .setCreateIfMissing(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-    ) {
-      final List<ColumnFamilyDescriptor> cfDescs =
-          Collections.singletonList(defaultCF);
+    try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
+      final List<ColumnFamilyDescriptor> cfDescs = Collections.singletonList(defaultCF);
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
@@ -1577,9 +1534,9 @@ public class RocksDBTest {
   @Test
   public void enableAutoCompactionNull() throws RocksDBException {
     try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
-         final ColumnFamilyDescriptor defaultCf = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
-      final List<ColumnFamilyDescriptor> cfDescs =
-          Arrays.asList(defaultCf);
+         final ColumnFamilyDescriptor defaultCf =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
+      final List<ColumnFamilyDescriptor> cfDescs = Arrays.asList(defaultCf);
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
@@ -1731,11 +1688,10 @@ public class RocksDBTest {
 
   @Test
   public void getColumnFamilyMetaData() throws RocksDBException {
-    try (final DBOptions options = new DBOptions()
-        .setCreateIfMissing(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
-      final List<ColumnFamilyDescriptor> cfDescs =
-          Collections.singletonList(defaultCF);
+    try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
+      final List<ColumnFamilyDescriptor> cfDescs = Collections.singletonList(defaultCF);
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
@@ -1767,11 +1723,10 @@ public class RocksDBTest {
 
   @Test
   public void getPropertiesOfAllTables() throws RocksDBException {
-    try (final DBOptions options = new DBOptions()
-        .setCreateIfMissing(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
-      final List<ColumnFamilyDescriptor> cfDescs =
-          Collections.singletonList(defaultCF);
+    try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
+      final List<ColumnFamilyDescriptor> cfDescs = Collections.singletonList(defaultCF);
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
@@ -1791,11 +1746,10 @@ public class RocksDBTest {
 
   @Test
   public void getPropertiesOfTablesInRange() throws RocksDBException {
-    try (final DBOptions options = new DBOptions()
-        .setCreateIfMissing(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)) {
-      final List<ColumnFamilyDescriptor> cfDescs =
-          Collections.singletonList(defaultCF);
+    try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)) {
+      final List<ColumnFamilyDescriptor> cfDescs = Collections.singletonList(defaultCF);
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
@@ -1820,11 +1774,10 @@ public class RocksDBTest {
 
   @Test
   public void suggestCompactRange() throws RocksDBException {
-    try (final DBOptions options = new DBOptions()
-        .setCreateIfMissing(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
-      final List<ColumnFamilyDescriptor> cfDescs =
-          Collections.singletonList(defaultCF);
+    try (final DBOptions options = new DBOptions().setCreateIfMissing(true);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
+      final List<ColumnFamilyDescriptor> cfDescs = Collections.singletonList(defaultCF);
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
@@ -1847,14 +1800,13 @@ public class RocksDBTest {
   public void suggestCompactRangeCF() throws RocksDBException {
     try (final DBOptions options =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCf = new ColumnFamilyDescriptor("new_cf".getBytes(), new ColumnFamilyOptions());
-         final ColumnFamilyDescriptor newCf2 = new ColumnFamilyDescriptor("new_cf2".getBytes(), new ColumnFamilyOptions())) {
-
-      final List<ColumnFamilyDescriptor> cfDescs =
-          Arrays.asList(defaultCF,
-                  newCf,
-                  newCf2);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCf =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new ColumnFamilyOptions());
+         final ColumnFamilyDescriptor newCf2 =
+             new ColumnFamilyDescriptor("new_cf2".getBytes(), new ColumnFamilyOptions())) {
+      final List<ColumnFamilyDescriptor> cfDescs = Arrays.asList(defaultCF, newCf, newCf2);
 
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
@@ -1914,18 +1866,14 @@ public class RocksDBTest {
 
   @Test
   public void setDBOptions() throws RocksDBException {
-    try (final DBOptions options = new DBOptions()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
-         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
-             .setWriteBufferSize(4096);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
-
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(
-                  defaultCF,
-                  newCF);
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions().setWriteBufferSize(4096);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCF =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, newCF);
 
       // open database
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();

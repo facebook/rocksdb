@@ -1443,8 +1443,7 @@ public abstract class AbstractTransactionTest {
     public DBContainer(final WriteOptions writeOptions,
         final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
         final List<ColumnFamilyHandle> columnFamilyHandles,
-        final ColumnFamilyOptions columnFamilyOptions,
-        final DBOptions options) {
+        final ColumnFamilyOptions columnFamilyOptions, final DBOptions options) {
       this.writeOptions = writeOptions;
       this.columnFamilyDescriptors = columnFamilyDescriptors;
       this.columnFamilyHandles = columnFamilyHandles;

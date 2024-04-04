@@ -305,7 +305,6 @@ public class RocksDB extends RocksObject {
   public static RocksDB open(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
-
     final long[] cfDescriptors = new long[columnFamilyDescriptors.size()];
 
     int defaultColumnFamilyIndex = -1;
@@ -720,8 +719,8 @@ public class RocksDB extends RocksObject {
   public ColumnFamilyHandle createColumnFamily(
       final ColumnFamilyDescriptor columnFamilyDescriptor)
       throws RocksDBException {
-    final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
-        createColumnFamily(nativeHandle_, columnFamilyDescriptor.nativeHandle_));
+    final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(
+        this, createColumnFamily(nativeHandle_, columnFamilyDescriptor.nativeHandle_));
     ownedColumnFamilyHandles.add(columnFamilyHandle);
     return columnFamilyHandle;
   }
@@ -772,8 +771,7 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       cfDescriptorHandles[i] = columnFamilyDescriptors.get(i).nativeHandle_;
     }
-    final long[] cfHandles = createColumnFamilies(nativeHandle_,
-            cfDescriptorHandles);
+    final long[] cfHandles = createColumnFamilies(nativeHandle_, cfDescriptorHandles);
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
@@ -4807,7 +4805,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if the database could not be opened
    */
   private static native long[] open(final long optionsHandle, final String path,
-       final long[] columnFamilyDescriptors) throws RocksDBException;
+      final long[] columnFamilyDescriptors) throws RocksDBException;
 
   private static native long openROnly(final long optionsHandle, final String path,
       final boolean errorIfWalFileExists) throws RocksDBException;
@@ -4823,8 +4821,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if the database could not be opened
    */
   private static native long[] openROnly(final long optionsHandle, final String path,
-      final long[] columnFamilyDescriptors,
-      final boolean errorIfWalFileExists) throws RocksDBException;
+      final long[] columnFamilyDescriptors, final boolean errorIfWalFileExists)
+      throws RocksDBException;
 
   private static native long openAsSecondary(final long optionsHandle, final String path,
       final String secondaryPath) throws RocksDBException;
@@ -4841,13 +4839,13 @@ public class RocksDB extends RocksObject {
   private static native void closeDatabase(final long handle) throws RocksDBException;
   private static native byte[][] listColumnFamilies(final long optionsHandle, final String path)
       throws RocksDBException;
-  private static native long createColumnFamily(final long handle, final long columnFamilyDescriptor) throws RocksDBException;
+  private static native long createColumnFamily(
+      final long handle, final long columnFamilyDescriptor) throws RocksDBException;
   private static native long[] createColumnFamilies(
       final long handle, final long columnFamilyOptionsHandle, final byte[][] columnFamilyNames)
       throws RocksDBException;
   private static native long[] createColumnFamilies(
-      final long handle, final long[] columnFamilyDescriptorHandles)
-      throws RocksDBException;
+      final long handle, final long[] columnFamilyDescriptorHandles) throws RocksDBException;
   private static native long createColumnFamilyWithImport(final long handle,
       final byte[] columnFamilyName, final int columnFamilyNamelen, final long columnFamilyOptions,
       final long importColumnFamilyOptions, final long[] metadataHandleList)
