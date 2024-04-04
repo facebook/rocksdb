@@ -55,7 +55,7 @@ jbyteArray Java_org_rocksdb_ColumnFamilyDescriptor_getName(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_ColumnFamilyDescriptor_getOption(
-    JNIEnv* env, jclass, jlong jcf_descriptor_handle) {
+    JNIEnv*, jclass, jlong jcf_descriptor_handle) {
   auto cf_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
           jcf_descriptor_handle);
