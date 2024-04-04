@@ -82,8 +82,8 @@ public class TransactionDB extends RocksDB
     final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
 
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
-          .get(i);
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors // NOPMD - CloseResource
+                                                      .get(i);
       cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
       if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
         defaultColumnFamilyIndex = i;
