@@ -82,7 +82,7 @@ public class ColumnFamilyDescriptor extends RocksObject {
       return false;
     }
 
-    final ColumnFamilyDescriptor that = (ColumnFamilyDescriptor) o;
+    final ColumnFamilyDescriptor that = (ColumnFamilyDescriptor) o; // NOPMD - CloseResource
     return nativeHandle_ == that.getNativeHandle();
   }
 
