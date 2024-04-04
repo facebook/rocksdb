@@ -230,8 +230,8 @@ public class OptimisticTransactionDB extends RocksDB
 
   protected static native long open(final long optionsHandle,
       final String path) throws RocksDBException;
-  protected static native long[] open(final long handle, final String path,
-                                      final long[] columnFamilyDescriptors);
+  protected static native long[] open(
+      final long handle, final String path, final long[] columnFamilyDescriptors);
   private static native void closeDatabase(final long handle) throws RocksDBException;
   private static native long beginTransaction(final long handle, final long writeOptionsHandle);
   private static native long beginTransaction(final long handle, final long writeOptionsHandle,
