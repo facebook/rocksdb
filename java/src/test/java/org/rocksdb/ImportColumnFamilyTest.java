@@ -42,12 +42,13 @@ public class ImportColumnFamilyTest {
 
         try (final Checkpoint checkpoint = Checkpoint.create(db);
              final ImportColumnFamilyOptions importColumnFamilyOptions =
-                 new ImportColumnFamilyOptions()) {
+                 new ImportColumnFamilyOptions();
+             ColumnFamilyDescriptor columnFamilyDescriptor =
+                     new ColumnFamilyDescriptor("new_cf".getBytes());) {
           ExportImportFilesMetaData default_cf_metadata =
               checkpoint.exportColumnFamily(db.getDefaultColumnFamily(),
                   checkpointFolder.getRoot().getAbsolutePath() + "/default_cf_metadata");
-          ColumnFamilyDescriptor columnFamilyDescriptor =
-              new ColumnFamilyDescriptor("new_cf".getBytes());
+
           final ColumnFamilyHandle importCfHandle = db.createColumnFamilyWithImport(
               columnFamilyDescriptor, importColumnFamilyOptions, default_cf_metadata);
           assertThat(db.get(importCfHandle, "key".getBytes())).isEqualTo("value".getBytes());
@@ -62,7 +63,9 @@ public class ImportColumnFamilyTest {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       try (final RocksDB db1 = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "db1");
            final RocksDB db2 =
-               RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "db2");) {
+               RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "db2");
+           final ColumnFamilyDescriptor columnFamilyDescriptor =
+                   new ColumnFamilyDescriptor("new_cf".getBytes())) {
         db1.put("key".getBytes(), "value".getBytes());
         db1.put("key1".getBytes(), "value1".getBytes());
         db2.put("key2".getBytes(), "value2".getBytes());
@@ -77,9 +80,6 @@ public class ImportColumnFamilyTest {
           ExportImportFilesMetaData default_cf_metadata2 =
               checkpoint2.exportColumnFamily(db2.getDefaultColumnFamily(),
                   checkpointFolder.getRoot().getAbsolutePath() + "/default_cf_metadata2");
-
-          ColumnFamilyDescriptor columnFamilyDescriptor =
-              new ColumnFamilyDescriptor("new_cf".getBytes());
 
           List<ExportImportFilesMetaData> importMetaDatas = new ArrayList();
           importMetaDatas.add(default_cf_metadata1);

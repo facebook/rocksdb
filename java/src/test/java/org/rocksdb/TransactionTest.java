@@ -440,7 +440,7 @@ public class TransactionTest extends AbstractTransactionTest {
     final WriteOptions writeOptions = new WriteOptions();
     final TransactionOptions txnOptions = new TransactionOptions();
 
-    return new TransactionDBContainer(txnOptions, writeOptions,
+    return new TransactionDBContainer(txnOptions, writeOptions, columnFamilyDescriptors,
         columnFamilyHandles, txnDb, txnDbOptions, columnFamilyOptions, options);
   }
 
@@ -452,11 +452,12 @@ public class TransactionTest extends AbstractTransactionTest {
 
     public TransactionDBContainer(
         final TransactionOptions txnOptions, final WriteOptions writeOptions,
+        final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
         final List<ColumnFamilyHandle> columnFamilyHandles,
         final TransactionDB txnDb, final TransactionDBOptions txnDbOptions,
         final ColumnFamilyOptions columnFamilyOptions,
         final DBOptions options) {
-      super(writeOptions, columnFamilyHandles, columnFamilyOptions,
+      super(writeOptions, columnFamilyDescriptors, columnFamilyHandles, columnFamilyOptions,
           options);
       this.txnOptions = txnOptions;
       this.txnDb = txnDb;
