@@ -139,8 +139,8 @@ public class TtlDB extends RocksDB {
     for(int i = 0; i < ttlValues.size(); i++) {
       ttlVals[i] = ttlValues.get(i);
     }
-    final long[] handles = openCF(options.nativeHandle_, db_path,
-            cfDescriptorHandles, ttlVals, readOnly);
+    final long[] handles =
+        openCF(options.nativeHandle_, db_path, cfDescriptorHandles, ttlVals, readOnly);
 
     final TtlDB ttlDB = new TtlDB(handles[0]);
     for (int i = 1; i < handles.length; i++) {
@@ -229,9 +229,8 @@ public class TtlDB extends RocksDB {
   public ColumnFamilyHandle createColumnFamilyWithTtl(
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final int ttl) throws RocksDBException {
-    return new ColumnFamilyHandle(this,
-        createColumnFamilyWithTtl(nativeHandle_,
-            columnFamilyDescriptor.nativeHandle_, ttl));
+    return new ColumnFamilyHandle(
+        this, createColumnFamilyWithTtl(nativeHandle_, columnFamilyDescriptor.nativeHandle_, ttl));
   }
 
   /**
@@ -258,10 +257,9 @@ public class TtlDB extends RocksDB {
   private static native long open(final long optionsHandle, final String db_path, final int ttl,
       final boolean readOnly) throws RocksDBException;
   private static native long[] openCF(final long optionsHandle, final String db_path,
-      final long[] columnFamilyDescriptors, final int[] ttlValues,
-      final boolean readOnly) throws RocksDBException;
-  private static native long createColumnFamilyWithTtl(
-      final long handle, final long columnFamilyHandle, int ttl)
+      final long[] columnFamilyDescriptors, final int[] ttlValues, final boolean readOnly)
       throws RocksDBException;
+  private static native long createColumnFamilyWithTtl(
+      final long handle, final long columnFamilyHandle, int ttl) throws RocksDBException;
   private static native void closeDatabase(final long handle) throws RocksDBException;
 }

@@ -30,82 +30,80 @@ public class MutableOptionsGetSetTest {
    */
   @Test
   public void testGetMutableBlobOptionsAfterCreate() throws RocksDBException {
-    try(final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
-    final ColumnFamilyDescriptor columnFamilyDescriptor0 =
-        new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
+    try (final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
+         final ColumnFamilyDescriptor columnFamilyDescriptor0 =
+             new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-              Collections.singletonList(columnFamilyDescriptor0);
+          Collections.singletonList(columnFamilyDescriptor0);
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
       try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
            final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
-                   columnFamilyDescriptors, columnFamilyHandles)) {
+               columnFamilyDescriptors, columnFamilyHandles)) {
         try (final ColumnFamilyOptions columnFamilyOptions1 =
-                     new ColumnFamilyOptions()
-                             .setMinBlobSize(minBlobSize)
-                             .setEnableBlobFiles(true)
-                             .setBlobGarbageCollectionAgeCutoff(0.25)
-                             .setBlobGarbageCollectionForceThreshold(0.80)
-                             .setBlobCompactionReadaheadSize(262144)
-                             .setBlobFileStartingLevel(2)
-                             .setArenaBlockSize(42)
-                             .setMemtablePrefixBloomSizeRatio(0.17)
-                             .setExperimentalMempurgeThreshold(0.005)
-                             .setMemtableWholeKeyFiltering(false)
-                             .setMemtableHugePageSize(3)
-                             .setMaxSuccessiveMerges(4)
-                             .setMaxWriteBufferNumber(12)
-                             .setInplaceUpdateNumLocks(16)
-                             .setDisableAutoCompactions(false)
-                             .setSoftPendingCompactionBytesLimit(112)
-                             .setHardPendingCompactionBytesLimit(280)
-                             .setLevel0FileNumCompactionTrigger(200)
-                             .setLevel0SlowdownWritesTrigger(312)
-                             .setLevel0StopWritesTrigger(584)
-                             .setMaxCompactionBytes(12)
-                             .setTargetFileSizeBase(99)
-                             .setTargetFileSizeMultiplier(112)
-                             .setMaxSequentialSkipInIterations(50)
-                             .setReportBgIoStats(true);
+                 new ColumnFamilyOptions()
+                     .setMinBlobSize(minBlobSize)
+                     .setEnableBlobFiles(true)
+                     .setBlobGarbageCollectionAgeCutoff(0.25)
+                     .setBlobGarbageCollectionForceThreshold(0.80)
+                     .setBlobCompactionReadaheadSize(262144)
+                     .setBlobFileStartingLevel(2)
+                     .setArenaBlockSize(42)
+                     .setMemtablePrefixBloomSizeRatio(0.17)
+                     .setExperimentalMempurgeThreshold(0.005)
+                     .setMemtableWholeKeyFiltering(false)
+                     .setMemtableHugePageSize(3)
+                     .setMaxSuccessiveMerges(4)
+                     .setMaxWriteBufferNumber(12)
+                     .setInplaceUpdateNumLocks(16)
+                     .setDisableAutoCompactions(false)
+                     .setSoftPendingCompactionBytesLimit(112)
+                     .setHardPendingCompactionBytesLimit(280)
+                     .setLevel0FileNumCompactionTrigger(200)
+                     .setLevel0SlowdownWritesTrigger(312)
+                     .setLevel0StopWritesTrigger(584)
+                     .setMaxCompactionBytes(12)
+                     .setTargetFileSizeBase(99)
+                     .setTargetFileSizeMultiplier(112)
+                     .setMaxSequentialSkipInIterations(50)
+                     .setReportBgIoStats(true);
 
              final ColumnFamilyOptions columnFamilyOptions2 =
-                     new ColumnFamilyOptions()
-                             .setMinBlobSize(minBlobSize)
-                             .setEnableBlobFiles(false)
-                             .setArenaBlockSize(42)
-                             .setMemtablePrefixBloomSizeRatio(0.236)
-                             .setExperimentalMempurgeThreshold(0.247)
-                             .setMemtableWholeKeyFiltering(true)
-                             .setMemtableHugePageSize(8)
-                             .setMaxSuccessiveMerges(12)
-                             .setMaxWriteBufferNumber(22)
-                             .setInplaceUpdateNumLocks(160)
-                             .setDisableAutoCompactions(true)
-                             .setSoftPendingCompactionBytesLimit(1124)
-                             .setHardPendingCompactionBytesLimit(2800)
-                             .setLevel0FileNumCompactionTrigger(2000)
-                             .setLevel0SlowdownWritesTrigger(5840)
-                             .setLevel0StopWritesTrigger(31200)
-                             .setMaxCompactionBytes(112)
-                             .setTargetFileSizeBase(999)
-                             .setTargetFileSizeMultiplier(1120)
-                             .setMaxSequentialSkipInIterations(24)
-                             .setReportBgIoStats(true);
-             final ColumnFamilyDescriptor columnFamilyDescriptor1 =
-                     new ColumnFamilyDescriptor("column_family_1".getBytes(UTF_8), columnFamilyOptions1);
-             final ColumnFamilyDescriptor columnFamilyDescriptor2 =
-                     new ColumnFamilyDescriptor("column_family_2".getBytes(UTF_8), columnFamilyOptions2)) {
-
-
+                 new ColumnFamilyOptions()
+                     .setMinBlobSize(minBlobSize)
+                     .setEnableBlobFiles(false)
+                     .setArenaBlockSize(42)
+                     .setMemtablePrefixBloomSizeRatio(0.236)
+                     .setExperimentalMempurgeThreshold(0.247)
+                     .setMemtableWholeKeyFiltering(true)
+                     .setMemtableHugePageSize(8)
+                     .setMaxSuccessiveMerges(12)
+                     .setMaxWriteBufferNumber(22)
+                     .setInplaceUpdateNumLocks(160)
+                     .setDisableAutoCompactions(true)
+                     .setSoftPendingCompactionBytesLimit(1124)
+                     .setHardPendingCompactionBytesLimit(2800)
+                     .setLevel0FileNumCompactionTrigger(2000)
+                     .setLevel0SlowdownWritesTrigger(5840)
+                     .setLevel0StopWritesTrigger(31200)
+                     .setMaxCompactionBytes(112)
+                     .setTargetFileSizeBase(999)
+                     .setTargetFileSizeMultiplier(1120)
+                     .setMaxSequentialSkipInIterations(24)
+                     .setReportBgIoStats(true);
+             final ColumnFamilyDescriptor columnFamilyDescriptor1 = new ColumnFamilyDescriptor(
+                 "column_family_1".getBytes(UTF_8), columnFamilyOptions1);
+             final ColumnFamilyDescriptor columnFamilyDescriptor2 = new ColumnFamilyDescriptor(
+                 "column_family_2".getBytes(UTF_8), columnFamilyOptions2)) {
           // Create the column family with blob options
           final ColumnFamilyHandle columnFamilyHandle1 =
-                  db.createColumnFamily(columnFamilyDescriptor1);
+              db.createColumnFamily(columnFamilyDescriptor1);
           final ColumnFamilyHandle columnFamilyHandle2 =
-                  db.createColumnFamily(columnFamilyDescriptor2);
+              db.createColumnFamily(columnFamilyDescriptor2);
 
           // Check the getOptions() brings back the creation options for CF1
           final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
-                  db.getOptions(columnFamilyHandle1);
+              db.getOptions(columnFamilyHandle1);
           assertThat(builder1.enableBlobFiles()).isEqualTo(true);
           assertThat(builder1.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
           assertThat(builder1.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
@@ -134,7 +132,7 @@ public class MutableOptionsGetSetTest {
 
           // Check the getOptions() brings back the creation options for CF2
           final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
-                  db.getOptions(columnFamilyHandle2);
+              db.getOptions(columnFamilyHandle2);
           assertThat(builder2.enableBlobFiles()).isEqualTo(false);
           assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);
           assertThat(builder2.arenaBlockSize()).isEqualTo(42);
@@ -172,62 +170,61 @@ public class MutableOptionsGetSetTest {
    */
   @Test
   public void testGetMutableBlobOptionsAfterSetCF() throws RocksDBException {
-    try(final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
-    final ColumnFamilyDescriptor columnFamilyDescriptor0 =
-        new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
+    try (final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
+         final ColumnFamilyDescriptor columnFamilyDescriptor0 =
+             new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-              Collections.singletonList(columnFamilyDescriptor0);
+          Collections.singletonList(columnFamilyDescriptor0);
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
       try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
            final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
-                   columnFamilyDescriptors, columnFamilyHandles)) {
+               columnFamilyDescriptors, columnFamilyHandles)) {
         try (final ColumnFamilyOptions columnFamilyOptions1 = new ColumnFamilyOptions();
 
              final ColumnFamilyOptions columnFamilyOptions2 = new ColumnFamilyOptions();
-             final ColumnFamilyDescriptor columnFamilyDescriptor1 =
-                     new ColumnFamilyDescriptor("column_family_1".getBytes(UTF_8), columnFamilyOptions1);
-             final ColumnFamilyDescriptor columnFamilyDescriptor2 =
-                     new ColumnFamilyDescriptor("column_family_2".getBytes(UTF_8), columnFamilyOptions2)) {
-
+             final ColumnFamilyDescriptor columnFamilyDescriptor1 = new ColumnFamilyDescriptor(
+                 "column_family_1".getBytes(UTF_8), columnFamilyOptions1);
+             final ColumnFamilyDescriptor columnFamilyDescriptor2 = new ColumnFamilyDescriptor(
+                 "column_family_2".getBytes(UTF_8), columnFamilyOptions2)) {
           // Create the column family with blob options
           final ColumnFamilyHandle columnFamilyHandle1 =
-                  db.createColumnFamily(columnFamilyDescriptor1);
+              db.createColumnFamily(columnFamilyDescriptor1);
           final ColumnFamilyHandle columnFamilyHandle2 =
-                  db.createColumnFamily(columnFamilyDescriptor2);
+              db.createColumnFamily(columnFamilyDescriptor2);
           db.flush(new FlushOptions().setWaitForFlush(true));
 
           final MutableColumnFamilyOptions
-                  .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions1 =
-                  MutableColumnFamilyOptions.builder()
-                          .setMinBlobSize(minBlobSize)
-                          .setEnableBlobFiles(true)
-                          .setBlobGarbageCollectionAgeCutoff(0.25)
-                          .setBlobGarbageCollectionForceThreshold(0.80)
-                          .setBlobCompactionReadaheadSize(262144)
-                          .setBlobFileStartingLevel(3)
-                          .setArenaBlockSize(42)
-                          .setMemtablePrefixBloomSizeRatio(0.17)
-                          .setExperimentalMempurgeThreshold(0.005)
-                          .setMemtableWholeKeyFiltering(false)
-                          .setMemtableHugePageSize(3)
-                          .setMaxSuccessiveMerges(4)
-                          .setMaxWriteBufferNumber(12)
-                          .setInplaceUpdateNumLocks(16)
-                          .setDisableAutoCompactions(false)
-                          .setSoftPendingCompactionBytesLimit(112)
-                          .setHardPendingCompactionBytesLimit(280)
-                          .setLevel0FileNumCompactionTrigger(200)
-                          .setLevel0SlowdownWritesTrigger(312)
-                          .setLevel0StopWritesTrigger(584)
-                          .setMaxCompactionBytes(12)
-                          .setTargetFileSizeBase(99)
-                          .setTargetFileSizeMultiplier(112);
+              .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions1 =
+              MutableColumnFamilyOptions.builder()
+                  .setMinBlobSize(minBlobSize)
+                  .setEnableBlobFiles(true)
+                  .setBlobGarbageCollectionAgeCutoff(0.25)
+                  .setBlobGarbageCollectionForceThreshold(0.80)
+                  .setBlobCompactionReadaheadSize(262144)
+                  .setBlobFileStartingLevel(3)
+                  .setArenaBlockSize(42)
+                  .setMemtablePrefixBloomSizeRatio(0.17)
+                  .setExperimentalMempurgeThreshold(0.005)
+                  .setMemtableWholeKeyFiltering(false)
+                  .setMemtableHugePageSize(3)
+                  .setMaxSuccessiveMerges(4)
+                  .setMaxWriteBufferNumber(12)
+                  .setInplaceUpdateNumLocks(16)
+                  .setDisableAutoCompactions(false)
+                  .setSoftPendingCompactionBytesLimit(112)
+                  .setHardPendingCompactionBytesLimit(280)
+                  .setLevel0FileNumCompactionTrigger(200)
+                  .setLevel0SlowdownWritesTrigger(312)
+                  .setLevel0StopWritesTrigger(584)
+                  .setMaxCompactionBytes(12)
+                  .setTargetFileSizeBase(99)
+                  .setTargetFileSizeMultiplier(112);
           db.setOptions(columnFamilyHandle1, mutableColumnFamilyOptions1.build());
 
           // Check the getOptions() brings back the creation options for CF1
           final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
-                  db.getOptions(columnFamilyHandle1);
+              db.getOptions(columnFamilyHandle1);
           assertThat(builder1.enableBlobFiles()).isEqualTo(true);
           assertThat(builder1.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
           assertThat(builder1.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
@@ -253,32 +250,32 @@ public class MutableOptionsGetSetTest {
           assertThat(builder1.targetFileSizeMultiplier()).isEqualTo(112);
 
           final MutableColumnFamilyOptions
-                  .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions2 =
-                  MutableColumnFamilyOptions.builder()
-                          .setMinBlobSize(minBlobSize)
-                          .setEnableBlobFiles(false)
-                          .setArenaBlockSize(42)
-                          .setMemtablePrefixBloomSizeRatio(0.236)
-                          .setExperimentalMempurgeThreshold(0.247)
-                          .setMemtableWholeKeyFiltering(true)
-                          .setMemtableHugePageSize(8)
-                          .setMaxSuccessiveMerges(12)
-                          .setMaxWriteBufferNumber(22)
-                          .setInplaceUpdateNumLocks(160)
-                          .setDisableAutoCompactions(true)
-                          .setSoftPendingCompactionBytesLimit(1124)
-                          .setHardPendingCompactionBytesLimit(2800)
-                          .setLevel0FileNumCompactionTrigger(2000)
-                          .setLevel0SlowdownWritesTrigger(5840)
-                          .setLevel0StopWritesTrigger(31200)
-                          .setMaxCompactionBytes(112)
-                          .setTargetFileSizeBase(999)
-                          .setTargetFileSizeMultiplier(1120);
+              .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions2 =
+              MutableColumnFamilyOptions.builder()
+                  .setMinBlobSize(minBlobSize)
+                  .setEnableBlobFiles(false)
+                  .setArenaBlockSize(42)
+                  .setMemtablePrefixBloomSizeRatio(0.236)
+                  .setExperimentalMempurgeThreshold(0.247)
+                  .setMemtableWholeKeyFiltering(true)
+                  .setMemtableHugePageSize(8)
+                  .setMaxSuccessiveMerges(12)
+                  .setMaxWriteBufferNumber(22)
+                  .setInplaceUpdateNumLocks(160)
+                  .setDisableAutoCompactions(true)
+                  .setSoftPendingCompactionBytesLimit(1124)
+                  .setHardPendingCompactionBytesLimit(2800)
+                  .setLevel0FileNumCompactionTrigger(2000)
+                  .setLevel0SlowdownWritesTrigger(5840)
+                  .setLevel0StopWritesTrigger(31200)
+                  .setMaxCompactionBytes(112)
+                  .setTargetFileSizeBase(999)
+                  .setTargetFileSizeMultiplier(1120);
           db.setOptions(columnFamilyHandle2, mutableColumnFamilyOptions2.build());
 
           // Check the getOptions() brings back the creation options for CF2
           final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
-                  db.getOptions(columnFamilyHandle2);
+              db.getOptions(columnFamilyHandle2);
           assertThat(builder2.enableBlobFiles()).isEqualTo(false);
           assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);
           assertThat(builder2.arenaBlockSize()).isEqualTo(42);
@@ -314,46 +311,47 @@ public class MutableOptionsGetSetTest {
    */
   @Test
   public void testGetMutableBlobOptionsAfterSet() throws RocksDBException {
-    try(final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
-    final ColumnFamilyDescriptor columnFamilyDescriptor0 =
-        new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
+    try (final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
+         final ColumnFamilyDescriptor columnFamilyDescriptor0 =
+             new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-              Collections.singletonList(columnFamilyDescriptor0);
+          Collections.singletonList(columnFamilyDescriptor0);
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
       try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
            final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
-                   columnFamilyDescriptors, columnFamilyHandles)) {
+               columnFamilyDescriptors, columnFamilyHandles)) {
         final MutableColumnFamilyOptions
-                .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions =
-                MutableColumnFamilyOptions.builder()
-                        .setMinBlobSize(minBlobSize)
-                        .setEnableBlobFiles(true)
-                        .setBlobGarbageCollectionAgeCutoff(0.25)
-                        .setBlobGarbageCollectionForceThreshold(0.80)
-                        .setBlobCompactionReadaheadSize(131072)
-                        .setBlobFileStartingLevel(4)
-                        .setArenaBlockSize(42)
-                        .setMemtablePrefixBloomSizeRatio(0.17)
-                        .setExperimentalMempurgeThreshold(0.005)
-                        .setMemtableWholeKeyFiltering(false)
-                        .setMemtableHugePageSize(3)
-                        .setMaxSuccessiveMerges(4)
-                        .setMaxWriteBufferNumber(12)
-                        .setInplaceUpdateNumLocks(16)
-                        .setDisableAutoCompactions(false)
-                        .setSoftPendingCompactionBytesLimit(112)
-                        .setHardPendingCompactionBytesLimit(280)
-                        .setLevel0FileNumCompactionTrigger(200)
-                        .setLevel0SlowdownWritesTrigger(312)
-                        .setLevel0StopWritesTrigger(584)
-                        .setMaxCompactionBytes(12)
-                        .setTargetFileSizeBase(99)
-                        .setTargetFileSizeMultiplier(112);
+            .MutableColumnFamilyOptionsBuilder mutableColumnFamilyOptions =
+            MutableColumnFamilyOptions.builder()
+                .setMinBlobSize(minBlobSize)
+                .setEnableBlobFiles(true)
+                .setBlobGarbageCollectionAgeCutoff(0.25)
+                .setBlobGarbageCollectionForceThreshold(0.80)
+                .setBlobCompactionReadaheadSize(131072)
+                .setBlobFileStartingLevel(4)
+                .setArenaBlockSize(42)
+                .setMemtablePrefixBloomSizeRatio(0.17)
+                .setExperimentalMempurgeThreshold(0.005)
+                .setMemtableWholeKeyFiltering(false)
+                .setMemtableHugePageSize(3)
+                .setMaxSuccessiveMerges(4)
+                .setMaxWriteBufferNumber(12)
+                .setInplaceUpdateNumLocks(16)
+                .setDisableAutoCompactions(false)
+                .setSoftPendingCompactionBytesLimit(112)
+                .setHardPendingCompactionBytesLimit(280)
+                .setLevel0FileNumCompactionTrigger(200)
+                .setLevel0SlowdownWritesTrigger(312)
+                .setLevel0StopWritesTrigger(584)
+                .setMaxCompactionBytes(12)
+                .setTargetFileSizeBase(99)
+                .setTargetFileSizeMultiplier(112);
         db.setOptions(mutableColumnFamilyOptions.build());
 
         // Check the getOptions() brings back the creation options for CF1
-        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 = db.getOptions();
+        final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
+            db.getOptions();
         assertThat(builder1.enableBlobFiles()).isEqualTo(true);
         assertThat(builder1.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
         assertThat(builder1.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
@@ -385,30 +383,30 @@ public class MutableOptionsGetSetTest {
   public void testGetMutableDBOptionsAfterSet() throws RocksDBException {
     try (final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
          final ColumnFamilyDescriptor columnFamilyDescriptor0 =
-                 new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
+             new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-              Collections.singletonList(columnFamilyDescriptor0);
+          Collections.singletonList(columnFamilyDescriptor0);
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
       try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
            final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
-                   columnFamilyDescriptors, columnFamilyHandles)) {
+               columnFamilyDescriptors, columnFamilyHandles)) {
         final MutableDBOptions.MutableDBOptionsBuilder mutableDBOptions =
-                MutableDBOptions.builder()
-                        .setMaxBackgroundJobs(16)
-                        .setAvoidFlushDuringShutdown(true)
-                        .setWritableFileMaxBufferSize(2097152)
-                        .setDelayedWriteRate(67108864)
-                        .setMaxTotalWalSize(16777216)
-                        .setDeleteObsoleteFilesPeriodMicros(86400000000L)
-                        .setStatsDumpPeriodSec(1200)
-                        .setStatsPersistPeriodSec(7200)
-                        .setStatsHistoryBufferSize(6291456)
-                        .setMaxOpenFiles(8)
-                        .setBytesPerSync(4194304)
-                        .setWalBytesPerSync(1048576)
-                        .setStrictBytesPerSync(true)
-                        .setCompactionReadaheadSize(1024);
+            MutableDBOptions.builder()
+                .setMaxBackgroundJobs(16)
+                .setAvoidFlushDuringShutdown(true)
+                .setWritableFileMaxBufferSize(2097152)
+                .setDelayedWriteRate(67108864)
+                .setMaxTotalWalSize(16777216)
+                .setDeleteObsoleteFilesPeriodMicros(86400000000L)
+                .setStatsDumpPeriodSec(1200)
+                .setStatsPersistPeriodSec(7200)
+                .setStatsHistoryBufferSize(6291456)
+                .setMaxOpenFiles(8)
+                .setBytesPerSync(4194304)
+                .setWalBytesPerSync(1048576)
+                .setStrictBytesPerSync(true)
+                .setCompactionReadaheadSize(1024);
 
         db.setDBOptions(mutableDBOptions.build());
 
@@ -419,7 +417,7 @@ public class MutableOptionsGetSetTest {
         assertThat(getBuilder.delayedWriteRate()).isEqualTo(67108864); // 16777216
         assertThat(getBuilder.maxTotalWalSize()).isEqualTo(16777216);
         assertThat(getBuilder.deleteObsoleteFilesPeriodMicros())
-                .isEqualTo(86400000000L); // 21600000000
+            .isEqualTo(86400000000L); // 21600000000
         assertThat(getBuilder.statsDumpPeriodSec()).isEqualTo(1200); // 600
         assertThat(getBuilder.statsPersistPeriodSec()).isEqualTo(7200); // 600
         assertThat(getBuilder.statsHistoryBufferSize()).isEqualTo(6291456); // 1048576

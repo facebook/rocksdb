@@ -63,7 +63,8 @@ public class SecondaryDBTest {
   @Test
   public void openAsSecondaryColumnFamilies() throws RocksDBException {
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts);
          final ColumnFamilyDescriptor cfd1 = new ColumnFamilyDescriptor("cf1".getBytes(), cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
       cfDescriptors.add(defaultCF);
