@@ -106,17 +106,16 @@ public class WriteBatchWithIndexTest {
 
   @Test
   public void readYourOwnWritesCf() throws RocksDBException {
-
-
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
 
     // Test open database with column family names
     try (final DBOptions options =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
          final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final RocksDB db = RocksDB.open(
-             options, dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
+             Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
       final ColumnFamilyHandle newCf = columnFamilyHandleList.get(1);
 
       try {
@@ -205,16 +204,16 @@ public class WriteBatchWithIndexTest {
 
   public void readYourOwnWritesCfIterDirect(final ByteBufferAllocator byteBufferAllocator)
       throws RocksDBException {
-
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
 
     // Test open database with column family names
     try (final DBOptions options =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
          final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final RocksDB db = RocksDB.open(
-             options, dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
+             Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
       final ColumnFamilyHandle newCf = columnFamilyHandleList.get(1);
 
       try {
@@ -323,16 +322,16 @@ public class WriteBatchWithIndexTest {
 
   @Test
   public void readYourOwnWritesCfIterIndirect() throws RocksDBException {
-
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
 
     // Test open database with column family names
     try (final DBOptions options =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
          final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final RocksDB db = RocksDB.open(
-             options, dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
+             Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
       final ColumnFamilyHandle newCf = columnFamilyHandleList.get(1);
 
       try {
@@ -984,14 +983,14 @@ public class WriteBatchWithIndexTest {
       }
     }
 
-
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
     try (final DBOptions options =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
          final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final RocksDB db = RocksDB.open(
-             options, dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
+             Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
       try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
            final RocksIterator baseIter = db.newIterator();
            final RocksIterator wbwiIter =
@@ -1035,14 +1034,14 @@ public class WriteBatchWithIndexTest {
       }
     }
 
-
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
     try (final DBOptions options =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
          final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final RocksDB db = RocksDB.open(
-             options, dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
+             Arrays.asList(defaultCF, newCF), columnFamilyHandleList)) {
       try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
            final RocksIterator baseIter = db.newIterator();
            final RocksIterator wbwiIter =

@@ -34,11 +34,11 @@ public class TransactionDBTest {
     try (final DBOptions dbOptions =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor myCF = new ColumnFamilyDescriptor("myCf".getBytes(), myCfOpts)) {
-
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-          Arrays.asList(defaultCF, myCF);
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor myCF =
+             new ColumnFamilyDescriptor("myCf".getBytes(), myCfOpts)) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Arrays.asList(defaultCF, myCF);
 
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
@@ -62,8 +62,8 @@ public class TransactionDBTest {
     try (final DBOptions dbOptions =
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final ColumnFamilyOptions myCfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor mtCF = new ColumnFamilyDescriptor("myCf".getBytes(), myCfOpts)) {
-
+         final ColumnFamilyDescriptor mtCF =
+             new ColumnFamilyDescriptor("myCf".getBytes(), myCfOpts)) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors = Collections.singletonList(mtCF);
 
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();

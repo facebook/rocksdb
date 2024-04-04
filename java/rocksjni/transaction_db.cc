@@ -75,7 +75,9 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3J(
   }
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < len_cols; i++) {
-    column_families.push_back(*reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptors[i]));
+    column_families.push_back(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
+            cf_descriptors[i]));
   }
 
   auto* db_options =

@@ -43,7 +43,7 @@ public class PerfContextTest {
 
   @After
   public void after() {
-    for (final ColumnFamilyDescriptor columnFamilyDescriptor: cfDescriptors) {
+    for (final ColumnFamilyDescriptor columnFamilyDescriptor : cfDescriptors) {
       columnFamilyDescriptor.close();
     }
     for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {

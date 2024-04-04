@@ -10,7 +10,6 @@ package org.rocksdb;
  * name and respective Options.</p>
  */
 public class ColumnFamilyDescriptor extends RocksObject {
-
   private final ColumnFamilyOptions columnFamilyOptions;
   private final boolean implicitlyCreatedColumnFamilyOptions;
 
@@ -33,22 +32,23 @@ public class ColumnFamilyDescriptor extends RocksObject {
    * @param columnFamilyOptions options to be used with column family.
    * @since 3.10.0
    */
-  public ColumnFamilyDescriptor(
-      final byte[] columnFamilyName, final ColumnFamilyOptions columnFamilyOptions) throws RocksDBException {
+  public ColumnFamilyDescriptor(final byte[] columnFamilyName,
+      final ColumnFamilyOptions columnFamilyOptions) throws RocksDBException {
     this(columnFamilyName, columnFamilyOptions, false);
   }
 
-  private ColumnFamilyDescriptor(
-          final byte[] columnFamilyName, final ColumnFamilyOptions columnFamilyOptions, boolean implicitlyCreatedColumnFamilyOptions) throws RocksDBException {
+  private ColumnFamilyDescriptor(final byte[] columnFamilyName,
+      final ColumnFamilyOptions columnFamilyOptions, boolean implicitlyCreatedColumnFamilyOptions)
+      throws RocksDBException {
     super(createNativeInstance(columnFamilyName, columnFamilyOptions));
     this.columnFamilyOptions = columnFamilyOptions;
     this.implicitlyCreatedColumnFamilyOptions = implicitlyCreatedColumnFamilyOptions;
   }
 
-
-  private static long createNativeInstance(final byte[] columnFamilyName, final ColumnFamilyOptions columnFamilyOptions) throws RocksDBException {
+  private static long createNativeInstance(final byte[] columnFamilyName,
+      final ColumnFamilyOptions columnFamilyOptions) throws RocksDBException {
     final long instance = createNativeInstance(columnFamilyName, columnFamilyOptions.nativeHandle_);
-    if(instance == 0) {
+    if (instance == 0) {
       throw new RocksDBException("Can't create instance of ColumnFamilyDescriptor");
     } else {
       return instance;
@@ -88,18 +88,17 @@ public class ColumnFamilyDescriptor extends RocksObject {
 
   @Override
   public int hashCode() {
-    return 31 * ((int)(nativeHandle_ ^ (nativeHandle_ >>> 32)));
-
+    return 31 * ((int) (nativeHandle_ ^ (nativeHandle_ >>> 32)));
   }
   @Override
   protected void disposeInternal(final long handle) {
     disposeJni(nativeHandle_);
-    if(implicitlyCreatedColumnFamilyOptions) {
+    if (implicitlyCreatedColumnFamilyOptions) {
       columnFamilyOptions.close();
     }
   }
   private static native void disposeJni(final long nativeHandle);
-  private static native long createNativeInstance(final byte[] columnFamilyName, final long columnFamilyOptions);
+  private static native long createNativeInstance(
+      final byte[] columnFamilyName, final long columnFamilyOptions);
   private static native byte[] getName(final long nativeHandle);
-
 }

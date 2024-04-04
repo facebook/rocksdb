@@ -43,7 +43,7 @@ public class KeyExistsTest {
     for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
       columnFamilyHandle.close();
     }
-    for (final ColumnFamilyDescriptor descriptor: cfDescriptors) {
+    for (final ColumnFamilyDescriptor descriptor : cfDescriptors) {
       descriptor.close();
     }
     db.close();

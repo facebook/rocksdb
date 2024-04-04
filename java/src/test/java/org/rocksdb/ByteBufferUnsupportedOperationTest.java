@@ -35,8 +35,8 @@ public class ByteBufferUnsupportedOperationTest {
       final ColumnFamilyOptions tableOptions = new ColumnFamilyOptions();
       tableOptions.optimizeUniversalStyleCompaction();
       try (final ComparatorOptions comparatorOptions = new ComparatorOptions();
-      final ColumnFamilyDescriptor tableDescriptor = new ColumnFamilyDescriptor(
-              streamID.toString().getBytes(StandardCharsets.UTF_8), tableOptions)) {
+           final ColumnFamilyDescriptor tableDescriptor = new ColumnFamilyDescriptor(
+               streamID.toString().getBytes(StandardCharsets.UTF_8), tableOptions)) {
         // comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
         tableOptions.setComparator(new ReverseBytewiseComparator(comparatorOptions));
         final ColumnFamilyHandle tableHandle = database.createColumnFamily(tableDescriptor);

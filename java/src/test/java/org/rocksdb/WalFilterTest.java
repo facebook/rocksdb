@@ -51,17 +51,17 @@ public class WalFilterTest {
 
     // Test with all WAL processing options
     for (final WalProcessingOption option : WalProcessingOption.values()) {
-      try(final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-      final ColumnFamilyDescriptor pikachuCF = new ColumnFamilyDescriptor(bytes("pikachu"))) {
+      try (final ColumnFamilyDescriptor defaultCF =
+               new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+           final ColumnFamilyDescriptor pikachuCF = new ColumnFamilyDescriptor(bytes("pikachu"))) {
         List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(defaultCF, pikachuCF);
 
-        try (final Options options = optionsForLogIterTest();
-             final DBOptions dbOptions = new DBOptions(options)
-                     .setCreateMissingColumnFamilies(true);
+        try (
+            final Options options = optionsForLogIterTest();
+            final DBOptions dbOptions = new DBOptions(options).setCreateMissingColumnFamilies(true);
 
-             final RocksDB db = RocksDB.open(dbOptions,
-                     dbFolder.getRoot().getAbsolutePath(),cfDescriptors
-                     , cfHandles)) {
+            final RocksDB db = RocksDB.open(
+                dbOptions, dbFolder.getRoot().getAbsolutePath(), cfDescriptors, cfHandles)) {
           try (final WriteOptions writeOptions = new WriteOptions()) {
             // Write given keys in given batches
             for (final byte[][] batchKey : batchKeys) {
@@ -83,16 +83,11 @@ public class WalFilterTest {
         // record
         final int applyOptionForRecordIndex = 1;
         try (final TestableWalFilter walFilter =
-                     new TestableWalFilter(option, applyOptionForRecordIndex)) {
-
+                 new TestableWalFilter(option, applyOptionForRecordIndex)) {
           try (final Options options = optionsForLogIterTest();
-               final DBOptions dbOptions = new DBOptions(options)
-                       .setWalFilter(walFilter)) {
-
-            try (final RocksDB db = RocksDB.open(dbOptions,
-                    dbFolder.getRoot().getAbsolutePath(),
-                    cfDescriptors, cfHandles)) {
-
+               final DBOptions dbOptions = new DBOptions(options).setWalFilter(walFilter)) {
+            try (final RocksDB db = RocksDB.open(
+                     dbOptions, dbFolder.getRoot().getAbsolutePath(), cfDescriptors, cfHandles)) {
               try {
                 assertThat(walFilter.logNumbers).isNotEmpty();
                 assertThat(walFilter.logFileNames).isNotEmpty();

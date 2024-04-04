@@ -94,8 +94,8 @@ public class TransactionDB extends RocksDB
           "You must provide the default column family in your columnFamilyDescriptors");
     }
 
-    final long[] handles = open(dbOptions.nativeHandle_,
-        transactionDbOptions.nativeHandle_, path, cfDescriptorHandles);
+    final long[] handles = open(
+        dbOptions.nativeHandle_, transactionDbOptions.nativeHandle_, path, cfDescriptorHandles);
     final TransactionDB tdb = new TransactionDB(handles[0]);
 
     // when non-default Options is used, keeping an Options reference
@@ -404,7 +404,7 @@ public class TransactionDB extends RocksDB
       throws RocksDBException;
   private static native long[] open(final long dbOptionsHandle,
       final long transactionDbOptionsHandle, final String path,
-                                    final long[] columnFamilyDescriptors);
+      final long[] columnFamilyDescriptors);
   private static native void closeDatabase(final long handle) throws RocksDBException;
   private static native long beginTransaction(final long handle, final long writeOptionsHandle);
   private static native long beginTransaction(

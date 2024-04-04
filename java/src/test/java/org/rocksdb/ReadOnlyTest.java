@@ -39,18 +39,19 @@ public class ReadOnlyTest {
     }
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts);) {
+         ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
       cfDescriptors.add(defaultCF);
       final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
       try (final RocksDB db = RocksDB.open(
                dbFolder.getRoot().getAbsolutePath(), cfDescriptors, columnFamilyHandleList);
-           final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpts);
-           final ColumnFamilyDescriptor newCF2 = new ColumnFamilyDescriptor("new_cf2".getBytes(), cfOpts);) {
-
+           final ColumnFamilyDescriptor newCF =
+               new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpts);
+           final ColumnFamilyDescriptor newCF2 =
+               new ColumnFamilyDescriptor("new_cf2".getBytes(), cfOpts);) {
         columnFamilyHandleList.add(db.createColumnFamily(newCF));
-        columnFamilyHandleList.add(
-            db.createColumnFamily(newCF2));
+        columnFamilyHandleList.add(db.createColumnFamily(newCF2));
         db.put(columnFamilyHandleList.get(2), "key2".getBytes(), "value2".getBytes());
       }
 
@@ -62,10 +63,12 @@ public class ReadOnlyTest {
       }
 
       columnFamilyHandleList.clear();
-      try (final ColumnFamilyDescriptor defaultCF2 = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts);
-           final ColumnFamilyDescriptor newCF2 = new ColumnFamilyDescriptor("new_cf2".getBytes(), cfOpts);
-           final RocksDB db = RocksDB.openReadOnly(
-               dbFolder.getRoot().getAbsolutePath(), Arrays.asList(defaultCF2, newCF2), columnFamilyHandleList)) {
+      try (final ColumnFamilyDescriptor defaultCF2 =
+               new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts);
+           final ColumnFamilyDescriptor newCF2 =
+               new ColumnFamilyDescriptor("new_cf2".getBytes(), cfOpts);
+           final RocksDB db = RocksDB.openReadOnly(dbFolder.getRoot().getAbsolutePath(),
+               Arrays.asList(defaultCF2, newCF2), columnFamilyHandleList)) {
         assertThat(new String(db.get(columnFamilyHandleList.get(1), "key2".getBytes())))
             .isEqualTo("value2");
       }
@@ -81,7 +84,8 @@ public class ReadOnlyTest {
     }
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(defaultCF);
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();
@@ -101,7 +105,8 @@ public class ReadOnlyTest {
     }
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(defaultCF);
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
           new ArrayList<>();
@@ -121,7 +126,8 @@ public class ReadOnlyTest {
     }
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(defaultCF);
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
@@ -143,7 +149,8 @@ public class ReadOnlyTest {
     }
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(defaultCF);
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
@@ -164,7 +171,8 @@ public class ReadOnlyTest {
     }
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(defaultCF);
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
@@ -188,7 +196,8 @@ public class ReadOnlyTest {
     }
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(defaultCF);
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
@@ -213,7 +222,8 @@ public class ReadOnlyTest {
     Files.write(dbFolder.getRoot().toPath().resolve("999999.log"), new byte[] {1});
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
+         final ColumnFamilyDescriptor defaultCF =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(defaultCF);
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();

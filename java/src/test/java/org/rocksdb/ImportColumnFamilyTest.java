@@ -44,7 +44,7 @@ public class ImportColumnFamilyTest {
              final ImportColumnFamilyOptions importColumnFamilyOptions =
                  new ImportColumnFamilyOptions();
              ColumnFamilyDescriptor columnFamilyDescriptor =
-                     new ColumnFamilyDescriptor("new_cf".getBytes());) {
+                 new ColumnFamilyDescriptor("new_cf".getBytes());) {
           ExportImportFilesMetaData default_cf_metadata =
               checkpoint.exportColumnFamily(db.getDefaultColumnFamily(),
                   checkpointFolder.getRoot().getAbsolutePath() + "/default_cf_metadata");
@@ -62,10 +62,9 @@ public class ImportColumnFamilyTest {
   public void ImportMultiColumnFamilyTest() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       try (final RocksDB db1 = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "db1");
-           final RocksDB db2 =
-               RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "db2");
+           final RocksDB db2 = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "db2");
            final ColumnFamilyDescriptor columnFamilyDescriptor =
-                   new ColumnFamilyDescriptor("new_cf".getBytes())) {
+               new ColumnFamilyDescriptor("new_cf".getBytes())) {
         db1.put("key".getBytes(), "value".getBytes());
         db1.put("key1".getBytes(), "value1".getBytes());
         db2.put("key2".getBytes(), "value2".getBytes());
