@@ -31,11 +31,13 @@ public class CompactionFilterFactoryTest {
             = new RemoveEmptyValueCompactionFilterFactory();
         final ColumnFamilyOptions new_cf_opts
             = new ColumnFamilyOptions()
-            .setCompactionFilterFactory(compactionFilterFactory)) {
+            .setCompactionFilterFactory(compactionFilterFactory);
+        final ColumnFamilyDescriptor defaultCf = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+        final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
 
       final List<ColumnFamilyDescriptor> cfNames = Arrays.asList(
-          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-          new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts));
+              defaultCf,
+              newCF);
 
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
 
