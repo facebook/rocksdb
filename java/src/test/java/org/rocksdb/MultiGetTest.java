@@ -796,7 +796,8 @@ public class MultiGetTest {
          final ColumnFamilyOptions cfOptions =
              new ColumnFamilyOptions().setMergeOperatorName("stringappend");
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
+         final ColumnFamilyDescriptor cf0 =
+             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
 
       cfDescriptors.add(cf0);
@@ -870,7 +871,8 @@ public class MultiGetTest {
          final ColumnFamilyOptions cfOptions =
              new ColumnFamilyOptions().setMergeOperatorName("stringappend");
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
+         final ColumnFamilyDescriptor cf1 =
+             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
 
       cfDescriptors.add(cf1);
@@ -936,7 +938,8 @@ public class MultiGetTest {
          final ColumnFamilyOptions cfOptions =
              new ColumnFamilyOptions().setMergeOperatorName("stringappend");
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions)) {
+         final ColumnFamilyDescriptor cf0 =
+             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
 
       cfDescriptors.add(cf0);
@@ -986,7 +989,8 @@ public class MultiGetTest {
          final ColumnFamilyOptions cfOptions =
              new ColumnFamilyOptions().setMergeOperatorName("stringappend");
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
+         final ColumnFamilyDescriptor cf0 =
+             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
       cfDescriptors.add(cf0);
       final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);

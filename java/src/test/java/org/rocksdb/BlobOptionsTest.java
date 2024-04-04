@@ -264,15 +264,14 @@ public class BlobOptionsTest {
   public void testBlobWriteAboveThresholdCF() throws RocksDBException {
     try (final ColumnFamilyOptions columnFamilyOptions0 = new ColumnFamilyOptions();
          final ColumnFamilyDescriptor columnFamilyDescriptor0 =
-                 new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
-
+             new ColumnFamilyDescriptor("default".getBytes(UTF_8), columnFamilyOptions0)) {
       List<ColumnFamilyDescriptor> columnFamilyDescriptors =
-              Collections.singletonList(columnFamilyDescriptor0);
+          Collections.singletonList(columnFamilyDescriptor0);
       List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
 
       try (final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
            final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
-                   columnFamilyDescriptors, columnFamilyHandles)) {
+               columnFamilyDescriptors, columnFamilyHandles)) {
         db.put(columnFamilyHandles.get(0), small_key("default"), small_value("default"));
         try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
           db.flush(flushOptions);
@@ -281,17 +280,14 @@ public class BlobOptionsTest {
         assertThat(countDBFiles(".blob")).isEqualTo(0);
 
         try (final ColumnFamilyOptions columnFamilyOptions1 =
-                     new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(true);
+                 new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(true);
 
              final ColumnFamilyOptions columnFamilyOptions2 =
-                     new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(false);
-             final ColumnFamilyDescriptor columnFamilyDescriptor1 =
-                     new ColumnFamilyDescriptor("column_family_1".getBytes(UTF_8), columnFamilyOptions1);
-             final ColumnFamilyDescriptor columnFamilyDescriptor2 =
-                     new ColumnFamilyDescriptor("column_family_2".getBytes(UTF_8), columnFamilyOptions2);
-        ) {
-
-
+                 new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(false);
+             final ColumnFamilyDescriptor columnFamilyDescriptor1 = new ColumnFamilyDescriptor(
+                 "column_family_1".getBytes(UTF_8), columnFamilyOptions1);
+             final ColumnFamilyDescriptor columnFamilyDescriptor2 = new ColumnFamilyDescriptor(
+                 "column_family_2".getBytes(UTF_8), columnFamilyOptions2);) {
           // Create the first column family with blob options
           db.createColumnFamily(columnFamilyDescriptor1);
 
@@ -300,22 +296,20 @@ public class BlobOptionsTest {
         }
       }
 
-
       // Now re-open after auto-close - at this point the CF options we use are recognized.
       try (final ColumnFamilyOptions columnFamilyOptions1 =
-                   new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(true);
+               new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(true);
 
            final ColumnFamilyOptions columnFamilyOptions2 =
-                   new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(false);
+               new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(false);
            final ColumnFamilyDescriptor columnFamilyDescriptor1 =
-                   new ColumnFamilyDescriptor("column_family_1".getBytes(UTF_8), columnFamilyOptions1);
-           final ColumnFamilyDescriptor columnFamilyDescriptor2 =
-                   new ColumnFamilyDescriptor("column_family_2".getBytes(UTF_8), columnFamilyOptions2)) {
+               new ColumnFamilyDescriptor("column_family_1".getBytes(UTF_8), columnFamilyOptions1);
+           final ColumnFamilyDescriptor columnFamilyDescriptor2 = new ColumnFamilyDescriptor(
+               "column_family_2".getBytes(UTF_8), columnFamilyOptions2)) {
         assertThat(columnFamilyOptions1.enableBlobFiles()).isEqualTo(true);
         assertThat(columnFamilyOptions1.minBlobSize()).isEqualTo(minBlobSize);
         assertThat(columnFamilyOptions2.enableBlobFiles()).isEqualTo(false);
         assertThat(columnFamilyOptions1.minBlobSize()).isEqualTo(minBlobSize);
-
 
         columnFamilyDescriptors = new ArrayList<>();
         columnFamilyDescriptors.add(columnFamilyDescriptor0);
@@ -328,26 +322,26 @@ public class BlobOptionsTest {
 
         try (final DBOptions dbOptions = new DBOptions();
              final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
-                     columnFamilyDescriptors, columnFamilyHandles)) {
+                 columnFamilyDescriptors, columnFamilyHandles)) {
           final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder1 =
-                  db.getOptions(columnFamilyHandles.get(1));
+              db.getOptions(columnFamilyHandles.get(1));
           assertThat(builder1.enableBlobFiles()).isEqualTo(true);
           assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
 
           final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder builder2 =
-                  db.getOptions(columnFamilyHandles.get(2));
+              db.getOptions(columnFamilyHandles.get(2));
           assertThat(builder2.enableBlobFiles()).isEqualTo(false);
           assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);
 
           db.put(columnFamilyHandles.get(1), large_key("column_family_1_k2"),
-                  large_value("column_family_1_k2"));
+              large_value("column_family_1_k2"));
           try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
             db.flush(flushOptions, columnFamilyHandles.get(1));
           }
           assertThat(countDBFiles(".blob")).isEqualTo(1);
 
           db.put(columnFamilyHandles.get(2), large_key("column_family_2_k2"),
-                  large_value("column_family_2_k2"));
+              large_value("column_family_2_k2"));
           try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
             db.flush(flushOptions, columnFamilyHandles.get(2));
           }

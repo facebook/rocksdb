@@ -205,9 +205,9 @@ public class OptionsUtilTest {
 
       // create column family
 
-      try (final ColumnFamilyDescriptor secondCF = new ColumnFamilyDescriptor(secondCFName, baseSecondCFOpts);
-              final ColumnFamilyHandle columnFamilyHandle =
-               db.createColumnFamily(secondCF)) {
+      try (final ColumnFamilyDescriptor secondCF =
+               new ColumnFamilyDescriptor(secondCFName, baseSecondCFOpts);
+           final ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily(secondCF)) {
         assert(columnFamilyHandle != null);
       }
     }
@@ -315,8 +315,7 @@ public class OptionsUtilTest {
       // create column family
 
       try (final ColumnFamilyDescriptor altCF = new ColumnFamilyDescriptor(altCFName, altCFOptions);
-              final ColumnFamilyHandle columnFamilyHandle =
-               db.createColumnFamily(altCF)) {
+           final ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily(altCF)) {
         assert (columnFamilyHandle != null);
       }
     }

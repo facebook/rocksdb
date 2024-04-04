@@ -72,14 +72,12 @@ public class PutMultiplePartsTest {
 
   @Test
   public void putUntrackedCF() throws RocksDBException {
-
     try (final Options options = new Options().setCreateIfMissing(true);
          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
          final TransactionDB txnDB =
              TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath());
          final ColumnFamilyDescriptor testCF = new ColumnFamilyDescriptor("cfTest".getBytes());
-         final ColumnFamilyHandle columnFamilyHandle =
-             txnDB.createColumnFamily(testCF)) {
+         final ColumnFamilyHandle columnFamilyHandle = txnDB.createColumnFamily(testCF)) {
       try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
         final byte[][] keys = generateItems("key", ":", numParts);
         final byte[][] values = generateItems("value", "", numParts);
@@ -93,14 +91,12 @@ public class PutMultiplePartsTest {
   }
   @Test
   public void putCF() throws RocksDBException {
-
     try (final Options options = new Options().setCreateIfMissing(true);
          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
          final TransactionDB txnDB =
              TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath());
          final ColumnFamilyDescriptor testCF = new ColumnFamilyDescriptor("cfTest".getBytes());
-         final ColumnFamilyHandle columnFamilyHandle =
-             txnDB.createColumnFamily(testCF)) {
+         final ColumnFamilyHandle columnFamilyHandle = txnDB.createColumnFamily(testCF)) {
       try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
         final byte[][] keys = generateItems("key", ":", numParts);
         final byte[][] values = generateItems("value", "", numParts);
@@ -132,13 +128,11 @@ public class PutMultiplePartsTest {
   }
 
   private void validateResultsCF() throws RocksDBException {
-
-
     final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-    try(final ColumnFamilyDescriptor testCF = new ColumnFamilyDescriptor("cfTest".getBytes());
-        final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor("default".getBytes());
-        final RocksDB db = RocksDB.open(new DBOptions(), dbFolder.getRoot().getAbsolutePath(),
-            Arrays.asList(testCF, defaultCF), columnFamilyHandles)) {
+    try (final ColumnFamilyDescriptor testCF = new ColumnFamilyDescriptor("cfTest".getBytes());
+         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor("default".getBytes());
+         final RocksDB db = RocksDB.open(new DBOptions(), dbFolder.getRoot().getAbsolutePath(),
+             Arrays.asList(testCF, defaultCF), columnFamilyHandles)) {
       final List<byte[]> keys = generateItemsAsList("key", ":", numParts);
       final byte[][] values = generateItems("value", "", numParts);
 

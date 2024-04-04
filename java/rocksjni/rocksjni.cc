@@ -119,8 +119,10 @@ jlongArray rocksdb_open_helper(
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   column_families.reserve(len_cols);
-  for(int i = 0; i < len_cols ; i++) {
-    column_families.push_back(*reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptors[i]));
+  for (int i = 0; i < len_cols; i++) {
+    column_families.push_back(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
+            cf_descriptors[i]));
   }
 
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jopt_handle);
@@ -169,8 +171,7 @@ jlongArray rocksdb_open_helper(
  */
 jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3JZ(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-    jlongArray jcf_descriptors,
-    jboolean jerror_if_wal_file_exists) {
+    jlongArray jcf_descriptors, jboolean jerror_if_wal_file_exists) {
   const bool error_if_wal_file_exists = jerror_if_wal_file_exists == JNI_TRUE;
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcf_descriptors,
@@ -194,7 +195,7 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3JZ(
  */
 jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3J(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-     jlongArray jcf_descriptors) {
+    jlongArray jcf_descriptors) {
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcf_descriptors,
       (ROCKSDB_NAMESPACE::Status(*)(
@@ -243,8 +244,7 @@ jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_S
 jlongArray
 Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_2_3J(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-    jstring jsecondary_db_path,
-    jlongArray jcf_descriptors) {
+    jstring jsecondary_db_path, jlongArray jcf_descriptors) {
   const char* secondary_db_path =
       env->GetStringUTFChars(jsecondary_db_path, nullptr);
   if (secondary_db_path == nullptr) {
@@ -332,10 +332,12 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(JNIEnv* env, jclass,
                                                   jlong jhandle,
                                                   jlong jcf_descriptor) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
-  auto* cf_descriptor = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(jcf_descriptor);
+  auto* cf_descriptor =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
+          jcf_descriptor);
   ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  ROCKSDB_NAMESPACE::Status s =
-      db->CreateColumnFamily(cf_descriptor->options, cf_descriptor->name, &cf_handle);
+  ROCKSDB_NAMESPACE::Status s = db->CreateColumnFamily(
+      cf_descriptor->options, cf_descriptor->name, &cf_handle);
   if (!s.ok()) {
     // error occurred
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
@@ -400,10 +402,13 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J(
 
   auto cf_descriptor_handles = std::make_unique<jlong[]>(jlen);
 
-  env->GetLongArrayRegion(jcf_descriptor_handles, 0, jlen, cf_descriptor_handles.get());
+  env->GetLongArrayRegion(jcf_descriptor_handles, 0, jlen,
+                          cf_descriptor_handles.get());
 
   for (jsize i = 0; i < jlen; i++) {
-    auto cf_descriptor_handle = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptor_handles[i]);
+    auto cf_descriptor_handle =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
+            cf_descriptor_handles[i]);
     cf_descriptors.push_back(*cf_descriptor_handle);
   }
 

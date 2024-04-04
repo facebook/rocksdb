@@ -24,20 +24,17 @@ public class CompactionFilterFactoryTest {
   @Test
   public void columnFamilyOptions_setCompactionFilterFactory()
       throws RocksDBException {
-    try(final DBOptions options = new DBOptions()
-            .setCreateIfMissing(true)
-            .setCreateMissingColumnFamilies(true);
-        final RemoveEmptyValueCompactionFilterFactory compactionFilterFactory
-            = new RemoveEmptyValueCompactionFilterFactory();
-        final ColumnFamilyOptions new_cf_opts
-            = new ColumnFamilyOptions()
-            .setCompactionFilterFactory(compactionFilterFactory);
-        final ColumnFamilyDescriptor defaultCf = new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-        final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
-
-      final List<ColumnFamilyDescriptor> cfNames = Arrays.asList(
-              defaultCf,
-              newCF);
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RemoveEmptyValueCompactionFilterFactory compactionFilterFactory =
+             new RemoveEmptyValueCompactionFilterFactory();
+         final ColumnFamilyOptions new_cf_opts =
+             new ColumnFamilyOptions().setCompactionFilterFactory(compactionFilterFactory);
+         final ColumnFamilyDescriptor defaultCf =
+             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
+         final ColumnFamilyDescriptor newCF =
+             new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)) {
+      final List<ColumnFamilyDescriptor> cfNames = Arrays.asList(defaultCf, newCF);
 
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
 

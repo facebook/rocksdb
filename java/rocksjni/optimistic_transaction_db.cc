@@ -70,7 +70,9 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3J(
     }
 
     for (int i = 0; i < len_cols; i++) {
-      column_families.push_back(*reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(cf_descriptors[i]));
+      column_families.push_back(
+          *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
+              cf_descriptors[i]));
     }
   }
 
