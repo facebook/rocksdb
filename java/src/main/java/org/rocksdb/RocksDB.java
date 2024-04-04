@@ -309,8 +309,8 @@ public class RocksDB extends RocksObject {
 
     int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
-          .get(i);
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors // NOPMD - CloseResource
+                                                      .get(i);
       cfDescriptors[i] = cfDescriptor.nativeHandle_;
 
       if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
@@ -501,8 +501,8 @@ public class RocksDB extends RocksObject {
 
     int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
-          .get(i);
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors // NOPMD - CloseResource
+                                                      .get(i);
       cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
       if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
         defaultColumnFamilyIndex = i;
@@ -607,7 +607,8 @@ public class RocksDB extends RocksObject {
     final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
 
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
+      final ColumnFamilyDescriptor cfDescriptor =  // NOPMD - CloseResource
+          columnFamilyDescriptors.get(i);
       cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
     }
 
