@@ -516,8 +516,6 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
-DEFINE_bool(enable_tiered_storage, false, "Set last_level_temperature");
-
 DEFINE_int64(preclude_last_level_data_seconds, 0,
              "Preclude data from the last level. Used with tiered storage "
              "feature to preclude new data from comacting to the last level.");
@@ -1304,4 +1302,54 @@ DEFINE_uint64(soft_pending_compaction_bytes_limit,
 DEFINE_uint64(hard_pending_compaction_bytes_limit,
               ROCKSDB_NAMESPACE::Options().hard_pending_compaction_bytes_limit,
               "Options.hard_pending_compaction_bytes_limit");
+
+DEFINE_bool(enable_sst_partitioner_factory, false,
+            "If true, set Options.sst_partitioner_factory to "
+            "SstPartitionerFixedPrefixFactory with prefix length equal to 1");
+
+DEFINE_bool(
+    enable_do_not_compress_roles, false,
+    "If true, set CompressedSecondaryCacheOptions.do_not_compress_roles to "
+    "include all cache roles");
+
+DEFINE_bool(block_align,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
+            "BlockBasedTableOptions.block_align");
+
+DEFINE_uint32(
+    lowest_used_cache_tier,
+    static_cast<uint32_t>(ROCKSDB_NAMESPACE::Options().lowest_used_cache_tier),
+    "Options.lowest_used_cache_tier");
+
+DEFINE_bool(enable_custom_split_merge,
+            ROCKSDB_NAMESPACE::CompressedSecondaryCacheOptions()
+                .enable_custom_split_merge,
+            "CompressedSecondaryCacheOptions.enable_custom_split_merge");
+
+DEFINE_uint32(
+    adm_policy,
+    static_cast<uint32_t>(ROCKSDB_NAMESPACE::TieredCacheOptions().adm_policy),
+    "TieredCacheOptions.adm_policy");
+
+DEFINE_uint32(
+    last_level_temperature,
+    static_cast<uint32_t>(ROCKSDB_NAMESPACE::Options().last_level_temperature),
+    "Options.last_level_temperature");
+
+DEFINE_uint32(default_write_temperature,
+              static_cast<uint32_t>(
+                  ROCKSDB_NAMESPACE::Options().default_write_temperature),
+              "Options.default_write_temperature");
+
+DEFINE_uint32(
+    default_temperature,
+    static_cast<uint32_t>(ROCKSDB_NAMESPACE::Options().default_temperature),
+    "Options.default_temperature");
+
+DEFINE_bool(enable_memtable_insert_with_hint_prefix_extractor,
+            ROCKSDB_NAMESPACE::Options()
+                    .memtable_insert_with_hint_prefix_extractor != nullptr,
+            "If true and FLAGS_prefix_size > 0, set "
+            "Options.memtable_insert_with_hint_prefix_extractor to "
+            "be Options.prefix_extractor");
 #endif  // GFLAGS

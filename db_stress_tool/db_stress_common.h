@@ -20,6 +20,7 @@
 // NOTE that if FLAGS_test_batches_snapshots is set, the test will have
 // different behavior. See comment of the flag for details.
 
+#include "rocksdb/advanced_options.h"
 #ifdef GFLAGS
 #pragma once
 #include <fcntl.h>
@@ -259,6 +260,9 @@ DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
 DECLARE_bool(verification_only);
+DECLARE_uint32(last_level_temperature);
+DECLARE_uint32(default_write_temperature);
+DECLARE_uint32(default_temperature);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -340,7 +344,6 @@ DECLARE_uint32(memtable_max_range_deletions);
 DECLARE_uint32(bottommost_file_compaction_delay);
 
 // Tiered storage
-DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);
 DECLARE_int64(preserve_internal_time_seconds);
 
@@ -392,6 +395,13 @@ DECLARE_double(low_pri_pool_ratio);
 DECLARE_uint64(soft_pending_compaction_bytes_limit);
 DECLARE_uint64(hard_pending_compaction_bytes_limit);
 DECLARE_uint64(max_sequential_skip_in_iterations);
+DECLARE_bool(enable_sst_partitioner_factory);
+DECLARE_bool(enable_do_not_compress_roles);
+DECLARE_bool(block_align);
+DECLARE_uint32(lowest_used_cache_tier);
+DECLARE_bool(enable_custom_split_merge);
+DECLARE_uint32(adm_policy);
+DECLARE_bool(enable_memtable_insert_with_hint_prefix_extractor);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
