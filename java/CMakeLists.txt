@@ -60,6 +60,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options_util.cc
         rocksjni/persistent_cache.cc
         rocksjni/jni_perf_context.cc
+        rocksjni/raw_sst_file_reader_iterator.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc

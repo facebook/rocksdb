@@ -352,11 +352,8 @@ RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
 
 TOOL_LIB_SOURCES =                                              \
-  tools/io_tracer_parser_tool.cc                                \
-  tools/ldb_cmd.cc                                              \
-  tools/ldb_tool.cc                                             \
-  tools/sst_dump_tool.cc                                        \
-  utilities/blob_db/blob_dump_tool.cc                           \
+  tools/raw_sst_file_reader.cc                                  \
+  tools/raw_sst_file_iterator.cc                                \
 
 ANALYZER_LIB_SOURCES =                                          \
   tools/block_cache_analyzer/block_cache_trace_analyzer.cc      \
@@ -694,6 +691,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/cassandra_compactionfilterjni.cc              \
   java/rocksjni/cassandra_value_operator.cc                   \
+  java/rocksjni/raw_sst_file_reader_iterator.cc               \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocks_callback_object.cc                      \
   java/rocksjni/rocksjni.cc                                   \

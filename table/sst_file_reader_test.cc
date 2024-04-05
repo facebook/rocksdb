@@ -18,6 +18,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
+#include "table/table_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -586,16 +587,14 @@ class SstFileReaderTableIteratorTest : public DBTestBase {
       : DBTestBase("sst_file_reader_table_iterator_test",
                    /*env_do_fsync=*/false) {}
 
-  void VerifyTableEntry(Iterator* iter, const std::string& user_key,
+  void VerifyTableEntry(TableIterator* iter, const std::string& user_key,
                         ValueType value_type,
                         std::optional<std::string> expected_value,
                         bool backward_iteration = false) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_TRUE(iter->status().ok());
-    ParsedInternalKey pikey;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pikey, /*log_err_key=*/false));
-    ASSERT_EQ(pikey.user_key, user_key);
-    ASSERT_EQ(pikey.type, value_type);
+    ASSERT_EQ(iter->key(), user_key);
+    ASSERT_EQ(iter->type(), value_type);
     if (expected_value.has_value()) {
       ASSERT_EQ(iter->value(), expected_value.value());
     }
@@ -653,7 +652,7 @@ TEST_F(SstFileReaderTableIteratorTest, Basic) {
 
   // When iterating the file with a raw table iterator, all the data entries are
   // surfaced in ascending internal key order.
-  std::unique_ptr<Iterator> table_iter = reader.NewTableIterator();
+  std::unique_ptr<TableIterator> table_iter = reader.NewTableIterator();
 
   table_iter->SeekToFirst();
   VerifyTableEntry(table_iter.get(), "bar", kTypeValue, "val2");
@@ -662,17 +661,12 @@ TEST_F(SstFileReaderTableIteratorTest, Basic) {
   VerifyTableEntry(table_iter.get(), "foo", kTypeValue, "val1");
   ASSERT_FALSE(table_iter->Valid());
 
-  std::string seek_key_buf;
-  ASSERT_OK(GetInternalKeyForSeek("foo", ucmp, &seek_key_buf));
-  Slice seek_target = seek_key_buf;
-  table_iter->Seek(seek_target);
+  table_iter->Seek("foo");
   VerifyTableEntry(table_iter.get(), "foo", kTypeDeletion, std::nullopt);
   VerifyTableEntry(table_iter.get(), "foo", kTypeValue, "val1");
   ASSERT_FALSE(table_iter->Valid());
 
-  ASSERT_OK(GetInternalKeyForSeekForPrev("bar", ucmp, &seek_key_buf));
-  Slice seek_for_prev_target = seek_key_buf;
-  table_iter->SeekForPrev(seek_for_prev_target);
+  table_iter->SeekForPrev("bar");
   VerifyTableEntry(table_iter.get(), "bar", kTypeDeletion, std::nullopt,
                    /*backward_iteration=*/true);
   VerifyTableEntry(table_iter.get(), "bar", kTypeValue, "val2",
@@ -733,7 +727,7 @@ TEST_F(SstFileReaderTableIteratorTest, UserDefinedTimestampsEnabled) {
   ASSERT_FALSE(db_iter->Valid());
   db_iter.reset();
 
-  std::unique_ptr<Iterator> table_iter = reader.NewTableIterator();
+  std::unique_ptr<TableIterator> table_iter = reader.NewTableIterator();
 
   table_iter->SeekToFirst();
   VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(3), kTypeValue,
