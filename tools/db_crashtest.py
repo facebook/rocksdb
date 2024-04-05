@@ -60,9 +60,7 @@ default_params = {
     ),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
-    # Disabled compression_parallel_threads as the feature is not stable
-    # lambda: random.choice([1] * 9 + [4])
-    "compression_parallel_threads": 1,
+    "compression_parallel_threads": lambda: random.choice([1] * 3 + [4, 8, 16]),
     "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "compression_use_zstd_dict_trainer": lambda: random.randint(0, 1),
     "compression_checksum": lambda: random.randint(0, 1),
