@@ -7740,7 +7740,8 @@ class SstFileMetaDataJni : public JavaClass {
     }
 
     jmethodID mid = env->GetMethodID(
-        jclazz, "<init>", "(Ljava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+        jclazz, "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ[B)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -7780,6 +7781,17 @@ class SstFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
+    jbyteArray jfile_checksum = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
+        env, sst_file_meta_data->file_checksum);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jfile_name);
+      env->DeleteLocalRef(jpath);
+      env->DeleteLocalRef(jsmallest_key);
+      env->DeleteLocalRef(jlargest_key);
+      return nullptr;
+    }
+
     jobject jsst_file_meta_data = env->NewObject(
         jclazz, mid, jfile_name, jpath,
         static_cast<jlong>(sst_file_meta_data->size),
@@ -7788,13 +7800,14 @@ class SstFileMetaDataJni : public JavaClass {
         jlargest_key, static_cast<jlong>(sst_file_meta_data->num_reads_sampled),
         static_cast<jboolean>(sst_file_meta_data->being_compacted),
         static_cast<jlong>(sst_file_meta_data->num_entries),
-        static_cast<jlong>(sst_file_meta_data->num_deletions));
+        static_cast<jlong>(sst_file_meta_data->num_deletions), jfile_checksum);
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jfile_name);
       env->DeleteLocalRef(jpath);
       env->DeleteLocalRef(jsmallest_key);
       env->DeleteLocalRef(jlargest_key);
+      env->DeleteLocalRef(jfile_checksum);
       return nullptr;
     }
 
@@ -7803,6 +7816,7 @@ class SstFileMetaDataJni : public JavaClass {
     env->DeleteLocalRef(jpath);
     env->DeleteLocalRef(jsmallest_key);
     env->DeleteLocalRef(jlargest_key);
+    env->DeleteLocalRef(jfile_checksum);
 
     return jsst_file_meta_data;
   }
