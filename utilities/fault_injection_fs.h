@@ -231,6 +231,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                               std::unique_ptr<FSWritableFile>* result,
                               IODebugContext* dbg) override;
 
+  IOStatus ReuseWritableFile(const std::string& fname,
+                             const std::string& old_fname,
+                             const FileOptions& file_opts,
+                             std::unique_ptr<FSWritableFile>* result,
+                             IODebugContext* dbg) override;
+
   IOStatus NewRandomRWFile(const std::string& fname,
                            const FileOptions& file_opts,
                            std::unique_ptr<FSRandomRWFile>* result,
