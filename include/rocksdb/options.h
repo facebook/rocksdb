@@ -1223,6 +1223,8 @@ struct DBOptions {
   bool allow_2pc = false;
 
   // A global cache for table-level rows.
+  // Used to speed up Get() queries.
+  // NOTE: does not work with DeleteRange() yet.
   // Default: nullptr (disabled)
   std::shared_ptr<RowCache> row_cache = nullptr;
 
