@@ -352,8 +352,11 @@ RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
 
 TOOL_LIB_SOURCES =                                              \
-  tools/raw_sst_file_reader.cc                                  \
-  tools/raw_sst_file_iterator.cc                                \
+  tools/io_tracer_parser_tool.cc                                \
+  tools/ldb_cmd.cc                                              \
+  tools/ldb_tool.cc                                             \
+  tools/sst_dump_tool.cc                                        \
+  utilities/blob_db/blob_dump_tool.cc                           \
 
 ANALYZER_LIB_SOURCES =                                          \
   tools/block_cache_analyzer/block_cache_trace_analyzer.cc      \

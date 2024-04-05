@@ -63,7 +63,7 @@ class TableIterator : public Iterator {
       std::string seek_key_buf;
       ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::GetInternalKeyForSeekForPrev(target, options_->comparator,
                                                                                     &seek_key_buf);
-      if(s.ok()) {
+      if(!s.ok()) {
           status_ = s;
       }
       iter_->SeekForPrev(target);
