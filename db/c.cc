@@ -1141,6 +1141,18 @@ void rocksdb_column_family_handle_destroy(
   delete handle;
 }
 
+rocksdb_column_family_handle_t* rocksdb_get_default_column_family_handle(
+    rocksdb_t* db) {
+  rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
+  handle->rep = db->rep->DefaultColumnFamily();
+  return handle;
+}
+
+void rocksdb_default_column_family_handle_destroy(
+    rocksdb_column_family_handle_t* handle) {
+  delete handle;
+}
+
 void rocksdb_put(rocksdb_t* db, const rocksdb_writeoptions_t* options,
                  const char* key, size_t keylen, const char* val, size_t vallen,
                  char** errptr) {
