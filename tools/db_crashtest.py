@@ -273,8 +273,7 @@ default_params = {
     "block_align": 0,
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable other `adm_policy` after fixing the surfaced segfault issue with compressed secondary cache
-    "adm_policy": lambda: random.choice([0]),
+    "adm_policy": lambda: random.choice([0, 1, 2, 3]),
     "last_level_temperature": lambda: random.choice([0, 4, 8, 12]),
     "default_write_temperature": lambda: random.choice([0, 4, 8, 12]),
     "default_temperature": lambda: random.choice([0, 4, 8, 12]),
