@@ -35,6 +35,7 @@
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "db/dbformat.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -6392,6 +6393,37 @@ class TxnDBWritePolicyJni {
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_COMMITTED;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.ValueType
+class ValueTypeJni {
+ public:
+  static jbyte toJavaValueType(const ROCKSDB_NAMESPACE::ValueType& value_type) {
+    switch (value_type) {
+      case ROCKSDB_NAMESPACE::ValueType::kTypeDeletion:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeValue:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeMerge:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeSingleDeletion:
+        return 0x7;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeRangeDeletion:
+        return 0xF;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeColumnFamilyBlobIndex:
+        return 0x10;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeBlobIndex:
+        return 0x11;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeDeletionWithTimestamp:
+        return 0x14;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeWideColumnEntity:
+        return 0x16;
+      case ROCKSDB_NAMESPACE::ValueType::kTypeValuePreferredSeqno:
+        return 0x18;
+      default:
+        return 0xFF;
     }
   }
 };

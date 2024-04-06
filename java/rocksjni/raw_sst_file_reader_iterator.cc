@@ -32,9 +32,9 @@ jlong Java_org_rocksdb_RawSstFileReaderIterator_sequenceNumber(JNIEnv* env, jcla
  * Method:    type
  * Signature: (J)[B
  */
-jint Java_org_rocksdb_RawSstFileReaderIterator_type(JNIEnv* env, jclass /*jcls*/,
+jbyte Java_org_rocksdb_RawSstFileReaderIterator_type(JNIEnv* env, jclass /*jcls*/,
                                                     jlong handle) {
     auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::TableIterator*>(handle);
-    return static_cast<jint>(it->type());
+    return ROCKSDB_NAMESPACE::ValueTypeJni::toJavaValueType(it->type());
 }
 
