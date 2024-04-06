@@ -232,7 +232,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
             // produce a hole in the recovered data. Report an error here, which
             // higher layers can choose to ignore when it's provable there is no
             // hole.
-            ReportCorruption(scratch->size(), "error reading trailing data");
+            ReportCorruption(
+                scratch->size(),
+                "error reading trailing data due to encountering EOF");
           }
           // This can be caused by the writer dying immediately after
           //  writing a physical record but before completing the next; don't
@@ -252,7 +254,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
               // produce a hole in the recovered data. Report an error here,
               // which higher layers can choose to ignore when it's provable
               // there is no hole.
-              ReportCorruption(scratch->size(), "error reading trailing data");
+              ReportCorruption(
+                  scratch->size(),
+                  "error reading trailing data due to encountering old record");
             }
             // This can be caused by the writer dying immediately after
             //  writing a physical record but before completing the next; don't
