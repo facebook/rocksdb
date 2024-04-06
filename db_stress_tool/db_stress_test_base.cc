@@ -3599,11 +3599,11 @@ void InitializeOptionsFromFlags(
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
   options.last_level_temperature =
-      static_cast<Temperature>(FLAGS_last_level_temperature);
+      StringToTemperature(FLAGS_last_level_temperature.c_str());
   options.default_write_temperature =
-      static_cast<Temperature>(FLAGS_default_write_temperature);
+      StringToTemperature(FLAGS_default_write_temperature.c_str());
   options.default_temperature =
-      static_cast<Temperature>(FLAGS_default_temperature);
+      StringToTemperature(FLAGS_default_temperature.c_str());
 
   options.preclude_last_level_data_seconds =
       FLAGS_preclude_last_level_data_seconds;

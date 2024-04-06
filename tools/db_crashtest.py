@@ -274,9 +274,9 @@ default_params = {
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
-    "last_level_temperature": lambda: random.choice([0, 4, 8, 12]),
-    "default_write_temperature": lambda: random.choice([0, 4, 8, 12]),
-    "default_temperature": lambda: random.choice([0, 4, 8, 12]),
+    "last_level_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    "default_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
     # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
     # after fixing the surfaced issue with delete range
     "enable_memtable_insert_with_hint_prefix_extractor": 0,
@@ -529,8 +529,8 @@ tiered_params = {
     # tiered storage doesn't support blob db yet
     "enable_blob_files": 0,
     "use_blob_db": 0,
-    # Temperature::kCold
-    "last_level_temperature": 12,
+    "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm"]),
+    "last_level_temperature": "kCold",
 }
 
 multiops_txn_default_params = {
@@ -788,6 +788,7 @@ def finalize_and_sanitize(src_params):
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
         dest_params["recycle_log_file_num"] = 0
+    # Enabling block_align with compression is not supported
     if dest_params.get("block_align") == 1:
         dest_params["compression_type"] = "none"
     return dest_params

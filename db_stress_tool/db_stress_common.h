@@ -20,7 +20,6 @@
 // NOTE that if FLAGS_test_batches_snapshots is set, the test will have
 // different behavior. See comment of the flag for details.
 
-#include "rocksdb/advanced_options.h"
 #ifdef GFLAGS
 #pragma once
 #include <fcntl.h>
@@ -47,6 +46,7 @@
 #include "monitoring/histogram.h"
 #include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -260,9 +260,9 @@ DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
 DECLARE_bool(verification_only);
-DECLARE_uint32(last_level_temperature);
-DECLARE_uint32(default_write_temperature);
-DECLARE_uint32(default_temperature);
+DECLARE_string(last_level_temperature);
+DECLARE_string(default_write_temperature);
+DECLARE_string(default_temperature);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -495,6 +495,28 @@ inline std::string ChecksumTypeToString(ROCKSDB_NAMESPACE::ChecksumType ctype) {
               name_and_enum_val) { return name_and_enum_val.second == ctype; });
   assert(iter != ROCKSDB_NAMESPACE::checksum_type_string_map.end());
   return iter->first;
+}
+
+inline enum ROCKSDB_NAMESPACE::Temperature StringToTemperature(
+    const char* ctype) {
+  assert(ctype);
+  auto iter = std::find_if(
+      ROCKSDB_NAMESPACE::temperature_to_string.begin(),
+      ROCKSDB_NAMESPACE::temperature_to_string.end(),
+      [&](const std::pair<ROCKSDB_NAMESPACE::Temperature, std::string>&
+              temp_and_string_val) {
+        return ctype == temp_and_string_val.second;
+      });
+  assert(iter != ROCKSDB_NAMESPACE::temperature_to_string.end());
+  return iter->first;
+}
+
+inline std::string TemperatureToString(
+    ROCKSDB_NAMESPACE::Temperature temperature) {
+  auto iter =
+      ROCKSDB_NAMESPACE::OptionsHelper::temperature_to_string.find(temperature);
+  assert(iter != ROCKSDB_NAMESPACE::OptionsHelper::temperature_to_string.end());
+  return iter->second;
 }
 
 inline std::vector<std::string> SplitString(std::string src) {
