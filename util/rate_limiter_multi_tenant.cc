@@ -86,9 +86,9 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
   if (read_rate_bytes_per_sec_ > 0) {
     read_rate_limiter_ = NewMultiTenantRateLimiter(
         read_rate_bytes_per_sec_, // <rate_limit> MB/s rate limit
-        100 * 1000,        // Refill period = 100ms (default)
+        refill_period_us,        // Refill period
         10,                // Fairness (default)
-        rocksdb::RateLimiter::Mode::kWritesOnly, // Apply only to writes
+        rocksdb::RateLimiter::Mode::kReadsOnly, // Apply only to reads
         false,              // Disable auto-tuning
         /* read_rate_limit = */ 0
     );
@@ -193,7 +193,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   if (thread_metadata.client_id == -1) {
     // std::cout << "[TGRIGGS_LOG] un-set client id" << std::endl;
 
-    // Assiggn flushes to client 1
+    // Assiggn flushes to client 1 (effectively 0)
     client_id = 1;
     // return;
   }
@@ -396,7 +396,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
       auto* queue = &multi_tenant_queue_[client_order[i]][j];
       while (!queue->empty()) {
         auto* next_req = queue->front();
-        if (available_bytes_arr_[i] < next_req->request_bytes) {
+        if (available_bytes_arr_[client_order[i]] < next_req->request_bytes) {
           // Grant partial request_bytes even if request is for more than
           // `available_bytes_`, which can happen in a few situations:
           //
@@ -404,11 +404,11 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
           // - The rate was dynamically reduced while requests were already
           //   enqueued
           // - The burst size was explicitly set to be larger than the refill size
-          next_req->request_bytes -= available_bytes_arr_[i];
-          available_bytes_arr_[i] = 0;
+          next_req->request_bytes -= available_bytes_arr_[client_order[i]];
+          available_bytes_arr_[client_order[i]] = 0;
           break;
         }
-        available_bytes_arr_[i] -= next_req->request_bytes;
+        available_bytes_arr_[client_order[i]] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[j] += next_req->bytes;
         // std::cout << "[TGRIGGS_LOG] Popping client,pri: " << i << "," << j << std::endl;
