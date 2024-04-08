@@ -185,6 +185,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
+  src/main/java/org/rocksdb/Int64AddOperator.java
   src/main/java/org/rocksdb/KeyMayExist.java
   src/main/java/org/rocksdb/LRUCache.java
   src/main/java/org/rocksdb/LevelMetaData.java
@@ -298,6 +299,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/util/BytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
   src/main/java/org/rocksdb/util/IntComparator.java
+  src/main/java/org/rocksdb/util/MergeEncodings.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/util/StdErrLogger.java
@@ -426,6 +428,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/util/ReverseBytewiseComparatorIntTest.java
   src/test/java/org/rocksdb/util/SizeUnitTest.java
   src/test/java/org/rocksdb/util/StdErrLoggerTest.java
+  src/test/java/org/rocksdb/util/MergeEncodingsTest.java
   src/test/java/org/rocksdb/util/TestUtil.java
 )
 
@@ -716,6 +719,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
           org.rocksdb.HashSkipListMemTableConfig
           org.rocksdb.HyperClockCache
           org.rocksdb.IngestExternalFileOptions
+          org.rocksdb.Int64AddOperator
           org.rocksdb.Logger
           org.rocksdb.LRUCache
           org.rocksdb.MemoryUtil
