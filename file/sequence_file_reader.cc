@@ -41,6 +41,7 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch,
   IOStatus io_s;
   IOOptions io_opts;
   io_opts.rate_limiter_priority = rate_limiter_priority;
+  io_opts.verify_and_reconstruct_read = verify_and_reconstruct_read_;
   if (use_direct_io()) {
     //
     //    |-offset_advance-|---bytes returned--|
