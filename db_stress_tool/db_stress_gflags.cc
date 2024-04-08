@@ -1331,20 +1331,13 @@ DEFINE_uint32(
     static_cast<uint32_t>(ROCKSDB_NAMESPACE::TieredCacheOptions().adm_policy),
     "TieredCacheOptions.adm_policy");
 
-DEFINE_string(last_level_temperature,
-              ROCKSDB_NAMESPACE::TemperatureToString(
-                  ROCKSDB_NAMESPACE::Options().last_level_temperature),
+DEFINE_string(last_level_temperature, "kUnknown",
               "Options.last_level_temperature");
 
-DEFINE_string(default_write_temperature,
-              ROCKSDB_NAMESPACE::TemperatureToString(
-                  ROCKSDB_NAMESPACE::Options().default_write_temperature),
+DEFINE_string(default_write_temperature, "kUnknown",
               "Options.default_write_temperature");
 
-DEFINE_string(default_temperature,
-              ROCKSDB_NAMESPACE::TemperatureToString(
-                  ROCKSDB_NAMESPACE::Options().default_temperature),
-              "Options.default_temperature");
+DEFINE_string(default_temperature, "kUnknown", "Options.default_temperature");
 
 DEFINE_bool(enable_memtable_insert_with_hint_prefix_extractor,
             ROCKSDB_NAMESPACE::Options()
