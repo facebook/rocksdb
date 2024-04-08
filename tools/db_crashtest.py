@@ -177,8 +177,8 @@ default_params = {
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
-    "verify_checksum_one_in": lambda: random.choice([100000, 1000000]),
-    "verify_file_checksums_one_in": lambda: random.choice([100000, 1000000]),
+    "verify_checksum_one_in": lambda: random.choice([1000, 1000000]),
+    "verify_file_checksums_one_in": lambda: random.choice([1000, 1000000]),
     "verify_db_one_in": lambda: random.choice([10000, 100000]),
     "continuous_verification_interval": 0,
     "max_key_len": 3,
@@ -267,6 +267,19 @@ default_params = {
     "low_pri_pool_ratio": lambda: random.choice([0, 0.5]),
     "soft_pending_compaction_bytes_limit" : lambda: random.choice([1024 * 1024] + [64 * 1073741824] * 4),
     "hard_pending_compaction_bytes_limit" : lambda: random.choice([2 * 1024 * 1024] + [256 * 1073741824] * 4),
+    "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
+    "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
+    # TODO(hx235): enable `block_align` after fixing the surfaced corruption issue
+    "block_align": 0,
+    "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
+    "enable_custom_split_merge": lambda: random.choice([0, 1]),
+    "adm_policy": lambda: random.choice([0, 1, 2, 3]),
+    "last_level_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    "default_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
+    # after fixing the surfaced issue with delete range
+    "enable_memtable_insert_with_hint_prefix_extractor": 0,
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -508,7 +521,6 @@ ts_params = {
 }
 
 tiered_params = {
-    "enable_tiered_storage": 1,
     # Set tiered compaction hot data time as: 1 minute, 1 hour, 10 hour
     "preclude_last_level_data_seconds": lambda: random.choice([60, 3600, 36000]),
     # only test universal compaction for now, level has known issue of
@@ -517,6 +529,8 @@ tiered_params = {
     # tiered storage doesn't support blob db yet
     "enable_blob_files": 0,
     "use_blob_db": 0,
+    "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm"]),
+    "last_level_temperature": "kCold",
 }
 
 multiops_txn_default_params = {
@@ -774,6 +788,9 @@ def finalize_and_sanitize(src_params):
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
         dest_params["recycle_log_file_num"] = 0
+    # Enabling block_align with compression is not supported
+    if dest_params.get("block_align") == 1:
+        dest_params["compression_type"] = "none"
     return dest_params
 
 
