@@ -18,6 +18,9 @@
 #include <vector>
 #include <iostream>
 
+#include <pthread.h>
+#include <sched.h>
+
 #include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
@@ -654,6 +657,34 @@ void TG_SetThreadMetadata(std::string key) {
 }
 
 Status CompactionJob::Run() {
+
+  // Initialize the CPU set to be empty
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  // Add CPU 0 and CPU 1 to the set
+  CPU_SET(1, &cpuset);
+  CPU_SET(2, &cpuset);
+  CPU_SET(3, &cpuset);
+  CPU_SET(4, &cpuset);
+  CPU_SET(5, &cpuset);
+  CPU_SET(6, &cpuset);
+  CPU_SET(7, &cpuset);
+
+  // CPU_SET(8, &cpuset);
+  // CPU_SET(9, &cpuset);
+  // CPU_SET(10, &cpuset);
+  // CPU_SET(11, &cpuset);
+  // CPU_SET(12, &cpuset);
+  // CPU_SET(13, &cpuset);
+  // CPU_SET(14, &cpuset);
+  // CPU_SET(15, &cpuset);
+
+  std::cout << "[TGRIGGS_LOG] Pinning compaction" << std::endl;
+  int rc = pthread_setaffinity_np(pthread_self(),
+                                  sizeof(cpu_set_t), &cpuset);
+  if (rc != 0) {
+    std::cout << "[TGRIGGS_LOG] Failed to pin" << std::endl;
+  }
 
   // for (const auto& sc_state : compact_->sub_compact_states) {
   //   std::cout << "[TGRIGGS_LOG] found subcompaction\n";
