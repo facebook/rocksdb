@@ -535,6 +535,7 @@ Status DBImpl::Recover(
     s = versions_->Recover(column_families, read_only, &db_id_,
                            /*no_error_if_files_missing=*/false, is_retry,
                            &desc_status);
+    desc_status.PermitUncheckedError();
     if (can_retry) {
       // If we're opening for the first time and the failure is likely due to
       // a corrupt MANIFEST file (could result in either the log::Reader
