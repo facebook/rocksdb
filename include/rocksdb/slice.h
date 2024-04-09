@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>  // RocksDB now requires C++17 support
 
@@ -121,6 +122,8 @@ class Slice {
 
   // Compare two slices and returns the first byte where they differ
   size_t difference_offset(const Slice& b) const;
+
+  std::span<const char> AsSpan() const { return {data_, size_}; }
 
   // private: make these public for rocksdbjni access
   const char* data_;
