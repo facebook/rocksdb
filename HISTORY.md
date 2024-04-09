@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.11.4 (04/09/2024)
+### Bug Fixes
+* Fixed CMake Javadoc build
+* Fixed Java `SstFileMetaData` to prevent throwing `java.lang.NoSuchMethodError`
+
 ## 8.11.3 (02/27/2024)
 * Correct CMake Javadoc and source jar builds
 
