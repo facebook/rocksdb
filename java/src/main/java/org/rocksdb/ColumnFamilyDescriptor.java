@@ -38,8 +38,8 @@ public class ColumnFamilyDescriptor extends RocksObject {
   }
 
   private ColumnFamilyDescriptor(final byte[] columnFamilyName,
-      final ColumnFamilyOptions columnFamilyOptions, boolean implicitlyCreatedColumnFamilyOptions)
-      throws RocksDBException {
+      final ColumnFamilyOptions columnFamilyOptions,
+      final boolean implicitlyCreatedColumnFamilyOptions) throws RocksDBException {
     super(createNativeInstance(columnFamilyName, columnFamilyOptions));
     this.columnFamilyOptions = columnFamilyOptions;
     this.implicitlyCreatedColumnFamilyOptions = implicitlyCreatedColumnFamilyOptions;
@@ -92,9 +92,12 @@ public class ColumnFamilyDescriptor extends RocksObject {
   }
   @Override
   protected void disposeInternal(final long handle) {
-    disposeJni(nativeHandle_);
-    if (implicitlyCreatedColumnFamilyOptions) {
-      columnFamilyOptions.close();
+    try {
+      if (implicitlyCreatedColumnFamilyOptions) {
+        columnFamilyOptions.close();
+      }
+    } finally {
+      disposeJni(handle);
     }
   }
   private static native void disposeJni(final long nativeHandle);
