@@ -21,7 +21,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/cassandra_value_operator.cc
         rocksjni/checkpoint.cc
         rocksjni/clock_cache.cc
-        rocksjni/columncamilydescriptor.cc
+        rocksjni/columnfamilydescriptor.cc
         rocksjni/columnfamilyhandle.cc
         rocksjni/compact_range_options.cc
         rocksjni/compaction_filter.cc
