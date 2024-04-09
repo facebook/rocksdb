@@ -3042,6 +3042,8 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
     return;
   }
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
+    TEST_SYNC_POINT_CALLBACK("SchedulePendingCompaction::cfd",
+                             static_cast<void*>(cfd));
     AddToCompactionQueue(cfd);
     ++unscheduled_compactions_;
   }

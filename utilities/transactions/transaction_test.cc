@@ -2981,6 +2981,79 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   }
 }
 
+TEST_P(TransactionTest, WriteImportedColumnFamilyTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  ColumnFamilyOptions cf_options;
+  ImportColumnFamilyOptions import_options;
+  ExportImportFilesMetaData* metadata_ptr = nullptr;
+  ColumnFamilyHandle* import_cf = nullptr;
+  ColumnFamilyHandle* export_cf = nullptr;
+  std::string export_files_dir = test::PerThreadDBPath(env.get(), "cf_export");
+  std::string value;
+  Status s;
+
+  {
+    // Create a column family to export
+    s = db->CreateColumnFamily(cf_options, "CF_EXPORT", &export_cf);
+    ASSERT_OK(s);
+
+    // Write some data to the db
+    WriteBatch batch;
+    ASSERT_OK(batch.Put(export_cf, "K1", "V1"));
+    ASSERT_OK(batch.Put(export_cf, "K2", "V2"));
+    s = db->Write(write_options, &batch);
+    ASSERT_OK(s);
+
+    Checkpoint* checkpoint = nullptr;
+    s = Checkpoint::Create(db, &checkpoint);
+    ASSERT_OK(s);
+    s = checkpoint->ExportColumnFamily(export_cf, export_files_dir,
+                                       &metadata_ptr);
+    ASSERT_OK(s);
+    ASSERT_NE(metadata_ptr, nullptr);
+    delete checkpoint;
+
+    s = db->DropColumnFamily(export_cf);
+    ASSERT_OK(s);
+    delete export_cf;
+  }
+
+  {
+    // Create a new column family with import
+    s = db->CreateColumnFamilyWithImport(
+        cf_options, "CF_IMPORT", import_options, *metadata_ptr, &import_cf);
+    ASSERT_OK(s);
+    s = db->Get(read_options, import_cf, "K1", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, "V1");
+    s = db->Get(read_options, import_cf, "K2", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, "V2");
+
+    // Wirte a new key-value pair
+    Transaction* txn = db->BeginTransaction(write_options);
+    ASSERT_TRUE(txn);
+    s = txn->Put(import_cf, "K3", "V3");
+    ASSERT_OK(s);
+    s = txn->Commit();
+    ASSERT_OK(s);
+    delete txn;
+
+    s = db->Get(read_options, import_cf, "K3", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, "V3");
+
+    s = db->DropColumnFamily(import_cf);
+    ASSERT_OK(s);
+    delete import_cf;
+  }
+
+  delete metadata_ptr;
+
+  EXPECT_OK(DestroyDir(env.get(), export_files_dir));
+}
+
 TEST_P(TransactionTest, MultiGetBatchedTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;

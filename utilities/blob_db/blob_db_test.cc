@@ -1013,6 +1013,27 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   ASSERT_EQ(5U, livefile.size());
   ASSERT_EQ(filename1, livefile[3]);
   ASSERT_EQ(filename2, livefile[4]);
+
+  std::vector<LiveFileStorageInfo> all_files, blob_files;
+  ASSERT_OK(blob_db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                              &all_files));
+  for (size_t i = 0; i < all_files.size(); i++) {
+    if (all_files[i].file_type == kBlobFile) {
+      blob_files.push_back(all_files[i]);
+    }
+  }
+
+  ASSERT_EQ(2U, blob_files.size());
+  ASSERT_GT(all_files.size(), blob_files.size());
+
+  ASSERT_EQ("000001.blob", blob_files[0].relative_filename);
+  ASSERT_EQ(blob_db_impl()->TEST_blob_dir(), blob_files[0].directory);
+  ASSERT_GT(blob_files[0].size, 0);
+
+  ASSERT_EQ("000002.blob", blob_files[1].relative_filename);
+  ASSERT_EQ(blob_db_impl()->TEST_blob_dir(), blob_files[1].directory);
+  ASSERT_GT(blob_files[1].size, 0);
+
   VerifyDB(data);
 }
 
