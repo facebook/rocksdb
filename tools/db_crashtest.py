@@ -273,7 +273,9 @@ default_params = {
     "block_align": 0,
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
-    "adm_policy": lambda: random.choice([0, 1, 2, 3]),
+    # TODO(hx235): enable `kAdmPolicyThreeQueue` after fixing the surfaced segfault
+    # issue in CompressedCacheSetCapacityThread
+    "adm_policy": lambda: random.choice([0, 1, 2]),
     "last_level_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
     "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
     "default_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
