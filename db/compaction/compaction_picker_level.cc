@@ -467,8 +467,9 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
     }
     if (!is_l0_trivial_move_ &&
         !compaction_picker_->SetupOtherInputs(
-            cf_name_, vstorage_, &start_level_inputs_, &output_level_inputs_,
-            &parent_index_, base_index_, round_robin_expanding)) {
+            cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs_,
+            &output_level_inputs_, &parent_index_, base_index_,
+            round_robin_expanding)) {
       return false;
     }
 

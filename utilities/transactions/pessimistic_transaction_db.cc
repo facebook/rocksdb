@@ -426,6 +426,27 @@ Status PessimisticTransactionDB::CreateColumnFamilies(
   return s;
 }
 
+Status PessimisticTransactionDB::CreateColumnFamilyWithImport(
+    const ColumnFamilyOptions& options, const std::string& column_family_name,
+    const ImportColumnFamilyOptions& import_options,
+    const std::vector<const ExportImportFilesMetaData*>& metadatas,
+    ColumnFamilyHandle** handle) {
+  InstrumentedMutexLock l(&column_family_mutex_);
+  Status s = VerifyCFOptions(options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                        import_options, metadatas, handle);
+  if (s.ok()) {
+    lock_manager_->AddColumnFamily(*handle);
+    UpdateCFComparatorMap(*handle);
+  }
+
+  return s;
+}
+
 // Let LockManager know that it can deallocate the LockMap for this
 // column family.
 Status PessimisticTransactionDB::DropColumnFamily(

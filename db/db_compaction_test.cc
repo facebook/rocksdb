@@ -6082,6 +6082,14 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
         }
       });
 
+  std::vector<std::string> pending_compaction_cfs;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SchedulePendingCompaction::cfd", [&](void* arg) {
+        const std::string& cf_name =
+            static_cast<ColumnFamilyData*>(arg)->GetName();
+        pending_compaction_cfs.emplace_back(cf_name);
+      });
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Block all compact threads in thread pool.
@@ -6136,7 +6144,29 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   }
 
   // All CFs are pending compaction
-  ASSERT_EQ(cf_count, env_->GetThreadPoolQueueLen(Env::LOW));
+  unsigned int tp_len = env_->GetThreadPoolQueueLen(Env::LOW);
+  if (cf_count != tp_len) {
+    // The test is flaky and fails the assertion below.
+    // Print some debug information.
+    uint64_t num_running_flushes = 0;
+    if (db_->GetIntProperty(DB::Properties::kNumRunningFlushes,
+                            &num_running_flushes)) {
+      fprintf(stdout, "Running flushes: %" PRIu64 "\n", num_running_flushes);
+    }
+    fprintf(stdout,
+            "%zu CF in compaction queue: ", pending_compaction_cfs.size());
+    for (const auto& cf_name : pending_compaction_cfs) {
+      fprintf(stdout, "%s, ", cf_name.c_str());
+    }
+    fprintf(stdout, "\n");
+
+    // print lsm
+    for (unsigned int cf = 0; cf < cf_count; cf++) {
+      fprintf(stdout, "%s: %s\n", cf_names[cf], FilesPerLevel(cf).c_str());
+    }
+  }
+
+  ASSERT_EQ(cf_count, tp_len);
 
   // Unblock all compaction threads
   for (size_t i = 0; i < kTotalCompactTasks; i++) {
@@ -9888,6 +9918,62 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesUCToLC) {
   // Tests that entries for trial move in MANIFEST should be valid
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ(expected_lsm, FilesPerLevel(1));
+}
+
+TEST_F(DBCompactionTest, DisallowRefitFilesFromNonL0ToL02) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  // To set up LSM shape:
+  // L0
+  // L1
+  // L2:[a@1, k@3], [k@2, z@4] (sorted by ascending smallest key)
+  // Both of these 2 files have epoch number = 1
+  const Snapshot* s1 = db_->GetSnapshot();
+  ASSERT_OK(Put("a", "@1"));
+  ASSERT_OK(Put("k", "@2"));
+  const Snapshot* s2 = db_->GetSnapshot();
+  ASSERT_OK(Put("k", "@3"));
+  ASSERT_OK(Put("z", "v3"));
+  ASSERT_OK(Flush());
+  // Cut file between k@3 and k@2
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionOutputs::ShouldStopBefore::manual_decision",
+      [options](void* p) {
+        auto* pair = (std::pair<bool*, const Slice>*)p;
+        if ((options.comparator->Compare(ExtractUserKey(pair->second), "k") ==
+             0) &&
+            (GetInternalKeySeqno(pair->second) == 2)) {
+          *(pair->first) = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  cro.change_level = true;
+  cro.target_level = 2;
+  Status s = dbfull()->CompactRange(cro, nullptr, nullptr);
+  ASSERT_OK(s);
+  ASSERT_EQ("0,0,2", FilesPerLevel());
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 2);
+  ASSERT_EQ(files[0].smallestkey, "a");
+  ASSERT_EQ(files[0].largestkey, "k");
+  ASSERT_EQ(files[1].smallestkey, "k");
+  ASSERT_EQ(files[1].largestkey, "z");
+
+  // Disallow moving 2 non-L0 files to L0
+  CompactRangeOptions cro2;
+  cro2.change_level = true;
+  cro2.target_level = 0;
+  s = dbfull()->CompactRange(cro2, nullptr, nullptr);
+  ASSERT_TRUE(s.IsAborted());
+
+  db_->ReleaseSnapshot(s1);
+  db_->ReleaseSnapshot(s2);
 }
 
 TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterMultiplierChanged) {

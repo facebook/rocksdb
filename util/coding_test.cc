@@ -127,7 +127,7 @@ TEST(Coding, Varint64) {
     values.push_back(power);
     values.push_back(power - 1);
     values.push_back(power + 1);
-  };
+  }
 
   std::string s;
   for (unsigned int i = 0; i < values.size(); i++) {
