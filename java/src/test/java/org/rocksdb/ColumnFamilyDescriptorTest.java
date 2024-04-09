@@ -12,7 +12,7 @@ public class ColumnFamilyDescriptorTest {
 
   @Test
   public void newInstance() throws RocksDBException {
-    try (ColumnFamilyDescriptor cf_descriptor =
+    try (final ColumnFamilyDescriptor cf_descriptor =
              new ColumnFamilyDescriptor("new_CF".getBytes(StandardCharsets.UTF_8))) {
       assertThat(cf_descriptor.getName()).isEqualTo("new_CF".getBytes(StandardCharsets.UTF_8));
       assertThat(cf_descriptor.getOptions()).isNotNull();
@@ -23,11 +23,11 @@ public class ColumnFamilyDescriptorTest {
   @Test
   public void fromHandle2Descriptor() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         ColumnFamilyDescriptor cfDescriptor =
+         final ColumnFamilyDescriptor cfDescriptor =
              new ColumnFamilyDescriptor("myCf".getBytes(StandardCharsets.UTF_8))) {
-      ColumnFamilyHandle cfHandle = db.createColumnFamily(cfDescriptor);
+      final ColumnFamilyHandle cfHandle = db.createColumnFamily(cfDescriptor);
 
-      ColumnFamilyDescriptor result =
+      final ColumnFamilyDescriptor result =
           cfHandle.getDescriptor(); // This creates new ColumnFamilyDescriptor in JNI code.
                                     //   instance of ColumnFamilyOptions is created with underlying
                                     //   C++ allocation and ColumnFamilyDescriptor must free this
@@ -35,7 +35,7 @@ public class ColumnFamilyDescriptorTest {
 
       assertThat(result).isNotNull();
 
-      ColumnFamilyOptions cfOptions = result.getOptions();
+      final ColumnFamilyOptions cfOptions = result.getOptions();
       assertThat(cfOptions.isOwningHandle()).isTrue();
 
       result.close(); // Closing  ColumnFamilyDescriptor must
@@ -46,11 +46,11 @@ public class ColumnFamilyDescriptorTest {
 
   @Test
   public void closeTransitiveResources() throws RocksDBException {
-    ColumnFamilyDescriptor cfDescriptor =
+    final ColumnFamilyDescriptor cfDescriptor =
         new ColumnFamilyDescriptor("myCf".getBytes(StandardCharsets.UTF_8));
     assertThat(cfDescriptor.isOwningHandle()).isTrue();
 
-    ColumnFamilyOptions cfOptions = cfDescriptor.getOptions();
+    final ColumnFamilyOptions cfOptions = cfDescriptor.getOptions();
 
     assertThat(cfOptions.isOwningHandle()).isTrue();
 

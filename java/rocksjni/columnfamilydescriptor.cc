@@ -51,23 +51,6 @@ jbyteArray Java_org_rocksdb_ColumnFamilyDescriptor_getName(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyDescriptor
- * Method:    getOption
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_ColumnFamilyDescriptor_getOption(
-    JNIEnv*, jclass, jlong jcf_descriptor_handle) {
-  auto cf_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
-          jcf_descriptor_handle);
-
-  return GET_CPLUSPLUS_POINTER(
-      &cf_options->options);  // TODO -> Should we copy options and leave it on
-                              // Java developer to delete?
-                              //  At the moment we setup owningHandle_=false
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyDescriptor
  * Method:    disposeJni
  * Signature: (J)V
  */
