@@ -404,6 +404,9 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J(
 
   env->GetLongArrayRegion(jcf_descriptor_handles, 0, jlen,
                           cf_descriptor_handles.get());
+  if (env->ExceptionCheck()) {
+    return nullptr;
+  }
 
   for (jsize i = 0; i < jlen; i++) {
     auto cf_descriptor_handle =
