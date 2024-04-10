@@ -1009,6 +1009,7 @@ void CompactionIterator::NextFromInput() {
         validity_info_.SetValid(ValidContext::kNewUserKey);
       } else {
         iter_stats_.num_timed_put_swap_preferred_seqno++;
+        saved_seq_for_penul_check_ = ikey_.sequence;
         ikey_.sequence = preferred_seqno;
         ikey_.type = kTypeValue;
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
@@ -1275,8 +1276,18 @@ void CompactionIterator::DecideOutputLevel() {
     // considered unsafe, because the key may conflict with higher-level SSTs
     // not from this compaction.
     // TODO: add statistic for declined output_to_penultimate_level
+    SequenceNumber seq_for_range_check =
+        (saved_seq_for_penul_check_.has_value() &&
+         saved_seq_for_penul_check_.value() != kMaxSequenceNumber)
+            ? saved_seq_for_penul_check_.value()
+            : ikey_.sequence;
+    ParsedInternalKey ikey_for_range_check = ikey_;
+    if (seq_for_range_check != ikey_.sequence) {
+      ikey_for_range_check.sequence = seq_for_range_check;
+      saved_seq_for_penul_check_ = std::nullopt;
+    }
     bool safe_to_penultimate_level =
-        compaction_->WithinPenultimateLevelOutputRange(ikey_);
+        compaction_->WithinPenultimateLevelOutputRange(ikey_for_range_check);
     if (!safe_to_penultimate_level) {
       output_to_penultimate_level_ = false;
       // It could happen when disable/enable `last_level_temperature` while
