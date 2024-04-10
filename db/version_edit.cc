@@ -962,6 +962,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     }
     r.append(" oldest_ancester_time:");
     AppendNumberTo(&r, f.oldest_ancester_time);
+    r.append(" largest_seqno:");
+    AppendNumberTo(&r, f.fd.largest_seqno);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
     r.append(" epoch_number:");

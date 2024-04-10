@@ -6010,6 +6010,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
 
 Status DBImpl::WriteOptionsFile(bool db_mutex_already_held) {
   options_mutex_.AssertHeld();
+  if (!immutable_db_options_.use_options_file) {
+    return Status::OK();
+  }
 
   if (db_mutex_already_held) {
     mutex_.AssertHeld();
