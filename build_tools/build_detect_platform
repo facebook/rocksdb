@@ -163,24 +163,6 @@ case "$TARGET_OS" in
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
-        if test -z "$ROCKSDB_USE_IO_URING"; then
-            ROCKSDB_USE_IO_URING=1
-        fi
-        if test "$ROCKSDB_USE_IO_URING" -ne 0; then
-            # check for liburing
-            $CXX $PLATFORM_CXXFLAGS -x c++ - -luring -o test.o 2>/dev/null  <<EOF
-              #include <liburing.h>
-              int main() {
-                struct io_uring ring;
-                io_uring_queue_init(1, &ring, 0);
-                return 0;
-              }
-EOF
-            if [ "$?" = 0 ]; then
-                PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
-                COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
-            fi
-        fi
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
@@ -614,6 +596,24 @@ EOF
         fi
     fi
 
+    if test -z "$ROCKSDB_USE_IO_URING"; then
+        ROCKSDB_USE_IO_URING=1
+    fi
+    if [ "$ROCKSDB_USE_IO_URING" -ne 0 -a "$PLATFORM" = OS_LINUX ]; then
+        # check for liburing
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -luring -o test.o 2>/dev/null  <<EOF
+          #include <liburing.h>
+          int main() {
+            struct io_uring ring;
+            io_uring_queue_init(1, &ring, 0);
+            return 0;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
+        fi
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
