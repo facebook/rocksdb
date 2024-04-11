@@ -192,7 +192,6 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
           static_cast<TieredAdmissionPolicy>(FLAGS_adm_policy);
       if (tiered_opts.adm_policy ==
           TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
-        std::shared_ptr<SecondaryCache> nvm_sec_cache;
         CompressedSecondaryCacheOptions nvm_sec_cache_opts;
         nvm_sec_cache_opts.capacity = cache_size;
         tiered_opts.nvm_sec_cache =
@@ -220,6 +219,13 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
       tiered_opts.compressed_secondary_ratio = 0.5;
       tiered_opts.adm_policy =
           static_cast<TieredAdmissionPolicy>(FLAGS_adm_policy);
+      if (tiered_opts.adm_policy ==
+          TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
+        CompressedSecondaryCacheOptions nvm_sec_cache_opts;
+        nvm_sec_cache_opts.capacity = cache_size;
+        tiered_opts.nvm_sec_cache =
+            NewCompressedSecondaryCache(nvm_sec_cache_opts);
+      }
       block_cache = NewTieredCache(tiered_opts);
     } else {
       opts.secondary_cache = std::move(secondary_cache);
