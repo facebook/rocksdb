@@ -69,15 +69,10 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
   }
   clock_ = options_.clock;
 
+  deadline_ = options_.deadline;
+
   // Set the sequence number
   sequence_num_ = 0;
-
-  // Set deadline
-  if (options_.max_duration_time_ms > 0) {
-    deadline_ts_ = clock_->NowMicros() + options_.max_duration_time_ms * 1000;
-  } else {
-    deadline_ts_ = std::numeric_limits<uint64_t>::max();
-  }
 
   // Dump stage, first, we write the hader
   IOStatus io_s = WriteHeader();
@@ -132,8 +127,11 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
     }
 
     uint64_t timestamp = clock_->NowMicros();
-    if (timestamp > deadline_ts_) {
-      return;
+    if (deadline_.count()) {
+      std::chrono::microseconds now = std::chrono::microseconds(timestamp);
+      if (now >= deadline_) {
+        return;
+      }
     }
 
     CacheEntryRole role = helper->role;

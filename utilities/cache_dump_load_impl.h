@@ -124,7 +124,7 @@ class CacheDumperImpl : public CacheDumper {
   // filtering.
   std::set<std::string> prefix_filter_;
   // Deadline for dumper in microseconds.
-  uint64_t deadline_ts_;
+  std::chrono::microseconds deadline_;
   uint64_t dumped_size_bytes_;
 };
 
