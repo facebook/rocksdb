@@ -334,6 +334,7 @@ TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
     ASSERT_EQ("value", value);
   }
 
+  ASSERT_OK(dbimpl->SyncWAL());
   delete db;
   db = nullptr;
   Status s;
