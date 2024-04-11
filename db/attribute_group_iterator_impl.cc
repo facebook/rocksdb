@@ -3,19 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "rocksdb/wide_columns.h"
-#include "db/wide/wide_column_serialization.h"
+#include "db/attribute_group_iterator_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-const Slice kDefaultWideColumnName;
+const AttributeGroups kNoAttributeGroups;
 
-const WideColumns kNoWideColumns;
-
-Status PinnableWideColumns::CreateIndexForWideColumns() {
-  Slice value_copy = value_;
-
-  return WideColumnSerialization::Deserialize(value_copy, columns_);
+void AttributeGroupIteratorImpl::AddToAttributeGroups(
+    ColumnFamilyHandle* /*cfh*/, const WideColumns& /*columns*/) {
+  // TODO - Implement AttributeGroup population
 }
 
 }  // namespace ROCKSDB_NAMESPACE
