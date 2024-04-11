@@ -17,13 +17,13 @@ class ColumnFamilyHandle;
 // Used in Write Path
 class AttributeGroup {
  public:
-  ColumnFamilyHandle* column_family() const { return column_family_; }
-  const WideColumns& columns() const { return columns_; }
-  WideColumns& columns() { return columns_; }
-
   explicit AttributeGroup(ColumnFamilyHandle* column_family,
                           const WideColumns& columns)
       : column_family_(column_family), columns_(columns) {}
+
+  ColumnFamilyHandle* column_family() const { return column_family_; }
+  const WideColumns& columns() const { return columns_; }
+  WideColumns& columns() { return columns_; }
 
  private:
   ColumnFamilyHandle* column_family_;
@@ -44,12 +44,12 @@ extern const AttributeGroups kNoAttributeGroups;
 // Used in Read Path. Wide-columns returned from the query are pinnable.
 class PinnableAttributeGroup {
  public:
+  explicit PinnableAttributeGroup(ColumnFamilyHandle* column_family)
+      : column_family_(column_family), status_(Status::OK()) {}
+
   ColumnFamilyHandle* column_family() const { return column_family_; }
   const Status& status() const { return status_; }
   const WideColumns& columns() const { return columns_.columns(); }
-
-  explicit PinnableAttributeGroup(ColumnFamilyHandle* column_family)
-      : column_family_(column_family), status_(Status::OK()) {}
 
   void SetStatus(const Status& status);
   void SetColumns(PinnableWideColumns&& columns);

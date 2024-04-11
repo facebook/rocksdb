@@ -12,29 +12,30 @@ namespace ROCKSDB_NAMESPACE {
 void CoalescingIterator::Coalesce(const WideColumns& columns) {
   WideColumns coalesced;
   coalesced.reserve(wide_columns_.size() + columns.size());
-  auto base_cols = wide_columns_.begin();
-  auto new_cols = columns.begin();
-  while (base_cols != wide_columns_.end() && new_cols != columns.end()) {
-    auto comparison = base_cols->name().compare(new_cols->name());
+  auto base_col_iter = wide_columns_.begin();
+  auto new_col_iter = columns.begin();
+  while (base_col_iter != wide_columns_.end() &&
+         new_col_iter != columns.end()) {
+    auto comparison = base_col_iter->name().compare(new_col_iter->name());
     if (comparison < 0) {
-      coalesced.push_back(*base_cols);
-      ++base_cols;
+      coalesced.push_back(*base_col_iter);
+      ++base_col_iter;
     } else if (comparison > 0) {
-      coalesced.push_back(*new_cols);
-      ++new_cols;
+      coalesced.push_back(*new_col_iter);
+      ++new_col_iter;
     } else {
-      coalesced.push_back(*new_cols);
-      ++new_cols;
-      ++base_cols;
+      coalesced.push_back(*new_col_iter);
+      ++new_col_iter;
+      ++base_col_iter;
     }
   }
-  while (base_cols != wide_columns_.end()) {
-    coalesced.push_back(*base_cols);
-    ++base_cols;
+  while (base_col_iter != wide_columns_.end()) {
+    coalesced.push_back(*base_col_iter);
+    ++base_col_iter;
   }
-  while (new_cols != columns.end()) {
-    coalesced.push_back(*new_cols);
-    ++new_cols;
+  while (new_col_iter != columns.end()) {
+    coalesced.push_back(*new_col_iter);
+    ++new_col_iter;
   }
   wide_columns_.swap(coalesced);
 

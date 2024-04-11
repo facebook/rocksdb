@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include <variant>
-
 #include "db/multi_cf_iterator_impl.h"
 
 namespace ROCKSDB_NAMESPACE {

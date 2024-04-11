@@ -381,7 +381,7 @@ TEST_F(CoalescingIteratorTest, WideColumns) {
 
 TEST_F(CoalescingIteratorTest, DifferentComparatorsInMultiCFs) {
   // This test creates two column families with two different comparators.
-  // Attempting to create the MultiCFIterator should fail.
+  // Attempting to create the CoalescingIterator should fail.
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
@@ -409,7 +409,7 @@ TEST_F(CoalescingIteratorTest, DifferentComparatorsInMultiCFs) {
 TEST_F(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
   // This test creates two column families with the same custom test
   // comparators (but instantiated independently). Attempting to create the
-  // MultiCFIterator should not fail.
+  // CoalescingIterator should not fail.
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);

@@ -12,7 +12,6 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "util/heap.h"
-#include "util/overload.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -106,7 +105,6 @@ class MultiCfIteratorImpl {
  private:
   std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>
       cfh_iter_pairs_;
-  ReadOptions read_options_;
   Status status_;
 
   struct MultiCfIteratorInfo {
@@ -198,6 +196,7 @@ class MultiCfIteratorImpl {
         considerStatus(iter->status());
         if (!status_.ok()) {
           // Non-OK status from the iterator. Bail out early
+          heap.clear();
           break;
         }
       }
@@ -214,8 +213,8 @@ class MultiCfIteratorImpl {
     reset_func_();
 
     // Because PopulateIterator() advances the same key in all non-top
-    // iterators, it is guaranteed that all iterator's first elements are unique
-    // here. Just advance the top iterator and re-heapify
+    // iterators, we do not have to do that here again. Just advance the top
+    // iterator and re-heapify
     auto top = heap.top();
     advance_func(top.iterator);
     if (top.iterator->Valid()) {
