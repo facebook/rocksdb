@@ -579,7 +579,8 @@ TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
   fault_fs->DisableWriteErrorInjection();
 
   // Flush remaining data from its buffer to underlying file.
-  log_writer->file()->writable_file()->Sync(IOOptions(), nullptr /* dbg */);
+  ASSERT_OK(log_writer->file()->writable_file()->Sync(IOOptions(),
+                                                      nullptr /* dbg */));
   // Closing the log writer will cause WritableFileWriter::Close()
   log_writer.reset();
 
