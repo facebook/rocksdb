@@ -933,11 +933,12 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilySeveralFilesWithOverlap) {
       LiveFileMetaDataInit(file4_sst_name, sst_files_dir_, 1, 3, 4));
   metadata2.db_comparator_name = options.comparator->Name();
 
-  std::vector<const ExportImportFilesMetaData *> metadatas{&metadata1, &metadata2};
+  std::vector<const ExportImportFilesMetaData*> metadatas{&metadata1,
+                                                          &metadata2};
 
   ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
-                                               ImportColumnFamilyOptions(),
-                                               metadatas, &import_cfh_),
+                                              ImportColumnFamilyOptions(),
+                                              metadatas, &import_cfh_),
             Status::InvalidArgument("CFs have overlapping ranges"));
   ASSERT_EQ(import_cfh_, nullptr);
 
