@@ -96,14 +96,16 @@ class CacheDumperImpl : public CacheDumper {
   CacheDumperImpl(const CacheDumpOptions& dump_options,
                   const std::shared_ptr<Cache>& cache,
                   std::unique_ptr<CacheDumpWriter>&& writer)
-      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {}
+      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {
+    dumped_size_bytes_ = 0;
+  }
   ~CacheDumperImpl() { writer_.reset(); }
   Status SetDumpFilter(std::vector<DB*> db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
 
  private:
   IOStatus WriteBlock(CacheDumpUnitType type, const Slice& key,
-                      const Slice& value);
+                      const Slice& value, uint64_t timestamp);
   IOStatus WriteHeader();
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
@@ -121,6 +123,9 @@ class CacheDumperImpl : public CacheDumper {
   // improvement can be applied like BloomFilter or others to speedup the
   // filtering.
   std::set<std::string> prefix_filter_;
+  // Deadline for dumper in microseconds.
+  std::chrono::microseconds deadline_;
+  uint64_t dumped_size_bytes_;
 };
 
 // The default implementation of CacheDumpedLoader
