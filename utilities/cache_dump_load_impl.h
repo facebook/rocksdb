@@ -187,8 +187,12 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
 
   // Reset the writer
   IOStatus Close() override {
+    IOStatus io_s;
+    if (file_writer_ != nullptr && !file_writer_->seen_error()) {
+      io_s = file_writer_->Sync(IOOptions(), false /* use_fsync */);
+    }
     file_writer_.reset();
-    return IOStatus::OK();
+    return io_s;
   }
 
  private:
