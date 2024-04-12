@@ -881,6 +881,71 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyWithOverlap) {
   delete db_copy;
   ASSERT_OK(DestroyDir(env_, dbname_ + "/db_copy"));
 }
+
+TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilySeveralFilesWithOverlap) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"koko"}, options);
+
+  SstFileWriter sfw_cf1(EnvOptions(), options, handles_[1]);
+  const std::string file1_sst_name = "file1.sst";
+  const std::string file1_sst = sst_files_dir_ + file1_sst_name;
+  ASSERT_OK(sfw_cf1.Open(file1_sst));
+  ASSERT_OK(sfw_cf1.Put("K1", "V1"));
+  ASSERT_OK(sfw_cf1.Put("K2", "V2"));
+  ASSERT_OK(sfw_cf1.Finish());
+
+  SstFileWriter sfw_cf2(EnvOptions(), options, handles_[1]);
+  const std::string file2_sst_name = "file2.sst";
+  const std::string file2_sst = sst_files_dir_ + file2_sst_name;
+  ASSERT_OK(sfw_cf2.Open(file2_sst));
+  ASSERT_OK(sfw_cf2.Put("K2", "V2"));
+  ASSERT_OK(sfw_cf2.Put("K3", "V3"));
+  ASSERT_OK(sfw_cf2.Finish());
+
+  ColumnFamilyHandle* second_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "toto", &second_cfh));
+
+  SstFileWriter sfw_cf3(EnvOptions(), options, second_cfh);
+  const std::string file3_sst_name = "file3.sst";
+  const std::string file3_sst = sst_files_dir_ + file3_sst_name;
+  ASSERT_OK(sfw_cf3.Open(file3_sst));
+  ASSERT_OK(sfw_cf3.Put("K3", "V3"));
+  ASSERT_OK(sfw_cf3.Put("K4", "V4"));
+  ASSERT_OK(sfw_cf3.Finish());
+
+  SstFileWriter sfw_cf4(EnvOptions(), options, second_cfh);
+  const std::string file4_sst_name = "file4.sst";
+  const std::string file4_sst = sst_files_dir_ + file4_sst_name;
+  ASSERT_OK(sfw_cf4.Open(file4_sst));
+  ASSERT_OK(sfw_cf4.Put("K4", "V4"));
+  ASSERT_OK(sfw_cf4.Put("K5", "V5"));
+  ASSERT_OK(sfw_cf4.Finish());
+
+  ExportImportFilesMetaData metadata1, metadata2;
+  metadata1.files.push_back(
+      LiveFileMetaDataInit(file1_sst_name, sst_files_dir_, 1, 1, 2));
+  metadata1.files.push_back(
+      LiveFileMetaDataInit(file2_sst_name, sst_files_dir_, 1, 3, 4));
+  metadata1.db_comparator_name = options.comparator->Name();
+  metadata2.files.push_back(
+      LiveFileMetaDataInit(file3_sst_name, sst_files_dir_, 1, 1, 2));
+  metadata2.files.push_back(
+      LiveFileMetaDataInit(file4_sst_name, sst_files_dir_, 1, 3, 4));
+  metadata2.db_comparator_name = options.comparator->Name();
+
+  std::vector<const ExportImportFilesMetaData*> metadatas{&metadata1,
+                                                          &metadata2};
+
+  ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                              ImportColumnFamilyOptions(),
+                                              metadatas, &import_cfh_),
+            Status::InvalidArgument("CFs have overlapping ranges"));
+  ASSERT_EQ(import_cfh_, nullptr);
+
+  ASSERT_OK(db_->DropColumnFamily(second_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(second_cfh));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
