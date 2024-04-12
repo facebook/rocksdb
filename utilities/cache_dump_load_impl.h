@@ -126,6 +126,8 @@ class CacheDumperImpl : public CacheDumper {
   // Deadline for dumper in microseconds.
   std::chrono::microseconds deadline_;
   uint64_t dumped_size_bytes_;
+  // dump all keys of cache if user doesn't call SetDumpFilter
+  bool dump_all_keys_ = true;
 };
 
 // The default implementation of CacheDumpedLoader

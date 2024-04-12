@@ -26,6 +26,7 @@ namespace ROCKSDB_NAMESPACE {
 // requirement.
 Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
   Status s = Status::OK();
+  dump_all_keys_ = false;
   for (size_t i = 0; i < db_list.size(); i++) {
     assert(i < db_list.size());
     TablePropertiesCollection ptc;
@@ -157,7 +158,7 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
     }
 
     // based on the key prefix, check if the block should be filter out.
-    if (ShouldFilterOut(key)) {
+    if (!dump_all_keys_ && ShouldFilterOut(key)) {
       return;
     }
 
