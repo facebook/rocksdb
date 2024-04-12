@@ -567,41 +567,60 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                            nullptr);
 }
 
-void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+void WriteBatchWithIndex::MergeAcrossBatchAndDBImpl(
     ColumnFamilyHandle* column_family, const Slice& key,
     const PinnableWideColumns& existing, const MergeContext& merge_context,
-    PinnableSlice* value, Status* status) {
-  assert(value);
+    std::string* value, PinnableWideColumns* columns, Status* status) {
+  assert(value || columns);
+  assert(!value || !columns);
   assert(status);
-  assert(status->ok() || status->IsNotFound());
-
-  std::string result_value;
 
   if (status->ok()) {
     if (WideColumnsHelper::HasDefaultColumnOnly(existing.columns())) {
       *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
           column_family, key, MergeHelper::kPlainBaseValue,
           WideColumnsHelper::GetDefaultColumn(existing.columns()),
-          merge_context, &result_value,
-          static_cast<PinnableWideColumns*>(nullptr));
+          merge_context, value, columns);
     } else {
       *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
           column_family, key, MergeHelper::kWideBaseValue, existing.columns(),
-          merge_context, &result_value,
-          static_cast<PinnableWideColumns*>(nullptr));
+          merge_context, value, columns);
     }
   } else {
     assert(status->IsNotFound());
     *status = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
-        column_family, key, merge_context, &result_value,
-        static_cast<PinnableWideColumns*>(nullptr));
+        column_family, key, merge_context, value, columns);
   }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableSlice* value, Status* status) {
+  assert(value);
+  assert(status);
+
+  std::string result_value;
+  constexpr PinnableWideColumns* result_entity = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context,
+                            &result_value, result_entity, status);
 
   if (status->ok()) {
-    value->Reset();
     *value->GetSelf() = std::move(result_value);
     value->PinSelf();
   }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableWideColumns* columns, Status* status) {
+  assert(columns);
+  assert(status);
+
+  constexpr std::string* value = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context, value,
+                            columns, status);
 }
 
 Status WriteBatchWithIndex::GetFromBatchAndDB(
@@ -620,6 +639,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     return Status::InvalidArgument("Must specify timestamp");
   }
 
+  pinnable_val->Reset();
+
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
@@ -634,7 +655,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     return s;
   }
 
-  if (!s.ok() || result == WBWIIteratorImpl::kError) {
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+  if (result == WBWIIteratorImpl::kError) {
     return s;
   }
 
@@ -798,6 +820,87 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
                             merge.merge_context, merge.value, merge.s);
     }
   }
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns, ReadCallback* callback) {
+  assert(db);
+  assert(column_family);
+  assert(columns);
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0 && !read_options.timestamp) {
+    return Status::InvalidArgument("Must specify timestamp");
+  }
+
+  columns->Reset();
+
+  MergeContext merge_context;
+  Status s;
+
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+
+  if (result == WBWIIteratorImpl::kFound ||
+      result == WBWIIteratorImpl::kError) {
+    return s;
+  }
+
+  if (result == WBWIIteratorImpl::kDeleted) {
+    return Status::NotFound();
+  }
+
+  assert(result == WBWIIteratorImpl::kMergeInProgress ||
+         result == WBWIIteratorImpl::kNotFound);
+
+  PinnableWideColumns existing;
+
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns =
+      (result == WBWIIteratorImpl::kMergeInProgress) ? &existing : columns;
+  get_impl_options.callback = callback;
+
+  s = static_cast_with_check<DBImpl>(db->GetRootDB())
+          ->GetImpl(read_options, key, get_impl_options);
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    if (s.ok() || s.IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, key, existing, merge_context,
+                            columns, &s);
+    }
+  }
+
+  return s;
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns) {
+  if (!db) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a DB object");
+  }
+
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a column family handle");
+  }
+
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a PinnableWideColumns "
+        "object");
+  }
+
+  constexpr ReadCallback* callback = nullptr;
+
+  return GetEntityFromBatchAndDB(db, read_options, column_family, key, columns,
+                                 callback);
 }
 
 void WriteBatchWithIndex::SetSavePoint() { rep->write_batch.SetSavePoint(); }
