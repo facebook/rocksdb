@@ -18,8 +18,10 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
       const std::vector<Iterator*>& child_iterators)
       : impl_(
             comparator, column_families, child_iterators, [this]() { Reset(); },
-            [this](ColumnFamilyHandle* cfh, Iterator* iter) {
-              AddToAttributeGroups(cfh, &iter->columns());
+            [this](autovector<MultiCfIteratorInfo> items) {
+              for (auto item : items) {
+                AddToAttributeGroups(item.cfh, &item.iterator->columns());
+              }
             }) {}
   ~AttributeGroupIteratorImpl() override {}
 

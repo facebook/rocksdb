@@ -15,6 +15,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+struct MultiCfIteratorInfo {
+  ColumnFamilyHandle* cfh;
+  Iterator* iterator;
+  int order;
+};
+
 class MultiCfIteratorImpl {
  public:
   MultiCfIteratorImpl(
@@ -22,7 +28,7 @@ class MultiCfIteratorImpl {
       const std::vector<ColumnFamilyHandle*>& column_families,
       const std::vector<Iterator*>& child_iterators,
       std::function<void()> reset_func,
-      std::function<void(ColumnFamilyHandle*, Iterator*)> populate_func)
+      std::function<void(autovector<MultiCfIteratorInfo>)> populate_func)
       : comparator_(comparator),
         heap_(MultiCfMinHeap(
             MultiCfHeapItemComparator<std::greater<int>>(comparator_))),
@@ -100,11 +106,6 @@ class MultiCfIteratorImpl {
       cfh_iter_pairs_;
   Status status_;
 
-  struct MultiCfIteratorInfo {
-    Iterator* iterator;
-    int order;
-  };
-
   template <typename CompareOp>
   class MultiCfHeapItemComparator {
    public:
@@ -136,7 +137,7 @@ class MultiCfIteratorImpl {
   MultiCfIterHeap heap_;
 
   std::function<void()> reset_func_;
-  std::function<void(ColumnFamilyHandle*, Iterator*)> populate_func_;
+  std::function<void(autovector<MultiCfIteratorInfo>)> populate_func_;
 
   // TODO: Lower and Upper bounds
 
@@ -177,12 +178,11 @@ class MultiCfIteratorImpl {
     reset_func_();
     heap.clear();
     int i = 0;
-    for (auto& cfh_iter_pair : cfh_iter_pairs_) {
-      auto& iter = cfh_iter_pair.second;
+    for (auto& [cfh, iter] : cfh_iter_pairs_) {
       child_seek_func(iter.get());
       if (iter->Valid()) {
         assert(iter->status().ok());
-        heap.push(MultiCfIteratorInfo{iter.get(), i});
+        heap.push(MultiCfIteratorInfo{cfh, iter.get(), i});
       } else {
         considerStatus(iter->status());
         if (!status_.ok()) {
@@ -251,19 +251,19 @@ class MultiCfIteratorImpl {
 
   template <typename BinaryHeap>
   void PopulateIterator(BinaryHeap& heap) {
-    // 1. Keep the top iterator (by popping it from the heap) and populate
-    //    value, columns and attribute_groups
+    // 1. Keep the top iterator (by popping it from the heap) and add it to list
+    //    to populate
     // 2. For all non-top iterators having the same key as top iter popped
-    //    from the previous step, coalesce/populate value, columns and
-    //    attribute_groups, and pop it temporarily from the heap
+    //    from the previous step, add them to the same list and pop it
+    //    temporarily from the heap
     // 3. Once no other iters have the same key as the top iter from step 1,
-    //    add all the iters back to the heap
+    //    populate the value/columns and attribute_groups from the list
+    //    collected in step 1 and 2 and add all the iters back to the heap
     assert(!heap.empty());
     auto top = heap.top();
-    auto& [top_cfh, top_iter] = cfh_iter_pairs_[top.order];
-    populate_func_(top_cfh, top_iter.get());
     heap.pop();
-    autovector<MultiCfIteratorInfo> temp;
+    autovector<MultiCfIteratorInfo> to_populate;
+    to_populate.push_back(top);
     if (!heap.empty()) {
       auto current = heap.top();
       assert(current.iterator);
@@ -271,9 +271,7 @@ class MultiCfIteratorImpl {
              comparator_->Compare(top.iterator->key(),
                                   current.iterator->key()) == 0) {
         assert(current.iterator->status().ok());
-        auto& [curr_cfh, curr_iter] = cfh_iter_pairs_[heap.top().order];
-        populate_func_(curr_cfh, curr_iter.get());
-        temp.push_back(current);
+        to_populate.push_back(current);
         heap.pop();
         if (!heap.empty()) {
           current = heap.top();
@@ -283,10 +281,10 @@ class MultiCfIteratorImpl {
       }
     }
     // Add the items back to the heap
-    for (auto& item : temp) {
+    for (auto& item : to_populate) {
       heap.push(item);
     }
-    heap.push(top);
+    populate_func_(to_populate);
   }
 };
 

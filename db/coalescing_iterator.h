@@ -17,8 +17,11 @@ class CoalescingIterator : public Iterator {
                      const std::vector<Iterator*>& child_iterators)
       : impl_(
             comparator, column_families, child_iterators, [this]() { Reset(); },
-            [this](ColumnFamilyHandle*, Iterator* iter) {
-              Coalesce(iter->columns());
+            [this](autovector<MultiCfIteratorInfo> items) {
+              // TODO - optimize by changing Coalesce to do k-merge
+              for (auto item : items) {
+                Coalesce(item.iterator->columns());
+              }
             }) {}
   ~CoalescingIterator() override {}
 
