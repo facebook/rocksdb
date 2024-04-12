@@ -60,27 +60,20 @@ class MultiCfIteratorImpl {
 
   void SeekToFirst() {
     auto& min_heap = GetHeap<MultiCfMinHeap>([this]() { InitMinHeap(); });
-    SeekCommon(
-        min_heap, [](Iterator* iter) { iter->SeekToFirst(); },
-        [](Iterator* iter) { iter->Next(); });
+    SeekCommon(min_heap, [](Iterator* iter) { iter->SeekToFirst(); });
   }
   void Seek(const Slice& target) {
     auto& min_heap = GetHeap<MultiCfMinHeap>([this]() { InitMinHeap(); });
-    SeekCommon(
-        min_heap, [&target](Iterator* iter) { iter->Seek(target); },
-        [](Iterator* iter) { iter->Next(); });
+    SeekCommon(min_heap, [&target](Iterator* iter) { iter->Seek(target); });
   }
   void SeekToLast() {
     auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() { InitMaxHeap(); });
-    SeekCommon(
-        max_heap, [](Iterator* iter) { iter->SeekToLast(); },
-        [](Iterator* iter) { iter->Prev(); });
+    SeekCommon(max_heap, [](Iterator* iter) { iter->SeekToLast(); });
   }
   void SeekForPrev(const Slice& target) {
     auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() { InitMaxHeap(); });
-    SeekCommon(
-        max_heap, [&target](Iterator* iter) { iter->SeekForPrev(target); },
-        [](Iterator* iter) { iter->Prev(); });
+    SeekCommon(max_heap,
+               [&target](Iterator* iter) { iter->SeekForPrev(target); });
   }
 
   void Next() {
@@ -179,10 +172,8 @@ class MultiCfIteratorImpl {
         MultiCfHeapItemComparator<std::less<int>>(comparator_));
   }
 
-  template <typename BinaryHeap, typename ChildSeekFuncType,
-            typename AdvanceFuncType>
-  void SeekCommon(BinaryHeap& heap, ChildSeekFuncType child_seek_func,
-                  AdvanceFuncType advance_func) {
+  template <typename BinaryHeap, typename ChildSeekFuncType>
+  void SeekCommon(BinaryHeap& heap, ChildSeekFuncType child_seek_func) {
     reset_func_();
     heap.clear();
     int i = 0;
@@ -203,7 +194,7 @@ class MultiCfIteratorImpl {
       ++i;
     }
     if (!heap.empty()) {
-      PopulateIterator(heap, advance_func);
+      PopulateIterator(heap);
     }
   }
 
@@ -212,64 +203,88 @@ class MultiCfIteratorImpl {
     assert(!heap.empty());
     reset_func_();
 
-    // Because PopulateIterator() advances the same key in all non-top
-    // iterators, we do not have to do that here again. Just advance the top
-    // iterator and re-heapify
+    // 1. Keep the top iterator (by popping it from the heap)
+    // 2. Make sure all others have iterated past the top iterator key slice
+    // 3. Advance the top iterator, and add it back to the heap if valid
     auto top = heap.top();
-    advance_func(top.iterator);
-    if (top.iterator->Valid()) {
-      assert(top.iterator->status().ok());
-      heap.replace_top(top);
-    } else {
-      considerStatus(top.iterator->status());
-      if (!status_.ok()) {
-        heap.clear();
-        return;
-      } else {
-        heap.pop();
-      }
-    }
-    if (!heap.empty()) {
-      PopulateIterator(heap, advance_func);
-    }
-  }
-
-  template <typename BinaryHeap, typename AdvanceFuncType>
-  void PopulateIterator(BinaryHeap& heap, AdvanceFuncType advance_func) {
-    // 1. Keep the top iterator (by popping it from the heap) and populate
-    //    value, columns and attribute_groups
-    // 2. Make sure all others have iterated past the top iterator key slice.
-    //    While iterating, coalesce/populate value, columns and attribute_groups
-    // 3. Add the top iterator back without advancing it
-    assert(!heap.empty());
-    auto top = heap.top();
-    auto& [top_cfh, top_iter] = cfh_iter_pairs_[top.order];
-    populate_func_(top_cfh, top_iter.get());
     heap.pop();
     if (!heap.empty()) {
-      auto* current = heap.top().iterator;
-      while (current->Valid() &&
-             comparator_->Compare(top.iterator->key(), current->key()) == 0) {
-        assert(current->status().ok());
-        auto& [curr_cfh, curr_iter] = cfh_iter_pairs_[heap.top().order];
-        populate_func_(curr_cfh, curr_iter.get());
-        advance_func(current);
-        if (current->Valid()) {
+      auto current = heap.top();
+      assert(current.iterator);
+      while (current.iterator->Valid() &&
+             comparator_->Compare(top.iterator->key(),
+                                  current.iterator->key()) == 0) {
+        assert(current.iterator->status().ok());
+        advance_func(current.iterator);
+        if (current.iterator->Valid()) {
           heap.replace_top(heap.top());
         } else {
-          considerStatus(current->status());
+          considerStatus(current.iterator->status());
           if (!status_.ok()) {
-            // Non-OK status from the iterator. Bail out early
             heap.clear();
-            break;
+            return;
           } else {
             heap.pop();
           }
         }
         if (!heap.empty()) {
-          current = heap.top().iterator;
+          current = heap.top();
         }
       }
+    }
+    advance_func(top.iterator);
+    if (top.iterator->Valid()) {
+      assert(top.iterator->status().ok());
+      heap.push(top);
+    } else {
+      considerStatus(top.iterator->status());
+      if (!status_.ok()) {
+        heap.clear();
+        return;
+      }
+    }
+
+    if (!heap.empty()) {
+      PopulateIterator(heap);
+    }
+  }
+
+  template <typename BinaryHeap>
+  void PopulateIterator(BinaryHeap& heap) {
+    // 1. Keep the top iterator (by popping it from the heap) and populate
+    //    value, columns and attribute_groups
+    // 2. For all non-top iterators having the same key as top iter popped
+    //    from the previous step, coalesce/populate value, columns and
+    //    attribute_groups, and pop it temporarily from the heap
+    // 3. Once no other iters have the same key as the top iter from step 1,
+    //    add all the iters back to the heap
+    assert(!heap.empty());
+    auto top = heap.top();
+    auto& [top_cfh, top_iter] = cfh_iter_pairs_[top.order];
+    populate_func_(top_cfh, top_iter.get());
+    heap.pop();
+    autovector<MultiCfIteratorInfo> temp;
+    if (!heap.empty()) {
+      auto current = heap.top();
+      assert(current.iterator);
+      while (current.iterator->Valid() &&
+             comparator_->Compare(top.iterator->key(),
+                                  current.iterator->key()) == 0) {
+        assert(current.iterator->status().ok());
+        auto& [curr_cfh, curr_iter] = cfh_iter_pairs_[heap.top().order];
+        populate_func_(curr_cfh, curr_iter.get());
+        temp.push_back(current);
+        heap.pop();
+        if (!heap.empty()) {
+          current = heap.top();
+        } else {
+          break;
+        }
+      }
+    }
+    // Add the items back to the heap
+    for (auto& item : temp) {
+      heap.push(item);
     }
     heap.push(top);
   }

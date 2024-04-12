@@ -19,7 +19,7 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
       : impl_(
             comparator, column_families, child_iterators, [this]() { Reset(); },
             [this](ColumnFamilyHandle* cfh, Iterator* iter) {
-              AddToAttributeGroups(cfh, iter->columns());
+              AddToAttributeGroups(cfh, &iter->columns());
             }) {}
   ~AttributeGroupIteratorImpl() override {}
 
@@ -38,7 +38,7 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
   Slice key() const override { return impl_.key(); }
   Status status() const override { return impl_.status(); }
 
-  const AttributeGroups& attribute_groups() const override {
+  const IterableAttributeGroups& attribute_groups() const override {
     assert(Valid());
     return attribute_groups_;
   }
@@ -47,9 +47,9 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
 
  private:
   MultiCfIteratorImpl impl_;
-  AttributeGroups attribute_groups_;
+  IterableAttributeGroups attribute_groups_;
   void AddToAttributeGroups(ColumnFamilyHandle* cfh,
-                            const WideColumns& columns);
+                            const WideColumns* columns);
 };
 
 class EmptyAttributeGroupIterator : public AttributeGroupIterator {
@@ -68,8 +68,8 @@ class EmptyAttributeGroupIterator : public AttributeGroupIterator {
   }
   Status status() const override { return status_; }
 
-  const AttributeGroups& attribute_groups() const override {
-    return kNoAttributeGroups;
+  const IterableAttributeGroups& attribute_groups() const override {
+    return kNoIterableAttributeGroups;
   }
 
  private:
