@@ -50,6 +50,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -352,8 +353,12 @@ class DBImpl : public DB {
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
   // UNDER CONSTRUCTION - DO NOT USE
-  // Return a cross-column-family iterator from a consistent database state.
-  std::unique_ptr<Iterator> NewMultiCfIterator(
+  std::unique_ptr<Iterator> NewCoalescingIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
+  // UNDER CONSTRUCTION - DO NOT USE
+  std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
 
@@ -2410,6 +2415,13 @@ class DBImpl : public DB {
                                       std::string ts_low);
 
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+
+  template <typename IterType, typename ImplType,
+            typename ErrorIteratorFuncType>
+  std::unique_ptr<IterType> NewMultiCfIterator(
+      const ReadOptions& _read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      ErrorIteratorFuncType error_iterator_func);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
