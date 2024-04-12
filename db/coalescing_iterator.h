@@ -18,10 +18,7 @@ class CoalescingIterator : public Iterator {
       : impl_(
             comparator, column_families, child_iterators, [this]() { Reset(); },
             [this](autovector<MultiCfIteratorInfo> items) {
-              // TODO - optimize by changing Coalesce to do k-merge
-              for (auto item : items) {
-                Coalesce(item.iterator->columns());
-              }
+              Coalesce(items);
             }) {}
   ~CoalescingIterator() override {}
 
@@ -58,7 +55,7 @@ class CoalescingIterator : public Iterator {
   Slice value_;
   WideColumns wide_columns_;
 
-  void Coalesce(const WideColumns& columns);
+  void Coalesce(autovector<MultiCfIteratorInfo> items);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

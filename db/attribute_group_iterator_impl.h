@@ -19,9 +19,7 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
       : impl_(
             comparator, column_families, child_iterators, [this]() { Reset(); },
             [this](autovector<MultiCfIteratorInfo> items) {
-              for (auto item : items) {
-                AddToAttributeGroups(item.cfh, &item.iterator->columns());
-              }
+              AddToAttributeGroups(items);
             }) {}
   ~AttributeGroupIteratorImpl() override {}
 
@@ -50,8 +48,7 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
  private:
   MultiCfIteratorImpl impl_;
   IterableAttributeGroups attribute_groups_;
-  void AddToAttributeGroups(ColumnFamilyHandle* cfh,
-                            const WideColumns* columns);
+  void AddToAttributeGroups(autovector<MultiCfIteratorInfo> items);
 };
 
 class EmptyAttributeGroupIterator : public AttributeGroupIterator {

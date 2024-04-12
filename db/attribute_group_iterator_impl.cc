@@ -11,8 +11,10 @@ const AttributeGroups kNoAttributeGroups;
 const IterableAttributeGroups kNoIterableAttributeGroups;
 
 void AttributeGroupIteratorImpl::AddToAttributeGroups(
-    ColumnFamilyHandle* cfh, const WideColumns* columns) {
-  attribute_groups_.emplace_back(cfh, columns);
+    autovector<MultiCfIteratorInfo> items) {
+  for (const auto& item : items) {
+    attribute_groups_.emplace_back(item.cfh, &item.iterator->columns());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
