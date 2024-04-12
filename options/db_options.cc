@@ -37,6 +37,7 @@ static std::unordered_map<std::string, WALRecoveryMode>
 
 static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
     {"kVolatileTier", CacheTier::kVolatileTier},
+    {"kVolatileCompressedTier", CacheTier::kVolatileCompressedTier},
     {"kNonVolatileBlockTier", CacheTier::kNonVolatileBlockTier}};
 
 static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =

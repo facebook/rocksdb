@@ -633,6 +633,17 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   return io_s;
 }
 
+IOStatus FaultInjectionTestFS::ReuseWritableFile(
+    const std::string& fname, const std::string& old_fname,
+    const FileOptions& file_opts, std::unique_ptr<FSWritableFile>* result,
+    IODebugContext* dbg) {
+  IOStatus s = RenameFile(old_fname, fname, file_opts.io_options, dbg);
+  if (!s.ok()) {
+    return s;
+  }
+  return NewWritableFile(fname, file_opts, result, dbg);
+}
+
 IOStatus FaultInjectionTestFS::NewRandomRWFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSRandomRWFile>* result, IODebugContext* dbg) {
