@@ -1511,6 +1511,7 @@ class DB {
                                            std::string replication_sequence,
                                            CFOptionsFactory cf_options_factory,
                                            bool allow_new_manifest_writes,
+                                           uint64_t snapshot_replication_epoch,
                                            ApplyReplicationLogRecordInfo* info,
                                            unsigned flags = 0) = 0;
   virtual Status GetReplicationRecordDebugString(

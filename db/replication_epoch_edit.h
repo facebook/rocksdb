@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 #include <deque>
 #include <optional>
@@ -102,7 +103,12 @@ class ReplicationEpochSet {
 
   const auto& GetEpochs() const { return epochs_; }
   uint64_t GetSmallestEpoch() const {
+    assert(!epochs_.empty());
     return epochs_.front().GetEpoch();
+  }
+  uint64_t GetLargestEpoch() const {
+    assert(!epochs_.empty());
+    return epochs_.back().GetEpoch();
   }
 
   bool empty() const { return epochs_.empty(); }

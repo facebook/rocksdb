@@ -1282,12 +1282,14 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
                                          std::string replication_sequence,
                                          CFOptionsFactory cf_options_factory,
                                          bool allow_new_manifest_writes,
+                                         uint64_t snapshot_replication_epoch,
                                          ApplyReplicationLogRecordInfo* info,
                                          unsigned flags) {
   JobContext job_context(0, false);
   Status s;
   bool evictObsoleteFiles = flags & AR_EVICT_OBSOLETE_FILES;
-  bool enableEpochBasedDivergenceDetection = flags & AR_EPOCH_BASED_DIVERGENCE_DETECTION;
+  bool enableEpochBasedDivergenceDetection =
+      flags & AR_EPOCH_BASED_DIVERGENCE_DETECTION;
 
   {
     WriteThread::Writer w;
@@ -1399,21 +1401,34 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
             break;
           }
           latest_applied_update_sequence = e.GetManifestUpdateSequence();
-          if (e.GetManifestUpdateSequence() <= current_update_sequence) {
-            // It's possible that applied MUS to be smaller than the current MUS
-            // in VersionSet when recovering based on local log. We rely on the
-            // `ReplicationEpochSet` maintained in `VersionSet` to help detect
-            // diverged local log. NOTE:
-            // 1. if epoch based divergence detection is
-            // enabled, `ReplicationEpochSet` can only be empty when this is a
-            // new db opening with epoch 0, i.e., no new epoch is generated yet,
-            // and follower starts tailing from leader when epoch is 0.
-            // Currently, this is only possible in tests. In practice, follower
-            // will always have non empty replication epoch set when applying
-            // version edits.
-            // 2. we can only detect diverged manifest write with mus <= db's
-            // mus. For mus > db's mus, divergence is only detected when the
-            // follower connects to leader
+
+          // Epoch based divergence detection, used to detect if the local log
+          // is diverged from the MANIFEST file the db is opened with.
+          //
+          // High level idea: we maintain all the (epoch, first mus of the
+          // epoch) after the persisted replication sequence, i.e., the
+          // `ReplicationEpochSet`, in VersionSet/Manifest file. When recovering
+          // local log, we infer the epoch based on the `ReplicationEpochSet`
+          // and the VersionEdit's manifest update sequence, and compare that
+          // with the actual epoch of the replication record.
+          //
+          // A few special cases:
+          // 1. if epoch based divergence detection is
+          // enabled, `ReplicationEpochSet` can only be empty when this is a
+          // new db opening with epoch 0, i.e., no new epoch is generated yet,
+          // and follower starts tailing from leader when epoch is 0.
+          // Currently, this is only possible in tests. In practice, follower
+          // will always have non empty replication epoch set when applying
+          // version edits.
+          // 2. If the mus of `e` is smaller than the smallest mus in the
+          // `ReplicationEpochSet`, we can't infer the exact epoch. So the only
+          // verification we do here is to make sure the epoch of the record is
+          // also smaller than the smallest epoch in the `ReplicationEpochSet`
+          // 3. We have to do divergence detection even if mus of `e` is greater
+          // than `current_update_sequence`. Reason is, it's possible a snapshot
+          // at epoch `e` is generated while there is no manifest writes for the
+          // latest epoch yet.
+          if (latest_applied_update_sequence <= current_update_sequence) {
             if (enableEpochBasedDivergenceDetection &&
                 !versions_->IsReplicationEpochsEmpty()) {
               auto inferred_epoch_of_mus = versions_->GetReplicationEpochForMUS(
@@ -1424,14 +1439,13 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
                   replication_epoch >=
                       versions_->replication_epochs_.GetSmallestEpoch()) {
                 info->diverged_manifest_writes = true;
-                ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                               "Diverged manifest found: replication seq: %s, "
-                               "mus: %" PRIu64 ", smallest epoch: %" PRIu64
-                               ", actual epoch: %" PRIu64,
-                               replication_sequence.c_str(),
-                               latest_applied_update_sequence,
-                               versions_->replication_epochs_.GetSmallestEpoch(),
-                               replication_epoch);
+                ROCKS_LOG_INFO(
+                    immutable_db_options_.info_log,
+                    "Diverged manifest found: mus: %" PRIu64
+                    ", smallest epoch: %" PRIu64 ", actual epoch: %" PRIu64,
+                    latest_applied_update_sequence,
+                    versions_->replication_epochs_.GetSmallestEpoch(),
+                    replication_epoch);
                 break;
               }
               // If we can infer epoch, make sure the epoch actually matches
@@ -1439,19 +1453,36 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
               if (inferred_epoch_of_mus &&
                   (*inferred_epoch_of_mus != replication_epoch)) {
                 info->diverged_manifest_writes = true;
-                ROCKS_LOG_INFO(
-                    immutable_db_options_.info_log,
-                    "Diverged manifest found: replication seq: %s, mus: "
-                    "%" PRIu64 ", inferred epoch: %" PRIu64
-                    ", actual epoch: %" PRIu64,
-                    replication_sequence.c_str(),
-                    latest_applied_update_sequence, *inferred_epoch_of_mus,
-                    replication_epoch);
+                ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                               "Diverged manifest found: mus: %" PRIu64
+                               ", inferred epoch: %" PRIu64
+                               ", actual epoch: %" PRIu64,
+                               latest_applied_update_sequence,
+                               *inferred_epoch_of_mus, replication_epoch);
                 break;
               }
-            }  // else Old manifest write which is not diverged
+            }
+
+            // don't apply the manifest write if it's already applied
             continue;
+          } else {
+            if (enableEpochBasedDivergenceDetection &&
+                !versions_->IsReplicationEpochsEmpty() &&
+                versions_->replication_epochs_.GetLargestEpoch() < snapshot_replication_epoch) {
+              // This should be the first mus of `snapshotEpoch`
+              if (replication_epoch != snapshot_replication_epoch) {
+                info->diverged_manifest_writes = true;
+                ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                               "Diverged manifest found: mus: %" PRIu64
+                               ", replication epoch: %" PRIu64
+                               ", snapshot epoch: %" PRIu64,
+                               latest_applied_update_sequence,
+                               replication_epoch, snapshot_replication_epoch);
+                break;
+              }
+            }
           }
+
           info->has_new_manifest_writes = true;
           if (!allow_new_manifest_writes) {
             // We don't expect new manifest writes, break early

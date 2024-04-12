@@ -197,7 +197,7 @@ class ReplicationTest : public testing::Test {
   }
 
   DB* openLeader() { return openLeader(leaderOptions()); }
-  DB* openLeader(Options options);
+  DB* openLeader(Options options, uint64_t snapshot_replication_epoch = 1);
   void closeLeader() {
     leader_cfs_.clear();
     leader_db_.reset();
@@ -364,6 +364,7 @@ class ReplicationTest : public testing::Test {
   std::unique_ptr<DB> follower_db_;
   ColumnFamilyMap follower_cfs_;
   std::shared_ptr<Listener> listener_;
+  uint64_t snapshot_replication_epoch_{0};
 };
 
 Options ReplicationTest::leaderOptions() const {
@@ -382,7 +383,7 @@ Options ReplicationTest::leaderOptions() const {
   return options;
 }
 
-DB* ReplicationTest::openLeader(Options options) {
+DB* ReplicationTest::openLeader(Options options, uint64_t snapshot_replication_epoch) {
   bool firstOpen = log_records_.empty();
   auto dbname = test_dir_ + "/leader";
 
@@ -417,6 +418,7 @@ DB* ReplicationTest::openLeader(Options options) {
     assert(inserted);
   }
 
+  snapshot_replication_epoch_ = snapshot_replication_epoch;
   if (!firstOpen) {
     MutexLock lock(&log_records_mutex_);
     listener_->setState(Listener::RECOVERY);
@@ -427,7 +429,9 @@ DB* ReplicationTest::openLeader(Options options) {
       s = db->ApplyReplicationLogRecord(
           log_records_[leaderSeq].first, log_records_[leaderSeq].second,
           [this](Slice) { return ColumnFamilyOptions(leaderOptions()); },
-          true /* allow_new_manifest_writes */, &info,
+          true /* allow_new_manifest_writes */,
+          snapshot_replication_epoch_,
+          &info,
           DB::AR_EVICT_OBSOLETE_FILES |
               DB::AR_EPOCH_BASED_DIVERGENCE_DETECTION);
       assert(s.ok());
@@ -492,7 +496,9 @@ size_t ReplicationTest::catchUpFollower(std::optional<size_t> num_records,
         [this](Slice) {
           return ColumnFamilyOptions(follower_db_->GetOptions());
         },
-        allow_new_manifest_writes, &info, flags);
+        allow_new_manifest_writes,
+        snapshot_replication_epoch_,
+        &info, flags);
     assert(s.ok());
     ++ret;
   }
@@ -1470,7 +1476,7 @@ TEST_F(ReplicationTest, MaxNumReplicationEpochs) {
   options.disable_auto_flush = true;
   // maintain at most two replication epochs in the set
   options.max_num_replication_epochs = 2;
-  auto leader = openLeader(options);
+  auto leader = openLeader(options, 1 /* snapshot_replication_epoch */);
   openFollower(options);
 
   auto cf = [](int i) { return "cf" + std::to_string(i); };
@@ -1513,7 +1519,7 @@ TEST_F(ReplicationTest, MaxNumReplicationEpochs) {
   verifyReplicationEpochsEqual();
 
   closeLeader();
-  leader = openLeader(options);
+  leader = openLeader(options, 4 /* snapshot_replication_epoch */);
   ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().size(),
             2);
   ASSERT_EQ(leaderFull()->GetVersionSet()->TEST_GetReplicationEpochSet().GetSmallestEpoch(),
