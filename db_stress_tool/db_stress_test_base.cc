@@ -3693,6 +3693,7 @@ void InitializeOptionsFromFlags(
   }
   options.lowest_used_cache_tier =
       static_cast<CacheTier>(FLAGS_lowest_used_cache_tier);
+  options.inplace_update_support = FLAGS_inplace_update_support;
 }
 
 void InitializeOptionsGeneral(

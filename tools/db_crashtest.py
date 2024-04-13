@@ -74,6 +74,7 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
+    "inplace_update_support": lambda: random.randint(0, 1),
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
@@ -280,6 +281,8 @@ default_params = {
     # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
     # after fixing the surfaced issue with delete range
     "enable_memtable_insert_with_hint_prefix_extractor": 0,
+    "check_multiget_consistency": lambda: random.choice([0, 0, 0, 1]),
+    "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -437,8 +440,9 @@ cf_consistency_params = {
     "write_buffer_size": 1024 * 1024,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     # Snapshots are used heavily in this test mode, while they are incompatible
-    # with compaction filter.
+    # with compaction filter, inplace_update_support
     "enable_compaction_filter": 0,
+    "inplace_update_support": 0,
     # `CfConsistencyStressTest::TestIngestExternalFile()` is not implemented.
     "ingest_external_file_one_in": 0,
     # `CfConsistencyStressTest::TestIterateAgainstExpected()` is not implemented.
@@ -639,6 +643,7 @@ def finalize_and_sanitize(src_params):
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
+        dest_params["inplace_update_support"] = 0
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
 
@@ -699,8 +704,9 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_pipelined_write"] = 0
     if dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0:
         dest_params["sst_file_manager_bytes_per_truncate"] = 0
-    if dest_params.get("enable_compaction_filter", 0) == 1:
-        # Compaction filter is incompatible with snapshots. Need to avoid taking
+    if (dest_params.get("enable_compaction_filter", 0) == 1
+        or dest_params.get("inplace_update_support", 0) == 1):
+        # Compaction filter, inplace update support are incompatible with snapshots. Need to avoid taking
         # snapshots, as well as avoid operations that use snapshots for
         # verification.
         dest_params["acquire_snapshot_one_in"] = 0
@@ -708,6 +714,8 @@ def finalize_and_sanitize(src_params):
         # Give the iterator ops away to reads.
         dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
+        dest_params["check_multiget_consistency"] = 0
+        dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
