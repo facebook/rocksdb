@@ -17,7 +17,7 @@ class CoalescingIterator : public Iterator {
                      const std::vector<Iterator*>& child_iterators)
       : impl_(
             comparator, column_families, child_iterators, [this]() { Reset(); },
-            [this](autovector<MultiCfIteratorInfo> items) {
+            [this](const autovector<MultiCfIteratorInfo>& items) {
               Coalesce(items);
             }) {}
   ~CoalescingIterator() override {}
@@ -55,7 +55,25 @@ class CoalescingIterator : public Iterator {
   Slice value_;
   WideColumns wide_columns_;
 
-  void Coalesce(autovector<MultiCfIteratorInfo> items);
+  struct WideColumnWithOrder {
+    const WideColumn* column;
+    int order;
+  };
+
+  class WideColumnWithOrderComparator {
+   public:
+    explicit WideColumnWithOrderComparator() {}
+    bool operator()(const WideColumnWithOrder& a,
+                    const WideColumnWithOrder& b) const {
+      int c = a.column->name().compare(b.column->name());
+      return c == 0 ? a.order - b.order > 0 : c > 0;
+    }
+  };
+
+  using MinHeap =
+      BinaryHeap<WideColumnWithOrder, WideColumnWithOrderComparator>;
+
+  void Coalesce(const autovector<MultiCfIteratorInfo>& items);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

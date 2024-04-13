@@ -9,24 +9,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct WideColumnWithOrder {
-  const WideColumn* column;
-  int order;
-};
-
-class WideColumnWithOrderComparator {
- public:
-  explicit WideColumnWithOrderComparator() {}
-  bool operator()(const WideColumnWithOrder& a,
-                  const WideColumnWithOrder& b) const {
-    int c = a.column->name().compare(b.column->name());
-    return c == 0 ? a.order - b.order > 0 : c > 0;
-  }
-};
-
-using MinHeap = BinaryHeap<WideColumnWithOrder, WideColumnWithOrderComparator>;
-
-void CoalescingIterator::Coalesce(autovector<MultiCfIteratorInfo> items) {
+void CoalescingIterator::Coalesce(
+    const autovector<MultiCfIteratorInfo>& items) {
   assert(wide_columns_.empty());
   MinHeap heap;
   for (const auto& item : items) {

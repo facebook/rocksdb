@@ -28,7 +28,7 @@ class MultiCfIteratorImpl {
       const std::vector<ColumnFamilyHandle*>& column_families,
       const std::vector<Iterator*>& child_iterators,
       std::function<void()> reset_func,
-      std::function<void(autovector<MultiCfIteratorInfo>)> populate_func)
+      std::function<void(const autovector<MultiCfIteratorInfo>&)> populate_func)
       : comparator_(comparator),
         heap_(MultiCfMinHeap(
             MultiCfHeapItemComparator<std::greater<int>>(comparator_))),

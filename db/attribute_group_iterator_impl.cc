@@ -11,7 +11,7 @@ const AttributeGroups kNoAttributeGroups;
 const IterableAttributeGroups kNoIterableAttributeGroups;
 
 void AttributeGroupIteratorImpl::AddToAttributeGroups(
-    autovector<MultiCfIteratorInfo> items) {
+    const autovector<MultiCfIteratorInfo>& items) {
   for (const auto& item : items) {
     attribute_groups_.emplace_back(item.cfh, &item.iterator->columns());
   }
