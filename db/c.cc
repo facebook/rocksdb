@@ -531,6 +531,42 @@ struct rocksdb_universal_compaction_options_t {
   ROCKSDB_NAMESPACE::CompactionOptionsUniversal* rep;
 };
 
+struct rocksdb_callback_logger_t : public Logger {
+  static const ssize_t STACK_BUFSZ = 512;
+  rocksdb_callback_logger_t(InfoLogLevel log_level,
+                            void (*logv_cb)(void*, unsigned, char*, size_t),
+                            void* priv)
+      : Logger(log_level), logv_cb_(logv_cb), priv_(priv) {}
+
+  using Logger::Logv;
+  void Logv(const InfoLogLevel level, const char* fmt, va_list ap0) override {
+    char stack_buf[STACK_BUFSZ];
+    char* alloc_buf = nullptr;
+    char* buf = stack_buf;
+    int len = 0;
+    va_list ap1;
+    if (!logv_cb_) return;
+    va_copy(ap1, ap0);
+    len = vsnprintf(buf, STACK_BUFSZ, fmt, ap0);
+    if (len <= 0)
+      goto cleanup;
+    else if (len >= STACK_BUFSZ) {
+      buf = alloc_buf = reinterpret_cast<char*>(malloc(len + 1));
+      if (!buf) goto cleanup;
+      len = vsnprintf(buf, len + 1, fmt, ap1);
+      if (len <= 0) goto cleanup;
+    }
+    logv_cb_(priv_, unsigned(level), buf, size_t(len));
+  cleanup:
+    va_end(ap1);
+    free(alloc_buf);
+  }
+
+ private:
+  void (*logv_cb_)(void*, unsigned, char*, size_t) = nullptr;
+  void* priv_ = nullptr;
+};
+
 static bool SaveError(char** errptr, const Status& s) {
   assert(errptr != nullptr);
   if (s.ok()) {
@@ -2942,6 +2978,15 @@ rocksdb_logger_t* rocksdb_logger_create_stderr_logger(int log_level,
         std::make_shared<StderrLogger>(static_cast<InfoLogLevel>(log_level));
   }
 
+  return logger;
+}
+
+rocksdb_logger_t* rocksdb_logger_create_callback_logger(
+    int log_level, void (*callback)(void*, unsigned, char*, size_t),
+    void* priv) {
+  rocksdb_logger_t* logger = new rocksdb_logger_t;
+  logger->rep = std::make_shared<rocksdb_callback_logger_t>(
+      static_cast<InfoLogLevel>(log_level), callback, priv);
   return logger;
 }
 

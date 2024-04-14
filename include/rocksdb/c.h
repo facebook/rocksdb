@@ -1163,6 +1163,11 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_info_log_level(
     rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API rocksdb_logger_t*
 rocksdb_logger_create_stderr_logger(int log_level, const char* prefix);
+extern ROCKSDB_LIBRARY_API rocksdb_logger_t*
+rocksdb_logger_create_callback_logger(int log_level,
+                                      void (*)(void* priv, unsigned lev,
+                                               char* msg, size_t len),
+                                      void* priv);
 extern ROCKSDB_LIBRARY_API void rocksdb_logger_destroy(
     rocksdb_logger_t* logger);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_buffer_size(
