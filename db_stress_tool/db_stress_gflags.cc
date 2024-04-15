@@ -1345,4 +1345,16 @@ DEFINE_bool(enable_memtable_insert_with_hint_prefix_extractor,
             "If true and FLAGS_prefix_size > 0, set "
             "Options.memtable_insert_with_hint_prefix_extractor to "
             "be Options.prefix_extractor");
+
+DEFINE_bool(check_multiget_consistency, true,
+            "If true, check consistency of MultiGet result by comparing it "
+            "with Get's under a snapshot");
+
+DEFINE_bool(check_multiget_entity_consistency, true,
+            "If true, check consistency of MultiGetEntity result by comparing "
+            "it GetEntity's under a snapshot");
+
+DEFINE_bool(inplace_update_support,
+            ROCKSDB_NAMESPACE::Options().inplace_update_support,
+            "Options.inplace_update_support");
 #endif  // GFLAGS

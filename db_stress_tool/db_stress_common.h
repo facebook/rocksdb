@@ -402,6 +402,9 @@ DECLARE_uint32(lowest_used_cache_tier);
 DECLARE_bool(enable_custom_split_merge);
 DECLARE_uint32(adm_policy);
 DECLARE_bool(enable_memtable_insert_with_hint_prefix_extractor);
+DECLARE_bool(check_multiget_consistency);
+DECLARE_bool(check_multiget_entity_consistency);
+DECLARE_bool(inplace_update_support);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
