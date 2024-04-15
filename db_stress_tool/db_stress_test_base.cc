@@ -1013,10 +1013,20 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       // Verify GetLiveFiles with a 1 in N chance.
-      if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in) &&
+      if (thread->rand.OneInOpt(FLAGS_get_live_files_apis_one_in) &&
           !FLAGS_write_fault_one_in) {
-        Status status = VerifyGetLiveFiles();
-        ProcessStatus(shared, "VerifyGetLiveFiles", status);
+        Status s_1 = VerifyGetLiveFiles();
+        ProcessStatus(shared, "VerifyGetLiveFiles", s_1);
+        Status s_2 = VerifyGetLiveFilesMetaData();
+        ProcessStatus(shared, "VerifyGetLiveFilesMetaData", s_2);
+        Status s_3 = VerifyGetLiveFilesStorageInfo();
+        ProcessStatus(shared, "VerifyGetLiveFilesStorageInfo", s_3);
+      }
+
+      // Verify GetAllColumnFamilyMetaData with a 1 in N chance.
+      if (thread->rand.OneInOpt(FLAGS_get_all_column_family_metadata_one_in)) {
+        Status status = VerifyGetAllColumnFamilyMetaData();
+        ProcessStatus(shared, "VerifyGetAllColumnFamilyMetaData", status);
       }
 
       // Verify GetSortedWalFiles with a 1 in N chance.
@@ -1034,6 +1044,16 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
         Status status = TestPauseBackground(thread);
         ProcessStatus(shared, "Pause/ContinueBackgroundWork", status);
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_disable_file_deletions_one_in)) {
+        Status status = TestDisableFileDeletions(thread);
+        ProcessStatus(shared, "TestDisableFileDeletions", status);
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_disable_manual_compaction_one_in)) {
+        Status status = TestDisableManualCompaction(thread);
+        ProcessStatus(shared, "TestDisableManualCompaction", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
@@ -1056,6 +1076,11 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
         TestGetProperty(thread);
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_get_properties_of_all_tables_one_in)) {
+        Status status = TestGetPropertiesOfAllTables();
+        ProcessStatus(shared, "TestGetPropertiesOfAllTables", status);
       }
 
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
@@ -1472,11 +1497,32 @@ Status StressTest::TestIterate(ThreadState* thread,
   return Status::OK();
 }
 
-// Test the return status of GetLiveFiles.
+// Test the return status of GetLiveFiles()
 Status StressTest::VerifyGetLiveFiles() const {
   std::vector<std::string> live_file;
   uint64_t manifest_size = 0;
   return db_->GetLiveFiles(live_file, &manifest_size);
+}
+
+// Test VerifyGetLiveFilesMetaData()
+Status StressTest::VerifyGetLiveFilesMetaData() const {
+  std::vector<LiveFileMetaData> live_file_metadata;
+  db_->GetLiveFilesMetaData(&live_file_metadata);
+  return Status::OK();
+}
+
+// Test the return status of GetLiveFilesStorageInfo()
+Status StressTest::VerifyGetLiveFilesStorageInfo() const {
+  std::vector<LiveFileStorageInfo> live_file_storage_info;
+  return db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                      &live_file_storage_info);
+}
+
+// Test GetAllColumnFamilyMetaData()
+Status StressTest::VerifyGetAllColumnFamilyMetaData() const {
+  std::vector<ColumnFamilyMetaData> all_cf_metadata;
+  db_->GetAllColumnFamilyMetaData(&all_cf_metadata);
+  return Status::OK();
 }
 
 // Test the return status of GetSortedWalFiles.
@@ -2307,6 +2353,11 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
   }
 }
 
+Status StressTest::TestGetPropertiesOfAllTables() const {
+  TablePropertiesCollection props;
+  return db_->GetPropertiesOfAllTables(&props);
+}
+
 void StressTest::TestCompactFiles(ThreadState* thread,
                                   ColumnFamilyHandle* column_family) {
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
@@ -2402,6 +2453,28 @@ Status StressTest::TestPauseBackground(ThreadState* thread) {
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
   clock_->SleepForMicroseconds(1 << pwr2_micros);
   return db_->ContinueBackgroundWork();
+}
+
+Status StressTest::TestDisableFileDeletions(ThreadState* thread) {
+  Status status = db_->DisableFileDeletions();
+  if (!status.ok()) {
+    return status;
+  }
+  // Similar to TestPauseBackground()
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  return db_->EnableFileDeletions();
+}
+
+Status StressTest::TestDisableManualCompaction(ThreadState* thread) {
+  db_->DisableManualCompaction();
+  // Similar to TestPauseBackground()
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  db_->EnableManualCompaction();
+  return Status::OK();
 }
 
 void StressTest::TestAcquireSnapshot(ThreadState* thread,
