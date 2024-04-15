@@ -2614,8 +2614,24 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
     }
   }
 
-  // TODO: add tests for GetEntityFromBatchAndDB and
-  // MultiGetEntityFromBatchAndDB once they are implemented
+  // GetEntityFromBatchAndDB
+  {
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, read_opts_,
+                                              db_->DefaultColumnFamily(),
+                                              delete_key, &columns)
+                    .IsNotFound());
+  }
+
+  for (size_t i = 1; i < num_keys; ++i) {
+    PinnableWideColumns columns;
+    ASSERT_OK(batch_->GetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
+    ASSERT_EQ(columns.columns(), expected[i]);
+  }
+
+  // TODO: add tests for MultiGetEntityFromBatchAndDB once it is implemented
 
   // Iterator
   std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
@@ -2733,8 +2749,24 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchAndDB) {
     ASSERT_TRUE(statuses[num_keys - 1].IsNotFound());
   }
 
-  // TODO: add tests for GetEntityFromBatchAndDB and
-  // MultiGetEntityFromBatchAndDB once they are implemented
+  // GetEntityFromBatchAndDB
+  for (size_t i = 0; i < num_keys - 1; ++i) {
+    PinnableWideColumns columns;
+    ASSERT_OK(batch_->GetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
+    ASSERT_EQ(columns.columns(), expected[i]);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, read_opts_,
+                                              db_->DefaultColumnFamily(),
+                                              no_merge_c_key, &columns)
+                    .IsNotFound());
+  }
+
+  // TODO: add tests for MultiGetEntityFromBatchAndDB once it is implemented
 
   // Iterator
   std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(

@@ -268,7 +268,23 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value);
 
-  // TODO: implement GetEntityFromBatchAndDB
+  // Similar to DB::GetEntity() but also reads writes from this batch.
+  //
+  // This method queries the batch for the key and if the result can be
+  // determined based on the batch alone, it is returned (assuming the key is
+  // found, in the form of a wide-column entity). If the batch does not contain
+  // enough information to determine the result (the key is not present in the
+  // batch at all or a merge is in progress), the DB is queried and the result
+  // is merged with the entries from the batch if necessary.
+  //
+  // Setting read_options.snapshot will affect what is read from the DB
+  // but will NOT change which keys are read from the batch (the keys in
+  // this batch do not yet belong to any snapshot and will be fetched
+  // regardless).
+  Status GetEntityFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key,
+                                 PinnableWideColumns* columns);
 
   void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family,
@@ -314,11 +330,23 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // last sub-batch.
   size_t SubBatchCnt();
 
+  void MergeAcrossBatchAndDBImpl(ColumnFamilyHandle* column_family,
+                                 const Slice& key,
+                                 const PinnableWideColumns& existing,
+                                 const MergeContext& merge_context,
+                                 std::string* value,
+                                 PinnableWideColumns* columns, Status* status);
   void MergeAcrossBatchAndDB(ColumnFamilyHandle* column_family,
                              const Slice& key,
                              const PinnableWideColumns& existing,
                              const MergeContext& merge_context,
                              PinnableSlice* value, Status* status);
+  void MergeAcrossBatchAndDB(ColumnFamilyHandle* column_family,
+                             const Slice& key,
+                             const PinnableWideColumns& existing,
+                             const MergeContext& merge_context,
+                             PinnableWideColumns* columns, Status* status);
+
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value, ReadCallback* callback);
@@ -327,6 +355,11 @@ class WriteBatchWithIndex : public WriteBatchBase {
                               const size_t num_keys, const Slice* keys,
                               PinnableSlice* values, Status* statuses,
                               bool sorted_input, ReadCallback* callback);
+  Status GetEntityFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key, PinnableWideColumns* columns,
+                                 ReadCallback* callback);
+
   struct Rep;
   std::unique_ptr<Rep> rep;
 };
