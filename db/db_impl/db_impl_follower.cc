@@ -148,7 +148,8 @@ void DBImplFollower::PeriodicRefresh() {
       s = TryCatchUpWithLeader();
       if (s.ok()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                       "Successful catch up on attempt %lu", i);
+                       "Successful catch up on attempt %llu",
+                       static_cast<unsigned long long>(i));
         break;
       }
       env_->SleepForMicroseconds(
@@ -201,7 +202,7 @@ Status DB::OpenAsFollower(
   FileSystem* fs = db_options.env->GetFileSystem().get();
   IOStatus io_s = fs->CreateDirIfMissing(dbname, IOOptions(), nullptr);
   if (!io_s.ok()) {
-    return std::move(io_s);
+    return static_cast<Status>(io_s);
   }
   std::unique_ptr<Env> new_env(new CompositeEnvWrapper(
       db_options.env, NewOnDemandFileSystem(db_options.env->GetFileSystem(),
