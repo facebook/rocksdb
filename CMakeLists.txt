@@ -694,6 +694,7 @@ set(SOURCES
         db/db_impl/db_impl_open.cc
         db/db_impl/db_impl_debug.cc
         db/db_impl/db_impl_experimental.cc
+        db/db_impl/db_impl_follower.cc
         db/db_impl/db_impl_readonly.cc
         db/db_impl/db_impl_secondary.cc
         db/db_info_dumper.cc
@@ -748,6 +749,7 @@ set(SOURCES
         env/env_encryption.cc
         env/file_system.cc
         env/file_system_tracer.cc
+        env/fs_on_demand.cc
         env/fs_remap.cc
         env/mock_env.cc
         env/unique_id_gen.cc
