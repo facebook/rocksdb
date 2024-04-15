@@ -79,24 +79,24 @@ using PinnableAttributeGroups = std::vector<PinnableAttributeGroup>;
 
 // Used in Iterator Path. Uses pointers to the columns to avoid having to copy
 // all WideColumns objs during iteration.
-class IterableAttributeGroup {
+class IteratorAttributeGroup {
  public:
-  explicit IterableAttributeGroup(ColumnFamilyHandle* column_family,
+  explicit IteratorAttributeGroup(ColumnFamilyHandle* column_family,
                                   const WideColumns* columns)
       : column_family_(column_family), columns_(columns) {}
   ColumnFamilyHandle* column_family() const { return column_family_; }
-  const WideColumns* columns() const { return columns_; }
+  const WideColumns& columns() const { return *columns_; }
 
  private:
   ColumnFamilyHandle* column_family_;
   const WideColumns* columns_;
 };
 
-using IterableAttributeGroups = std::vector<IterableAttributeGroup>;
+using IteratorAttributeGroups = std::vector<IteratorAttributeGroup>;
 
-extern const IterableAttributeGroups kNoIterableAttributeGroups;
+extern const IteratorAttributeGroups kNoIteratorAttributeGroups;
 
-// UNDER CONSTRUCTION - DO NOT USE
+// EXPERIMENTAL
 // A cross-column-family iterator that collects and returns attribute groups for
 // each key in order provided by comparator
 class AttributeGroupIterator : public IteratorBase {
@@ -108,7 +108,7 @@ class AttributeGroupIterator : public IteratorBase {
   AttributeGroupIterator(const AttributeGroupIterator&) = delete;
   AttributeGroupIterator& operator=(const AttributeGroupIterator&) = delete;
 
-  virtual const IterableAttributeGroups& attribute_groups() const = 0;
+  virtual const IteratorAttributeGroups& attribute_groups() const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

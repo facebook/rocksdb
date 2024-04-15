@@ -38,7 +38,7 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
   Slice key() const override { return impl_.key(); }
   Status status() const override { return impl_.status(); }
 
-  const IterableAttributeGroups& attribute_groups() const override {
+  const IteratorAttributeGroups& attribute_groups() const override {
     assert(Valid());
     return attribute_groups_;
   }
@@ -47,7 +47,7 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
 
  private:
   MultiCfIteratorImpl impl_;
-  IterableAttributeGroups attribute_groups_;
+  IteratorAttributeGroups attribute_groups_;
   void AddToAttributeGroups(const autovector<MultiCfIteratorInfo>& items);
 };
 
@@ -67,8 +67,8 @@ class EmptyAttributeGroupIterator : public AttributeGroupIterator {
   }
   Status status() const override { return status_; }
 
-  const IterableAttributeGroups& attribute_groups() const override {
-    return kNoIterableAttributeGroups;
+  const IteratorAttributeGroups& attribute_groups() const override {
+    return kNoIteratorAttributeGroups;
   }
 
  private:

@@ -9,7 +9,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// UNDER CONSTRUCTION - DO NOT USE
+// EXPERIMENTAL
 class CoalescingIterator : public Iterator {
  public:
   CoalescingIterator(const Comparator* comparator,

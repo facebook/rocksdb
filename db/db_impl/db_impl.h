@@ -352,12 +352,12 @@ class DBImpl : public DB {
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
-  // UNDER CONSTRUCTION - DO NOT USE
+  // EXPERIMENTAL
   std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
 
-  // UNDER CONSTRUCTION - DO NOT USE
+  // EXPERIMENTAL
   std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;

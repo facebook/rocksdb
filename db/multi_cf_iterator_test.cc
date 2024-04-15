@@ -477,15 +477,15 @@ class AttributeGroupIteratorTest : public DBTestBase {
         db_->NewAttributeGroupIterator(ReadOptions(), cfhs);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(expected_keys[i], iter->key());
-      auto iterable_attribute_groups = iter->attribute_groups();
+      auto iterator_attribute_groups = iter->attribute_groups();
       ASSERT_EQ(expected_attribute_groups[i].size(),
-                iterable_attribute_groups.size());
-      for (size_t cfh_i = 0; cfh_i < iterable_attribute_groups.size();
+                iterator_attribute_groups.size());
+      for (size_t cfh_i = 0; cfh_i < iterator_attribute_groups.size();
            cfh_i++) {
         ASSERT_EQ(expected_attribute_groups[i][cfh_i].column_family(),
-                  iterable_attribute_groups[cfh_i].column_family());
+                  iterator_attribute_groups[cfh_i].column_family());
         ASSERT_EQ(expected_attribute_groups[i][cfh_i].columns(),
-                  *iterable_attribute_groups[cfh_i].columns());
+                  iterator_attribute_groups[cfh_i].columns());
       }
       ++i;
     }
@@ -495,15 +495,15 @@ class AttributeGroupIteratorTest : public DBTestBase {
     int rev_i = i - 1;
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       ASSERT_EQ(expected_keys[rev_i], iter->key());
-      auto iterable_attribute_groups = iter->attribute_groups();
+      auto iterator_attribute_groups = iter->attribute_groups();
       ASSERT_EQ(expected_attribute_groups[rev_i].size(),
-                iterable_attribute_groups.size());
-      for (size_t cfh_i = 0; cfh_i < iterable_attribute_groups.size();
+                iterator_attribute_groups.size());
+      for (size_t cfh_i = 0; cfh_i < iterator_attribute_groups.size();
            cfh_i++) {
         ASSERT_EQ(expected_attribute_groups[rev_i][cfh_i].column_family(),
-                  iterable_attribute_groups[cfh_i].column_family());
+                  iterator_attribute_groups[cfh_i].column_family());
         ASSERT_EQ(expected_attribute_groups[rev_i][cfh_i].columns(),
-                  *iterable_attribute_groups[cfh_i].columns());
+                  iterator_attribute_groups[cfh_i].columns());
       }
       rev_i--;
     }

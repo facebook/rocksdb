@@ -8,7 +8,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 const AttributeGroups kNoAttributeGroups;
-const IterableAttributeGroups kNoIterableAttributeGroups;
+const IteratorAttributeGroups kNoIteratorAttributeGroups;
 
 void AttributeGroupIteratorImpl::AddToAttributeGroups(
     const autovector<MultiCfIteratorInfo>& items) {
