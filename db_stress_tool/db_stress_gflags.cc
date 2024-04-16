@@ -311,9 +311,17 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
-DEFINE_int32(get_live_files_one_in, 1000000,
-             "With a chance of 1/N, call GetLiveFiles to verify if it returns "
-             "correctly. If N == 0, do not call the interface.");
+DEFINE_int32(
+    get_live_files_apis_one_in, 1000000,
+    "With a chance of 1/N, call GetLiveFiles(), GetLiveFilesMetaData() and "
+    "GetLiveFilesChecksumInfo() to verify if it returns "
+    "OK or violate any internal assertion. If N == 0, do not call the "
+    "interface.");
+
+DEFINE_int32(
+    get_all_column_family_metadata_one_in, 1000000,
+    "With a chance of 1/N, call GetAllColumnFamilyMetaData to verify if it "
+    "violates any internal assertion. If N == 0, do not call the interface.");
 
 DEFINE_int32(
     get_sorted_wal_files_one_in, 1000000,
@@ -758,6 +766,15 @@ DEFINE_int32(pause_background_one_in, 0,
              "If non-zero, then PauseBackgroundWork()+Continue will be called "
              "once for every N ops on average.  0 disables.");
 
+DEFINE_int32(disable_file_deletions_one_in, 0,
+             "If non-zero, then DisableFileDeletions()+Enable will be called "
+             "once for every N ops on average.  0 disables.");
+
+DEFINE_int32(
+    disable_manual_compaction_one_in, 0,
+    "If non-zero, then DisableManualCompaction()+Enable will be called "
+    "once for every N ops on average.  0 disables.");
+
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
 
@@ -980,6 +997,11 @@ DEFINE_int32(get_property_one_in, 1000,
              "If non-zero, then DB::GetProperty() will be called to get various"
              " properties for every N ops on average. 0 indicates that"
              " GetProperty() will be not be called.");
+
+DEFINE_int32(get_properties_of_all_tables_one_in, 1000,
+             "If non-zero, then DB::GetPropertiesOfAllTables() will be called "
+             "for every N ops on average. 0 indicates that"
+             " it will be not be called.");
 
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
