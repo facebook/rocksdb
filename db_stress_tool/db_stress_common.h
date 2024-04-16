@@ -156,6 +156,7 @@ DECLARE_int32(unpartitioned_pinning);
 DECLARE_string(cache_type);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
+DECLARE_string(daily_offpeak_time_utc);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(fifo_allow_compaction);
 DECLARE_bool(allow_concurrent_memtable_write);

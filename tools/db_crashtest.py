@@ -148,6 +148,15 @@ default_params = {
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "daily_offpeak_time_utc": lambda: random.choice(
+        [
+            "",
+            "",
+            "00:00-23:59",
+            "04:00-08:00",
+            "23:30-03:15"
+        ]
+    ),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
@@ -799,6 +808,9 @@ def finalize_and_sanitize(src_params):
     # Enabling block_align with compression is not supported
     if dest_params.get("block_align") == 1:
         dest_params["compression_type"] = "none"
+    # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
+    if dest_params.get("periodic_compaction_seconds") == 0:
+        dest_params["daily_offpeak_time_utc"] = ""
     return dest_params
 
 
