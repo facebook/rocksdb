@@ -139,8 +139,6 @@ class MultiCfIteratorImpl {
   std::function<void()> reset_func_;
   std::function<void(autovector<MultiCfIteratorInfo>)> populate_func_;
 
-  // TODO: Lower and Upper bounds
-
   Iterator* current() const {
     if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
       auto& max_heap = std::get<MultiCfMaxHeap>(heap_);
