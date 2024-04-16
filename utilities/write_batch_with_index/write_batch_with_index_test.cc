@@ -2631,7 +2631,23 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
     ASSERT_EQ(columns.columns(), expected[i]);
   }
 
-  // TODO: add tests for MultiGetEntityFromBatchAndDB once it is implemented
+  // MultiGetEntityFromBatchAndDB
+  {
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsNotFound());
+
+    for (size_t i = 1; i < num_keys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i].columns(), expected[i]);
+    }
+  }
 
   // Iterator
   std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
@@ -2766,7 +2782,23 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchAndDB) {
                     .IsNotFound());
   }
 
-  // TODO: add tests for MultiGetEntityFromBatchAndDB once it is implemented
+  // MultiGetEntityFromBatchAndDB
+  {
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+
+    for (size_t i = 0; i < num_keys - 1; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i].columns(), expected[i]);
+    }
+
+    ASSERT_TRUE(statuses[num_keys - 1].IsNotFound());
+  }
 
   // Iterator
   std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(

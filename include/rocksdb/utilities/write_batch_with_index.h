@@ -292,7 +292,25 @@ class WriteBatchWithIndex : public WriteBatchBase {
                               PinnableSlice* values, Status* statuses,
                               bool sorted_input);
 
-  // TODO: implement MultiGetEntityFromBatchAndDB
+  // Similar to DB::MultiGetEntity() but also reads writes from this batch.
+  //
+  // For each key, this method queries the batch and if the result can be
+  // determined based on the batch alone, it is returned in the appropriate
+  // PinnableWideColumns object (assuming the key is found). For all keys for
+  // which the batch does not contain enough information to determine the result
+  // (the key is not present in the batch at all or a merge is in progress), the
+  // DB is queried and the result is merged with the entries from the batch if
+  // necessary.
+  //
+  // Setting read_options.snapshot will affect what is read from the DB
+  // but will NOT change which keys are read from the batch (the keys in
+  // this batch do not yet belong to any snapshot and will be fetched
+  // regardless).
+  void MultiGetEntityFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                                    ColumnFamilyHandle* column_family,
+                                    size_t num_keys, const Slice* keys,
+                                    PinnableWideColumns* results,
+                                    Status* statuses, bool sorted_input);
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
@@ -359,6 +377,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
                                  ColumnFamilyHandle* column_family,
                                  const Slice& key, PinnableWideColumns* columns,
                                  ReadCallback* callback);
+  void MultiGetEntityFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                                    ColumnFamilyHandle* column_family,
+                                    size_t num_keys, const Slice* keys,
+                                    PinnableWideColumns* results,
+                                    Status* statuses, bool sorted_input,
+                                    ReadCallback* callback);
 
   struct Rep;
   std::unique_ptr<Rep> rep;
