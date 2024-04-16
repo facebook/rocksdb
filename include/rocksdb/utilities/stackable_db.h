@@ -103,10 +103,16 @@ class StackableDB : public DB {
   }
 
   using DB::GetEntity;
+
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableWideColumns* columns) override {
     return db_->GetEntity(options, column_family, key, columns);
+  }
+
+  Status GetEntity(const ReadOptions& options, const Slice& key,
+                   PinnableAttributeGroups* result) override {
+    return db_->GetEntity(options, key, result);
   }
 
   using DB::GetMergeOperands;
@@ -145,6 +151,12 @@ class StackableDB : public DB {
                       bool sorted_input) override {
     db_->MultiGetEntity(options, num_keys, column_families, keys, results,
                         statuses, sorted_input);
+  }
+
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      const Slice* keys,
+                      PinnableAttributeGroups* results) override {
+    db_->MultiGetEntity(options, num_keys, keys, results);
   }
 
   using DB::IngestExternalFile;
