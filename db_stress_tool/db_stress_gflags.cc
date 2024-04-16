@@ -395,6 +395,8 @@ DEFINE_uint64(subcompactions, 1,
 
 DEFINE_uint64(periodic_compaction_seconds, 1000,
               "Files older than this value will be picked up for compaction.");
+DEFINE_string(daily_offpeak_time_utc, "",
+              "If set, process periodic compactions during this period only");
 
 DEFINE_uint64(compaction_ttl, 1000,
               "Files older than TTL will be compacted to the next level.");
