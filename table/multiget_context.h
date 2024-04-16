@@ -98,10 +98,10 @@ struct KeyContext {
 class MultiGetContext {
  public:
   // RocksDB-Cloud contributions below. Summary:
-  // Changed to use std::bitset as a mask and increased MAX_BATCH_SIZE to 128.
+  // Changed to use std::bitset as a mask and increased MAX_BATCH_SIZE to 1024.
 
   // Limit the number of keys in a batch to this number.
-  static const int MAX_BATCH_SIZE = 128;
+  static const int MAX_BATCH_SIZE = 1024;
 
   // A bitmask of at least MAX_BATCH_SIZE - 1 bits, so that
   // Mask{1} << MAX_BATCH_SIZE is well defined
