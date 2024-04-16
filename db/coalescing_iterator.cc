@@ -9,35 +9,35 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void CoalescingIterator::Coalesce(const WideColumns& columns) {
-  WideColumns coalesced;
-  coalesced.reserve(wide_columns_.size() + columns.size());
-  auto base_col_iter = wide_columns_.begin();
-  auto new_col_iter = columns.begin();
-  while (base_col_iter != wide_columns_.end() &&
-         new_col_iter != columns.end()) {
-    auto comparison = base_col_iter->name().compare(new_col_iter->name());
-    if (comparison < 0) {
-      coalesced.push_back(*base_col_iter);
-      ++base_col_iter;
-    } else if (comparison > 0) {
-      coalesced.push_back(*new_col_iter);
-      ++new_col_iter;
-    } else {
-      coalesced.push_back(*new_col_iter);
-      ++new_col_iter;
-      ++base_col_iter;
+void CoalescingIterator::Coalesce(
+    const autovector<MultiCfIteratorInfo>& items) {
+  assert(wide_columns_.empty());
+  MinHeap heap;
+  for (const auto& item : items) {
+    assert(item.iterator);
+    for (auto& column : item.iterator->columns()) {
+      heap.push(WideColumnWithOrder{&column, item.order});
     }
   }
-  while (base_col_iter != wide_columns_.end()) {
-    coalesced.push_back(*base_col_iter);
-    ++base_col_iter;
+  if (heap.empty()) {
+    return;
   }
-  while (new_col_iter != columns.end()) {
-    coalesced.push_back(*new_col_iter);
-    ++new_col_iter;
+  wide_columns_.reserve(heap.size());
+  auto current = heap.top();
+  heap.pop();
+  while (!heap.empty()) {
+    int comparison = current.column->name().compare(heap.top().column->name());
+    if (comparison < 0) {
+      wide_columns_.push_back(*current.column);
+    } else if (comparison > 0) {
+      // Shouldn't reach here.
+      // Current item in the heap is greater than the top item in the min heap
+      assert(false);
+    }
+    current = heap.top();
+    heap.pop();
   }
-  wide_columns_.swap(coalesced);
+  wide_columns_.push_back(*current.column);
 
   if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
     value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);

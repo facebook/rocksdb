@@ -468,18 +468,25 @@ class AttributeGroupIteratorTest : public DBTestBase {
   AttributeGroupIteratorTest()
       : DBTestBase("attribute_group_iterator_test", /*env_do_fsync=*/true) {}
 
-  // TODO - Verify AttributeGroup Iterator
   void verifyAttributeGroupIterator(
       const std::vector<ColumnFamilyHandle*>& cfhs,
       const std::vector<Slice>& expected_keys,
-      const std::vector<AttributeGroups>& /*expected_attribute_groups*/) {
+      const std::vector<AttributeGroups>& expected_attribute_groups) {
     int i = 0;
     std::unique_ptr<AttributeGroupIterator> iter =
         db_->NewAttributeGroupIterator(ReadOptions(), cfhs);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(expected_keys[i], iter->key());
-      // TODO - uncomment this after implementing attribute_groups()
-      // ASSERT_EQ(expected_attribute_groups[i], iter->attribute_groups());
+      auto iterator_attribute_groups = iter->attribute_groups();
+      ASSERT_EQ(expected_attribute_groups[i].size(),
+                iterator_attribute_groups.size());
+      for (size_t cfh_i = 0; cfh_i < iterator_attribute_groups.size();
+           cfh_i++) {
+        ASSERT_EQ(expected_attribute_groups[i][cfh_i].column_family(),
+                  iterator_attribute_groups[cfh_i].column_family());
+        ASSERT_EQ(expected_attribute_groups[i][cfh_i].columns(),
+                  iterator_attribute_groups[cfh_i].columns());
+      }
       ++i;
     }
     ASSERT_EQ(expected_keys.size(), i);
@@ -488,8 +495,16 @@ class AttributeGroupIteratorTest : public DBTestBase {
     int rev_i = i - 1;
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       ASSERT_EQ(expected_keys[rev_i], iter->key());
-      // TODO - uncomment this after implementing attribute_groups()
-      // ASSERT_EQ(expected_attribute_groups[rev_i], iter->attribute_groups());
+      auto iterator_attribute_groups = iter->attribute_groups();
+      ASSERT_EQ(expected_attribute_groups[rev_i].size(),
+                iterator_attribute_groups.size());
+      for (size_t cfh_i = 0; cfh_i < iterator_attribute_groups.size();
+           cfh_i++) {
+        ASSERT_EQ(expected_attribute_groups[rev_i][cfh_i].column_family(),
+                  iterator_attribute_groups[cfh_i].column_family());
+        ASSERT_EQ(expected_attribute_groups[rev_i][cfh_i].columns(),
+                  iterator_attribute_groups[cfh_i].columns());
+      }
       rev_i--;
     }
     ASSERT_OK(iter->status());
