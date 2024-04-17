@@ -326,9 +326,10 @@ class MemTable {
                         const ProtectionInfoKVOS64* kv_prot_info);
 
   // Returns the number of successive merge entries starting from the newest
-  // entry for the key up to the last non-merge entry or last entry for the
-  // key in the memtable.
-  size_t CountSuccessiveMergeEntries(const LookupKey& key);
+  // entry for the key. The count ends when the oldest entry in the memtable
+  // with which the newest entry would be merged is reached, or the count
+  // reaches `limit`.
+  size_t CountSuccessiveMergeEntries(const LookupKey& key, size_t limit);
 
   // Update counters and flush status after inserting a whole write batch
   // Used in concurrent memtable inserts.

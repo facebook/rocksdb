@@ -1621,7 +1621,8 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
   return Status::NotFound();
 }
 
-size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
+size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key,
+                                             size_t limit) {
   Slice memkey = key.memtable_key();
 
   // A total ordered iterator is costly for some memtablerep (prefix aware
@@ -1633,7 +1634,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
 
   size_t num_successive_merges = 0;
 
-  for (; iter->Valid(); iter->Next()) {
+  for (; iter->Valid() && num_successive_merges < limit; iter->Next()) {
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);

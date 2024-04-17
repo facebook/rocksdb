@@ -2623,8 +2623,10 @@ class MemTableInserter : public WriteBatch::Handler {
       LookupKey lkey(key, sequence_);
 
       // Count the number of successive merges at the head
-      // of the key in the memtable
-      size_t num_merges = mem->CountSuccessiveMergeEntries(lkey);
+      // of the key in the memtable. Limit the count to the threshold for
+      // triggering merge to prevent unnecessary counting overhead.
+      size_t num_merges = mem->CountSuccessiveMergeEntries(
+          lkey, moptions->max_successive_merges /* limit */);
 
       if (num_merges >= moptions->max_successive_merges) {
         perform_merge = true;
