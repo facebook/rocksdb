@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.0.1 (04/11/2024)
+### Bug Fixes
+* Fixed CMake Javadoc and source jar builds
+* Fixed Java `SstFileMetaData` to prevent throwing `java.lang.NoSuchMethodError`
+
 ## 9.0.0 (02/16/2024)
 ### New Features
 * Provide support for FSBuffer for point lookups. Also added support for scans and compactions that don't go through prefetching.
