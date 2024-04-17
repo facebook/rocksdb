@@ -68,6 +68,10 @@ class CacheDumpReader {
 // dump or load process related control variables can be added here.
 struct CacheDumpOptions {
   SystemClock* clock;
+  // Deadline for dumper or loader in microseconds
+  std::chrono::microseconds deadline = std::chrono::microseconds::zero();
+  // Max size bytes for dumper or loader
+  uint64_t max_size_bytes = 0;
 };
 
 // NOTE that: this class is EXPERIMENTAL! May be changed in the future!
@@ -110,6 +114,10 @@ class CacheDumpedLoader {
     return IOStatus::NotSupported(
         "RestoreCacheEntriesToSecondaryCache is not supported");
   }
+  virtual IOStatus RestoreCacheEntriesToCache() {
+    return IOStatus::NotSupported(
+        "RestoreCacheEntriesToCache is not supported");
+  }
 };
 
 // Get the writer which stores all the metadata and data sequentially to a file
@@ -136,7 +144,8 @@ Status NewDefaultCacheDumpedLoader(
     const BlockBasedTableOptions& toptions,
     const std::shared_ptr<SecondaryCache>& secondary_cache,
     std::unique_ptr<CacheDumpReader>&& reader,
-    std::unique_ptr<CacheDumpedLoader>* cache_dump_loader);
+    std::unique_ptr<CacheDumpedLoader>* cache_dump_loader,
+    const std::shared_ptr<Cache>& cache);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

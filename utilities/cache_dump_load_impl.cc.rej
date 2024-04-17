@@ -1,0 +1,37 @@
+diff a/utilities/cache_dump_load_impl.cc b/utilities/cache_dump_load_impl.cc	(rejected hunks)
+@@ -6,6 +6,8 @@
+ #include "cache/cache_key.h"
+ #include "table/block_based/block_based_table_reader.h"
+ 
++#include <limits>
++
+ #include "cache/cache_entry_roles.h"
+ #include "file/writable_file_writer.h"
+ #include "port/lang.h"
+@@ -117,6 +126,16 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
+       return;
+     }
+ 
++    if (options_.max_size_bytes > 0 &&
++        dumped_size_bytes_ > options_.max_size_bytes) {
++      return;
++    }
++
++    uint64_t timestamp = clock_->NowMicros();
++    if (timestamp > deadline_ts_) {
++      return;
++    }
++
+     CacheEntryRole role = helper->role;
+     CacheDumpUnitType type = CacheDumpUnitType::kBlockTypeMax;
+ 
+@@ -154,7 +173,8 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
+ 
+     if (s.ok()) {
+       // Write it out
+-      WriteBlock(type, key, buf).PermitUncheckedError();
++      WriteBlock(type, key, buf, timestamp).PermitUncheckedError();
++      dumped_size_bytes_ += len;
+     }
+   };
+ }

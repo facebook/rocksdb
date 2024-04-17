@@ -59,9 +59,10 @@ Status NewDefaultCacheDumpedLoader(
     const BlockBasedTableOptions& toptions,
     const std::shared_ptr<SecondaryCache>& secondary_cache,
     std::unique_ptr<CacheDumpReader>&& reader,
-    std::unique_ptr<CacheDumpedLoader>* cache_dump_loader) {
+    std::unique_ptr<CacheDumpedLoader>* cache_dump_loader,
+    const std::shared_ptr<Cache>& cache) {
   cache_dump_loader->reset(new CacheDumpedLoaderImpl(
-      dump_options, toptions, secondary_cache, std::move(reader)));
+      dump_options, toptions, secondary_cache, std::move(reader), cache));
   return Status::OK();
 }
 

@@ -97,14 +97,16 @@ class CacheDumperImpl : public CacheDumper {
   CacheDumperImpl(const CacheDumpOptions& dump_options,
                   const std::shared_ptr<Cache>& cache,
                   std::unique_ptr<CacheDumpWriter>&& writer)
-      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {}
+      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {
+    dumped_size_bytes_ = 0;
+  }
   ~CacheDumperImpl() { writer_.reset(); }
   Status SetDumpFilter(std::vector<DB*> db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
 
  private:
   IOStatus WriteBlock(CacheDumpUnitType type, const Slice& key,
-                      const Slice& value);
+                      const Slice& value, uint64_t timestamp);
   IOStatus WriteHeader();
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
@@ -122,6 +124,10 @@ class CacheDumperImpl : public CacheDumper {
   // improvement can be applied like BloomFilter or others to speedup the
   // filtering.
   std::set<std::string> prefix_filter_;
+  // Deadline for dumper in microseconds.
+  std::chrono::microseconds deadline_;
+  uint64_t dumped_size_bytes_;
+  bool dump_all_keys_ = true;
 };
 
 // The default implementation of CacheDumpedLoader
@@ -130,13 +136,16 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
   CacheDumpedLoaderImpl(const CacheDumpOptions& dump_options,
                         const BlockBasedTableOptions& toptions,
                         const std::shared_ptr<SecondaryCache>& secondary_cache,
-                        std::unique_ptr<CacheDumpReader>&& reader)
+                        std::unique_ptr<CacheDumpReader>&& reader,
+                        const std::shared_ptr<Cache>& cache)
       : options_(dump_options),
         toptions_(toptions),
         secondary_cache_(secondary_cache),
-        reader_(std::move(reader)) {}
+        reader_(std::move(reader)),
+        cache_(cache) {}
   ~CacheDumpedLoaderImpl() {}
   IOStatus RestoreCacheEntriesToSecondaryCache() override;
+  IOStatus RestoreCacheEntriesToCache() override;
 
  private:
   IOStatus ReadDumpUnitMeta(std::string* data, DumpUnitMeta* unit_meta);
@@ -149,6 +158,10 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
   std::shared_ptr<SecondaryCache> secondary_cache_;
   std::unique_ptr<CacheDumpReader> reader_;
   UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
+  std::shared_ptr<Cache> cache_;
+  SystemClock* clock_;
+  std::chrono::microseconds deadline_;
+  uint64_t loaded_size_bytes_ = 0;
 };
 
 // The default implementation of CacheDumpWriter. We write the blocks to a file
