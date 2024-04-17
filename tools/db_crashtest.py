@@ -635,8 +635,6 @@ def finalize_and_sanitize(src_params):
         dest_params["compression_max_dict_buffer_bytes"] = 0
     if dest_params.get("compression_type") != "zstd":
         dest_params["compression_zstd_max_train_bytes"] = 0
-    if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
-        dest_params["memtablerep"] = "skip_list"
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
@@ -717,18 +715,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_pipelined_write"] = 0
     if dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0:
         dest_params["sst_file_manager_bytes_per_truncate"] = 0
-    if (dest_params.get("enable_compaction_filter", 0) == 1
-        or dest_params.get("inplace_update_support", 0) == 1):
-        # Compaction filter, inplace update support are incompatible with snapshots. Need to avoid taking
-        # snapshots, as well as avoid operations that use snapshots for
-        # verification.
-        dest_params["acquire_snapshot_one_in"] = 0
-        dest_params["compact_range_one_in"] = 0
-        # Give the iterator ops away to reads.
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
-        dest_params["iterpercent"] = 0
-        dest_params["check_multiget_consistency"] = 0
-        dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
@@ -799,12 +785,27 @@ def finalize_and_sanitize(src_params):
         # with each other. There is no external APIs to ensure that.
         dest_params["use_multiget"] = 0
         dest_params["use_multi_get_entity"] = 0
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10);
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
         # Only best efforts recovery test support disabling wal and
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
           dest_params["disable_wal"] = 0
+    if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
+        dest_params["memtablerep"] = "skip_list"
+        dest_params["inplace_update_support"] = 0
+    if (dest_params.get("enable_compaction_filter", 0) == 1
+        or dest_params.get("inplace_update_support", 0) == 1):
+        # Compaction filter, inplace update support are incompatible with snapshots. Need to avoid taking
+        # snapshots, as well as avoid operations that use snapshots for
+        # verification.
+        dest_params["acquire_snapshot_one_in"] = 0
+        dest_params["compact_range_one_in"] = 0
+        # Give the iterator ops away to reads.
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["iterpercent"] = 0
+        dest_params["check_multiget_consistency"] = 0
+        dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("disable_wal") == 1:
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
