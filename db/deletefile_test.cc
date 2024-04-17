@@ -244,28 +244,23 @@ TEST_F(DeleteFileTest, WaitForCompactWithWaitForPurgeOptionTest) {
   ASSERT_OK(itr->status());
   ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DeleteFileTest::WaitForPurgeTest", "DBImpl::BGWorkPurge:start"}});
+      {{"DBImpl::BGWorkPurge:start", "DeleteFileTest::WaitForPurgeTest"},
+       {"DBImpl::WaitForCompact:InsideLoop",
+        "DBImpl::BackgroundCallPurge:beforeMutexLock"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  test::SleepingBackgroundTask sleeping_task_before;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_before, Env::Priority::HIGH);
   delete itr;
 
+  TEST_SYNC_POINT("DeleteFileTest::WaitForPurgeTest");
+  // At this point, purge got started, but can't finish due to sync points
   // not purged yet
   CheckFileTypeCounts(dbname_, 0, 3, 1);
-  sleeping_task_before.WakeUp();
 
-  auto waiting_for_compaction_thread = port::Thread([this]() {
-    WaitForCompactOptions wait_for_compact_options;
-    wait_for_compact_options.wait_for_purge = true;
-    Status s = dbfull()->WaitForCompact(wait_for_compact_options);
-    ASSERT_OK(s);
-  });
-  // still not purged yet because of sync point
-  CheckFileTypeCounts(dbname_, 0, 3, 1);
-  TEST_SYNC_POINT("DeleteFileTest::WaitForPurgeTest");
-  waiting_for_compaction_thread.join();
+  // The sync point in WaitForCompact should unblock the purge
+  WaitForCompactOptions wait_for_compact_options;
+  wait_for_compact_options.wait_for_purge = true;
+  Status s = dbfull()->WaitForCompact(wait_for_compact_options);
+  ASSERT_OK(s);
 
   // Now files should be purged
   CheckFileTypeCounts(dbname_, 0, 1, 1);
