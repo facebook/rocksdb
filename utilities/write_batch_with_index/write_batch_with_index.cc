@@ -1005,6 +1005,8 @@ void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     size_t num_keys, const Slice* keys, PinnableWideColumns* results,
     Status* statuses, bool sorted_input) {
+  assert(statuses);
+
   if (!db) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::InvalidArgument(
@@ -1029,12 +1031,18 @@ void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
     return;
   }
 
+  if (!keys) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::InvalidArgument(
+          "Cannot call MultiGetEntityFromBatchAndDB without keys");
+    }
+  }
+
   if (!results) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::InvalidArgument(
           "Cannot call MultiGetEntityFromBatchAndDB without "
-          "PinnableWideColumns "
-          "objects");
+          "PinnableWideColumns objects");
     }
   }
 
