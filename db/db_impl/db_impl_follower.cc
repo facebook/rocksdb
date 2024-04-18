@@ -28,17 +28,12 @@ DBImplFollower::DBImplFollower(const DBOptions& db_options,
       env_guard_(std::move(env)),
       src_path_(std::move(src_path)) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Opening the db in read clone mode");
+                 "Opening the db in follower mode");
   LogFlush(immutable_db_options_.info_log);
 }
 
 DBImplFollower::~DBImplFollower() {
-  if (catch_up_thread_) {
-    stop_requested_.store(true);
-    catch_up_thread_->join();
-  }
-
-  Status s = DBImpl::Close();
+  Status s = CloseImpl();
   if (!s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Error closing DB : %s",
                    s.ToString().c_str());
@@ -123,11 +118,31 @@ Status DBImplFollower::TryCatchUpWithLeader() {
 
     if (s.ok()) {
       for (auto cfd : cfds_changed) {
-        cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
-                                       &job_context.memtables_to_free);
-        auto& sv_context = job_context.superversion_contexts.back();
-        cfd->InstallSuperVersion(&sv_context, &mutex_);
-        sv_context.NewSuperVersion();
+        if (cfd->mem()->GetEarliestSequenceNumber() <
+            versions_->LastSequence()) {
+          // Construct a new memtable with earliest sequence number set to the
+          // last sequence number in the VersionSet. This matters when
+          // DBImpl::MultiCFSnapshot tries to get consistent references
+          // to super versions in a lock free manner, it checks the earliest
+          // sequence number to detect if there was a change in version in
+          // the meantime.
+          const MutableCFOptions mutable_cf_options =
+              *cfd->GetLatestMutableCFOptions();
+          MemTable* new_mem = cfd->ConstructNewMemtable(
+              mutable_cf_options, versions_->LastSequence());
+          cfd->mem()->SetNextLogNumber(cfd->GetLogNumber());
+          cfd->mem()->ConstructFragmentedRangeTombstones();
+          cfd->imm()->Add(cfd->mem(), &job_context.memtables_to_free);
+          new_mem->Ref();
+          cfd->SetMemtable(new_mem);
+
+          // This will check if the old memtable is still referenced
+          cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
+                                         &job_context.memtables_to_free);
+          auto& sv_context = job_context.superversion_contexts.back();
+          cfd->InstallSuperVersion(&sv_context, &mutex_);
+          sv_context.NewSuperVersion();
+        }
       }
     }
   }
@@ -156,7 +171,6 @@ void DBImplFollower::PeriodicRefresh() {
           static_cast<int>(
               immutable_db_options_.follower_catchup_retry_wait_ms) *
           1000);
-      ;
     }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log, "Catch up unsuccessful");
@@ -174,8 +188,9 @@ Status DBImplFollower::CloseImpl() {
 }
 
 Status DB::OpenAsFollower(const Options& options, const std::string& dbname,
-                          const std::string& leader_path, DB** dbptr) {
-  *dbptr = nullptr;
+                          const std::string& leader_path,
+                          std::unique_ptr<DB>* dbptr) {
+  dbptr->reset();
 
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
@@ -196,13 +211,20 @@ Status DB::OpenAsFollower(
     const DBOptions& db_options, const std::string& dbname,
     const std::string& src_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
-  *dbptr = nullptr;
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
+  dbptr->reset();
 
   FileSystem* fs = db_options.env->GetFileSystem().get();
-  IOStatus io_s = fs->CreateDirIfMissing(dbname, IOOptions(), nullptr);
-  if (!io_s.ok()) {
-    return static_cast<Status>(io_s);
+  {
+    IOStatus io_s;
+    if (db_options.create_if_missing) {
+      io_s = fs->CreateDirIfMissing(dbname, IOOptions(), nullptr);
+    } else {
+      io_s = fs->FileExists(dbname, IOOptions(), nullptr);
+    }
+    if (!io_s.ok()) {
+      return static_cast<Status>(io_s);
+    }
   }
   std::unique_ptr<Env> new_env(new CompositeEnvWrapper(
       db_options.env, NewOnDemandFileSystem(db_options.env->GetFileSystem(),
@@ -231,7 +253,9 @@ Status DB::OpenAsFollower(
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
 
   impl->mutex_.Lock();
-  s = impl->Recover(column_families, true, false, false);
+  s = impl->Recover(column_families, /*read_only=*/true,
+                    /*error_if_wal_file_exists=*/false,
+                    /*error_if_data_exists_in_wals=*/false);
   if (s.ok()) {
     for (const auto& cf : column_families) {
       auto cfd =
@@ -243,7 +267,7 @@ Status DB::OpenAsFollower(
       handles->push_back(new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
     }
   }
-  SuperVersionContext sv_context(true /* create_superversion */);
+  SuperVersionContext sv_context(false /* create_superversion */);
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
       sv_context.NewSuperVersion();
@@ -253,7 +277,7 @@ Status DB::OpenAsFollower(
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
-    *dbptr = impl;
+    dbptr->reset(impl);
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(
           static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());

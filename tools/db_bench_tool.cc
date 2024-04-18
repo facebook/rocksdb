@@ -4985,7 +4985,11 @@ class Benchmark {
             FLAGS_secondary_update_interval, db));
       }
     } else if (FLAGS_open_as_follower) {
-      s = DB::OpenAsFollower(options, db_name, FLAGS_leader_path, &db->db);
+      std::unique_ptr<DB> dbptr;
+      s = DB::OpenAsFollower(options, db_name, FLAGS_leader_path, &dbptr);
+      if (s.ok()) {
+        db->db = dbptr.release();
+      }
     } else {
       s = DB::Open(options, db_name, &db->db);
     }

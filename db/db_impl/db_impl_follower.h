@@ -21,18 +21,18 @@ class DBImplFollower : public DBImplSecondary {
   ~DBImplFollower();
 
  protected:
-  bool OwnTablesAndLogs() const {
+  bool OwnTablesAndLogs() const override {
     // TODO: Change this to true once we've properly implemented file
     // deletion for the read scaling case
     return false;
   }
 
-  Status CloseImpl();
+  Status CloseImpl() override;
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool /*readonly*/, bool /*error_if_wal_file_exists*/,
                  bool /*error_if_data_exists_in_wals*/, uint64_t* = nullptr,
-                 RecoveryContext* /*recovery_ctx*/ = nullptr);
+                 RecoveryContext* /*recovery_ctx*/ = nullptr) override;
 
  private:
   friend class DB;

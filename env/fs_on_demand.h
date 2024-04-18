@@ -9,8 +9,8 @@
 #include "rocksdb/file_system.h"
 
 namespace ROCKSDB_NAMESPACE {
-// A FileSystem that links files to a destination directory from a
-// corresponding source directory on demand. The decision to link
+// A FileSystem that links files to a local (destination) directory from a
+// corresponding remote (source) directory on demand. The decision to link
 // depends on the file type, with appendable or rename-able files, such as,
 // descriptors, logs, CURRENT, being read in place in the remote directory,
 // and SST files being linked. In the future, files read in place may be
@@ -20,8 +20,11 @@ namespace ROCKSDB_NAMESPACE {
 class OnDemandFileSystem : public FileSystemWrapper {
  public:
   OnDemandFileSystem(const std::shared_ptr<FileSystem>& target,
-                     const std::string& src_path, const std::string& dest_path)
-      : FileSystemWrapper(target), src_path_(src_path), dest_path_(dest_path) {}
+                     const std::string& remote_path,
+                     const std::string& local_path)
+      : FileSystemWrapper(target),
+        remote_path_(remote_path),
+        local_path_(local_path) {}
 
   const char* Name() const override { return "OnDemandFileSystem"; }
 
@@ -40,6 +43,14 @@ class OnDemandFileSystem : public FileSystemWrapper {
                            std::unique_ptr<FSWritableFile>* result,
                            IODebugContext* dbg) override;
 
+  IOStatus ReuseWritableFile(const std::string& /*fname*/,
+                             const std::string& /*old_fname*/,
+                             const FileOptions& /*fopts*/,
+                             std::unique_ptr<FSWritableFile>* /*result*/,
+                             IODebugContext* /*dbg*/) override {
+    return IOStatus::NotSupported("ReuseWritableFile");
+  }
+
   IOStatus NewDirectory(const std::string& name, const IOOptions& io_opts,
                         std::unique_ptr<FSDirectory>* result,
                         IODebugContext* dbg) override;
@@ -56,22 +67,16 @@ class OnDemandFileSystem : public FileSystemWrapper {
                                      std::vector<FileAttributes>* result,
                                      IODebugContext* dbg) override;
 
-  IOStatus CreateDir(const std::string& dirname, const IOOptions& options,
-                     IODebugContext* dbg) override;
-
-  IOStatus CreateDirIfMissing(const std::string& dirname,
-                              const IOOptions& options,
-                              IODebugContext* dbg) override;
-
   IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
                        uint64_t* file_size, IODebugContext* dbg) override;
 
  private:
-  bool CheckPathAndAdjust(std::string& path);
+  bool CheckPathAndAdjust(const std::string& orig, const std::string& replace,
+                          std::string& path);
   bool LookupFileType(const std::string& name, FileType* type);
 
-  const std::string src_path_;
-  const std::string dest_path_;
+  const std::string remote_path_;
+  const std::string local_path_;
 };
 
 // A wrapper class around an FSSequentialFile object. Its mainly
@@ -128,7 +133,7 @@ class OnDemandSequentialFile : public FSSequentialFile {
 };
 
 std::shared_ptr<FileSystem> NewOnDemandFileSystem(
-    const std::shared_ptr<FileSystem>& fs, std::string src_path,
-    std::string dest_path);
+    const std::shared_ptr<FileSystem>& fs, std::string remote_path,
+    std::string local_path);
 
 }  // namespace ROCKSDB_NAMESPACE

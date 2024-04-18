@@ -302,19 +302,23 @@ class DB {
 
   // Open a database as a follower. The difference between this and opening
   // as secondary is that the follower database has its own directory with
-  // links to the actual files, and can tolarate mutations by the leader to
-  // its own database
+  // links to the actual files, and can tolarate obsolete file deletions by
+  // the leader to its own database. Another difference is the follower
+  // tries to keep up with the leader by periodically tailing the leader's
+  // MANIFEST, and (in the future) memtable updates, rather than relying on
+  // the user to manually call TryCatchupWithPrimary().
 
   // Open as a follower with the default column family
   static Status OpenAsFollower(const Options& options, const std::string& name,
-                               const std::string& leader_path, DB** dbptr);
+                               const std::string& leader_path,
+                               std::unique_ptr<DB>* dbptr);
 
   // Open as a follower with multiple column families
   static Status OpenAsFollower(
       const DBOptions& db_options, const std::string& name,
       const std::string& leader_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
   // End EXPERIMENTAL
 
   // Open DB and run the compaction.
