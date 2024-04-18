@@ -2790,7 +2790,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   key_range_per_cf.emplace_back(cf_start, num_keys - cf_start);
   cfd_sv_pairs.emplace_back(cf, nullptr);
 
-  SequenceNumber consistent_seqnum;
+  SequenceNumber consistent_seqnum = kMaxSequenceNumber;
   bool sv_from_thread_local;
   Status s = MultiCFSnapshot<autovector<ColumnFamilyDataSuperVersionPair,
                                         MultiGetContext::MAX_BATCH_SIZE>>(
@@ -2986,7 +2986,7 @@ void DBImpl::MultiGetWithCallbackImpl(
   std::array<ColumnFamilyDataSuperVersionPair, 1> cfd_sv_pairs;
   cfd_sv_pairs[0] = ColumnFamilyDataSuperVersionPair(column_family, nullptr);
   size_t num_keys = sorted_keys->size();
-  SequenceNumber consistent_seqnum;
+  SequenceNumber consistent_seqnum = kMaxSequenceNumber;
   bool sv_from_thread_local;
   Status s = MultiCFSnapshot<std::array<ColumnFamilyDataSuperVersionPair, 1>>(
       read_options, callback,
