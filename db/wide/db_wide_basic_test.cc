@@ -1723,6 +1723,77 @@ TEST_F(DBWideBasicTest, PutEntitySerializationError) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
+TEST_F(DBWideBasicTest, PinnableWideColumnsMove) {
+  Options options = GetDefaultOptions();
+
+  constexpr char key1[] = "foo";
+  constexpr char value[] = "bar";
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), key1, value));
+
+  constexpr char key2[] = "baz";
+  const WideColumns columns{{"quux", "corge"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns));
+
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  const auto test_move = [&](bool fill_cache) {
+    ReadOptions read_options;
+    read_options.fill_cache = fill_cache;
+
+    {
+      const WideColumns expected_columns{{kDefaultWideColumnName, value}};
+
+      {
+        PinnableWideColumns result;
+        ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key1,
+                                 &result));
+        ASSERT_EQ(result.columns(), expected_columns);
+
+        PinnableWideColumns move_target(std::move(result));
+        ASSERT_EQ(move_target.columns(), expected_columns);
+      }
+
+      {
+        PinnableWideColumns result;
+        ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key1,
+                                 &result));
+        ASSERT_EQ(result.columns(), expected_columns);
+
+        PinnableWideColumns move_target;
+        move_target = std::move(result);
+        ASSERT_EQ(move_target.columns(), expected_columns);
+      }
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key2,
+                               &result));
+      ASSERT_EQ(result.columns(), columns);
+
+      PinnableWideColumns move_target(std::move(result));
+      ASSERT_EQ(move_target.columns(), columns);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key2,
+                               &result));
+      ASSERT_EQ(result.columns(), columns);
+
+      PinnableWideColumns move_target;
+      move_target = std::move(result);
+      ASSERT_EQ(move_target.columns(), columns);
+    }
+  };
+
+  // Test with and without fill_cache to cover both the case when pointers are
+  // invalidated during PinnableSlice's move and when they are not.
+  test_move(/* fill_cache*/ false);
+  test_move(/* fill_cache*/ true);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
