@@ -2834,7 +2834,6 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   }
   if (!s.ok()) {
     assert(s.IsTimedOut() || s.IsAborted());
-    ++key_range_per_cf_iter;
     for (++key_range_per_cf_iter;
          key_range_per_cf_iter != key_range_per_cf.end();
          ++key_range_per_cf_iter) {
