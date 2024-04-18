@@ -144,6 +144,11 @@ class PinnableWideColumns {
   WideColumns columns_;
 };
 
+inline void PinnableWideColumns::Reset() {
+  value_.Reset();
+  columns_.clear();
+}
+
 inline void PinnableWideColumns::Move(PinnableWideColumns&& other) {
   assert(columns_.empty());
 
@@ -228,28 +233,47 @@ inline void PinnableWideColumns::SetPlainValue(std::string&& value) {
 
 inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value) {
   CopyValue(value);
-  return CreateIndexForWideColumns();
+
+  const Status s = CreateIndexForWideColumns();
+  if (!s.ok()) {
+    Reset();
+  }
+
+  return s;
 }
 
 inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
                                                       Cleanable* cleanable) {
   PinOrCopyValue(value, cleanable);
-  return CreateIndexForWideColumns();
+
+  const Status s = CreateIndexForWideColumns();
+  if (!s.ok()) {
+    Reset();
+  }
+
+  return s;
 }
 
 inline Status PinnableWideColumns::SetWideColumnValue(PinnableSlice&& value) {
   MoveValue(std::move(value));
-  return CreateIndexForWideColumns();
+
+  const Status s = CreateIndexForWideColumns();
+  if (!s.ok()) {
+    Reset();
+  }
+
+  return s;
 }
 
 inline Status PinnableWideColumns::SetWideColumnValue(std::string&& value) {
   MoveValue(std::move(value));
-  return CreateIndexForWideColumns();
-}
 
-inline void PinnableWideColumns::Reset() {
-  value_.Reset();
-  columns_.clear();
+  const Status s = CreateIndexForWideColumns();
+  if (!s.ok()) {
+    Reset();
+  }
+
+  return s;
 }
 
 inline PinnableWideColumns::PinnableWideColumns(PinnableWideColumns&& other) {
