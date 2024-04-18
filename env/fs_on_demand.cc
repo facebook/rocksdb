@@ -217,12 +217,11 @@ IOStatus OnDemandFileSystem::GetChildrenFileAttributes(
       }
     } file_attr_sorter;
 
-    std::for_each(rchildren.begin(), rchildren.end(),
-                  [&](FileAttributes& file) {
-                    // Adjust name
-                    (void)CheckPathAndAdjust(remote_path_, local_path_,
-                                             file.name);
-                  });
+    std::for_each(
+        rchildren.begin(), rchildren.end(), [&](FileAttributes& file) {
+          // Adjust name
+          (void)CheckPathAndAdjust(remote_path_, local_path_, file.name);
+        });
     std::sort(result->begin(), result->end(), file_attr_sorter);
     std::sort(rchildren.begin(), rchildren.end(), file_attr_sorter);
 
