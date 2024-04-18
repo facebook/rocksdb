@@ -135,14 +135,14 @@ Status DBImplFollower::TryCatchUpWithLeader() {
           cfd->imm()->Add(cfd->mem(), &job_context.memtables_to_free);
           new_mem->Ref();
           cfd->SetMemtable(new_mem);
-
-          // This will check if the old memtable is still referenced
-          cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
-                                         &job_context.memtables_to_free);
-          auto& sv_context = job_context.superversion_contexts.back();
-          cfd->InstallSuperVersion(&sv_context, &mutex_);
-          sv_context.NewSuperVersion();
         }
+
+        // This will check if the old memtable is still referenced
+        cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
+                                       &job_context.memtables_to_free);
+        auto& sv_context = job_context.superversion_contexts.back();
+        cfd->InstallSuperVersion(&sv_context, &mutex_);
+        sv_context.NewSuperVersion();
       }
     }
   }
