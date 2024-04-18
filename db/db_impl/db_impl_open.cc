@@ -541,7 +541,8 @@ Status DBImpl::Recover(
       // a corrupt MANIFEST file (could result in either the log::Reader
       // detecting a corrupt record, or SST files not found error due to
       // discarding badly formed tail records)
-      if (!is_retry && (desc_status.IsCorruption() || s.IsNotFound()) &&
+      if (!is_retry &&
+          (desc_status.IsCorruption() || s.IsNotFound() || s.IsCorruption()) &&
           CheckFSFeatureSupport(fs_.get(),
                                 FSSupportedOps::kVerifyAndReconstructRead)) {
         *can_retry = true;
