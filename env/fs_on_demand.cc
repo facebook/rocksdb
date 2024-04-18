@@ -8,6 +8,7 @@
 #include <set>
 
 #include "file/filename.h"
+#include "port/port.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
