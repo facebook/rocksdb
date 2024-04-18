@@ -840,6 +840,9 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatchImpl(
         Traits::ClearOutput(output);
         result = WBWIIteratorImpl::Result::kError;
       }
+    } else {
+      Traits::ClearOutput(output);
+      *s = Status::OK();
     }
 
     return result;
