@@ -946,16 +946,12 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
                                     recovery_ctx.mutable_cf_opts_, read_options,
                                     write_options, recovery_ctx.edit_lists_,
                                     &mutex_, directories_.GetDbDir());
-  if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
+
+  auto sfm = static_cast<SstFileManagerImpl*>(immutable_db_options_.sst_file_manager.get());
+  if (s.ok() && sfm && !(recovery_ctx.files_to_delete_.empty())) {
     mutex_.Unlock();
     for (const auto& stale_sst_file : recovery_ctx.files_to_delete_) {
-      s = DeleteDBFile(&immutable_db_options_, stale_sst_file.first,
-                       stale_sst_file.second,
-                       /*force_bg=*/false,
-                       /*force_fg=*/false);
-      if (!s.ok()) {
-        break;
-      }
+        sfm->OnAddFile(stale_sst_file.first).PermitUncheckedError();
     }
     mutex_.Lock();
   }
@@ -2256,6 +2252,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                            impl->immutable_db_options_.db_paths[0].path);
   }
 
+  // Only start delete stale files after the whole DB is tracked.
+  for (const auto& stale_sst_file : recovery_ctx.files_to_delete_) {
+    DeleteDBFile(&impl->immutable_db_options_, stale_sst_file.first,
+                     stale_sst_file.second,
+                     /*force_bg=*/false,
+                     /*force_fg=*/false).PermitUncheckedError();
+  }
 
   if (s.ok()) {
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
