@@ -1057,7 +1057,8 @@ class DBImpl : public DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                     const bool seq_per_batch, const bool batch_per_txn);
+                     const bool seq_per_batch, const bool batch_per_txn,
+                     const bool is_retry, bool* can_retry);
 
   static IOStatus CreateAndNewDirectory(
       FileSystem* fs, const std::string& dirname,
@@ -1546,9 +1547,9 @@ class DBImpl : public DB {
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_wal_file_exists = false,
-      bool error_if_data_exists_in_wals = false,
+      bool error_if_data_exists_in_wals = false, bool is_retry = false,
       uint64_t* recovered_seq = nullptr,
-      RecoveryContext* recovery_ctx = nullptr);
+      RecoveryContext* recovery_ctx = nullptr, bool* can_retry = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
@@ -1928,7 +1929,7 @@ class DBImpl : public DB {
   // corrupted_log_found is set to true if we recover from a corrupted log file.
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
-                         bool* corrupted_log_found,
+                         bool is_retry, bool* corrupted_log_found,
                          RecoveryContext* recovery_ctx);
 
   // The following two methods are used to flush a memtable to

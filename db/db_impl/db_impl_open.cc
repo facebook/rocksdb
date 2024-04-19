@@ -413,7 +413,8 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
-    uint64_t* recovered_seq, RecoveryContext* recovery_ctx) {
+    bool is_retry, uint64_t* recovered_seq, RecoveryContext* recovery_ctx,
+    bool* can_retry) {
   mutex_.AssertHeld();
 
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
@@ -529,7 +530,31 @@ Status DBImpl::Recover(
   Status s;
   bool missing_table_file = false;
   if (!immutable_db_options_.best_efforts_recovery) {
-    s = versions_->Recover(column_families, read_only, &db_id_);
+    // Status of reading the descriptor file
+    Status desc_status;
+    s = versions_->Recover(column_families, read_only, &db_id_,
+                           /*no_error_if_files_missing=*/false, is_retry,
+                           &desc_status);
+    desc_status.PermitUncheckedError();
+    if (can_retry) {
+      // If we're opening for the first time and the failure is likely due to
+      // a corrupt MANIFEST file (could result in either the log::Reader
+      // detecting a corrupt record, or SST files not found error due to
+      // discarding badly formed tail records)
+      if (!is_retry &&
+          (desc_status.IsCorruption() || s.IsNotFound() || s.IsCorruption()) &&
+          CheckFSFeatureSupport(fs_.get(),
+                                FSSupportedOps::kVerifyAndReconstructRead)) {
+        *can_retry = true;
+        ROCKS_LOG_ERROR(
+            immutable_db_options_.info_log,
+            "Possible corruption detected while replaying MANIFEST %s, %s. "
+            "Will be retried.",
+            desc_status.ToString().c_str(), s.ToString().c_str());
+      } else {
+        *can_retry = false;
+      }
+    }
   } else {
     assert(!files_in_dbname.empty());
     s = versions_->TryRecover(column_families, read_only, files_in_dbname,
@@ -767,8 +792,8 @@ Status DBImpl::Recover(
       std::sort(wals.begin(), wals.end());
 
       bool corrupted_wal_found = false;
-      s = RecoverLogFiles(wals, &next_sequence, read_only, &corrupted_wal_found,
-                          recovery_ctx);
+      s = RecoverLogFiles(wals, &next_sequence, read_only, is_retry,
+                          &corrupted_wal_found, recovery_ctx);
       if (corrupted_wal_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
@@ -1078,7 +1103,7 @@ bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
 // REQUIRES: wal_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
-                               bool* corrupted_wal_found,
+                               bool is_retry, bool* corrupted_wal_found,
                                RecoveryContext* recovery_ctx) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
@@ -1189,7 +1214,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
       file_reader.reset(new SequentialFileReader(
           std::move(file), fname, immutable_db_options_.log_readahead_size,
-          io_tracer_));
+          io_tracer_, /*listeners=*/{}, /*rate_limiter=*/nullptr, is_retry));
     }
 
     // Create the log reader.
@@ -1833,8 +1858,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   const bool kBatchPerTxn = true;
   ThreadStatusUtil::SetEnableTracking(db_options.enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_DBOPEN);
-  Status s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
-                          !kSeqPerBatch, kBatchPerTxn);
+  bool can_retry = false;
+  Status s;
+  do {
+    s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
+                     !kSeqPerBatch, kBatchPerTxn, can_retry, &can_retry);
+  } while (!s.ok() && can_retry);
   ThreadStatusUtil::ResetThreadStatus();
   return s;
 }
@@ -1956,7 +1985,8 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                    const bool seq_per_batch, const bool batch_per_txn) {
+                    const bool seq_per_batch, const bool batch_per_txn,
+                    const bool is_retry, bool* can_retry) {
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
 
@@ -2029,8 +2059,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   uint64_t recovered_seq(kMaxSequenceNumber);
   s = impl->Recover(column_families, false /* read_only */,
                     false /* error_if_wal_file_exists */,
-                    false /* error_if_data_exists_in_wals */, &recovered_seq,
-                    &recovery_ctx);
+                    false /* error_if_data_exists_in_wals */, is_retry,
+                    &recovered_seq, &recovery_ctx, can_retry);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
