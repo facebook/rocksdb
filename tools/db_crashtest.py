@@ -689,6 +689,11 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
+        # verification upon reopen. Currently reopen does not restore expected state
+        # with potential data loss in mind like start of each `./db_stress` run.
+        # Therefore it always expects no data loss.
+        dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
