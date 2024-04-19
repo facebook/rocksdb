@@ -3844,6 +3844,8 @@ Status DBImpl::NewIterators(
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
     auto cfd = cfh->cfd();
     SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+    TEST_SYNC_POINT("DBImpl::NewIterators::AfterRefSV:0");
+    TEST_SYNC_POINT("DBImpl::NewIterators::AfterRefSV:1");
     cfh_to_sv.emplace_back(cfh, sv);
     if (check_read_ts) {
       const Status s =

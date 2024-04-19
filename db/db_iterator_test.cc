@@ -3555,6 +3555,54 @@ TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   iter->Reset();
 }
 
+TEST_F(DBIteratorTest, MultipleIteratorsConsistentViewTest) {
+  // TODO - This test is to demonstrate that NewIterators() API
+  // currently does not return consistent view of the database across multiple
+  // column families. Modify this test to check the consistency when
+  // NewIterators API is fixed
+
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+  ASSERT_OK(Put(0, "key_1", "key_1_cf_0_val"));
+  ASSERT_OK(Put(1, "key_2", "key_2_cf_1_val"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NewIterators::AfterRefSV:0",
+        "DBIteratorTest::MultipleIteratorsConsistentViewTest::BeforeFlush"},
+       {"DBIteratorTest::MultipleIteratorsConsistentViewTest::AfterFlush",
+        "DBImpl::NewIterators::AfterRefSV:1"}});
+
+  port::Thread flush_thread([this]() {
+    TEST_SYNC_POINT(
+        "DBIteratorTest::MultipleIteratorsConsistentViewTest::BeforeFlush");
+    // Create a new SuperVersion for the column family 0
+    ASSERT_OK(Put(0, "key_1", "key_1_cf_0_val_2"));
+    ASSERT_OK(Flush(0));
+    TEST_SYNC_POINT(
+        "DBIteratorTest::MultipleIteratorsConsistentViewTest::AfterFlush");
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<Iterator*> iters;
+  ASSERT_OK(
+      db_->NewIterators(ReadOptions(), {handles_[0], handles_[1]}, &iters));
+  flush_thread.join();
+
+  auto* cfd_0 =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles_[0])->cfd();
+  ASSERT_EQ(cfd_0->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+
+  auto* cfd_1 =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1])->cfd();
+  ASSERT_NE(cfd_1->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+  ASSERT_NE(cfd_1->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  for (auto* iter : iters) {
+    delete iter;
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
