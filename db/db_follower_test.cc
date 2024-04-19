@@ -15,8 +15,7 @@ class DBFollowerTest : public DBTestBase {
  public:
   // Create directories for leader and follower
   // Create the leader DB object
-  DBFollowerTest()
-    : DBTestBase("/db_follower_test", /*env_do_fsync*/false) {
+  DBFollowerTest() : DBTestBase("/db_follower_test", /*env_do_fsync*/ false) {
     follower_name_ = dbname_ + "/follower";
     Close();
     Destroy(CurrentOptions());
@@ -27,12 +26,13 @@ class DBFollowerTest : public DBTestBase {
 
   ~DBFollowerTest() {
     follower_.reset();
-		EXPECT_EQ(DestroyDB(follower_name_, CurrentOptions()), Status::OK());
+    EXPECT_EQ(DestroyDB(follower_name_, CurrentOptions()), Status::OK());
   }
 
  protected:
   Status OpenAsFollower() {
-    return DB::OpenAsFollower(CurrentOptions(), follower_name_, dbname_, &follower_);
+    return DB::OpenAsFollower(CurrentOptions(), follower_name_, dbname_,
+                              &follower_);
   }
   DB* follower() { return follower_.get(); }
 
@@ -54,7 +54,7 @@ TEST_F(DBFollowerTest, Basic) {
 }
 
 #endif
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
