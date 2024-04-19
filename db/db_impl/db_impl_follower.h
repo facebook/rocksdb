@@ -31,8 +31,10 @@ class DBImplFollower : public DBImplSecondary {
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool /*readonly*/, bool /*error_if_wal_file_exists*/,
-                 bool /*error_if_data_exists_in_wals*/, uint64_t* = nullptr,
-                 RecoveryContext* /*recovery_ctx*/ = nullptr) override;
+                 bool /*error_if_data_exists_in_wals*/,
+                 bool /*is_retry*/ = false, uint64_t* = nullptr,
+                 RecoveryContext* /*recovery_ctx*/ = nullptr,
+                 bool* /*can_retry*/ = nullptr) override;
 
  private:
   friend class DB;
