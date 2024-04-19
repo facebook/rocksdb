@@ -1365,6 +1365,7 @@ if(WITH_TESTS)
         db/file_indexer_test.cc
         db/filename_test.cc
         db/flush_job_test.cc
+        db/db_follower_test.cc
         db/import_column_family_test.cc
         db/listener_test.cc
         db/log_test.cc

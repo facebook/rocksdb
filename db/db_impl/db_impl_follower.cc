@@ -26,14 +26,15 @@ DBImplFollower::DBImplFollower(const DBOptions& db_options,
                                const std::string& dbname, std::string src_path)
     : DBImplSecondary(db_options, dbname, ""),
       env_guard_(std::move(env)),
-      src_path_(std::move(src_path)) {
+      src_path_(std::move(src_path)),
+      cv_(&mu_) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Opening the db in follower mode");
   LogFlush(immutable_db_options_.info_log);
 }
 
 DBImplFollower::~DBImplFollower() {
-  Status s = CloseImpl();
+  Status s = Close();
   if (!s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Error closing DB : %s",
                    s.ToString().c_str());
@@ -52,9 +53,8 @@ DBImplFollower::~DBImplFollower() {
 Status DBImplFollower::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool /*readonly*/, bool /*error_if_wal_file_exists*/,
-    bool /*error_if_data_exists_in_wals*/, bool /*is_retry*/,
-    uint64_t*, RecoveryContext* /*recovery_ctx*/,
-    bool* /*can_retry*/) {
+    bool /*error_if_data_exists_in_wals*/, bool /*is_retry*/, uint64_t*,
+    RecoveryContext* /*recovery_ctx*/, bool* /*can_retry*/) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -154,24 +154,32 @@ Status DBImplFollower::TryCatchUpWithLeader() {
 
 void DBImplFollower::PeriodicRefresh() {
   while (!stop_requested_.load()) {
-    env_->SleepForMicroseconds(
-        static_cast<int>(
-            immutable_db_options_.follower_refresh_catchup_period_ms) *
-        1000);
+    MutexLock l(&mu_);
+    int64_t wait_until =
+        immutable_db_options_.clock->NowMicros() +
+        immutable_db_options_.follower_refresh_catchup_period_ms * 1000;
+    immutable_db_options_.clock->TimedWait(
+        &cv_, std::chrono::microseconds(wait_until));
+    if (stop_requested_.load()) {
+      break;
+    }
     Status s;
-    for (uint64_t i = 0; i < immutable_db_options_.follower_catchup_retry_count;
+    for (uint64_t i = 0;
+         i < immutable_db_options_.follower_catchup_retry_count &&
+         !stop_requested_.load();
          ++i) {
       s = TryCatchUpWithLeader();
+
       if (s.ok()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Successful catch up on attempt %llu",
                        static_cast<unsigned long long>(i));
         break;
       }
-      env_->SleepForMicroseconds(
-          static_cast<int>(
-              immutable_db_options_.follower_catchup_retry_wait_ms) *
-          1000);
+      wait_until = immutable_db_options_.clock->NowMicros() +
+                   immutable_db_options_.follower_catchup_retry_wait_ms * 1000;
+      immutable_db_options_.clock->TimedWait(
+          &cv_, std::chrono::microseconds(wait_until));
     }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log, "Catch up unsuccessful");
@@ -179,10 +187,15 @@ void DBImplFollower::PeriodicRefresh() {
   }
 }
 
-Status DBImplFollower::CloseImpl() {
+Status DBImplFollower::Close() {
   if (catch_up_thread_) {
     stop_requested_.store(true);
+    {
+      MutexLock l(&mu_);
+      cv_.SignalAll();
+    }
     catch_up_thread_->join();
+    catch_up_thread_.reset();
   }
 
   return DBImpl::Close();

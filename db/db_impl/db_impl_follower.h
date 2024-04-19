@@ -11,6 +11,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_impl/db_impl_secondary.h"
 #include "logging/logging.h"
+#include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -20,6 +21,8 @@ class DBImplFollower : public DBImplSecondary {
                  const std::string& dbname, std::string src_path);
   ~DBImplFollower();
 
+  Status Close() override;
+
  protected:
   bool OwnTablesAndLogs() const override {
     // TODO: Change this to true once we've properly implemented file
@@ -27,7 +30,6 @@ class DBImplFollower : public DBImplSecondary {
     return false;
   }
 
-  Status CloseImpl() override;
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool /*readonly*/, bool /*error_if_wal_file_exists*/,
@@ -46,5 +48,7 @@ class DBImplFollower : public DBImplSecondary {
   std::unique_ptr<port::Thread> catch_up_thread_;
   std::atomic<bool> stop_requested_;
   std::string src_path_;
+  port::Mutex mu_;
+  port::CondVar cv_;
 };
 }  // namespace ROCKSDB_NAMESPACE
