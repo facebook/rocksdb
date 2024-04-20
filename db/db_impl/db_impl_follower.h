@@ -30,7 +30,6 @@ class DBImplFollower : public DBImplSecondary {
     return false;
   }
 
-
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool /*readonly*/, bool /*error_if_wal_file_exists*/,
                  bool /*error_if_data_exists_in_wals*/,

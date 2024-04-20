@@ -282,7 +282,12 @@ IOStatus OnDemandSequentialFile::Read(size_t n, const IOOptions& options,
       return IOStatus::IOError("While opening file after relinking, got error ",
                                s.ToString());
     }
-    file_->Skip(offset_);
+    s = file_->Skip(offset_);
+    if (!s.ok()) {
+      return IOStatus::IOError(
+          "While seeking to offset" + std::to_string(offset_) + "got error",
+          s.ToString());
+    }
     eof_ = false;
   }
 
