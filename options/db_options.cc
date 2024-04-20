@@ -559,6 +559,19 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, enforce_single_del_contracts),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"follower_refresh_catchup_period_ms",
+         {offsetof(struct ImmutableDBOptions,
+                   follower_refresh_catchup_period_ms),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"follower_catchup_retry_count",
+         {offsetof(struct ImmutableDBOptions, follower_catchup_retry_count),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"follower_catchup_retry_wait_ms",
+         {offsetof(struct ImmutableDBOptions, follower_catchup_retry_wait_ms),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -756,7 +769,11 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       checksum_handoff_file_types(options.checksum_handoff_file_types),
       lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service),
-      enforce_single_del_contracts(options.enforce_single_del_contracts) {
+      enforce_single_del_contracts(options.enforce_single_del_contracts),
+      follower_refresh_catchup_period_ms(
+          options.follower_refresh_catchup_period_ms),
+      follower_catchup_retry_count(options.follower_catchup_retry_count),
+      follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
