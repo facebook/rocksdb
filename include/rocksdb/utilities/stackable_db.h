@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <iostream>
 
 #include "rocksdb/db.h"
 
@@ -420,6 +421,10 @@ class StackableDB : public DB {
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
+  }
+
+  void GetCFMemTableStats() override { 
+    std::cout << "DB does not support memtable stats\n";
   }
 
   using DB::StartBlockCacheTrace;

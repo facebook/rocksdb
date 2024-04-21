@@ -518,6 +518,8 @@ class DBImpl : public DB {
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                ColumnFamilyMetaData* metadata) override;
 
+  void GetCFMemTableStats() override;
+
   void GetAllColumnFamilyMetaData(
       std::vector<ColumnFamilyMetaData>* metadata) override;
 

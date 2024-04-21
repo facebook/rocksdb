@@ -116,6 +116,8 @@ endif
 # In that case, the compiler default (`-O0` for gcc and clang) will be used.
 OPT += $(OPTIMIZE_LEVEL)
 
+$(info $$OPTIMIZE_LEVEL is $(OPTIMIZE_LEVEL))
+
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
 OPT += -fno-omit-frame-pointer
@@ -185,6 +187,9 @@ endif
 
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
+
+$(info $$OPT is $(OPT))
+$(info $$CXXFLAGS is $(CXXFLAGS))
 
 # `USE_LTO=1` enables link-time optimizations. Among other things, this enables
 # more devirtualization opportunities and inlining across translation units.

@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
@@ -4815,6 +4816,23 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
     sv->current->GetColumnFamilyMetaData(cf_meta);
   }
   ReturnAndCleanupSuperVersion(cfd, sv);
+}
+
+void DBImpl::GetCFMemTableStats() {
+  InstrumentedMutexLock l(&mutex_);
+  for (auto cfd : *(versions_->GetColumnFamilySet())) {
+    {
+      std::cout << "memtables," << cfd->GetName() << "," 
+        << cfd->imm()->NumNotFlushed() + 1
+        << "," << (cfd->mem()->ApproximateMemoryUsageFast() + cfd->imm()->ApproximateMemoryUsage()) / (1024*1024) << "MB\n";
+
+      // cfd->GetName();
+      // cfd->mem().size() + cfd->imm()->NumNotFlushed();
+
+      // cfd->mem()->ApproximateMemoryUsageFast() + cfd->imm()->ApproximateMemoryUsage();
+      // cfd->current()->GetColumnFamilyMetaData(&metadata->back());
+    }
+  }
 }
 
 void DBImpl::GetAllColumnFamilyMetaData(
