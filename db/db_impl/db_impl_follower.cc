@@ -26,6 +26,7 @@ DBImplFollower::DBImplFollower(const DBOptions& db_options,
                                const std::string& dbname, std::string src_path)
     : DBImplSecondary(db_options, dbname, ""),
       env_guard_(std::move(env)),
+      stop_requested_(false),
       src_path_(std::move(src_path)),
       cv_(&mu_) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
