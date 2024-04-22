@@ -30,6 +30,10 @@ class SstFileManagerImpl : public SstFileManager {
                               double max_trash_db_ratio,
                               uint64_t bytes_max_delete_chunk);
 
+  // No copy
+  SstFileManagerImpl(const SstFileManagerImpl& sfm) = delete;
+  SstFileManagerImpl& operator=(const SstFileManagerImpl& sfm) = delete;
+
   ~SstFileManagerImpl();
 
   // DB will call OnAddFile whenever a new sst/blob file is added.

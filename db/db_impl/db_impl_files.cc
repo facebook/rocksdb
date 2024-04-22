@@ -177,31 +177,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
-    std::set<std::string> paths;
-    for (size_t path_id = 0; path_id < immutable_db_options_.db_paths.size();
-         path_id++) {
-      paths.insert(immutable_db_options_.db_paths[path_id].path);
-    }
-
-    // Note that if cf_paths is not specified in the ColumnFamilyOptions
-    // of a particular column family, we use db_paths as the cf_paths
-    // setting. Hence, there can be multiple duplicates of files from db_paths
-    // in the following code. The duplicate are removed while identifying
-    // unique files in PurgeObsoleteFiles.
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      for (size_t path_id = 0; path_id < cfd->ioptions()->cf_paths.size();
-           path_id++) {
-        auto& path = cfd->ioptions()->cf_paths[path_id].path;
-
-        if (paths.find(path) == paths.end()) {
-          paths.insert(path);
-        }
-      }
-    }
-
+    // PurgeObsoleteFiles will dedupe duplicate files.
     IOOptions io_opts;
     io_opts.do_not_recurse = true;
-    for (auto& path : paths) {
+    for (auto& path : all_db_paths_) {
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
@@ -966,28 +945,24 @@ Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
-  mutex_.AssertHeld();
-  std::vector<std::string> paths;
-  paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
+void DBImpl::CollectAllDBPaths() {
+  all_db_paths_.insert(NormalizePath(dbname_));
   for (const auto& db_path : immutable_db_options_.db_paths) {
-    paths.push_back(
-        NormalizePath(db_path.path + std::string(1, kFilePathSeparator)));
+    all_db_paths_.insert(NormalizePath(db_path.path));
   }
   for (const auto* cfd : *versions_->GetColumnFamilySet()) {
     for (const auto& cf_path : cfd->ioptions()->cf_paths) {
-      paths.push_back(
-          NormalizePath(cf_path.path + std::string(1, kFilePathSeparator)));
+      all_db_paths_.insert(NormalizePath(cf_path.path));
     }
   }
-  // Dedup paths
-  std::sort(paths.begin(), paths.end());
-  paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+}
 
+Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
+  mutex_.AssertHeld();
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
   Status s;
-  for (const auto& path : paths) {
+  for (const auto& path : all_db_paths_) {
     std::vector<std::string> files;
     s = env_->GetChildren(path, &files);
     if (!s.ok()) {
@@ -999,13 +974,10 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
       if (!ParseFileName(fname, &number, &type)) {
         continue;
       }
-      // path ends with '/' or '\\'
-      const std::string normalized_fpath = path + fname;
+      const std::string normalized_fpath = path + kFilePathSeparator + fname;
       largest_file_number = std::max(largest_file_number, number);
-      if (type == kTableFile && number >= next_file_number &&
-          recovery_ctx->files_to_delete_.find(normalized_fpath) ==
-              recovery_ctx->files_to_delete_.end()) {
-        recovery_ctx->files_to_delete_.emplace(normalized_fpath, path);
+      if ((type == kTableFile || type == kBlobFile)) {
+        recovery_ctx->existing_data_files_.push_back(normalized_fpath);
       }
     }
   }
@@ -1026,4 +998,47 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
   return s;
 }
 
+void DBImpl::TrackExistingDataFiles(
+    const std::vector<std::string>& existing_data_files) {
+  auto sfm = static_cast<SstFileManagerImpl*>(
+      immutable_db_options_.sst_file_manager.get());
+  assert(sfm);
+  std::vector<ColumnFamilyMetaData> metadata;
+  GetAllColumnFamilyMetaData(&metadata);
+
+  std::unordered_set<std::string> referenced_files;
+  for (const auto& md : metadata) {
+    for (const auto& lmd : md.levels) {
+      for (const auto& fmd : lmd.files) {
+        // We're assuming that each sst file name exists in at most one of
+        // the paths.
+        std::string file_path =
+            fmd.directory + kFilePathSeparator + fmd.relative_filename;
+        sfm->OnAddFile(file_path, fmd.size).PermitUncheckedError();
+        referenced_files.insert(file_path);
+      }
+    }
+    for (const auto& bmd : md.blob_files) {
+      std::string name = bmd.blob_file_name;
+      // The BlobMetaData.blob_file_name may start with "/".
+      if (!name.empty() && name[0] == kFilePathSeparator) {
+        name = name.substr(1);
+      }
+      // We're assuming that each blob file name exists in at most one of
+      // the paths.
+      std::string file_path = bmd.blob_file_path + kFilePathSeparator + name;
+      sfm->OnAddFile(file_path, bmd.blob_file_size).PermitUncheckedError();
+      referenced_files.insert(file_path);
+    }
+  }
+
+  for (const auto& file_path : existing_data_files) {
+    if (referenced_files.find(file_path) != referenced_files.end()) {
+      continue;
+    }
+    // There shouldn't be any duplicated files. In case there is, SstFileManager
+    // will take care of deduping it.
+    sfm->OnAddFile(file_path).PermitUncheckedError();
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
