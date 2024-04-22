@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.1.1 (04/17/2024)
+### Bug Fixes
+* Fixed Java `SstFileMetaData` to prevent throwing `java.lang.NoSuchMethodError`
+* Fixed a regression when `ColumnFamilyOptions::max_successive_merges > 0` where the CPU overhead for deciding whether to merge could have increased unless the user had set the option `ColumnFamilyOptions::strict_max_successive_merges`
+
 ## 9.1.0 (03/22/2024)
 ### New Features
 * Added an option, `GetMergeOperandsOptions::continue_cb`, to give users the ability to end `GetMergeOperands()`'s lookup process before all merge operands were found.
