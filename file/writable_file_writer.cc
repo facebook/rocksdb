@@ -205,15 +205,17 @@ IOStatus WritableFileWriter::Pad(const IOOptions& opts,
   assert(pad_bytes < kDefaultPageSize);
   size_t left = pad_bytes;
   size_t cap = buf_.Capacity() - buf_.CurrentSize();
-  size_t pad_start = buf_.CurrentSize();
+  const size_t pad_start = buf_.CurrentSize();
 
   // Assume pad_bytes is small compared to buf_ capacity. So we always
   // use buf_ rather than write directly to file in certain cases like
   // Append() does.
+  size_t actual_pad_bytes = 0;
   while (left) {
     size_t append_bytes = std::min(cap, left);
     buf_.PadWith(append_bytes, 0);
     left -= append_bytes;
+    actual_pad_bytes += append_bytes;
     if (left > 0) {
       IOStatus s = Flush(io_options);
       if (!s.ok()) {
@@ -226,10 +228,13 @@ IOStatus WritableFileWriter::Pad(const IOOptions& opts,
   pending_sync_ = true;
   uint64_t cur_size = filesize_.load(std::memory_order_acquire);
   filesize_.store(cur_size + pad_bytes, std::memory_order_release);
+
+  Slice data(buf_.BufferStart() + pad_start, actual_pad_bytes);
+  UpdateFileChecksum(data);
   if (perform_data_verification_) {
     buffered_data_crc32c_checksum_ =
         crc32c::Extend(buffered_data_crc32c_checksum_,
-                       buf_.BufferStart() + pad_start, pad_bytes);
+                       buf_.BufferStart() + pad_start, actual_pad_bytes);
   }
   return IOStatus::OK();
 }
