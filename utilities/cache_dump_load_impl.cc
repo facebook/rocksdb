@@ -253,16 +253,25 @@ IOStatus CacheDumperImpl::WriteFooter() {
 // This is the main function to restore the cache entries to secondary cache.
 // First, we check if all the arguments are valid. Then, we read the block
 // sequentially from the reader and insert them to the secondary cache.
-IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
+IOStatus CacheDumpedLoaderImplBase::RestoreCacheEntriesToCache() {
   // TODO: remove this line when options are used in the loader
   (void)options_;
   // Step 1: we check if all the arguments are valid
-  if (secondary_cache_ == nullptr) {
-    return IOStatus::InvalidArgument("Secondary Cache is null");
+  Status s = Check();
+  if (!s.ok()) {
+    return status_to_io_status(std::move(s));
   }
   if (reader_ == nullptr) {
     return IOStatus::InvalidArgument("CacheDumpReader is null");
   }
+  // Set the system clock
+  if (options_.clock == nullptr) {
+    return IOStatus::InvalidArgument("System clock is null");
+  }
+
+  clock_ = options_.clock;
+
+  deadline_ = options_.deadline;
 
   // Step 2: read the header
   // TODO: we need to check the cache dump format version and RocksDB version
@@ -280,6 +289,20 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
   while (io_s.ok()) {
     dump_unit.reset();
     data.clear();
+
+    if (options_.max_size_bytes > 0 &&
+        loaded_size_bytes_ > options_.max_size_bytes) {
+      return IOStatus::OK();
+    }
+
+    uint64_t timestamp = clock_->NowMicros();
+    if (deadline_.count()) {
+      std::chrono::microseconds now = std::chrono::microseconds(timestamp);
+      if (now >= deadline_) {
+        return IOStatus::OK();
+      }
+    }
+
     // read the content and store in the dump_unit
     io_s = ReadCacheBlock(&data, &dump_unit);
     if (!io_s.ok()) {
@@ -288,14 +311,10 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     if (dump_unit.type == CacheDumpUnitType::kFooter) {
       break;
     }
+    loaded_size_bytes_ += dump_unit.value_len;
     // Create the uncompressed_block based on the information in the dump_unit
     // (There is no block trailer here compatible with block-based SST file.)
-    Slice content =
-        Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len);
-    Status s = secondary_cache_->InsertSaved(dump_unit.key, content);
-    if (!s.ok()) {
-      io_s = status_to_io_status(std::move(s));
-    }
+    io_s = InsertDumpUnitToCache(dump_unit);
   }
   if (dump_unit.type == CacheDumpUnitType::kFooter) {
     return IOStatus::OK();
@@ -306,8 +325,8 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
 
 // Read and copy the dump unit metadata to std::string data, decode and create
 // the unit metadata based on the string
-IOStatus CacheDumpedLoaderImpl::ReadDumpUnitMeta(std::string* data,
-                                                 DumpUnitMeta* unit_meta) {
+IOStatus CacheDumpedLoaderImplBase::ReadDumpUnitMeta(std::string* data,
+                                                     DumpUnitMeta* unit_meta) {
   assert(reader_ != nullptr);
   assert(data != nullptr);
   assert(unit_meta != nullptr);
@@ -321,8 +340,8 @@ IOStatus CacheDumpedLoaderImpl::ReadDumpUnitMeta(std::string* data,
 
 // Read and copy the dump unit to std::string data, decode and create the unit
 // based on the string
-IOStatus CacheDumpedLoaderImpl::ReadDumpUnit(size_t len, std::string* data,
-                                             DumpUnit* unit) {
+IOStatus CacheDumpedLoaderImplBase::ReadDumpUnit(size_t len, std::string* data,
+                                                 DumpUnit* unit) {
   assert(reader_ != nullptr);
   assert(data != nullptr);
   assert(unit != nullptr);
@@ -339,8 +358,8 @@ IOStatus CacheDumpedLoaderImpl::ReadDumpUnit(size_t len, std::string* data,
 }
 
 // Read the header
-IOStatus CacheDumpedLoaderImpl::ReadHeader(std::string* data,
-                                           DumpUnit* dump_unit) {
+IOStatus CacheDumpedLoaderImplBase::ReadHeader(std::string* data,
+                                               DumpUnit* dump_unit) {
   DumpUnitMeta header_meta;
   header_meta.reset();
   std::string meta_string;
@@ -361,8 +380,8 @@ IOStatus CacheDumpedLoaderImpl::ReadHeader(std::string* data,
 }
 
 // Read the blocks after header is read out
-IOStatus CacheDumpedLoaderImpl::ReadCacheBlock(std::string* data,
-                                               DumpUnit* dump_unit) {
+IOStatus CacheDumpedLoaderImplBase::ReadCacheBlock(std::string* data,
+                                                   DumpUnit* dump_unit) {
   // According to the write process, we read the dump_unit_metadata first
   DumpUnitMeta unit_meta;
   unit_meta.reset();
@@ -384,6 +403,100 @@ IOStatus CacheDumpedLoaderImpl::ReadCacheBlock(std::string* data,
         "Checksum does not match! Read dumped unit corrupted!");
   }
   return io_s;
+}
+
+IOStatus CacheDumpedLoaderSecondaryCacheImpl::InsertDumpUnitToCache(
+    const DumpUnit& dump_unit) {
+  Slice content =
+      Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len);
+  Status s = secondary_cache_->InsertSaved(dump_unit.key, content);
+  return status_to_io_status(std::move(s));
+}
+
+Status CacheDumpedLoaderSecondaryCacheImpl::Check() {
+  if (secondary_cache_ == nullptr) {
+    return Status::InvalidArgument("Secondary Cache is null");
+  }
+  return Status::OK();
+}
+
+IOStatus CacheDumpedLoaderBlockCacheImpl::InsertDumpUnitToCache(
+    const DumpUnit& dump_unit) {
+  Statistics* statistics = nullptr;
+  Slice data(static_cast<char*>(dump_unit.value), dump_unit.value_len);
+  BlockContents block =
+      BlockContents(AllocateAndCopyBlock(data, nullptr), data.size());
+  Status s = Status::OK();
+
+  switch (dump_unit.type) {
+    case CacheDumpUnitType::kData: {
+      const Cache::CacheItemHelper* helper =
+          GetCacheItemHelper(BlockType::kData, CacheTier::kVolatileTier);
+      std::unique_ptr<Block_kData> block_holder;
+      block_holder.reset(new Block_kData(
+          std::move(block), toptions_.read_amp_bytes_per_bit, statistics));
+      size_t charge = block_holder->ApproximateMemoryUsage();
+      s = block_cache_->Insert(dump_unit.key, block_holder.get(), helper,
+                               charge);
+      if (s.ok()) {
+        block_holder.release();
+      }
+      break;
+    }
+    case CacheDumpUnitType::kIndex: {
+      const Cache::CacheItemHelper* helper =
+          GetCacheItemHelper(BlockType::kIndex, CacheTier::kVolatileTier);
+      std::unique_ptr<Block_kIndex> block_holder;
+      block_holder.reset(new Block_kIndex(
+          std::move(block), toptions_.read_amp_bytes_per_bit, statistics));
+      size_t charge = block_holder->ApproximateMemoryUsage();
+      s = block_cache_->Insert(dump_unit.key, block_holder.get(), helper,
+                               charge);
+      if (s.ok()) {
+        block_holder.release();
+      }
+      break;
+    }
+    case CacheDumpUnitType::kFilter: {
+      const Cache::CacheItemHelper* helper =
+          GetCacheItemHelper(BlockType::kFilter, CacheTier::kVolatileTier);
+      std::unique_ptr<ParsedFullFilterBlock> block_holder;
+      block_holder.reset(new ParsedFullFilterBlock(
+          toptions_.filter_policy.get(), std::move(block)));
+      size_t charge = block_holder->ApproximateMemoryUsage();
+      s = block_cache_->Insert(dump_unit.key, block_holder.get(), helper,
+                               charge);
+      if (s.ok()) {
+        block_holder.release();
+      }
+      break;
+    }
+    case CacheDumpUnitType::kFilterMetaBlock: {
+      const Cache::CacheItemHelper* helper = GetCacheItemHelper(
+          BlockType::kFilterPartitionIndex, CacheTier::kVolatileTier);
+      std::unique_ptr<Block_kFilterPartitionIndex> block_holder;
+      block_holder.reset(new Block_kFilterPartitionIndex(
+          std::move(block), toptions_.read_amp_bytes_per_bit, statistics));
+      size_t charge = block_holder->ApproximateMemoryUsage();
+      s = block_cache_->Insert(dump_unit.key, block_holder.get(), helper,
+                               charge);
+      if (s.ok()) {
+        block_holder.release();
+      }
+      break;
+    }
+
+    default:
+      break;
+  }
+  return status_to_io_status(std::move(s));
+}
+
+Status CacheDumpedLoaderBlockCacheImpl::Check() {
+  if (block_cache_ == nullptr) {
+    return Status::InvalidArgument("Block Cache is null");
+  }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
