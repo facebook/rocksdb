@@ -285,8 +285,7 @@ default_params = {
     "hard_pending_compaction_bytes_limit" : lambda: random.choice([2 * 1024 * 1024] + [256 * 1073741824] * 4),
     "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
     "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable `block_align` after fixing the surfaced corruption issue
-    "block_align": 0,
+    "block_align": lambda: random.choice([0, 1]),
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
