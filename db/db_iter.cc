@@ -231,6 +231,7 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
+    wide_columns_.clear();
     return false;
   }
 

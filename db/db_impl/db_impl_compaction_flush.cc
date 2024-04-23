@@ -4356,6 +4356,7 @@ Status DBImpl::WaitForCompact(
     }
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || unscheduled_compactions_ ||
+         (wait_for_compact_options.wait_for_purge && bg_purge_scheduled_) ||
          unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {
       if (wait_for_compact_options.timeout.count()) {
@@ -4363,6 +4364,7 @@ Status DBImpl::WaitForCompact(
           return Status::TimedOut();
         }
       } else {
+        TEST_SYNC_POINT("DBImpl::WaitForCompact:InsideLoop");
         bg_cv_.Wait();
       }
     } else if (wait_for_compact_options.close_db) {
