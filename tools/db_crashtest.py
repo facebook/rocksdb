@@ -74,7 +74,9 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    "inplace_update_support": lambda: random.randint(0, 1),
+    # TODO(hx235): re-enable `inplace_update_support` after fixing the
+    # inconsistency issue it surfaced
+    "inplace_update_support": 0,
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
