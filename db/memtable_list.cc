@@ -10,6 +10,7 @@
 #include <limits>
 #include <queue>
 #include <string>
+#include <iostream>
 
 #include "db/db_impl/db_impl.h"
 #include "db/memtable.h"
@@ -301,6 +302,7 @@ SequenceNumber MemTableListVersion::GetFirstSequenceNumber() const {
 
 // caller is responsible for referencing m
 void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+  // std::cout << "mt,ADD2\n";
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   AddMemTable(m);
   // m->MemoryAllocatedBytes() is added in MemoryAllocatedBytesExcludingLast
@@ -647,6 +649,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
 // New memtables are inserted at the front of the list.
 void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+  // std::cout << "mt,ADD\n";
   assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
@@ -770,6 +773,7 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
       }
 
       assert(m->file_number_ > 0);
+      ROCKS_LOG_BUFFER(log_buffer, "mt,%s,remove", cfd->GetName().c_str());
       current_->Remove(m, to_delete);
       UpdateCachedValuesFromMemTableListVersion();
       ResetTrimHistoryNeeded();

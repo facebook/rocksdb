@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <iostream>
 
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -2341,6 +2342,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
   assert(new_mem != nullptr);
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "mt,%s,add", cfd->GetName().c_str());
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
