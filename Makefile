@@ -15,7 +15,11 @@ CFLAGS += ${EXTRA_CFLAGS}
 CXXFLAGS += ${EXTRA_CXXFLAGS}
 LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
-NPROC ?= $(shell nproc)
+ifeq ($(PLATFORM),OS_MACOSX)
+	NPROC ?= $(shell sysctl -n hw.logicalcpu)
+else
+	NPROC ?= $(shell nproc)
+endif
 ARFLAGS = ${EXTRA_ARFLAGS} rs
 STRIPFLAGS = -S -x
 
