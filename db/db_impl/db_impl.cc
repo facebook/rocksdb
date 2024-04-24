@@ -2521,9 +2521,9 @@ template <class T, typename IterDerefFuncType>
 Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
                                ReadCallback* callback,
                                IterDerefFuncType iter_deref_func, T* cf_list,
+                               bool sv_exclusive_access,
                                SequenceNumber* snapshot,
-                               bool* sv_from_thread_local,
-                               bool sv_exclusive_access) {
+                               bool* sv_from_thread_local) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
   assert(sv_from_thread_local);
@@ -2556,7 +2556,11 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     // super version
     auto cf_iter = cf_list->begin();
     auto node = iter_deref_func(cf_iter);
-    node->super_version = GetAndRefSuperVersion(node->cfd);
+    if (sv_exclusive_access) {
+      node->super_version = GetAndRefSuperVersion(node->cfd);
+    } else {
+      node->super_version = node->cfd->GetReferencedSuperVersion(this);
+    }
     if (check_read_ts) {
       s = FailIfReadCollapsedHistory(node->cfd, node->super_version,
                                      *(read_options.timestamp));
@@ -2796,7 +2800,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   cf_sv_pairs.emplace_back(cf, nullptr);
 
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
-  bool sv_from_thread_local;
+  bool sv_from_thread_local = false;
   Status s = MultiCFSnapshot<autovector<ColumnFamilySuperVersionPair,
                                         MultiGetContext::MAX_BATCH_SIZE>>(
       read_options, nullptr,
@@ -2804,8 +2808,9 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
                     MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
         return &(*cf_iter);
       },
-      &cf_sv_pairs, &consistent_seqnum, &sv_from_thread_local,
-      /* sv_exclusive_access */ true);
+      &cf_sv_pairs,
+      /* sv_exclusive_access */ true, &consistent_seqnum,
+      &sv_from_thread_local);
 
   if (!s.ok()) {
     for (size_t i = 0; i < num_keys; ++i) {
@@ -2992,14 +2997,15 @@ void DBImpl::MultiGetWithCallbackImpl(
   cf_sv_pairs[0] = ColumnFamilySuperVersionPair(column_family, nullptr);
   size_t num_keys = sorted_keys->size();
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
-  bool sv_from_thread_local;
+  bool sv_from_thread_local = false;
   Status s = MultiCFSnapshot<std::array<ColumnFamilySuperVersionPair, 1>>(
       read_options, callback,
       [](std::array<ColumnFamilySuperVersionPair, 1>::iterator& cf_iter) {
         return &(*cf_iter);
       },
-      &cf_sv_pairs, &consistent_seqnum, &sv_from_thread_local,
-      /* sv_exclusive_access */ true);
+      &cf_sv_pairs,
+      /* sv_exclusive_access */ true, &consistent_seqnum,
+      &sv_from_thread_local);
   if (!s.ok()) {
     return;
   }
@@ -3844,7 +3850,7 @@ Status DBImpl::NewIterators(
   iterators->reserve(column_families.size());
 
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
-  bool sv_from_thread_local;
+  bool sv_from_thread_local = false;
   s = MultiCFSnapshot<autovector<ColumnFamilySuperVersionPair,
                                  MultiGetContext::MAX_BATCH_SIZE>>(
       read_options, nullptr /* read_callback*/,
@@ -3852,8 +3858,9 @@ Status DBImpl::NewIterators(
                     MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
         return &(*cf_iter);
       },
-      &cf_sv_pairs, &consistent_seqnum, &sv_from_thread_local,
-      /* sv_exclusive_access */ false);
+      &cf_sv_pairs,
+      /* sv_exclusive_access */ false, &consistent_seqnum,
+      &sv_from_thread_local);
   if (!s.ok()) {
     return s;
   }

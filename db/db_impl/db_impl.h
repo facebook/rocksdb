@@ -2382,15 +2382,16 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
-  // `sv_from_thread_local` being set to false indicates that the SuperVersion
-  // obtained from the ColumnFamilyData, whereas true indicates they are thread
-  // local.
   // `sv_exclusive_access` is used to indicate whether thread-local SuperVersion
   // can be obtained without extra ref (by GetAndRefSuperVersion()) or not
   // (by GetReferencedSuperVersion()). For instance, point lookup like MultiGet
   // does not require SuperVersion to be re-acquired throughout the entire
   // invocation (no need extra ref), while MultiCfIterators may need the
   // SuperVersion to be updated during Refresh() (requires extra ref).
+  //
+  // `sv_from_thread_local` being set to false indicates that the SuperVersion
+  // obtained from the ColumnFamilyData, whereas true indicates they are thread
+  // local.
   //
   // A non-OK status will be returned if for a column family that enables
   // user-defined timestamp feature, the specified `ReadOptions.timestamp`
@@ -2399,8 +2400,8 @@ class DBImpl : public DB {
   Status MultiCFSnapshot(const ReadOptions& read_options,
                          ReadCallback* callback,
                          IterDerefFuncType iter_deref_func, T* cf_list,
-                         SequenceNumber* snapshot, bool* sv_from_thread_local,
-                         bool sv_exclusive_access);
+                         bool sv_exclusive_access, SequenceNumber* snapshot,
+                         bool* sv_from_thread_local);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number
