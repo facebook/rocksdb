@@ -4085,6 +4085,14 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnScheduledConflict) {
     GenerateNewFile(&rnd, &key_idx, false /* nowait */);
   }
 
+  std::atomic<int> num_compact_range_calls{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "ColumnFamilyData::CompactRange:Return", [&](void* /* arg */) {
+        num_compact_range_calls++;
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
   const int kNumManualCompactions = 2;
   port::Thread manual_compaction_threads[kNumManualCompactions];
   for (int i = 0; i < kNumManualCompactions; i++) {
@@ -4093,21 +4101,10 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnScheduledConflict) {
                       .IsIncomplete());
     });
   }
-
-  // Make sure the manual compaction threads have found a compaction or a
-  // conflict before proceeding
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::RunManualCompaction:WaitConflict",
-        "DBCompactionTest::CancelCompactionWaitingOnScheduledConflict:"
-        "PreDisableManualCompaction"}});
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  while (num_compact_range_calls < kNumManualCompactions) {}
 
   // Cancel it. Threads should be joinable, i.e., both the scheduled and blocked
   // manual compactions were canceled despite no compaction could have ever run.
-  TEST_SYNC_POINT(
-      "DBCompactionTest::CancelCompactionWaitingOnScheduledConflict:"
-      "PreDisableManualCompaction");
   db_->DisableManualCompaction();
   for (int i = 0; i < kNumManualCompactions; i++) {
     manual_compaction_threads[i].join();

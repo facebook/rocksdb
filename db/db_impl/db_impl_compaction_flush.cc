@@ -2165,7 +2165,6 @@ Status DBImpl::RunManualCompaction(
                max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
       if (!scheduled) {
-        TEST_SYNC_POINT("DBImpl::RunManualCompaction:WaitConflict");
         // There is a conflicting compaction
         if (manual_compaction_paused_ > 0 || manual.canceled == true) {
           // Stop waiting since it was canceled. Pretend the error came from
