@@ -3,18 +3,20 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "cache/cache_key.h"
-#include "table/block_based/block_based_table_reader.h"
+#include "utilities/cache_dump_load_impl.h"
+
+#include <limits>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_key.h"
 #include "file/writable_file_writer.h"
 #include "port/lang.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/utilities/ldb_cmd.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "util/crc32c.h"
-#include "utilities/cache_dump_load_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -24,6 +26,7 @@ namespace ROCKSDB_NAMESPACE {
 // requirement.
 Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
   Status s = Status::OK();
+  dump_all_keys_ = false;
   for (size_t i = 0; i < db_list.size(); i++) {
     assert(i < db_list.size());
     TablePropertiesCollection ptc;
@@ -66,6 +69,8 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
     return IOStatus::InvalidArgument("System clock is null");
   }
   clock_ = options_.clock;
+
+  deadline_ = options_.deadline;
 
   // Set the sequence number
   sequence_num_ = 0;
@@ -117,6 +122,19 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
       return;
     }
 
+    if (options_.max_size_bytes > 0 &&
+        dumped_size_bytes_ > options_.max_size_bytes) {
+      return;
+    }
+
+    uint64_t timestamp = clock_->NowMicros();
+    if (deadline_.count()) {
+      std::chrono::microseconds now = std::chrono::microseconds(timestamp);
+      if (now >= deadline_) {
+        return;
+      }
+    }
+
     CacheEntryRole role = helper->role;
     CacheDumpUnitType type = CacheDumpUnitType::kBlockTypeMax;
 
@@ -140,7 +158,7 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
     }
 
     // based on the key prefix, check if the block should be filter out.
-    if (ShouldFilterOut(key)) {
+    if (!dump_all_keys_ && ShouldFilterOut(key)) {
       return;
     }
 
@@ -154,7 +172,8 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
 
     if (s.ok()) {
       // Write it out
-      WriteBlock(type, key, buf).PermitUncheckedError();
+      WriteBlock(type, key, buf, timestamp).PermitUncheckedError();
+      dumped_size_bytes_ += len;
     }
   };
 }
@@ -168,8 +187,7 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
 // First, we write the metadata first, which is a fixed size string. Then, we
 // Append the dump unit string to the writer.
 IOStatus CacheDumperImpl::WriteBlock(CacheDumpUnitType type, const Slice& key,
-                                     const Slice& value) {
-  uint64_t timestamp = clock_->NowMicros();
+                                     const Slice& value, uint64_t timestamp) {
   uint32_t value_checksum = crc32c::Value(value.data(), value.size());
 
   // First, serialize the block information in a string
@@ -219,7 +237,8 @@ IOStatus CacheDumperImpl::WriteHeader() {
        "block_size, block_data, block_checksum> cache_value\n";
   std::string header_value(s.str());
   CacheDumpUnitType type = CacheDumpUnitType::kHeader;
-  return WriteBlock(type, header_key, header_value);
+  uint64_t timestamp = clock_->NowMicros();
+  return WriteBlock(type, header_key, header_value, timestamp);
 }
 
 // Write the footer after all the blocks are stored to indicate the ending.
@@ -227,7 +246,8 @@ IOStatus CacheDumperImpl::WriteFooter() {
   std::string footer_key = "footer";
   std::string footer_value("cache dump completed");
   CacheDumpUnitType type = CacheDumpUnitType::kFooter;
-  return WriteBlock(type, footer_key, footer_value);
+  uint64_t timestamp = clock_->NowMicros();
+  return WriteBlock(type, footer_key, footer_value, timestamp);
 }
 
 // This is the main function to restore the cache entries to secondary cache.

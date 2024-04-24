@@ -1238,6 +1238,7 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
                    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
   ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
                    ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  ASSERT_OK(dbfull()->SyncWAL());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));

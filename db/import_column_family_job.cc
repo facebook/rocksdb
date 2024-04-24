@@ -65,11 +65,11 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         largest = file_to_import.largest_internal_key;
       } else {
         if (cfd_->internal_comparator().Compare(
-                smallest, file_to_import.smallest_internal_key) < 0) {
+                smallest, file_to_import.smallest_internal_key) > 0) {
           smallest = file_to_import.smallest_internal_key;
         }
         if (cfd_->internal_comparator().Compare(
-                largest, file_to_import.largest_internal_key) > 0) {
+                largest, file_to_import.largest_internal_key) < 0) {
           largest = file_to_import.largest_internal_key;
         }
       }

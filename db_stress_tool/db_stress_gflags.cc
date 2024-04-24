@@ -311,9 +311,17 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
-DEFINE_int32(get_live_files_one_in, 1000000,
-             "With a chance of 1/N, call GetLiveFiles to verify if it returns "
-             "correctly. If N == 0, do not call the interface.");
+DEFINE_int32(
+    get_live_files_apis_one_in, 1000000,
+    "With a chance of 1/N, call GetLiveFiles(), GetLiveFilesMetaData() and "
+    "GetLiveFilesChecksumInfo() to verify if it returns "
+    "OK or violate any internal assertion. If N == 0, do not call the "
+    "interface.");
+
+DEFINE_int32(
+    get_all_column_family_metadata_one_in, 1000000,
+    "With a chance of 1/N, call GetAllColumnFamilyMetaData to verify if it "
+    "violates any internal assertion. If N == 0, do not call the interface.");
 
 DEFINE_int32(
     get_sorted_wal_files_one_in, 1000000,
@@ -395,6 +403,8 @@ DEFINE_uint64(subcompactions, 1,
 
 DEFINE_uint64(periodic_compaction_seconds, 1000,
               "Files older than this value will be picked up for compaction.");
+DEFINE_string(daily_offpeak_time_utc, "",
+              "If set, process periodic compactions during this period only");
 
 DEFINE_uint64(compaction_ttl, 1000,
               "Files older than TTL will be compacted to the next level.");
@@ -515,8 +525,6 @@ DEFINE_int32(blob_cache_numshardbits, 6,
 DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
-
-DEFINE_bool(enable_tiered_storage, false, "Set last_level_temperature");
 
 DEFINE_int64(preclude_last_level_data_seconds, 0,
              "Preclude data from the last level. Used with tiered storage "
@@ -758,6 +766,15 @@ DEFINE_int32(pause_background_one_in, 0,
              "If non-zero, then PauseBackgroundWork()+Continue will be called "
              "once for every N ops on average.  0 disables.");
 
+DEFINE_int32(disable_file_deletions_one_in, 0,
+             "If non-zero, then DisableFileDeletions()+Enable will be called "
+             "once for every N ops on average.  0 disables.");
+
+DEFINE_int32(
+    disable_manual_compaction_one_in, 0,
+    "If non-zero, then DisableManualCompaction()+Enable will be called "
+    "once for every N ops on average.  0 disables.");
+
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
 
@@ -980,6 +997,11 @@ DEFINE_int32(get_property_one_in, 1000,
              "If non-zero, then DB::GetProperty() will be called to get various"
              " properties for every N ops on average. 0 indicates that"
              " GetProperty() will be not be called.");
+
+DEFINE_int32(get_properties_of_all_tables_one_in, 1000,
+             "If non-zero, then DB::GetPropertiesOfAllTables() will be called "
+             "for every N ops on average. 0 indicates that"
+             " it will be not be called.");
 
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
@@ -1304,4 +1326,59 @@ DEFINE_uint64(soft_pending_compaction_bytes_limit,
 DEFINE_uint64(hard_pending_compaction_bytes_limit,
               ROCKSDB_NAMESPACE::Options().hard_pending_compaction_bytes_limit,
               "Options.hard_pending_compaction_bytes_limit");
+
+DEFINE_bool(enable_sst_partitioner_factory, false,
+            "If true, set Options.sst_partitioner_factory to "
+            "SstPartitionerFixedPrefixFactory with prefix length equal to 1");
+
+DEFINE_bool(
+    enable_do_not_compress_roles, false,
+    "If true, set CompressedSecondaryCacheOptions.do_not_compress_roles to "
+    "include all cache roles");
+
+DEFINE_bool(block_align,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
+            "BlockBasedTableOptions.block_align");
+
+DEFINE_uint32(
+    lowest_used_cache_tier,
+    static_cast<uint32_t>(ROCKSDB_NAMESPACE::Options().lowest_used_cache_tier),
+    "Options.lowest_used_cache_tier");
+
+DEFINE_bool(enable_custom_split_merge,
+            ROCKSDB_NAMESPACE::CompressedSecondaryCacheOptions()
+                .enable_custom_split_merge,
+            "CompressedSecondaryCacheOptions.enable_custom_split_merge");
+
+DEFINE_uint32(
+    adm_policy,
+    static_cast<uint32_t>(ROCKSDB_NAMESPACE::TieredCacheOptions().adm_policy),
+    "TieredCacheOptions.adm_policy");
+
+DEFINE_string(last_level_temperature, "kUnknown",
+              "Options.last_level_temperature");
+
+DEFINE_string(default_write_temperature, "kUnknown",
+              "Options.default_write_temperature");
+
+DEFINE_string(default_temperature, "kUnknown", "Options.default_temperature");
+
+DEFINE_bool(enable_memtable_insert_with_hint_prefix_extractor,
+            ROCKSDB_NAMESPACE::Options()
+                    .memtable_insert_with_hint_prefix_extractor != nullptr,
+            "If true and FLAGS_prefix_size > 0, set "
+            "Options.memtable_insert_with_hint_prefix_extractor to "
+            "be Options.prefix_extractor");
+
+DEFINE_bool(check_multiget_consistency, true,
+            "If true, check consistency of MultiGet result by comparing it "
+            "with Get's under a snapshot");
+
+DEFINE_bool(check_multiget_entity_consistency, true,
+            "If true, check consistency of MultiGetEntity result by comparing "
+            "it GetEntity's under a snapshot");
+
+DEFINE_bool(inplace_update_support,
+            ROCKSDB_NAMESPACE::Options().inplace_update_support,
+            "Options.inplace_update_support");
 #endif  // GFLAGS

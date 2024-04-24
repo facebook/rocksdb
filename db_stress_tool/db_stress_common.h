@@ -46,6 +46,7 @@
 #include "monitoring/histogram.h"
 #include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -136,7 +137,8 @@ DECLARE_int32(universal_min_merge_width);
 DECLARE_int32(universal_max_merge_width);
 DECLARE_int32(universal_max_size_amplification_percent);
 DECLARE_int32(clear_column_family_one_in);
-DECLARE_int32(get_live_files_one_in);
+DECLARE_int32(get_live_files_apis_one_in);
+DECLARE_int32(get_all_column_family_metadata_one_in);
 DECLARE_int32(get_sorted_wal_files_one_in);
 DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
@@ -155,6 +157,7 @@ DECLARE_int32(unpartitioned_pinning);
 DECLARE_string(cache_type);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
+DECLARE_string(daily_offpeak_time_utc);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(fifo_allow_compaction);
 DECLARE_bool(allow_concurrent_memtable_write);
@@ -209,6 +212,8 @@ DECLARE_int32(compact_range_one_in);
 DECLARE_int32(mark_for_compaction_one_file_in);
 DECLARE_int32(flush_one_in);
 DECLARE_int32(pause_background_one_in);
+DECLARE_int32(disable_file_deletions_one_in);
+DECLARE_int32(disable_manual_compaction_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
@@ -257,8 +262,12 @@ DECLARE_int32(verify_file_checksums_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
+DECLARE_int32(get_properties_of_all_tables_one_in);
 DECLARE_string(file_checksum_impl);
 DECLARE_bool(verification_only);
+DECLARE_string(last_level_temperature);
+DECLARE_string(default_write_temperature);
+DECLARE_string(default_temperature);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -340,7 +349,6 @@ DECLARE_uint32(memtable_max_range_deletions);
 DECLARE_uint32(bottommost_file_compaction_delay);
 
 // Tiered storage
-DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);
 DECLARE_int64(preserve_internal_time_seconds);
 
@@ -392,6 +400,16 @@ DECLARE_double(low_pri_pool_ratio);
 DECLARE_uint64(soft_pending_compaction_bytes_limit);
 DECLARE_uint64(hard_pending_compaction_bytes_limit);
 DECLARE_uint64(max_sequential_skip_in_iterations);
+DECLARE_bool(enable_sst_partitioner_factory);
+DECLARE_bool(enable_do_not_compress_roles);
+DECLARE_bool(block_align);
+DECLARE_uint32(lowest_used_cache_tier);
+DECLARE_bool(enable_custom_split_merge);
+DECLARE_uint32(adm_policy);
+DECLARE_bool(enable_memtable_insert_with_hint_prefix_extractor);
+DECLARE_bool(check_multiget_consistency);
+DECLARE_bool(check_multiget_entity_consistency);
+DECLARE_bool(inplace_update_support);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -485,6 +503,28 @@ inline std::string ChecksumTypeToString(ROCKSDB_NAMESPACE::ChecksumType ctype) {
               name_and_enum_val) { return name_and_enum_val.second == ctype; });
   assert(iter != ROCKSDB_NAMESPACE::checksum_type_string_map.end());
   return iter->first;
+}
+
+inline enum ROCKSDB_NAMESPACE::Temperature StringToTemperature(
+    const char* ctype) {
+  assert(ctype);
+  auto iter = std::find_if(
+      ROCKSDB_NAMESPACE::temperature_to_string.begin(),
+      ROCKSDB_NAMESPACE::temperature_to_string.end(),
+      [&](const std::pair<ROCKSDB_NAMESPACE::Temperature, std::string>&
+              temp_and_string_val) {
+        return ctype == temp_and_string_val.second;
+      });
+  assert(iter != ROCKSDB_NAMESPACE::temperature_to_string.end());
+  return iter->first;
+}
+
+inline std::string TemperatureToString(
+    ROCKSDB_NAMESPACE::Temperature temperature) {
+  auto iter =
+      ROCKSDB_NAMESPACE::OptionsHelper::temperature_to_string.find(temperature);
+  assert(iter != ROCKSDB_NAMESPACE::OptionsHelper::temperature_to_string.end());
+  return iter->second;
 }
 
 inline std::vector<std::string> SplitString(std::string src) {

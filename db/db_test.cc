@@ -26,6 +26,7 @@
 #endif
 
 #include "cache/lru_cache.h"
+#include "db/attribute_group_iterator_impl.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/db_impl/db_impl.h"
@@ -3199,11 +3200,18 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported yet");
   }
 
-  // UNDER CONSTRUCTION - DO NOT USE
-  std::unique_ptr<Iterator> NewMultiCfIterator(
+  std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& /*options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
-    return nullptr;
+    return std::unique_ptr<Iterator>(
+        NewErrorIterator(Status::NotSupported("Not supported yet")));
+  }
+
+  std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
+    return NewAttributeGroupErrorIterator(
+        Status::NotSupported("Not supported yet"));
   }
 
   const Snapshot* GetSnapshot() override {
