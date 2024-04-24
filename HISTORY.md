@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.1.2 (04/24/2024)
+### Bug Fixes
+* Fixed hang in `DisableManualCompactions()` where compactions waiting to be scheduled due to conflicts would not be canceled promptly
+
 ## 9.1.1 (04/17/2024)
 ### Bug Fixes
 * Fixed Java `SstFileMetaData` to prevent throwing `java.lang.NoSuchMethodError`
