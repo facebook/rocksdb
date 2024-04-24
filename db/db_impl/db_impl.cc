@@ -2521,8 +2521,7 @@ template <class T, typename IterDerefFuncType>
 Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
                                ReadCallback* callback,
                                IterDerefFuncType iter_deref_func, T* cf_list,
-                               bool sv_exclusive_access,
-                               SequenceNumber* snapshot,
+                               bool extra_sv_ref, SequenceNumber* snapshot,
                                bool* sv_from_thread_local) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -2540,7 +2539,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
       SuperVersion* super_version = node->super_version;
       ColumnFamilyData* cfd = node->cfd;
       if (super_version != nullptr) {
-        if (*sv_from_thread_local && sv_exclusive_access) {
+        if (*sv_from_thread_local && !extra_sv_ref) {
           ReturnAndCleanupSuperVersion(cfd, super_version);
         } else {
           CleanupSuperVersion(super_version);
@@ -2556,10 +2555,10 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     // super version
     auto cf_iter = cf_list->begin();
     auto node = iter_deref_func(cf_iter);
-    if (sv_exclusive_access) {
-      node->super_version = GetAndRefSuperVersion(node->cfd);
-    } else {
+    if (extra_sv_ref) {
       node->super_version = node->cfd->GetReferencedSuperVersion(this);
+    } else {
+      node->super_version = GetAndRefSuperVersion(node->cfd);
     }
     if (check_read_ts) {
       s = FailIfReadCollapsedHistory(node->cfd, node->super_version,
@@ -2622,10 +2621,10 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
            ++cf_iter) {
         auto node = iter_deref_func(cf_iter);
         if (!last_try) {
-          if (sv_exclusive_access) {
-            node->super_version = GetAndRefSuperVersion(node->cfd);
-          } else {
+          if (extra_sv_ref) {
             node->super_version = node->cfd->GetReferencedSuperVersion(this);
+          } else {
+            node->super_version = GetAndRefSuperVersion(node->cfd);
           }
         } else {
           node->super_version = node->cfd->GetSuperVersion()->Ref();
@@ -2809,8 +2808,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
         return &(*cf_iter);
       },
       &cf_sv_pairs,
-      /* sv_exclusive_access */ true, &consistent_seqnum,
-      &sv_from_thread_local);
+      /* extra_sv_ref */ false, &consistent_seqnum, &sv_from_thread_local);
 
   if (!s.ok()) {
     for (size_t i = 0; i < num_keys; ++i) {
@@ -3004,8 +3002,7 @@ void DBImpl::MultiGetWithCallbackImpl(
         return &(*cf_iter);
       },
       &cf_sv_pairs,
-      /* sv_exclusive_access */ true, &consistent_seqnum,
-      &sv_from_thread_local);
+      /* extra_sv_ref */ false, &consistent_seqnum, &sv_from_thread_local);
   if (!s.ok()) {
     return;
   }
@@ -3859,8 +3856,7 @@ Status DBImpl::NewIterators(
         return &(*cf_iter);
       },
       &cf_sv_pairs,
-      /* sv_exclusive_access */ false, &consistent_seqnum,
-      &sv_from_thread_local);
+      /* extra_sv_ref */ true, &consistent_seqnum, &sv_from_thread_local);
   if (!s.ok()) {
     return s;
   }

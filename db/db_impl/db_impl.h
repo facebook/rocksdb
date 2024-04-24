@@ -2382,9 +2382,9 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
-  // `sv_exclusive_access` is used to indicate whether thread-local SuperVersion
-  // can be obtained without extra ref (by GetAndRefSuperVersion()) or not
-  // (by GetReferencedSuperVersion()). For instance, point lookup like MultiGet
+  // `extra_sv_ref` is used to indicate whether thread-local SuperVersion
+  // should be obtained with an extra ref (by GetReferencedSuperVersion()) or
+  // not (by GetAndRefSuperVersion()). For instance, point lookup like MultiGet
   // does not require SuperVersion to be re-acquired throughout the entire
   // invocation (no need extra ref), while MultiCfIterators may need the
   // SuperVersion to be updated during Refresh() (requires extra ref).
@@ -2400,7 +2400,7 @@ class DBImpl : public DB {
   Status MultiCFSnapshot(const ReadOptions& read_options,
                          ReadCallback* callback,
                          IterDerefFuncType iter_deref_func, T* cf_list,
-                         bool sv_exclusive_access, SequenceNumber* snapshot,
+                         bool extra_sv_ref, SequenceNumber* snapshot,
                          bool* sv_from_thread_local);
 
   // The actual implementation of the batching MultiGet. The caller is expected
