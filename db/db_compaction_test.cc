@@ -4087,9 +4087,8 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnScheduledConflict) {
 
   std::atomic<int> num_compact_range_calls{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "ColumnFamilyData::CompactRange:Return", [&](void* /* arg */) {
-        num_compact_range_calls++;
-      });
+      "ColumnFamilyData::CompactRange:Return",
+      [&](void* /* arg */) { num_compact_range_calls++; });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -4101,7 +4100,8 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnScheduledConflict) {
                       .IsIncomplete());
     });
   }
-  while (num_compact_range_calls < kNumManualCompactions) {}
+  while (num_compact_range_calls < kNumManualCompactions) {
+  }
 
   // Cancel it. Threads should be joinable, i.e., both the scheduled and blocked
   // manual compactions were canceled despite no compaction could have ever run.
