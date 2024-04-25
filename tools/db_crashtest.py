@@ -487,6 +487,8 @@ txn_params = {
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with TransactionDB which uses snapshot.
+    "inplace_update_support": 0,
 }
 
 # For optimistic transaction db
@@ -607,6 +609,8 @@ multiops_txn_default_params = {
     "use_multi_get_entity": 0,
     # `MultiOpsTxnsStressTest::TestIterateAgainstExpected()` is not implemented.
     "verify_iterator_with_expected_state_one_in": 0,
+    # This test uses snapshot heavily which is incompatible with this option.
+    "inplace_update_support": 0,
 }
 
 multiops_wc_txn_params = {
