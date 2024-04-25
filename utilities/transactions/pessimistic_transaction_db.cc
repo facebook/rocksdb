@@ -255,7 +255,8 @@ Status TransactionDB::Open(
       txn_db_options.write_policy == WRITE_COMMITTED ||
       txn_db_options.write_policy == WRITE_PREPARED;
   s = DBImpl::Open(db_options_2pc, dbname, column_families_copy, handles, &db,
-                   use_seq_per_batch, use_batch_per_txn);
+                   use_seq_per_batch, use_batch_per_txn,
+                   /*is_retry=*/false, /*can_retry=*/nullptr);
   if (s.ok()) {
     ROCKS_LOG_WARN(db->GetDBOptions().info_log,
                    "Transaction write_policy is %" PRId32,

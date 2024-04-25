@@ -1037,8 +1037,10 @@ endif()
 
 else()
   list(APPEND SOURCES
+    db/db_impl/db_impl_follower.cc
     port/port_posix.cc
     env/env_posix.cc
+    env/fs_on_demand.cc
     env/fs_posix.cc
     env/io_posix.cc)
 endif()
@@ -1363,6 +1365,7 @@ if(WITH_TESTS)
         db/file_indexer_test.cc
         db/filename_test.cc
         db/flush_job_test.cc
+        db/db_follower_test.cc
         db/import_column_family_test.cc
         db/listener_test.cc
         db/log_test.cc

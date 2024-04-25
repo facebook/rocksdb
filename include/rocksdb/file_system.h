@@ -702,6 +702,16 @@ class FileSystem : public Customizable {
     return IOStatus::OK();
   }
 
+  // EXPERIMENTAL
+  // Discard any directory metadata cached in memory for the specified
+  // directory and its descendants. Useful for distributed file systems
+  // where the local cache may be out of sync with the actual directory state.
+  //
+  // The implementation is not required to be thread safe. Its the caller's
+  // responsibility to ensure that no directory operations happen
+  // concurrently.
+  virtual void DiscardCacheForDirectory(const std::string& /*path*/) {}
+
   // Indicates to upper layers which FileSystem operations mentioned in
   // FSSupportedOps are supported by underlying FileSystem. Each bit in
   // supported_ops argument represent corresponding FSSupportedOps operation.
@@ -1622,6 +1632,10 @@ class FileSystemWrapper : public FileSystem {
 
   IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
+  }
+
+  void DiscardCacheForDirectory(const std::string& path) override {
+    target_->DiscardCacheForDirectory(path);
   }
 
   void SupportedOps(int64_t& supported_ops) override {

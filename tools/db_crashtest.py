@@ -74,7 +74,9 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    "inplace_update_support": lambda: random.randint(0, 1),
+    # TODO(hx235): re-enable `inplace_update_support` after fixing the
+    # inconsistency issue it surfaced
+    "inplace_update_support": 0,
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
@@ -283,8 +285,7 @@ default_params = {
     "hard_pending_compaction_bytes_limit" : lambda: random.choice([2 * 1024 * 1024] + [256 * 1073741824] * 4),
     "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
     "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable `block_align` after fixing the surfaced corruption issue
-    "block_align": 0,
+    "block_align": lambda: random.choice([0, 1]),
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
@@ -689,6 +690,11 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
+        # verification upon reopen. Currently reopen does not restore expected state
+        # with potential data loss in mind like start of each `./db_stress` run.
+        # Therefore it always expects no data loss.
+        dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1

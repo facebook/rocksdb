@@ -1487,6 +1487,30 @@ struct DBOptions {
   // use "0:00-23:59". To make an entire day have no offpeak period, leave
   // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
+
+  // EXPERIMENTAL
+
+  // When a RocksDB database is opened in follower mode, this option
+  // is set by the user to request the frequency of the follower
+  // attempting to refresh its view of the leader. RocksDB may choose to
+  // trigger catch ups more frequently if it detects any changes in the
+  // database state.
+  // Default every 10s.
+  uint64_t follower_refresh_catchup_period_ms = 10000;
+
+  // For a given catch up attempt, this option specifies the number of times
+  // to tail the MANIFEST and try to install a new, consistent  version before
+  // giving up. Though it should be extremely rare, the catch up may fail if
+  // the leader is mutating the LSM at a very high rate and the follower is
+  // unable to get a consistent view.
+  // Default to 10 attempts
+  uint64_t follower_catchup_retry_count = 10;
+
+  // Time to wait between consecutive catch up attempts
+  // Default 100ms
+  uint64_t follower_catchup_retry_wait_ms = 100;
+
+  // End EXPERIMENTAL
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

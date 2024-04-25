@@ -104,6 +104,9 @@ struct ImmutableDBOptions {
   Logger* logger;
   std::shared_ptr<CompactionService> compaction_service;
   bool enforce_single_del_contracts;
+  uint64_t follower_refresh_catchup_period_ms;
+  uint64_t follower_catchup_retry_count;
+  uint64_t follower_catchup_retry_wait_ms;
 
   bool IsWalDirSameAsDBPath() const;
   bool IsWalDirSameAsDBPath(const std::string& path) const;

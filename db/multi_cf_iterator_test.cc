@@ -399,6 +399,112 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
   }
 }
 
+TEST_F(CoalescingIteratorTest, ConsistentViewExplicitSnapshot) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush:done",
+        "DBImpl::MultiCFSnapshot::AfterGetSeqNum1"}});
+
+  bool flushed = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
+        if (!flushed) {
+          for (int i = 0; i < 4; ++i) {
+            ASSERT_OK(Flush(i));
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val_new"));
+          }
+          flushed = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
+      handles_[0], handles_[1], handles_[2], handles_[3]};
+  ReadOptions read_options;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  read_options.snapshot = snapshot;
+  // Verify Seek()
+  {
+    std::unique_ptr<Iterator> iter =
+        db_->NewCoalescingIterator(read_options, cfhs_order_0_1_2_3);
+    iter->Seek("");
+    ASSERT_EQ(IterStatus(iter.get()), "cf0_key->cf0_val");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter.get()), "cf1_key->cf1_val");
+  }
+  // Verify SeekForPrev()
+  {
+    std::unique_ptr<Iterator> iter =
+        db_->NewCoalescingIterator(read_options, cfhs_order_0_1_2_3);
+    iter->SeekForPrev("");
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    iter->SeekForPrev("cf2_key");
+    ASSERT_EQ(IterStatus(iter.get()), "cf2_key->cf2_val");
+    iter->Prev();
+    ASSERT_EQ(IterStatus(iter.get()), "cf1_key->cf1_val");
+  }
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(CoalescingIteratorTest, ConsistentViewImplicitSnapshot) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush:done",
+        "DBImpl::MultiCFSnapshot::AfterGetSeqNum1"}});
+
+  bool flushed = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
+        if (!flushed) {
+          for (int i = 0; i < 4; ++i) {
+            ASSERT_OK(Flush(i));
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val_new"));
+          }
+          flushed = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
+      handles_[0], handles_[1], handles_[2], handles_[3]};
+  // Verify Seek()
+  {
+    std::unique_ptr<Iterator> iter =
+        db_->NewCoalescingIterator(ReadOptions(), cfhs_order_0_1_2_3);
+    iter->Seek("cf2_key");
+    ASSERT_EQ(IterStatus(iter.get()), "cf2_key->cf2_val_new");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter.get()), "cf3_key->cf3_val_new");
+  }
+  // Verify SeekForPrev()
+  {
+    std::unique_ptr<Iterator> iter =
+        db_->NewCoalescingIterator(ReadOptions(), cfhs_order_0_1_2_3);
+    iter->SeekForPrev("");
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+    iter->SeekForPrev("cf1_key");
+    ASSERT_EQ(IterStatus(iter.get()), "cf1_key->cf1_val_new");
+    iter->Prev();
+    ASSERT_EQ(IterStatus(iter.get()), "cf0_key->cf0_val_new");
+  }
+}
+
 TEST_F(CoalescingIteratorTest, EmptyCfs) {
   Options options = GetDefaultOptions();
   {
