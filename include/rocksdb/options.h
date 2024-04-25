@@ -1926,7 +1926,13 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
-  FlushOptions() : wait(true), allow_write_stall(false) {}
+  // If true, will not try to retain user-defined timestamps by rescheduling
+  // flush. This option only applies for when user-defined timestamps is enabled
+  // and `persist_user_defined_timestamps` is set to false.
+  // Default: false
+  bool ignore_unexpired_udt;
+  FlushOptions()
+      : wait(true), allow_write_stall(false), ignore_unexpired_udt(false) {}
 };
 
 // Create a Logger from provided DBOptions
@@ -2021,6 +2027,12 @@ struct CompactRangeOptions {
   // Set user-defined timestamp low bound, the data with older timestamp than
   // low bound maybe GCed by compaction. Default: nullptr
   const Slice* full_history_ts_low = nullptr;
+  // If true, will not try to retain user-defined timestamps by rescheduling
+  // flush. This option only applies for when user-defined timestamps is enabled
+  // and `persist_user_defined_timestamps` is set to false. Also see
+  // FlushOptions.ignore_unexpired_udt
+  // Default: false
+  bool ignore_unexpired_udt_for_flush = false;
 
   // Allows cancellation of an in-progress manual compaction.
   //

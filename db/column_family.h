@@ -329,6 +329,16 @@ class ColumnFamilyData {
   void SetDropped();
   bool IsDropped() const { return dropped_.load(std::memory_order_relaxed); }
 
+  void SetManualFlushAsksToIgnoreUDT() {
+    manual_flush_asks_to_ignore_udt_ = true;
+  }
+  bool GetManualFlushAsksToIgnoreUDT() const {
+    return manual_flush_asks_to_ignore_udt_;
+  }
+  void ClearManualFlushAsksToIgnoreUDT() {
+    manual_flush_asks_to_ignore_udt_ = false;
+  }
+
   // thread-safe
   int NumberLevels() const { return ioptions_.num_levels; }
 
@@ -591,6 +601,10 @@ class ColumnFamilyData {
   std::atomic<int> refs_;  // outstanding references to ColumnFamilyData
   std::atomic<bool> initialized_;
   std::atomic<bool> dropped_;  // true if client dropped it
+
+  // This is accessed while holding db mutex.
+  // True if a manual flush requesting to ignore unexpired UDT is in progress.
+  bool manual_flush_asks_to_ignore_udt_;
 
   const InternalKeyComparator internal_comparator_;
   InternalTblPropCollFactories internal_tbl_prop_coll_factories_;

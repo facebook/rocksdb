@@ -87,6 +87,9 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   mutex_.AssertHeld();
   assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
   ColumnFamilyData* cfd = flush_req.cfd_to_max_mem_id_to_persist.begin()->first;
+  if (cfd->GetManualFlushAsksToIgnoreUDT()) {
+    return false;
+  }
   uint64_t max_memtable_id =
       flush_req.cfd_to_max_mem_id_to_persist.begin()->second;
   if (cfd->IsDropped() ||
@@ -1154,6 +1157,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   if (s.ok() && flush_needed) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
+    fo.ignore_unexpired_udt = options.ignore_unexpired_udt_for_flush;
     if (immutable_db_options_.atomic_flush) {
       s = AtomicFlushMemTables(fo, FlushReason::kManualCompaction);
     } else {
@@ -2340,6 +2344,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(
             cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */));
+        if (flush_options.ignore_unexpired_udt) {
+          cfd->SetManualFlushAsksToIgnoreUDT();
+        }
       }
       if (immutable_db_options_.persist_stats_to_disk) {
         ColumnFamilyData* cfd_stats =
@@ -2422,6 +2429,10 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
+      if (flush_options.ignore_unexpired_udt) {
+        // This is no-op for statistics cfd.
+        tmp_cfd->ClearManualFlushAsksToIgnoreUDT();
+      }
       tmp_cfd->UnrefAndTryDelete();
     }
   }
@@ -2438,6 +2449,13 @@ Status DBImpl::AtomicFlushMemTables(
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
+    return Status::TryAgain(oss.str());
+  }
+  if (flush_options.ignore_unexpired_udt) {
+    std::ostringstream oss;
+    oss << "User-defined timestamps in Memtable only feature is not compatible"
+           "with atomic flush. FlushOptions.ignore_unexpired_udt should not be"
+           "set to true.";
     return Status::TryAgain(oss.str());
   }
   Status s;
