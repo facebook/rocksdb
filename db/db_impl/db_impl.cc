@@ -2643,6 +2643,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
             break;
           }
         }
+        TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot");
         if (read_options.snapshot != nullptr || last_try) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
