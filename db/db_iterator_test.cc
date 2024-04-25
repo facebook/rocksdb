@@ -3592,9 +3592,6 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewImplicitSnapshot) {
     ASSERT_EQ(IterStatus(iter), "cf" + std::to_string(i) + "_key->cf" +
                                     std::to_string(i) + "_val_new");
   }
-  for (auto* iter : iters) {
-    delete iter;
-  }
 
   // Thread-local SVs are no longer obsolete nor in use
   for (int i = 0; i < 3; ++i) {
@@ -3602,6 +3599,10 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewImplicitSnapshot) {
         static_cast_with_check<ColumnFamilyHandleImpl>(handles_[i])->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
+
+  for (auto* iter : iters) {
+    delete iter;
   }
 }
 
@@ -3647,11 +3648,6 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
                                     std::to_string(i) + "_val");
   }
 
-  db_->ReleaseSnapshot(snapshot);
-  for (auto* iter : iters) {
-    delete iter;
-  }
-
   // Thread-local SV for cf_0 is obsolete (flush happened after the first SV
   // Ref)
   auto* cfd0 =
@@ -3665,6 +3661,11 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
         static_cast_with_check<ColumnFamilyHandleImpl>(handles_[i])->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
+
+  db_->ReleaseSnapshot(snapshot);
+  for (auto* iter : iters) {
+    delete iter;
   }
 }
 
