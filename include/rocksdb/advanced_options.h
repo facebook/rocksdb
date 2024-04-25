@@ -229,11 +229,18 @@ struct AdvancedColumnFamilyOptions {
   // if it is not explicitly set by the user.  Otherwise, the default is 0.
   int64_t max_write_buffer_size_to_maintain = 0;
 
-  // Allows thread-safe inplace updates. If this is true, there is no way to
+  // Allows thread-safe inplace updates.
+  //
+  // If this is true, there is no way to
   // achieve point-in-time consistency using snapshot or iterator (assuming
   // concurrent updates). Hence iterator and multi-get will return results
   // which are not consistent as of any point-in-time.
+  //
   // Backward iteration on memtables will not work either.
+  //
+  // It is intended to work or be compatible with a limited set of features:
+  // (1) Non-snapshot Get()
+  //
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable
