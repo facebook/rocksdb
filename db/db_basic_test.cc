@@ -1413,7 +1413,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   int get_sv_count = 0;
   ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
           // After MultiGet refs a couple of CFs, flush all CFs so MultiGet
           // is forced to repeat the process
@@ -1513,9 +1513,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
   int retries = 0;
   bool last_try = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) { last_try = true; });
+      "DBImpl::MultiCFSnapshot::LastTry",
+      [&](void* /*arg*/) { last_try = true; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (last_try) {
           return;
         }
@@ -1531,10 +1532,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::MultiGet::AfterLastTryRefSV",
+      {"DBImpl::MultiCFSnapshot::AfterLastTryRefSV",
        "DBMultiGetTestWithParam::MultiGetMultiCFMutex:BeforeCreateSV"},
       {"DBMultiGetTestWithParam::MultiGetMultiCFMutex:AfterCreateSV",
-       "DBImpl::MultiGet::BeforeLastTryUnRefSV"},
+       "DBImpl::MultiCFSnapshot::BeforeLastTryUnRefSV"},
   });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1600,7 +1601,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   int get_sv_count = 0;
   ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
           for (int i = 0; i < 8; ++i) {
             ASSERT_OK(Flush(i));
