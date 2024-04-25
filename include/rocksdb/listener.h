@@ -492,6 +492,10 @@ struct MemTableInfo {
   uint64_t num_entries;
   // Total number of deletes in memtable
   uint64_t num_deletes;
+
+  // The newest user-defined timestamps in the memtable. Note this field is
+  // only populated when `persist_user_defined_timestamps` is false.
+  std::string newest_udt;
 };
 
 struct ExternalFileIngestionInfo {
