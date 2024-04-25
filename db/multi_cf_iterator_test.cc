@@ -401,6 +401,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
 
 TEST_F(CoalescingIteratorTest, ConsistentViewExplicitSnapshot) {
   Options options = GetDefaultOptions();
+  options.atomic_flush = true;
   CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
 
   for (int i = 0; i < 4; ++i) {
@@ -410,17 +411,17 @@ TEST_F(CoalescingIteratorTest, ConsistentViewExplicitSnapshot) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkFlush:done",
-        "DBImpl::MultiCFSnapshot::AfterGetSeqNum1"}});
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
 
   bool flushed = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (!flushed) {
           for (int i = 0; i < 4; ++i) {
-            ASSERT_OK(Flush(i));
             ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
                           "cf" + std::to_string(i) + "_val_new"));
           }
+          ASSERT_OK(Flush());
           flushed = true;
         }
       });
@@ -465,17 +466,17 @@ TEST_F(CoalescingIteratorTest, ConsistentViewImplicitSnapshot) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkFlush:done",
-        "DBImpl::MultiCFSnapshot::AfterGetSeqNum1"}});
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
 
   bool flushed = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (!flushed) {
           for (int i = 0; i < 4; ++i) {
-            ASSERT_OK(Flush(i));
             ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
                           "cf" + std::to_string(i) + "_val_new"));
           }
+          ASSERT_OK(Flush(1));
           flushed = true;
         }
       });
