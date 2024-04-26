@@ -2514,6 +2514,11 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(ret_status.ok());
 
     if (db_ != nullptr) {
+      if (db_->immutable_db_options().row_cache) {
+        ret_status.PermitUncheckedError();
+        return Status::NotSupported(
+            "DeleteRange is not compatible with row cache.");
+      }
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
