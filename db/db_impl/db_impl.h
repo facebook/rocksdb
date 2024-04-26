@@ -821,6 +821,8 @@ class DBImpl : public DB {
 
   uint64_t MinLogNumberToKeep();
 
+  uint64_t MinLogNumberToRecycle();
+
   // Returns the lower bound file number for SSTs that won't be deleted, even if
   // they're obsolete. This lower bound is used internally to prevent newly
   // created flush/compaction output files from being deleted before they're
@@ -2482,6 +2484,11 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   // Log files that we can recycle. Must be protected by db mutex_.
   std::deque<uint64_t> log_recycle_files_;
+  // The minimum log file number taht can be recycled, if log recycling is
+  // enabled. This is used to ensure that log files created by previous
+  // instances of the database are not recycled, as we cannot be sure they
+  // were created in the recyclable format.
+  uint64_t min_log_number_to_recycle_;
   // Protected by log_write_mutex_.
   bool log_dir_synced_;
   // Without two_write_queues, read and writes to log_empty_ are protected by
