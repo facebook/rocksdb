@@ -1,0 +1,1 @@
+* DeleteRange() will return NotSupported() if row_cache is configured.
