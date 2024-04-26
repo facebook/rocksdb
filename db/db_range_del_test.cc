@@ -3816,8 +3816,8 @@ TEST_F(DBRangeDelTest, RowCache) {
                                Key(3), Key(5))
                   .IsNotSupported());
   WriteBatch wb;
-  wb.Put(Key(6), "abc");
-  wb.DeleteRange(Key(1), Key(5));
+  ASSERT_OK(wb.Put(Key(6), "abc"));
+  ASSERT_OK(wb.DeleteRange(Key(1), Key(5)));
   ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsNotSupported());
   ASSERT_EQ(Get(Key(3)), "val");
 }
