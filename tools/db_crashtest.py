@@ -500,6 +500,8 @@ optimistic_txn_params = {
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with OptimisticTransactionDB which uses snapshot.
+    "inplace_update_support": 0,
 }
 
 best_efforts_recovery_params = {
