@@ -620,7 +620,7 @@ Status BlockBasedTableFactory::ValidateOptions(
         "enabled");
   }
   if (table_options_.block_align &&
-      cf_opts.compression != kDisableCompressionOption &&
+      cf_opts.bottommost_compression != kDisableCompressionOption &&
       cf_opts.bottommost_compression != kNoCompression) {
     return Status::InvalidArgument(
         "Enable block_align, but bottommost_compression enabled");
