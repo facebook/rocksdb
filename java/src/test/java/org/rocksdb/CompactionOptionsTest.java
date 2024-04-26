@@ -22,8 +22,7 @@ public class CompactionOptionsTest {
       assertThat(compactionOptions.compression())
           .isEqualTo(CompressionType.NO_COMPRESSION);
       compactionOptions.setCompression(CompressionType.SNAPPY_COMPRESSION);
-      assertThat(compactionOptions.compression())
-          .isEqualTo(CompressionType.SNAPPY_COMPRESSION);
+      assertThat(compactionOptions.compression()).isEqualTo(CompressionType.SNAPPY_COMPRESSION);
     }
   }
 
