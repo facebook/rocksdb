@@ -925,11 +925,11 @@ TEST_P(DBWriteTest, RecycleLogToggleTest) {
   Reopen(options);
   // 1.log is added to alive_log_files_
   ASSERT_OK(Put(Key(2), "val1"));
-  Flush();
+  ASSERT_OK(Flush());
   // 1.log should be deleted and not recycled, since it
   // was created by the previous Reopen
   ASSERT_OK(Put(Key(1), "val2"));
-  Flush();
+  ASSERT_OK(Flush());
 
   options.recycle_log_file_num = 1;
   Reopen(options);
