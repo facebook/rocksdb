@@ -837,6 +837,7 @@ def finalize_and_sanitize(src_params):
     # Enabling block_align with compression is not supported
     if dest_params.get("block_align") == 1:
         dest_params["compression_type"] = "none"
+        dest_params["bottommost_compression_type"] = "none"
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""

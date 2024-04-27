@@ -626,6 +626,14 @@ struct BlockBasedTableBuilder::Rep {
     } else {
       base_context_checksum = 0;
     }
+
+    if (alignment > 0 && compression_type != kNoCompression) {
+      // With better sanitization in `CompactionPicker::CompactFiles()`, we
+      // would not need to handle this case here and could change it to an
+      // assertion instead.
+      SetStatus(Status::InvalidArgument(
+          "Enable block_align, but compression enabled"));
+    }
   }
 
   Rep(const Rep&) = delete;
