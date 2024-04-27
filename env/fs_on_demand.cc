@@ -5,8 +5,8 @@
 
 #include "env/fs_on_demand.h"
 
-#include <set>
 #include <algorithm>
+#include <set>
 
 #include "file/filename.h"
 #include "port/port.h"
