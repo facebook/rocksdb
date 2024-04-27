@@ -447,7 +447,8 @@ TEST_F(CompactFilesTest, CompressionWithBlockAlign) {
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
 
-  std::shared_ptr<FlushedFileCollector> collector(new FlushedFileCollector());
+  std::shared_ptr<FlushedFileCollector> collector =
+      std::make_shared<FlushedFileCollector>();
   options.listeners.push_back(collector);
 
   {
