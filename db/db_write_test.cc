@@ -913,6 +913,32 @@ TEST_P(DBWriteTest, RecycleLogTestCFAheadOfWAL) {
             Status::Corruption());
 }
 
+TEST_P(DBWriteTest, RecycleLogToggleTest) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  Destroy(options);
+  Reopen(options);
+  // After opening, a new log gets created, say 1.log
+  ASSERT_OK(Put(Key(1), "val1"));
+
+  options.recycle_log_file_num = 1;
+  Reopen(options);
+  // 1.log is added to alive_log_files_
+  ASSERT_OK(Put(Key(2), "val1"));
+  ASSERT_OK(Flush());
+  // 1.log should be deleted and not recycled, since it
+  // was created by the previous Reopen
+  ASSERT_OK(Put(Key(1), "val2"));
+  ASSERT_OK(Flush());
+
+  options.recycle_log_file_num = 1;
+  Reopen(options);
+  ASSERT_EQ(Get(Key(1)), "val2");
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,
