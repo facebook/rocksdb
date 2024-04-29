@@ -1305,7 +1305,8 @@ class NonBatchedOpsStressTest : public StressTest {
       s = db_->PutEntity(write_opts, cfh, k,
                          GenerateWideColumns(value_base, v));
     } else if (FLAGS_use_timed_put_one_in > 0 &&
-               (value_base % FLAGS_use_timed_put_one_in) == 0) {
+               ((value_base + kLargePrimeForCommonFactorSkew) %
+                FLAGS_use_timed_put_one_in) == 0) {
       WriteBatch wb;
       uint64_t write_unix_time = GetWriteUnixTime(thread);
       s = wb.TimedPut(cfh, k, v, write_unix_time);

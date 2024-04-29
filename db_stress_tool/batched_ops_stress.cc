@@ -56,7 +56,8 @@ class BatchedOpsStressTest : public StressTest {
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
         status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
       } else if (FLAGS_use_timed_put_one_in > 0 &&
-                 (value_base % FLAGS_use_timed_put_one_in) == 0) {
+                 ((value_base + kLargePrimeForCommonFactorSkew) %
+                  FLAGS_use_timed_put_one_in) == 0) {
         uint64_t write_unix_time = GetWriteUnixTime(thread);
         status = batch.TimedPut(cfh, k, v, write_unix_time);
       } else if (FLAGS_use_merge) {

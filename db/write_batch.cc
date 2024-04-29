@@ -490,8 +490,12 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
           !GetLengthPrefixedSlice(input, &packed_value)) {
         return Status::Corruption("bad WriteBatch TimedPut");
       }
-      std::tie(*value, *write_unix_time) =
-          ParsePackedValueWithWriteTime(packed_value);
+      if (write_unix_time) {
+        std::tie(*value, *write_unix_time) =
+            ParsePackedValueWithWriteTime(packed_value);
+      } else {
+        *value = packed_value;
+      }
       break;
     }
     default:
@@ -1783,8 +1787,6 @@ Status WriteBatch::VerifyChecksum() const {
   Slice input(rep_.data() + WriteBatchInternal::kHeader,
               rep_.size() - WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
-  uint64_t unix_write_time = 0;
-  std::string encoded_write_time;
   char tag = 0;
   uint32_t column_family = 0;  // default
   Status s;
@@ -1795,15 +1797,13 @@ Status WriteBatch::VerifyChecksum() const {
     // ReadRecordFromWriteBatch
     key.clear();
     value.clear();
-    encoded_write_time.clear();
     column_family = 0;
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
-                                 &blob, &xid, &unix_write_time);
+                                 &blob, &xid, /*write_unix_time=*/nullptr);
     if (!s.ok()) {
       return s;
     }
     checksum_protected = true;
-    std::vector<Slice> value_slices{value};
     // Write batch checksum uses op_type without ColumnFamily (e.g., if op_type
     // in the write batch is kTypeColumnFamilyValue, kTypeValue is used to
     // compute the checksum), and encodes column family id separately. See
@@ -1850,12 +1850,9 @@ Status WriteBatch::VerifyChecksum() const {
         tag = kTypeWideColumnEntity;
         break;
       case kTypeColumnFamilyValuePreferredSeqno:
-      case kTypeValuePreferredSeqno: {
+      case kTypeValuePreferredSeqno:
         tag = kTypeValuePreferredSeqno;
-        PutFixed64(&encoded_write_time, unix_write_time);
-        value_slices.emplace_back(encoded_write_time);
         break;
-      }
       default:
         return Status::Corruption(
             "unknown WriteBatch tag",
@@ -1864,10 +1861,7 @@ Status WriteBatch::VerifyChecksum() const {
     if (checksum_protected) {
       s = prot_info_->entries_[prot_info_idx++]
               .StripC(column_family)
-              .StripKVO(SliceParts(&key, 1),
-                        SliceParts(value_slices.data(),
-                                   static_cast<int>(value_slices.size())),
-                        static_cast<ValueType>(tag))
+              .StripKVO(key, value, static_cast<ValueType>(tag))
               .GetStatus();
       if (!s.ok()) {
         return s;

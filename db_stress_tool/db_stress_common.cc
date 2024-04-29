@@ -402,7 +402,11 @@ uint64_t GetWriteUnixTime(ThreadState* thread) {
   if (write_time_mode == 0 || !s.ok()) {
     return kFallbackTime;
   } else if (write_time_mode == 1) {
-    return static_cast<uint64_t>(write_time);
+    uint64_t delta = kPreserveSeconds > 0
+                         ? static_cast<uint64_t>(thread->rand.Uniform(
+                               static_cast<int>(kPreserveSeconds)))
+                         : 0;
+    return static_cast<uint64_t>(write_time) - delta;
   } else {
     return static_cast<uint64_t>(write_time) - kPreserveSeconds;
   }
