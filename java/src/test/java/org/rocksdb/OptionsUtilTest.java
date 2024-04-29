@@ -289,7 +289,7 @@ public class OptionsUtilTest {
     altCFTableConfig.setIndexBlockRestartInterval(6);
     altCFTableConfig.setMetadataBlockSize(12 * 1024);
     altCFTableConfig.setPartitionFilters(true);
-    altCFTableConfig.setOptimizeFiltersForMemory(true);
+    altCFTableConfig.setOptimizeFiltersForMemory(false);
     altCFTableConfig.setUseDeltaEncoding(false);
     altCFTableConfig.setFilterPolicy(new BloomFilter(7.5));
     altCFTableConfig.setWholeKeyFiltering(false);

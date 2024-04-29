@@ -338,12 +338,8 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
 }
 
 TEST_P(FullBloomTest, OptimizeForMemory) {
-  // Verify default option vs. compile time macros
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  // Verify default option
   EXPECT_EQ(BlockBasedTableOptions().optimize_filters_for_memory, true);
-#else
-  EXPECT_EQ(BlockBasedTableOptions().optimize_filters_for_memory, false);
-#endif  // ROCKSDB_MALLOC_USABLE_SIZE
 
   char buffer[sizeof(int)];
   for (bool offm : {true, false}) {
@@ -364,8 +360,9 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       Build();
       size_t size = FilterData().size();
       total_size += size;
-      // optimize_filters_for_memory currently depends on malloc_usable_size
-      // but we run the rest of the test to ensure no bad behavior without it.
+      // optimize_filters_for_memory currently only has an effect with
+      // malloc_usable_size support, but we run the rest of the test to ensure
+      // no bad behavior without it.
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
       size = malloc_usable_size(const_cast<char*>(FilterData().data()));
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE

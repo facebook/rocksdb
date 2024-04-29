@@ -78,13 +78,4 @@ Status MemoryAllocator::CreateFromString(
   return LoadManagedObject<MemoryAllocator>(copy, value, result);
 }
 
-// This const variable can be used in public headers without introducing the
-// possibility of ODR violations due to varying macro definitions.
-const bool kMallocUsableSizeSupported =
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    true;
-#else
-    false;
-#endif
-
 }  // namespace ROCKSDB_NAMESPACE
