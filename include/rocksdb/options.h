@@ -1487,6 +1487,30 @@ struct DBOptions {
   // use "0:00-23:59". To make an entire day have no offpeak period, leave
   // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
+
+  // EXPERIMENTAL
+
+  // When a RocksDB database is opened in follower mode, this option
+  // is set by the user to request the frequency of the follower
+  // attempting to refresh its view of the leader. RocksDB may choose to
+  // trigger catch ups more frequently if it detects any changes in the
+  // database state.
+  // Default every 10s.
+  uint64_t follower_refresh_catchup_period_ms = 10000;
+
+  // For a given catch up attempt, this option specifies the number of times
+  // to tail the MANIFEST and try to install a new, consistent  version before
+  // giving up. Though it should be extremely rare, the catch up may fail if
+  // the leader is mutating the LSM at a very high rate and the follower is
+  // unable to get a consistent view.
+  // Default to 10 attempts
+  uint64_t follower_catchup_retry_count = 10;
+
+  // Time to wait between consecutive catch up attempts
+  // Default 100ms
+  uint64_t follower_catchup_retry_wait_ms = 100;
+
+  // End EXPERIMENTAL
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1911,20 +1935,29 @@ Status CreateLoggerFromOptions(const std::string& dbname,
 
 // CompactionOptions are used in CompactFiles() call.
 struct CompactionOptions {
+  // DEPRECATED: this option is unsafe because it allows the user to set any
+  // `CompressionType` while always using `CompressionOptions` from the
+  // `ColumnFamilyOptions`. As a result the `CompressionType` and
+  // `CompressionOptions` can easily be inconsistent.
+  //
   // Compaction output compression type
-  // Default: snappy
+  //
+  // Default: `kDisableCompressionOption`
+  //
   // If set to `kDisableCompressionOption`, RocksDB will choose compression type
-  // according to the `ColumnFamilyOptions`, taking into account the output
-  // level if `compression_per_level` is specified.
+  // according to the `ColumnFamilyOptions`. RocksDB takes into account the
+  // output level in case the `ColumnFamilyOptions` has level-specific settings.
   CompressionType compression;
+
   // Compaction will create files of size `output_file_size_limit`.
   // Default: MAX, which means that compaction will create a single file
   uint64_t output_file_size_limit;
+
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions;
 
   CompactionOptions()
-      : compression(kSnappyCompression),
+      : compression(kDisableCompressionOption),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),
         max_subcompactions(0) {}
 };

@@ -795,7 +795,7 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
   std::thread threads[10];
   for (int t = 0; t < 10; t++) {
     threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix,
-                              no_wal_value, this] {
+                              no_wal_value, &options, this] {
       for (int i = 0; i < 10; i++) {
         ROCKSDB_NAMESPACE::WriteOptions write_option_disable;
         write_option_disable.disableWAL = true;
@@ -806,7 +806,10 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
         std::string wal_key =
             wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
         ASSERT_OK(this->Put(wal_key, wal_value, write_option_default));
-        ASSERT_OK(dbfull()->SyncWAL());
+        ASSERT_OK(dbfull()->SyncWAL())
+            << "options.env: " << options.env << ", env_: " << env_
+            << ", env_->is_wal_sync_thread_safe_: "
+            << env_->is_wal_sync_thread_safe_.load();
       }
       return;
     });

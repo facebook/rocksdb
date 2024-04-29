@@ -277,6 +277,10 @@ class DBImplSecondary : public DBImpl {
     return false;
   }
 
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
+  std::unique_ptr<Status> manifest_reader_status_;
+
  private:
   friend class DB;
 
@@ -304,10 +308,6 @@ class DBImplSecondary : public DBImpl {
                                     ColumnFamilyHandle* cfh,
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
-
-  std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
-  std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
-  std::unique_ptr<Status> manifest_reader_status_;
 
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery

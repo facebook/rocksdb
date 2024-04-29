@@ -74,7 +74,16 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    "inplace_update_support": lambda: random.randint(0, 1),
+    # `inplace_update_support` is incompatible with DB that has delete
+    # range data in memtables.
+    # Such data can result from any of the previous db stress runs
+    # using delete range.
+    # Since there is no easy way to keep track of whether delete range
+    # is used in any of the previous runs,
+    # to simpify our testing, we set `inplace_update_support` across
+    # runs and to disable delete range accordingly
+    # (see below `finalize_and_sanitize`).
+    "inplace_update_support": random.choice([0] * 9 + [1]),
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
@@ -283,8 +292,7 @@ default_params = {
     "hard_pending_compaction_bytes_limit" : lambda: random.choice([2 * 1024 * 1024] + [256 * 1073741824] * 4),
     "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
     "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable `block_align` after fixing the surfaced corruption issue
-    "block_align": 0,
+    "block_align": lambda: random.choice([0, 1]),
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
@@ -479,6 +487,8 @@ txn_params = {
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with TransactionDB which uses snapshot.
+    "inplace_update_support": 0,
 }
 
 # For optimistic transaction db
@@ -490,6 +500,8 @@ optimistic_txn_params = {
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with OptimisticTransactionDB which uses snapshot.
+    "inplace_update_support": 0,
 }
 
 best_efforts_recovery_params = {
@@ -599,6 +611,8 @@ multiops_txn_default_params = {
     "use_multi_get_entity": 0,
     # `MultiOpsTxnsStressTest::TestIterateAgainstExpected()` is not implemented.
     "verify_iterator_with_expected_state_one_in": 0,
+    # This test uses snapshot heavily which is incompatible with this option.
+    "inplace_update_support": 0,
 }
 
 multiops_wc_txn_params = {
@@ -672,6 +686,11 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    if dest_params["inplace_update_support"] == 1:
+       dest_params["delpercent"] += dest_params["delrangepercent"]
+       dest_params["delrangepercent"] = 0
+       dest_params["readpercent"] += dest_params["prefixpercent"]
+       dest_params["prefixpercent"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
@@ -689,6 +708,11 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
+        # verification upon reopen. Currently reopen does not restore expected state
+        # with potential data loss in mind like start of each `./db_stress` run.
+        # Therefore it always expects no data loss.
+        dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
@@ -813,6 +837,7 @@ def finalize_and_sanitize(src_params):
     # Enabling block_align with compression is not supported
     if dest_params.get("block_align") == 1:
         dest_params["compression_type"] = "none"
+        dest_params["bottommost_compression_type"] = "none"
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""
