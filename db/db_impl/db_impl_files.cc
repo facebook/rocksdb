@@ -301,7 +301,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       auto& earliest = *alive_log_files_.begin();
       if (immutable_db_options_.recycle_log_file_num >
               log_recycle_files_.size() &&
-          alive_log_files_.begin()->number >= MinLogNumberToRecycle()) {
+          earliest.number >= MinLogNumberToRecycle()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "adding log %" PRIu64 " to recycle list\n",
                        earliest.number);
