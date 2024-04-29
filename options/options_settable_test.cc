@@ -553,6 +553,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
+      "default_write_temperature=kCold;"
       "default_temperature=kHot;"
       "preclude_last_level_data_seconds=86400;"
       "preserve_internal_time_seconds=86400;"

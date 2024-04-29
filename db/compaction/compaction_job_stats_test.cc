@@ -46,7 +46,6 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain/plain_table_factory.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -131,7 +130,7 @@ class CompactionJobStatsTest : public testing::Test,
     ColumnFamilyOptions cf_opts(options);
     size_t cfi = handles_.size();
     handles_.resize(cfi + cfs.size());
-    for (auto cf : cfs) {
+    for (const auto& cf : cfs) {
       ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
     }
   }
@@ -160,7 +159,7 @@ class CompactionJobStatsTest : public testing::Test,
     EXPECT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
     for (size_t i = 0; i < cfs.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(cfs[i], options[i]));
+      column_families.emplace_back(cfs[i], options[i]);
     }
     DBOptions db_opts = DBOptions(options[0]);
     return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);

@@ -112,10 +112,12 @@ class MemTableListVersion {
                                     RangeDelAggregator* range_del_agg);
 
   void AddIterators(const ReadOptions& options,
+                    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
                     std::vector<InternalIterator*>* iterator_list,
                     Arena* arena);
 
   void AddIterators(const ReadOptions& options,
+                    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
                     MergeIteratorBuilder* merge_iter_builder,
                     bool add_range_tombstone_iter);
 

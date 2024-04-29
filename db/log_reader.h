@@ -45,6 +45,8 @@ class Reader {
     // Some corruption was detected.  "size" is the approximate number
     // of bytes dropped due to the corruption.
     virtual void Corruption(size_t bytes, const Status& status) = 0;
+
+    virtual void OldLogRecord(size_t /*bytes*/) {}
   };
 
   // Create a reader that will return log records from "*file".
@@ -202,6 +204,7 @@ class Reader {
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
   void ReportCorruption(size_t bytes, const char* reason);
   void ReportDrop(size_t bytes, const Status& reason);
+  void ReportOldLogRecord(size_t bytes);
 
   void InitCompression(const CompressionTypeRecord& compression_record);
 

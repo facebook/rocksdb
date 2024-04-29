@@ -79,7 +79,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   options.compaction_style = kCompactionStyleUniversal;
   options.preclude_last_level_data_seconds = 10000;
   options.env = mock_env_.get();
-  options.bottommost_temperature = Temperature::kCold;
+  options.last_level_temperature = Temperature::kCold;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
@@ -181,7 +181,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 10000;
   options.env = mock_env_.get();
-  options.bottommost_temperature = Temperature::kCold;
+  options.last_level_temperature = Temperature::kCold;
   options.num_levels = kNumLevels;
   options.level_compaction_dynamic_level_bytes = true;
   // TODO(zjay): for level compaction, auto-compaction may stuck in deadloop, if
@@ -1618,6 +1618,27 @@ TEST_F(SeqnoTimeTest, EncodeDecodeMinimizeTimeGaps) {
   expected.emplace_back(70, 300);
   seqs = decoded.TEST_GetInternalMapping();
   ASSERT_EQ(expected, seqs);
+}
+
+TEST(PackValueAndSeqnoTest, Basic) {
+  std::string packed_value_buf;
+  Slice packed_value_slice =
+      PackValueAndWriteTime("foo", 30u, &packed_value_buf);
+  auto [unpacked_value, write_time] =
+      ParsePackedValueWithWriteTime(packed_value_slice);
+  ASSERT_EQ(unpacked_value, "foo");
+  ASSERT_EQ(write_time, 30u);
+  ASSERT_EQ(ParsePackedValueForValue(packed_value_slice), "foo");
+}
+
+TEST(PackValueAndWriteTimeTest, Basic) {
+  std::string packed_value_buf;
+  Slice packed_value_slice = PackValueAndSeqno("foo", 30u, &packed_value_buf);
+  auto [unpacked_value, write_time] =
+      ParsePackedValueWithSeqno(packed_value_slice);
+  ASSERT_EQ(unpacked_value, "foo");
+  ASSERT_EQ(write_time, 30u);
+  ASSERT_EQ(ParsePackedValueForValue(packed_value_slice), "foo");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

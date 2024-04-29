@@ -130,7 +130,7 @@ CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
                                    const InternalKeyComparator* icmp)
     : ioptions_(ioptions), icmp_(icmp) {}
 
-CompactionPicker::~CompactionPicker() {}
+CompactionPicker::~CompactionPicker() = default;
 
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
@@ -377,7 +377,8 @@ Compaction* CompactionPicker::CompactFiles(
       output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      Temperature::kUnknown, compact_options.max_subcompactions,
+      mutable_cf_options.default_write_temperature,
+      compact_options.max_subcompactions,
       /* grandparents */ {}, true);
   RegisterCompaction(c);
   return c;
@@ -456,9 +457,10 @@ bool CompactionPicker::IsRangeInCompaction(VersionStorageInfo* vstorage,
 // Returns false if files on parent level are currently in compaction, which
 // means that we can't compact them
 bool CompactionPicker::SetupOtherInputs(
-    const std::string& cf_name, VersionStorageInfo* vstorage,
-    CompactionInputFiles* inputs, CompactionInputFiles* output_level_inputs,
-    int* parent_index, int base_index, bool only_expand_towards_right) {
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, CompactionInputFiles* inputs,
+    CompactionInputFiles* output_level_inputs, int* parent_index,
+    int base_index, bool only_expand_towards_right) {
   assert(!inputs->empty());
   assert(output_level_inputs->empty());
   const int input_level = inputs->level;
@@ -524,8 +526,15 @@ bool CompactionPicker::SetupOtherInputs(
     if (!ExpandInputsToCleanCut(cf_name, vstorage, &expanded_inputs)) {
       try_overlapping_inputs = false;
     }
+    // It helps to reduce write amp and avoid a further separate compaction
+    // to include more input level files without expanding output level files.
+    // So we apply a softer limit. We still need a limit to avoid overly large
+    // compactions and potential high space amp spikes.
+    const uint64_t limit =
+        MultiplyCheckOverflow(mutable_cf_options.max_compaction_bytes, 2.0);
     if (try_overlapping_inputs && expanded_inputs.size() > inputs->size() &&
-        !AreFilesInCompaction(expanded_inputs.files)) {
+        !AreFilesInCompaction(expanded_inputs.files) &&
+        output_level_inputs_size + expanded_inputs_size < limit) {
       InternalKey new_start, new_limit;
       GetRange(expanded_inputs, &new_start, &new_limit);
       CompactionInputFiles expanded_output_level_inputs;
@@ -547,7 +556,8 @@ bool CompactionPicker::SetupOtherInputs(
                                              base_index, nullptr);
       expanded_inputs_size = TotalFileSize(expanded_inputs.files);
       if (expanded_inputs.size() > inputs->size() &&
-          !AreFilesInCompaction(expanded_inputs.files)) {
+          !AreFilesInCompaction(expanded_inputs.files) &&
+          (output_level_inputs_size + expanded_inputs_size) < limit) {
         expand_inputs = true;
       }
     }
@@ -664,7 +674,8 @@ Compaction* CompactionPicker::CompactRange(
         compact_range_options.target_path_id,
         GetCompressionType(vstorage, mutable_cf_options, output_level, 1),
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-        Temperature::kUnknown, compact_range_options.max_subcompactions,
+        mutable_cf_options.default_write_temperature,
+        compact_range_options.max_subcompactions,
         /* grandparents */ {}, /* is manual */ true, trim_ts, /* score */ -1,
         /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
         CompactionReason::kUnknown,
@@ -806,8 +817,8 @@ Compaction* CompactionPicker::CompactRange(
   output_level_inputs.level = output_level;
   if (input_level != output_level) {
     int parent_index = -1;
-    if (!SetupOtherInputs(cf_name, vstorage, &inputs, &output_level_inputs,
-                          &parent_index, -1)) {
+    if (!SetupOtherInputs(cf_name, mutable_cf_options, vstorage, &inputs,
+                          &output_level_inputs, &parent_index, -1)) {
       // manual compaction is now multi-threaded, so it can
       // happen that SetupOtherInputs fails
       // we handle it higher in RunManualCompaction
@@ -852,8 +863,9 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionType(vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      Temperature::kUnknown, compact_range_options.max_subcompactions,
-      std::move(grandparents), /* is manual */ true, trim_ts, /* score */ -1,
+      mutable_cf_options.default_write_temperature,
+      compact_range_options.max_subcompactions, std::move(grandparents),
+      /* is manual */ true, trim_ts, /* score */ -1,
       /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kUnknown,
       compact_range_options.blob_garbage_collection_policy,

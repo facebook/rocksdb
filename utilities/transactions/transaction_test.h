@@ -170,7 +170,8 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_COMMITTED ||
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
-                            use_seq_per_batch, use_batch_per_txn);
+                            use_seq_per_batch, use_batch_per_txn,
+                            /*is_retry=*/false, /*can_retry=*/nullptr);
     auto stackable_db = std::make_unique<StackableDB>(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
@@ -200,7 +201,8 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_COMMITTED ||
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
-                            &root_db, use_seq_per_batch, use_batch_per_txn);
+                            &root_db, use_seq_per_batch, use_batch_per_txn,
+                            /*is_retry=*/false, /*can_retry=*/nullptr);
     if (!s.ok()) {
       delete root_db;
       return s;

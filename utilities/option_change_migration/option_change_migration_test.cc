@@ -9,6 +9,8 @@
 
 #include "rocksdb/utilities/option_change_migration.h"
 
+#include <cstdint>
+#include <limits>
 #include <set>
 
 #include "db/db_test_util.h"
@@ -31,6 +33,8 @@ class DBOptionChangeMigrationTests
     level2_ = std::get<3>(GetParam());
     compaction_style2_ = std::get<4>(GetParam());
     is_dynamic2_ = std::get<5>(GetParam());
+    // This is set to be extremely large if not zero to avoid dropping any data
+    // right after migration, which makes test verification difficult
     fifo_max_table_files_size_ = std::get<6>(GetParam());
   }
 
@@ -119,7 +123,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -199,7 +203,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -285,7 +289,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -371,7 +375,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();
@@ -457,26 +461,30 @@ INSTANTIATE_TEST_CASE_P(
                         false /* is dynamic leveling in old option */,
                         4 /* old num_levels */, 2 /* new compaction style */,
                         false /* is dynamic leveling in new option */, 0),
-        std::make_tuple(4 /* old num_levels */, 0 /* old compaction style */,
-                        false /* is dynamic leveling in old option */,
-                        1 /* old num_levels */, 2 /* new compaction style */,
-                        false /* is dynamic leveling in new option */,
-                        5 * 1024 * 1024 /*fifo max_table_files_size*/),
-        std::make_tuple(3 /* old num_levels */, 0 /* old compaction style */,
-                        true /* is dynamic leveling in old option */,
-                        2 /* old num_levels */, 2 /* new compaction style */,
-                        false /* is dynamic leveling in new option */,
-                        5 * 1024 * 1024 /*fifo max_table_files_size*/),
-        std::make_tuple(3 /* old num_levels */, 1 /* old compaction style */,
-                        false /* is dynamic leveling in old option */,
-                        3 /* old num_levels */, 2 /* new compaction style */,
-                        false /* is dynamic leveling in new option */,
-                        5 * 1024 * 1024 /*fifo max_table_files_size*/),
+        std::make_tuple(
+            4 /* old num_levels */, 0 /* old compaction style */,
+            false /* is dynamic leveling in old option */,
+            1 /* old num_levels */, 2 /* new compaction style */,
+            false /* is dynamic leveling in new option */,
+            std::numeric_limits<uint64_t>::max() /*fifo max_table_files_size*/),
+        std::make_tuple(
+            3 /* old num_levels */, 0 /* old compaction style */,
+            true /* is dynamic leveling in old option */,
+            2 /* old num_levels */, 2 /* new compaction style */,
+            false /* is dynamic leveling in new option */,
+            std::numeric_limits<uint64_t>::max() /*fifo max_table_files_size*/),
+        std::make_tuple(
+            3 /* old num_levels */, 1 /* old compaction style */,
+            false /* is dynamic leveling in old option */,
+            3 /* old num_levels */, 2 /* new compaction style */,
+            false /* is dynamic leveling in new option */,
+            std::numeric_limits<uint64_t>::max() /*fifo max_table_files_size*/),
         std::make_tuple(1 /* old num_levels */, 1 /* old compaction style */,
                         false /* is dynamic leveling in old option */,
                         4 /* old num_levels */, 2 /* new compaction style */,
                         false /* is dynamic leveling in new option */,
-                        5 * 1024 * 1024 /*fifo max_table_files_size*/)));
+                        std::numeric_limits<
+                            uint64_t>::max() /*fifo max_table_files_size*/)));
 
 class DBOptionChangeMigrationTest : public DBTestBase {
  public:
@@ -538,7 +546,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->SeekToFirst();
-    for (std::string key : keys) {
+    for (const std::string& key : keys) {
       ASSERT_TRUE(it->Valid());
       ASSERT_EQ(key, it->key().ToString());
       it->Next();

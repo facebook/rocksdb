@@ -462,7 +462,6 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
                         file_name(), read_reqs[i].result.size(),
                         read_reqs[i].offset);
       }
-
       RecordIOStats(stats_, file_temperature_, is_last_level_,
                     read_reqs[i].result.size());
     }

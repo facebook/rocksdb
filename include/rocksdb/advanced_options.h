@@ -229,11 +229,18 @@ struct AdvancedColumnFamilyOptions {
   // if it is not explicitly set by the user.  Otherwise, the default is 0.
   int64_t max_write_buffer_size_to_maintain = 0;
 
-  // Allows thread-safe inplace updates. If this is true, there is no way to
+  // Allows thread-safe inplace updates.
+  //
+  // If this is true, there is no way to
   // achieve point-in-time consistency using snapshot or iterator (assuming
   // concurrent updates). Hence iterator and multi-get will return results
   // which are not consistent as of any point-in-time.
+  //
   // Backward iteration on memtables will not work either.
+  //
+  // It is intended to work or be compatible with a limited set of features:
+  // (1) Non-snapshot Get()
+  //
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable
@@ -803,27 +810,28 @@ struct AdvancedColumnFamilyOptions {
   uint64_t sample_for_compression = 0;
 
   // EXPERIMENTAL
-  // The feature is still in development and is incomplete.
   // If this option is set, when creating the last level files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
-  //
-  // Note: the feature is changed from `bottommost_temperature` to
-  //  `last_level_temperature` which now only apply for the last level files.
-  //  The option name `bottommost_temperature` is kept only for migration, the
-  //  behavior is the same as `last_level_temperature`. Please stop using
-  //  `bottommost_temperature` and will be removed in next release.
+  // When using FIFO compaction, this option is ignored.
   //
   // Dynamically changeable through the SetOptions() API
-  Temperature bottommost_temperature = Temperature::kUnknown;
   Temperature last_level_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
+  // When no other option such as last_level_temperature determines the
+  // temperature of a new SST file, it will be written with this temperature,
+  // which can be set differently for each column family.
+  //
+  // Dynamically changeable through the SetOptions() API
+  Temperature default_write_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
   // When this field is set, all SST files without an explicitly set temperature
   // will be treated as if they have this temperature for file reading
   // accounting purpose, such as io statistics, io perf context.
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Not dynamically changeable; change requires DB restart.
   Temperature default_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL

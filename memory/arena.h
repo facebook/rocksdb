@@ -132,4 +132,15 @@ inline char* Arena::Allocate(size_t bytes) {
   return AllocateFallback(bytes, false /* unaligned */);
 }
 
+// Like std::destroy_at but a callable type
+template <typename T>
+struct Destroyer {
+  void operator()(T* ptr) { ptr->~T(); }
+};
+
+// Like std::unique_ptr but only placement-deletes the object (for
+// objects allocated on an arena).
+template <typename T>
+using ScopedArenaPtr = std::unique_ptr<T, Destroyer<T>>;
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -674,10 +674,10 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
   delete db;
 
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(ColumnFamilyDescriptor(
-      kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
-  column_families.push_back(ColumnFamilyDescriptor(
-      "ttl_column_family", ColumnFamilyOptions(options)));
+  column_families.emplace_back(kDefaultColumnFamilyName,
+                               ColumnFamilyOptions(options));
+  column_families.emplace_back("ttl_column_family",
+                               ColumnFamilyOptions(options));
 
   std::vector<ColumnFamilyHandle*> handles;
 

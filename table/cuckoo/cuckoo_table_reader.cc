@@ -186,7 +186,10 @@ Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
             return s;
           }
           bool dont_care __attribute__((__unused__));
-          get_context->SaveValue(found_ikey, value, &dont_care);
+          get_context->SaveValue(found_ikey, value, &dont_care, &s);
+          if (!s.ok()) {
+            return s;
+          }
         }
         // We don't support merge operations. So, we return here.
         return Status::OK();

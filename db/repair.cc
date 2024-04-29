@@ -81,7 +81,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
@@ -443,7 +442,8 @@ class Repairer {
       ReadOptions ro;
       ro.total_order_seek = true;
       Arena arena;
-      ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
+      ScopedArenaPtr<InternalIterator> iter(
+          mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
       int64_t _current_time = 0;
       immutable_db_options_.clock->GetCurrentTime(&_current_time)
           .PermitUncheckedError();  // ignore error
@@ -483,7 +483,7 @@ class Repairer {
           {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
           nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
-          empty_seqno_to_time_mapping, nullptr /* event_logger */,
+          nullptr /* seqno_to_time_mapping */, nullptr /* event_logger */,
           0 /* job_id */, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",

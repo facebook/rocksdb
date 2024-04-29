@@ -43,8 +43,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
                uint64_t max_sequential_skip_in_iterations,
-               ReadCallback* read_callback, DBImpl* db_impl,
-               ColumnFamilyData* cfd, bool expose_blob_index)
+               ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
+               bool expose_blob_index)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -79,8 +79,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       is_blob_(false),
       arena_mode_(arena_mode),
       io_activity_(read_options.io_activity),
-      db_impl_(db_impl),
-      cfd_(cfd),
+      cfh_(cfh),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
@@ -114,8 +113,8 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
     *prop = saved_key_.GetUserKey().ToString();
     return Status::OK();
   } else if (prop_name == "rocksdb.iterator.write-time") {
-    // TODO(yuzhangyu): implement return the actual write time.
-    return Status::NotSupported("write time property is under construction");
+    PutFixed64(prop, saved_write_unix_time_);
+    return Status::OK();
   }
   return Status::InvalidArgument("Unidentified property.");
 }
@@ -232,6 +231,7 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
+    wide_columns_.clear();
     return false;
   }
 
@@ -393,6 +393,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             }
             break;
           case kTypeValue:
+          case kTypeValuePreferredSeqno:
           case kTypeBlobIndex:
           case kTypeWideColumnEntity:
             if (!PrepareValue()) {
@@ -418,8 +419,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 return false;
               }
             } else {
-              assert(ikey_.type == kTypeValue);
-              SetValueAndColumnsFromPlain(iter_.value());
+              assert(ikey_.type == kTypeValue ||
+                     ikey_.type == kTypeValuePreferredSeqno);
+              Slice value = iter_.value();
+              saved_write_unix_time_ = iter_.write_unix_time();
+              if (ikey_.type == kTypeValuePreferredSeqno) {
+                value = ParsePackedValueForValue(value);
+              }
+              SetValueAndColumnsFromPlain(value);
             }
 
             valid_ = true;
@@ -575,10 +582,15 @@ bool DBIter::MergeValuesNewToOld() {
       return false;
     }
 
-    if (kTypeValue == ikey.type) {
-      // hit a put, merge the put value with operands and store the
-      // final result in saved_value_. We are done!
-      if (!MergeWithPlainBaseValue(iter_.value(), ikey.user_key)) {
+    if (kTypeValue == ikey.type || kTypeValuePreferredSeqno == ikey.type) {
+      Slice value = iter_.value();
+      saved_write_unix_time_ = iter_.write_unix_time();
+      if (kTypeValuePreferredSeqno == ikey.type) {
+        value = ParsePackedValueForValue(value);
+      }
+      // hit a put or put equivalent, merge the put value with operands and
+      // store the final result in saved_value_. We are done!
+      if (!MergeWithPlainBaseValue(value, ikey.user_key)) {
         return false;
       }
       // iter_ is positioned after put
@@ -701,16 +713,21 @@ bool DBIter::ReverseToForward() {
   // not exist or may have different prefix than the current key().
   // If that's the case, seek iter_ to current key.
   if (!expect_total_order_inner_iter() || !iter_.Valid()) {
-    IterKey last_key;
-    ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
-                            kValueTypeForSeek);
-    if (timestamp_size_ > 0) {
+    std::string last_key;
+    if (timestamp_size_ == 0) {
+      AppendInternalKey(
+          &last_key, ParsedInternalKey(saved_key_.GetUserKey(),
+                                       kMaxSequenceNumber, kValueTypeForSeek));
+    } else {
       // TODO: pre-create kTsMax.
       const std::string kTsMax(timestamp_size_, '\xff');
-      pikey.SetTimestamp(kTsMax);
+      AppendInternalKeyWithDifferentTimestamp(
+          &last_key,
+          ParsedInternalKey(saved_key_.GetUserKey(), kMaxSequenceNumber,
+                            kValueTypeForSeek),
+          kTsMax);
     }
-    last_key.SetInternalKey(pikey);
-    iter_.Seek(last_key.GetInternalKey());
+    iter_.Seek(last_key);
     RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
@@ -840,8 +857,8 @@ bool DBIter::FindValueForCurrentKey() {
   merge_context_.Clear();
   current_entry_is_merged_ = false;
   // last entry before merge (could be kTypeDeletion,
-  // kTypeDeletionWithTimestamp, kTypeSingleDeletion, kTypeValue,
-  // kTypeBlobIndex, or kTypeWideColumnEntity)
+  // kTypeDeletionWithTimestamp, kTypeSingleDeletion, kTypeValue
+  // kTypeBlobIndex, kTypeWideColumnEntity or kTypeValuePreferredSeqno)
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
@@ -918,10 +935,16 @@ bool DBIter::FindValueForCurrentKey() {
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
       case kTypeValue:
+      case kTypeValuePreferredSeqno:
       case kTypeBlobIndex:
       case kTypeWideColumnEntity:
         if (iter_.iter()->IsValuePinned()) {
-          pinned_value_ = iter_.value();
+          saved_write_unix_time_ = iter_.write_unix_time();
+          if (last_key_entry_type == kTypeValuePreferredSeqno) {
+            pinned_value_ = ParsePackedValueForValue(iter_.value());
+          } else {
+            pinned_value_ = iter_.value();
+          }
         } else {
           valid_ = false;
           status_ = Status::NotSupported(
@@ -1031,7 +1054,8 @@ bool DBIter::FindValueForCurrentKey() {
 
         return true;
       } else {
-        assert(last_not_merge_type == kTypeValue);
+        assert(last_not_merge_type == kTypeValue ||
+               last_not_merge_type == kTypeValuePreferredSeqno);
         if (!MergeWithPlainBaseValue(pinned_value_, saved_key_.GetUserKey())) {
           return false;
         }
@@ -1039,6 +1063,7 @@ bool DBIter::FindValueForCurrentKey() {
       }
       break;
     case kTypeValue:
+    case kTypeValuePreferredSeqno:
       SetValueAndColumnsFromPlain(pinned_value_);
 
       break;
@@ -1143,10 +1168,15 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     Slice ts = ExtractTimestampFromUserKey(ikey.user_key, timestamp_size_);
     saved_timestamp_.assign(ts.data(), ts.size());
   }
-  if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex ||
-      ikey.type == kTypeWideColumnEntity) {
+  if (ikey.type == kTypeValue || ikey.type == kTypeValuePreferredSeqno ||
+      ikey.type == kTypeBlobIndex || ikey.type == kTypeWideColumnEntity) {
     assert(iter_.iter()->IsValuePinned());
-    pinned_value_ = iter_.value();
+    saved_write_unix_time_ = iter_.write_unix_time();
+    if (ikey.type == kTypeValuePreferredSeqno) {
+      pinned_value_ = ParsePackedValueForValue(iter_.value());
+    } else {
+      pinned_value_ = iter_.value();
+    }
     if (ikey.type == kTypeBlobIndex) {
       if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
         return false;
@@ -1159,7 +1189,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         return false;
       }
     } else {
-      assert(ikey.type == kTypeValue);
+      assert(ikey.type == kTypeValue || ikey.type == kTypeValuePreferredSeqno);
       SetValueAndColumnsFromPlain(pinned_value_);
     }
 
@@ -1205,8 +1235,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       return false;
     }
 
-    if (ikey.type == kTypeValue) {
-      if (!MergeWithPlainBaseValue(iter_.value(), saved_key_.GetUserKey())) {
+    if (ikey.type == kTypeValue || ikey.type == kTypeValuePreferredSeqno) {
+      Slice value = iter_.value();
+      if (ikey.type == kTypeValuePreferredSeqno) {
+        value = ParsePackedValueForValue(value);
+      }
+      if (!MergeWithPlainBaseValue(value, saved_key_.GetUserKey())) {
         return false;
       }
       return true;
@@ -1343,18 +1377,23 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
 
     if (num_skipped >= max_skip_) {
       num_skipped = 0;
-      IterKey last_key;
-      ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
-                              kValueTypeForSeek);
-      if (timestamp_size_ > 0) {
+      std::string last_key;
+      if (timestamp_size_ == 0) {
+        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
+                                                       kMaxSequenceNumber,
+                                                       kValueTypeForSeek));
+      } else {
         // TODO: pre-create kTsMax.
         const std::string kTsMax(timestamp_size_, '\xff');
-        pikey.SetTimestamp(kTsMax);
+        AppendInternalKeyWithDifferentTimestamp(
+            &last_key,
+            ParsedInternalKey(saved_key_.GetUserKey(), kMaxSequenceNumber,
+                              kValueTypeForSeek),
+            kTsMax);
       }
-      last_key.SetInternalKey(pikey);
       // It would be more efficient to use SeekForPrev() here, but some
       // iterators may not support it.
-      iter_.Seek(last_key.GetInternalKey());
+      iter_.Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
       if (!iter_.Valid()) {
         break;
@@ -1459,7 +1498,7 @@ void DBIter::Seek(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-  if (db_impl_ != nullptr && cfd_ != nullptr) {
+  if (cfh_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
     if (iterate_lower_bound_ != nullptr) {
@@ -1472,7 +1511,9 @@ void DBIter::Seek(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target, lower_bound, upper_bound)
+    cfh_->db()
+        ->TraceIteratorSeek(cfh_->cfd()->GetID(), target, lower_bound,
+                            upper_bound)
         .PermitUncheckedError();
   }
 
@@ -1533,7 +1574,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-  if (db_impl_ != nullptr && cfd_ != nullptr) {
+  if (cfh_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
     if (iterate_lower_bound_ != nullptr) {
@@ -1546,8 +1587,8 @@ void DBIter::SeekForPrev(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    db_impl_
-        ->TraceIteratorSeekForPrev(cfd_->GetID(), target, lower_bound,
+    cfh_->db()
+        ->TraceIteratorSeekForPrev(cfh_->cfd()->GetID(), target, lower_bound,
                                    upper_bound)
         .PermitUncheckedError();
   }
@@ -1711,13 +1752,12 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         InternalIterator* internal_iter, const Version* version,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
-                        ReadCallback* read_callback, DBImpl* db_impl,
-                        ColumnFamilyData* cfd, bool expose_blob_index) {
-  DBIter* db_iter =
-      new DBIter(env, read_options, ioptions, mutable_cf_options,
-                 user_key_comparator, internal_iter, version, sequence, false,
-                 max_sequential_skip_in_iterations, read_callback, db_impl, cfd,
-                 expose_blob_index);
+                        ReadCallback* read_callback,
+                        ColumnFamilyHandleImpl* cfh, bool expose_blob_index) {
+  DBIter* db_iter = new DBIter(
+      env, read_options, ioptions, mutable_cf_options, user_key_comparator,
+      internal_iter, version, sequence, false,
+      max_sequential_skip_in_iterations, read_callback, cfh, expose_blob_index);
   return db_iter;
 }
 

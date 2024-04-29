@@ -101,15 +101,12 @@ class WriteBatch : public WriteBatchBase {
   }
 
   using WriteBatchBase::TimedPut;
-  // DO NOT USE, UNDER CONSTRUCTION
+  // EXPERIMENTAL
   // Stores the mapping "key->value" in the database with the specified write
-  // time in the column family.
-  Status TimedPut(ColumnFamilyHandle* /* column_family */,
-                  const Slice& /* key */, const Slice& /* value */,
-                  uint64_t /* write_unix_time */) override {
-    // TODO(yuzhangyu): implement take in the write time.
-    return Status::NotSupported("TimedPut is under construction");
-  }
+  // time in the column family. Also see documentation in
+  // `WriteBatchBase::TimedPut` for the API's usage and limitations.
+  Status TimedPut(ColumnFamilyHandle* column_family, const Slice& key,
+                  const Slice& value, uint64_t write_unix_time) override;
 
   // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
   // column family specified by "column_family".
@@ -260,6 +257,13 @@ class WriteBatch : public WriteBatchBase {
     virtual void Put(const Slice& /*key*/, const Slice& /*value*/) {}
 
     // If user-defined timestamp is enabled, then `key` includes timestamp.
+    virtual Status TimedPutCF(uint32_t /*column_family_id*/,
+                              const Slice& /*key*/, const Slice& /*value*/,
+                              uint64_t /*write_time*/) {
+      return Status::InvalidArgument("TimedPutCF not implemented");
+    }
+
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status PutEntityCF(uint32_t /* column_family_id */,
                                const Slice& /* key */,
                                const Slice& /* entity */) {
@@ -383,6 +387,9 @@ class WriteBatch : public WriteBatchBase {
 
   // Returns true if PutCF will be called during Iterate
   bool HasPut() const;
+
+  // Returns true if TimedPutCF will be called during Iterate
+  bool HasTimedPut() const;
 
   // Returns true if PutEntityCF will be called during Iterate
   bool HasPutEntity() const;

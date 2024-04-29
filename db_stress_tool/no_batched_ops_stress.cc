@@ -580,13 +580,8 @@ class NonBatchedOpsStressTest : public StressTest {
     int column_family = rand_column_families[0];
     ColumnFamilyHandle* cfh = column_families_[column_family];
     int error_count = 0;
-    // Do a consistency check between Get and MultiGet. Don't do it too
-    // often as it will slow db_stress down
-    //
-    // CompactionFilter can make snapshot non-repeatable by removing keys
-    // protected by snapshot
-    bool do_consistency_check =
-        !FLAGS_enable_compaction_filter && thread->rand.OneIn(4);
+
+    bool do_consistency_check = FLAGS_check_multiget_consistency;
 
     ReadOptions readoptionscopy = read_opts;
 
@@ -1075,10 +1070,8 @@ class NonBatchedOpsStressTest : public StressTest {
       fault_fs_guard->DisableErrorInjection();
     }
 
-    // CompactionFilter can make snapshot non-repeatable by removing keys
-    // protected by snapshot
-    const bool check_get_entity = !FLAGS_enable_compaction_filter &&
-                                  !error_count && thread->rand.OneIn(4);
+    const bool check_get_entity =
+        !error_count && FLAGS_check_multiget_entity_consistency;
 
     for (size_t i = 0; i < num_keys; ++i) {
       const Status& s = statuses[i];
@@ -1526,6 +1519,7 @@ class NonBatchedOpsStressTest : public StressTest {
     const std::string sst_filename =
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
+    std::ostringstream ingest_options_oss;
     if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file
       // ingestion a clean slate
@@ -1594,8 +1588,18 @@ class NonBatchedOpsStressTest : public StressTest {
       s = sst_file_writer.Finish();
     }
     if (s.ok()) {
+      IngestExternalFileOptions ingest_options;
+      ingest_options.move_files = thread->rand.OneInOpt(2);
+      ingest_options.verify_checksums_before_ingest = thread->rand.OneInOpt(2);
+      ingest_options.verify_checksums_readahead_size =
+          thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
+      ingest_options_oss << "move_files: " << ingest_options.move_files
+                         << ", verify_checksums_before_ingest: "
+                         << ingest_options.verify_checksums_before_ingest
+                         << ", verify_checksums_readahead_size: "
+                         << ingest_options.verify_checksums_readahead_size;
       s = db_->IngestExternalFile(column_families_[column_family],
-                                  {sst_filename}, IngestExternalFileOptions());
+                                  {sst_filename}, ingest_options);
     }
     if (!s.ok()) {
       for (PendingExpectedValue& pending_expected_value :
@@ -1603,7 +1607,11 @@ class NonBatchedOpsStressTest : public StressTest {
         pending_expected_value.Rollback();
       }
       if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
-        fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
+        fprintf(stderr,
+                "file ingestion error: %s under specified "
+                "IngestExternalFileOptions: %s (Empty string or "
+                "missing field indicates default option or value is used)\n",
+                s.ToString().c_str(), ingest_options_oss.str().c_str());
         thread->shared->SafeTerminate();
       } else {
         fprintf(stdout, "file ingestion error: %s\n", s.ToString().c_str());

@@ -1219,6 +1219,7 @@ class VersionSetTestBase {
   const static std::string kColumnFamilyName1;
   const static std::string kColumnFamilyName2;
   const static std::string kColumnFamilyName3;
+  const static int kNumColumnFamilies = 4;
   int num_initial_edits_;
 
   explicit VersionSetTestBase(const std::string& name)
@@ -1232,7 +1233,7 @@ class VersionSetTestBase {
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         shutting_down_(false),
-        mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
+        table_factory_(std::make_shared<mock::MockTableFactory>()) {
     EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
     if (env_ == Env::Default() && getenv("MEM_ENV")) {
       env_guard_.reset(NewMemEnv(Env::Default()));
@@ -1332,9 +1333,71 @@ class VersionSetTestBase {
     }
     ASSERT_OK(s);
 
-    cf_options_.table_factory = mock_table_factory_;
+    cf_options_.table_factory = table_factory_;
     for (const auto& cf_name : cf_names) {
       column_families->emplace_back(cf_name, cf_options_);
+    }
+  }
+
+  struct SstInfo {
+    uint64_t file_number;
+    std::string column_family;
+    std::string key;  // the only key
+    int level = 0;
+    uint64_t epoch_number;
+    SstInfo(uint64_t file_num, const std::string& cf_name,
+            const std::string& _key,
+            uint64_t _epoch_number = kUnknownEpochNumber)
+        : SstInfo(file_num, cf_name, _key, 0, _epoch_number) {}
+    SstInfo(uint64_t file_num, const std::string& cf_name,
+            const std::string& _key, int lvl,
+            uint64_t _epoch_number = kUnknownEpochNumber)
+        : file_number(file_num),
+          column_family(cf_name),
+          key(_key),
+          level(lvl),
+          epoch_number(_epoch_number) {}
+  };
+
+  // Create dummy sst, return their metadata. Note that only file name and size
+  // are used.
+  void CreateDummyTableFiles(const std::vector<SstInfo>& file_infos,
+                             std::vector<FileMetaData>* file_metas) {
+    assert(file_metas != nullptr);
+    for (const auto& info : file_infos) {
+      uint64_t file_num = info.file_number;
+      std::string fname = MakeTableFileName(dbname_, file_num);
+      std::unique_ptr<FSWritableFile> file;
+      Status s = fs_->NewWritableFile(fname, FileOptions(), &file, nullptr);
+      ASSERT_OK(s);
+      std::unique_ptr<WritableFileWriter> fwriter(new WritableFileWriter(
+          std::move(file), fname, FileOptions(), env_->GetSystemClock().get()));
+      InternalTblPropCollFactories internal_tbl_prop_coll_factories;
+
+      const ReadOptions read_options;
+      const WriteOptions write_options;
+      std::unique_ptr<TableBuilder> builder(table_factory_->NewTableBuilder(
+          TableBuilderOptions(
+              immutable_options_, mutable_cf_options_, read_options,
+              write_options, InternalKeyComparator(options_.comparator),
+              &internal_tbl_prop_coll_factories, kNoCompression,
+              CompressionOptions(),
+              TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+              info.column_family, info.level),
+          fwriter.get()));
+      InternalKey ikey(info.key, 0, ValueType::kTypeValue);
+      builder->Add(ikey.Encode(), "value");
+      ASSERT_OK(builder->Finish());
+      ASSERT_OK(fwriter->Flush(IOOptions()));
+      uint64_t file_size = 0;
+      s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
+      ASSERT_OK(s);
+      ASSERT_NE(0, file_size);
+      file_metas->emplace_back(
+          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
+          Temperature::kUnknown, 0, 0, 0, info.epoch_number,
+          kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+          0, 0, /* user_defined_timestamps_persisted */ true);
     }
   }
 
@@ -1469,7 +1532,7 @@ class VersionSetTestBase {
   std::shared_ptr<ReactiveVersionSet> reactive_versions_;
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
-  std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+  std::shared_ptr<TableFactory> table_factory_;
   std::vector<ColumnFamilyDescriptor> column_families_;
 };
 
@@ -2506,6 +2569,9 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
   VersionSetAtomicGroupTest()
       : VersionSetTestBase("version_set_atomic_group_test") {}
 
+  explicit VersionSetAtomicGroupTest(const std::string& name)
+      : VersionSetTestBase(name) {}
+
   void SetUp() override {
     PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
     SetupTestSyncPoints();
@@ -2603,7 +2669,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
   void AddNewEditsToLog(int num_edits) {
     for (int i = 0; i < num_edits; i++) {
       std::string record;
-      edits_[i].EncodeTo(&record);
+      edits_[i].EncodeTo(&record, 0 /* ts_sz */);
       ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
     }
   }
@@ -2870,6 +2936,425 @@ TEST_F(VersionSetAtomicGroupTest,
   mu.Unlock();
   EXPECT_EQ(edits_[1].DebugString(),
             edit_with_incorrect_group_size_.DebugString());
+}
+
+class AtomicGroupBestEffortRecoveryTest : public VersionSetAtomicGroupTest {
+ public:
+  AtomicGroupBestEffortRecoveryTest()
+      : VersionSetAtomicGroupTest("atomic_group_best_effort_recovery_test") {}
+};
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupUpdatesValidInitially) {
+  // One AtomicGroup contains updates that are valid at the outset.
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(kNumColumnFamilies);
+
+  {
+    bool has_missing_table_file;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+    ASSERT_FALSE(has_missing_table_file);
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(file_metas.size(), all_table_files.size());
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesValidLater) {
+  // One AtomicGroup contains updates that become valid after applying further
+  // updates.
+
+  // `SetupTestSyncPoints()` creates sync points that assume there is only one
+  // AtomicGroup, which is not the case in this test.
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    if (cfid == kNumColumnFamilies - 1) {
+      // Corrupt the number of the last file.
+      file_metas[cfid].fd.packed_number_and_path_id =
+          PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+    }
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(kNumColumnFamilies);
+
+  {
+    // Delete the file with the corrupted number.
+    VersionEdit fixup_edit;
+    fixup_edit.SetColumnFamily(kNumColumnFamilies - 1);
+    fixup_edit.DeleteFile(0 /* level */, 20 /* number */);
+    assert(log_writer_.get() != nullptr);
+    std::string record;
+    ASSERT_TRUE(fixup_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    // Throw in an impossible AtomicGroup afterwards for extra challenge.
+    VersionEdit broken_edit;
+    broken_edit.SetColumnFamily(0 /* column_family_id */);
+    file_metas[0].fd.packed_number_and_path_id =
+        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
+    broken_edit.AddFile(0 /* level */, file_metas[0]);
+    broken_edit.SetLastSequence(++last_seqno_);
+    broken_edit.MarkAtomicGroup(0 /* remaining_entries */);
+    record.clear();
+    ASSERT_TRUE(broken_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+    assert(log_writer_.get() != nullptr);
+  }
+
+  {
+    bool has_missing_table_file = false;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(file_metas.size() - 1, all_table_files.size());
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest, HandleAtomicGroupUpdatesInvalid) {
+  // One AtomicGroup contains updates that never become valid.
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    if (cfid == kNumColumnFamilies - 1) {
+      // Corrupt the number of the last file.
+      file_metas[cfid].fd.packed_number_and_path_id =
+          PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+    }
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(kNumColumnFamilies);
+
+  {
+    bool has_missing_table_file = false;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupUpdatesValidTooLate) {
+  // One AtomicGroup contains updates that become valid after the next
+  // AtomicGroup is reached, which is too late.
+
+  // `SetupTestSyncPoints()` creates sync points that assume there is only one
+  // AtomicGroup, which is not the case in this test.
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    if (cfid == kNumColumnFamilies - 1) {
+      // Corrupt the number of the last file.
+      file_metas[cfid].fd.packed_number_and_path_id =
+          PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+    }
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(kNumColumnFamilies);
+
+  {
+    // Delete the file with the corrupted number. But bundle it in an
+    // AtomicGroup with an update that can never be applied.
+    VersionEdit broken_edit;
+    broken_edit.SetColumnFamily(0 /* column_family_id */);
+    file_metas[0].fd.packed_number_and_path_id =
+        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
+    broken_edit.AddFile(0 /* level */, file_metas[0]);
+    broken_edit.SetLastSequence(++last_seqno_);
+    broken_edit.MarkAtomicGroup(1 /* remaining_entries */);
+    std::string record;
+    ASSERT_TRUE(broken_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    VersionEdit fixup_edit;
+    fixup_edit.SetColumnFamily(kNumColumnFamilies - 1);
+    fixup_edit.DeleteFile(0 /* level */, 20 /* number */);
+    fixup_edit.MarkAtomicGroup(0 /* remaining_entries */);
+    record.clear();
+    ASSERT_TRUE(fixup_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+    assert(log_writer_.get() != nullptr);
+  }
+
+  {
+    bool has_missing_table_file = false;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupUpdatesInDuplicateInvalid) {
+  // One AtomicGroup has multiple updates for the same CF. One of the earlier
+  // updates for this CF can lead to a valid state if applied. But the last
+  // update for this CF is invalid so the AtomicGroup must not be recovered.
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies -
+                                  cfid /* remaining_entries */);
+  }
+  // Here is the unrecoverable update.
+  edits_.emplace_back();
+  edits_.back().SetColumnFamily(0 /* column_family_id */);
+  file_metas[0].fd.packed_number_and_path_id =
+      PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+  edits_.back().AddFile(0 /* level */, file_metas[0]);
+  edits_.back().SetLastSequence(++last_seqno_);
+  edits_.back().MarkAtomicGroup(0 /* remaining_entries */);
+  AddNewEditsToLog(kNumColumnFamilies + 1);
+
+  {
+    bool has_missing_table_file = false;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupMadeWholeByDeletingCf) {
+  // One AtomicGroup contains an update that becomes valid when its column
+  // family is deleted, making it irrelevant.
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    if (cfid == kNumColumnFamilies - 1) {
+      // Corrupt the number of the last file.
+      file_metas[cfid].fd.packed_number_and_path_id =
+          PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+    }
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(kNumColumnFamilies);
+
+  {
+    // Delete the column family with the corrupted file number.
+    VersionEdit fixup_edit;
+    fixup_edit.DropColumnFamily();
+    fixup_edit.SetColumnFamily(kNumColumnFamilies - 1);
+    assert(log_writer_.get() != nullptr);
+    std::string record;
+    ASSERT_TRUE(fixup_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+  }
+
+  {
+    bool has_missing_table_file = false;
+    ASSERT_OK(versions_->TryRecover(column_families_, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+    ASSERT_FALSE(has_missing_table_file);
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(file_metas.size() - 1, all_table_files.size());
+}
+
+TEST_F(AtomicGroupBestEffortRecoveryTest,
+       HandleAtomicGroupMadeWholeAfterNewCf) {
+  // One AtomicGroup contains updates that become valid after a new column
+  // family is added.
+  std::vector<SstInfo> file_infos;
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    int file_number = 10 + cfid;
+    file_infos.emplace_back(file_number, column_families_[cfid].name,
+                            "" /* key */, 0 /* level */,
+                            file_number /* epoch_number */);
+  }
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(file_infos, &file_metas);
+
+  edits_.clear();
+  for (int cfid = 0; cfid < kNumColumnFamilies; cfid++) {
+    if (cfid == kNumColumnFamilies - 1) {
+      // Corrupt the number of the last file.
+      file_metas[cfid].fd.packed_number_and_path_id =
+          PackFileNumberAndPathId(20 /* number */, 0 /* path_id */);
+    }
+    edits_.emplace_back();
+    edits_.back().SetColumnFamily(cfid);
+    edits_.back().AddFile(0 /* level */, file_metas[cfid]);
+    edits_.back().SetLastSequence(++last_seqno_);
+    edits_.back().MarkAtomicGroup(kNumColumnFamilies - 1 -
+                                  cfid /* remaining_entries */);
+  }
+  AddNewEditsToLog(kNumColumnFamilies);
+
+  {
+    // Add a new CF.
+    VersionEdit add_cf_edit;
+    add_cf_edit.AddColumnFamily("extra_cf");
+    add_cf_edit.SetColumnFamily(kNumColumnFamilies);
+    std::string record;
+    ASSERT_TRUE(add_cf_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    // Have the new CF refer to a non-existent file for an extra challenge.
+    VersionEdit broken_edit;
+    broken_edit.SetColumnFamily(kNumColumnFamilies);
+    file_metas[0].fd.packed_number_and_path_id =
+        PackFileNumberAndPathId(30 /* number */, 0 /* path_id */);
+    broken_edit.AddFile(0 /* level */, file_metas[0]);
+    broken_edit.SetLastSequence(++last_seqno_);
+    record.clear();
+    ASSERT_TRUE(broken_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+
+    // This fixes up the first of the two non-existent file references.
+    VersionEdit fixup_edit;
+    fixup_edit.SetColumnFamily(kNumColumnFamilies - 1);
+    fixup_edit.DeleteFile(0 /* level */, 20 /* number */);
+    record.clear();
+    ASSERT_TRUE(fixup_edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+    assert(log_writer_.get() != nullptr);
+  }
+
+  {
+    bool has_missing_table_file = false;
+    std::vector<ColumnFamilyDescriptor> column_families = column_families_;
+    column_families.emplace_back("extra_cf", cf_options_);
+    ASSERT_OK(versions_->TryRecover(column_families, false /* read_only */,
+                                    {DescriptorFileName(1 /* number */)},
+                                    nullptr /* db_id */,
+                                    &has_missing_table_file));
+    ASSERT_TRUE(has_missing_table_file);
+  }
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(file_metas.size() - 1, all_table_files.size());
 }
 
 class VersionSetTestDropOneCF : public VersionSetTestBase,
@@ -3381,9 +3866,6 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
  public:
   VersionSetTestMissingFiles()
       : VersionSetTestBase("version_set_test_missing_files"),
-        block_based_table_options_(),
-        table_factory_(std::make_shared<BlockBasedTableFactory>(
-            block_based_table_options_)),
         internal_comparator_(
             std::make_shared<InternalKeyComparator>(options_.comparator)) {}
 
@@ -3457,68 +3939,6 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     *last_seqno = seq + 1;
   }
 
-  struct SstInfo {
-    uint64_t file_number;
-    std::string column_family;
-    std::string key;  // the only key
-    int level = 0;
-    uint64_t epoch_number;
-    SstInfo(uint64_t file_num, const std::string& cf_name,
-            const std::string& _key,
-            uint64_t _epoch_number = kUnknownEpochNumber)
-        : SstInfo(file_num, cf_name, _key, 0, _epoch_number) {}
-    SstInfo(uint64_t file_num, const std::string& cf_name,
-            const std::string& _key, int lvl,
-            uint64_t _epoch_number = kUnknownEpochNumber)
-        : file_number(file_num),
-          column_family(cf_name),
-          key(_key),
-          level(lvl),
-          epoch_number(_epoch_number) {}
-  };
-
-  // Create dummy sst, return their metadata. Note that only file name and size
-  // are used.
-  void CreateDummyTableFiles(const std::vector<SstInfo>& file_infos,
-                             std::vector<FileMetaData>* file_metas) {
-    assert(file_metas != nullptr);
-    for (const auto& info : file_infos) {
-      uint64_t file_num = info.file_number;
-      std::string fname = MakeTableFileName(dbname_, file_num);
-      std::unique_ptr<FSWritableFile> file;
-      Status s = fs_->NewWritableFile(fname, FileOptions(), &file, nullptr);
-      ASSERT_OK(s);
-      std::unique_ptr<WritableFileWriter> fwriter(new WritableFileWriter(
-          std::move(file), fname, FileOptions(), env_->GetSystemClock().get()));
-      InternalTblPropCollFactories internal_tbl_prop_coll_factories;
-
-      const ReadOptions read_options;
-      const WriteOptions write_options;
-      std::unique_ptr<TableBuilder> builder(table_factory_->NewTableBuilder(
-          TableBuilderOptions(
-              immutable_options_, mutable_cf_options_, read_options,
-              write_options, *internal_comparator_,
-              &internal_tbl_prop_coll_factories, kNoCompression,
-              CompressionOptions(),
-              TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-              info.column_family, info.level),
-          fwriter.get()));
-      InternalKey ikey(info.key, 0, ValueType::kTypeValue);
-      builder->Add(ikey.Encode(), "value");
-      ASSERT_OK(builder->Finish());
-      ASSERT_OK(fwriter->Flush(IOOptions()));
-      uint64_t file_size = 0;
-      s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
-      ASSERT_OK(s);
-      ASSERT_NE(0, file_size);
-      file_metas->emplace_back(
-          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
-          Temperature::kUnknown, 0, 0, 0, info.epoch_number,
-          kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-          0, 0, /* user_defined_timestamps_persisted */ true);
-    }
-  }
-
   // This method updates last_sequence_.
   void WriteFileAdditionAndDeletionToManifest(
       uint32_t cf, const std::vector<std::pair<int, FileMetaData>>& added_files,
@@ -3542,8 +3962,6 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     ASSERT_OK(s);
   }
 
-  BlockBasedTableOptions block_based_table_options_;
-  std::shared_ptr<TableFactory> table_factory_;
   std::shared_ptr<InternalKeyComparator> internal_comparator_;
   std::vector<ColumnFamilyDescriptor> column_families_;
   SequenceNumber last_seqno_;

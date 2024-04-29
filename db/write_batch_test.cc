@@ -21,7 +21,6 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -48,18 +47,20 @@ static std::string PrintContents(WriteBatch* b,
       WriteBatchInternal::InsertInto(b, &cf_mems_default, nullptr, nullptr);
   uint32_t count = 0;
   int put_count = 0;
+  int timed_put_count = 0;
   int delete_count = 0;
   int single_delete_count = 0;
   int delete_range_count = 0;
   int merge_count = 0;
   for (int i = 0; i < 2; ++i) {
     Arena arena;
-    ScopedArenaIterator arena_iter_guard;
+    ScopedArenaPtr<InternalIterator> arena_iter_guard;
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = mem->NewIterator(ReadOptions(), &arena);
-      arena_iter_guard.set(iter);
+      iter = mem->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
+                              &arena);
+      arena_iter_guard.reset(iter);
     } else {
       iter = mem->NewRangeTombstoneIterator(ReadOptions(),
                                             kMaxSequenceNumber /* read_seq */,
@@ -116,6 +117,20 @@ static std::string PrintContents(WriteBatch* b,
           count++;
           merge_count++;
           break;
+        case kTypeValuePreferredSeqno: {
+          state.append("TimedPut(");
+          state.append(ikey.user_key.ToString());
+          state.append(", ");
+          auto [unpacked_value, unix_write_time] =
+              ParsePackedValueWithWriteTime(iter->value());
+          state.append(unpacked_value.ToString());
+          state.append(", ");
+          state.append(std::to_string(unix_write_time));
+          state.append(")");
+          count++;
+          timed_put_count++;
+          break;
+        }
         default:
           assert(false);
           break;
@@ -127,6 +142,7 @@ static std::string PrintContents(WriteBatch* b,
   }
   if (s.ok()) {
     EXPECT_EQ(b->HasPut(), put_count > 0);
+    EXPECT_EQ(b->HasTimedPut(), timed_put_count > 0);
     EXPECT_EQ(b->HasDelete(), delete_count > 0);
     EXPECT_EQ(b->HasSingleDelete(), single_delete_count > 0);
     EXPECT_EQ(b->HasDeleteRange(), delete_range_count > 0);
@@ -278,6 +294,18 @@ struct TestHandler : public WriteBatch::Handler {
     }
     return Status::OK();
   }
+  Status TimedPutCF(uint32_t column_family_id, const Slice& key,
+                    const Slice& value, uint64_t unix_write_time) override {
+    if (column_family_id == 0) {
+      seen += "TimedPut(" + key.ToString() + ", " + value.ToString() + ", " +
+              std::to_string(unix_write_time) + ")";
+    } else {
+      seen += "TimedPutCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ", " +
+              std::to_string(unix_write_time) + ")";
+    }
+    return Status::OK();
+  }
   Status PutEntityCF(uint32_t column_family_id, const Slice& key,
                      const Slice& entity) override {
     std::ostringstream oss;
@@ -372,6 +400,24 @@ TEST_F(WriteBatchTest, PutNotImplemented) {
 
   WriteBatch::Handler handler;
   ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST_F(WriteBatchTest, TimedPutNotImplemented) {
+  WriteBatch batch;
+  ASSERT_OK(
+      batch.TimedPut(0, Slice("k1"), Slice("v1"), /*write_unix_time=*/30));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ("TimedPut(k1, v1, 30)@0", PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_TRUE(batch.Iterate(&handler).IsInvalidArgument());
+
+  batch.Clear();
+  ASSERT_OK(
+      batch.TimedPut(0, Slice("k1"), Slice("v1"),
+                     /*write_unix_time=*/std::numeric_limits<uint64_t>::max()));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ("Put(k1, v1)@0", PrintContents(&batch));
 }
 
 TEST_F(WriteBatchTest, DeleteNotImplemented) {
@@ -770,9 +816,8 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
-  // TODO(yuzhangyu): implement this.
-  ASSERT_TRUE(
-      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
+  ASSERT_OK(batch.TimedPut(&zero, Slice("foo"), Slice("bar"),
+                           /*write_unix_time*/ 0u));
 
   TestHandler handler;
   ASSERT_OK(batch.Iterate(&handler));
@@ -785,7 +830,8 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
       "DeleteRangeCF(2, 3foo, 4foo)"
       "MergeCF(3, threethree, 3three)"
       "Put(foo, bar)"
-      "Merge(omom, nom)",
+      "Merge(omom, nom)"
+      "TimedPut(foo, bar, 0)",
       handler.seen);
 }
 

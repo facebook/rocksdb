@@ -12,8 +12,7 @@
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
 
-namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
+namespace ROCKSDB_NAMESPACE::blob_db {
 
 Status BlobDBImpl::DisableFileDeletions() {
   // Disable base DB file deletions.
@@ -72,7 +71,7 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
     return s;
   }
   ret.reserve(ret.size() + blob_files_.size());
-  for (auto bfile_pair : blob_files_) {
+  for (const auto& bfile_pair : blob_files_) {
     auto blob_file = bfile_pair.second;
     // Path should be relative to db_name, but begin with slash.
     ret.emplace_back(
@@ -87,7 +86,7 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   // Hold a lock in the beginning to avoid updates to base DB during the call
   ReadLock rl(&mutex_);
   db_->GetLiveFilesMetaData(metadata);
-  for (auto bfile_pair : blob_files_) {
+  for (const auto& bfile_pair : blob_files_) {
     auto blob_file = bfile_pair.second;
     LiveFileMetaData filemetadata;
     filemetadata.size = blob_file->GetFileSize();
@@ -105,5 +104,24 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
-}  // namespace blob_db
-}  // namespace ROCKSDB_NAMESPACE
+Status BlobDBImpl::GetLiveFilesStorageInfo(
+    const LiveFilesStorageInfoOptions& opts,
+    std::vector<LiveFileStorageInfo>* files) {
+  ReadLock rl(&mutex_);
+  Status s = db_->GetLiveFilesStorageInfo(opts, files);
+  if (s.ok()) {
+    files->reserve(files->size() + blob_files_.size());
+    for (const auto& [blob_number, blob_file] : blob_files_) {
+      LiveFileStorageInfo file;
+      file.size = blob_file->GetFileSize();
+      file.directory = blob_dir_;
+      file.relative_filename = BlobFileName(blob_number);
+      file.file_type = kBlobFile;
+      file.trim_to_size = true;
+      files->push_back(std::move(file));
+    }
+  }
+  return s;
+}
+
+}  // namespace ROCKSDB_NAMESPACE::blob_db

@@ -411,6 +411,13 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
           "periodic_compaction_seconds does not support FIFO compaction. You"
           "may want to set option TTL instead.");
     }
+    if (result.last_level_temperature != Temperature::kUnknown) {
+      ROCKS_LOG_WARN(
+          db_options.info_log.get(),
+          "last_level_temperature is ignored with FIFO compaction. Consider "
+          "CompactionOptionsFIFO::file_temperature_age_thresholds.");
+      result.last_level_temperature = Temperature::kUnknown;
+    }
   }
 
   // For universal compaction, `ttl` and `periodic_compaction_seconds` mean the
@@ -470,13 +477,16 @@ void SuperVersion::Cleanup() {
   cfd->UnrefAndTryDelete();
 }
 
-void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
-                        MemTableListVersion* new_imm, Version* new_current) {
+void SuperVersion::Init(
+    ColumnFamilyData* new_cfd, MemTable* new_mem, MemTableListVersion* new_imm,
+    Version* new_current,
+    std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping) {
   cfd = new_cfd;
   mem = new_mem;
   imm = new_imm;
   current = new_current;
   full_history_ts_low = cfd->GetFullHistoryTsLow();
+  seqno_to_time_mapping = std::move(new_seqno_to_time_mapping);
   cfd->Ref();
   mem->Ref();
   imm->Ref();
@@ -1189,11 +1199,12 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   ReadOptions read_opts;
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
-  merge_iter_builder.AddIterator(
-      super_version->mem->NewIterator(read_opts, &arena));
-  super_version->imm->AddIterators(read_opts, &merge_iter_builder,
+  merge_iter_builder.AddIterator(super_version->mem->NewIterator(
+      read_opts, /*seqno_to_time_mapping=*/nullptr, &arena));
+  super_version->imm->AddIterators(read_opts, /*seqno_to_time_mapping=*/nullptr,
+                                   &merge_iter_builder,
                                    false /* add_range_tombstone_iter */);
-  ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
+  ScopedArenaPtr<InternalIterator> memtable_iter(merge_iter_builder.Finish());
 
   auto read_seq = super_version->current->version_set()->LastSequence();
   ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
@@ -1329,7 +1340,12 @@ void ColumnFamilyData::InstallSuperVersion(
     const MutableCFOptions& mutable_cf_options) {
   SuperVersion* new_superversion = sv_context->new_superversion.release();
   new_superversion->mutable_cf_options = mutable_cf_options;
-  new_superversion->Init(this, mem_, imm_.current(), current_);
+  new_superversion->Init(this, mem_, imm_.current(), current_,
+                         sv_context->new_seqno_to_time_mapping
+                             ? std::move(sv_context->new_seqno_to_time_mapping)
+                         : super_version_
+                             ? super_version_->ShareSeqnoToTimeMapping()
+                             : nullptr);
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
   if (old_superversion == nullptr || old_superversion->current != current() ||

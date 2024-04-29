@@ -210,6 +210,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         metadata_write_error_one_in_(0),
         read_error_one_in_(0),
         ingest_data_corruption_before_write_(false),
+        checksum_handoff_func_type_(kCRC32c),
         fail_get_file_unique_id_(false) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
@@ -229,6 +230,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                               const FileOptions& file_opts,
                               std::unique_ptr<FSWritableFile>* result,
                               IODebugContext* dbg) override;
+
+  IOStatus ReuseWritableFile(const std::string& fname,
+                             const std::string& old_fname,
+                             const FileOptions& file_opts,
+                             std::unique_ptr<FSWritableFile>* result,
+                             IODebugContext* dbg) override;
 
   IOStatus NewRandomRWFile(const std::string& fname,
                            const FileOptions& file_opts,
@@ -368,12 +375,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   void SetChecksumHandoffFuncType(const ChecksumType& func_type) {
     MutexLock l(&mutex_);
-    checksum_handoff_func_tpye_ = func_type;
+    checksum_handoff_func_type_ = func_type;
   }
 
   const ChecksumType& GetChecksumHandoffFuncType() {
     MutexLock l(&mutex_);
-    return checksum_handoff_func_tpye_;
+    return checksum_handoff_func_type_;
   }
 
   void SetFailGetUniqueId(bool flag) {
@@ -581,7 +588,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // File types where direct writable is skipped.
   std::set<FileType> direct_writable_types_;
   bool ingest_data_corruption_before_write_;
-  ChecksumType checksum_handoff_func_tpye_;
+  ChecksumType checksum_handoff_func_type_;
   bool fail_get_file_unique_id_;
 
   // Extract number of type from file name. Return false if failing to fine

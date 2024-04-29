@@ -3,12 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "utilities/merge_operators.h"
-
 #include "test_util/testutil.h"
+#include "utilities/merge_operators.h"
 #include "utilities/transactions/transaction_test.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -453,13 +453,17 @@ TEST_P(WriteCommittedTxnWithTsTest, GetForUpdate) {
   std::unique_ptr<Transaction> txn0(
       NewTxn(WriteOptions(), TransactionOptions()));
 
+  // Not set read timestamp, use blind write
   std::unique_ptr<Transaction> txn1(
       NewTxn(WriteOptions(), TransactionOptions()));
   ASSERT_OK(txn1->Put(handles_[1], "key", "value1"));
+  ASSERT_OK(txn1->Put(handles_[1], "foo", "value1"));
   ASSERT_OK(txn1->SetCommitTimestamp(24));
   ASSERT_OK(txn1->Commit());
   txn1.reset();
 
+  // Set read timestamp, use it for validation in GetForUpdate, validation fail
+  // with conflict: timestamp from db(24) > read timestamp(23)
   std::string value;
   ASSERT_OK(txn0->SetReadTimestampForValidation(23));
   ASSERT_TRUE(
@@ -467,13 +471,71 @@ TEST_P(WriteCommittedTxnWithTsTest, GetForUpdate) {
   ASSERT_OK(txn0->Rollback());
   txn0.reset();
 
+  // Set read timestamp, use it for validation in GetForUpdate, validation pass
+  // with no conflict: timestamp from db(24) < read timestamp (25)
   std::unique_ptr<Transaction> txn2(
       NewTxn(WriteOptions(), TransactionOptions()));
   ASSERT_OK(txn2->SetReadTimestampForValidation(25));
   ASSERT_OK(txn2->GetForUpdate(ReadOptions(), handles_[1], "key", &value));
+  // Use a different read timestamp in ReadOptions while doing validation is
+  // invalid.
+  ReadOptions read_options;
+  std::string read_timestamp;
+  Slice diff_read_ts = EncodeU64Ts(24, &read_timestamp);
+  read_options.timestamp = &diff_read_ts;
+  ASSERT_TRUE(txn2->GetForUpdate(read_options, handles_[1], "foo", &value)
+                  .IsInvalidArgument());
   ASSERT_OK(txn2->SetCommitTimestamp(26));
   ASSERT_OK(txn2->Commit());
   txn2.reset();
+
+  // Set read timestamp, call GetForUpdate without validation, invalid
+  std::unique_ptr<Transaction> txn3(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn3->SetReadTimestampForValidation(27));
+  ASSERT_TRUE(txn3->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                                 /*exclusive=*/true, /*do_validate=*/false)
+                  .IsInvalidArgument());
+  ASSERT_OK(txn3->Rollback());
+  txn3.reset();
+
+  // Not set read timestamp, call GetForUpdate with validation, invalid
+  std::unique_ptr<Transaction> txn4(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  // ReadOptions.timestamp is not set, invalid
+  ASSERT_TRUE(txn4->GetForUpdate(ReadOptions(), handles_[1], "key", &value)
+                  .IsInvalidArgument());
+  // ReadOptions.timestamp is set, also invalid.
+  // `SetReadTimestampForValidation` must have been called with the same
+  // timestamp as in ReadOptions.timestamp for validation.
+  Slice read_ts = EncodeU64Ts(27, &read_timestamp);
+  read_options.timestamp = &read_ts;
+  ASSERT_TRUE(txn4->GetForUpdate(read_options, handles_[1], "key", &value)
+                  .IsInvalidArgument());
+  ASSERT_OK(txn4->Rollback());
+  txn4.reset();
+
+  // Not set read timestamp, call GetForUpdate without validation, pass
+  std::unique_ptr<Transaction> txn5(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  // ReadOptions.timestamp is not set, pass
+  ASSERT_OK(txn5->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /*exclusive=*/true, /*do_validate=*/false));
+  // ReadOptions.timestamp explicitly set to max timestamp, pass
+  Slice max_ts = MaxU64Ts();
+  read_options.timestamp = &max_ts;
+  ASSERT_OK(txn5->GetForUpdate(read_options, handles_[1], "foo", &value,
+                               /*exclusive=*/true, /*do_validate=*/false));
+  // NOTE: this commit timestamp is smaller than the db's timestamp (26), but
+  // this commit can still go through, that breaks the user-defined timestamp
+  // invariant: newer user-defined timestamp should have newer sequence number.
+  // So be aware of skipping UDT based validation. Unless users have their own
+  // ways to ensure the UDT invariant is met, DO NOT skip it. Ways to ensure
+  // the UDT invariant include: manage a monotonically increasing timestamp,
+  // commit transactions in a single thread etc.
+  ASSERT_OK(txn5->SetCommitTimestamp(3));
+  ASSERT_OK(txn5->Commit());
+  txn5.reset();
 }
 
 TEST_P(WriteCommittedTxnWithTsTest, BlindWrite) {

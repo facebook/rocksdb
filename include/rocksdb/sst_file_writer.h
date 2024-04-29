@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "advanced_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
@@ -110,7 +111,8 @@ class SstFileWriter {
   ~SstFileWriter();
 
   // Prepare SstFileWriter to write into file located at "file_path".
-  Status Open(const std::string& file_path);
+  Status Open(const std::string& file_path,
+              Temperature temp = Temperature::kUnknown);
 
   // Add a Put key with value to currently opened file (deprecated)
   // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)

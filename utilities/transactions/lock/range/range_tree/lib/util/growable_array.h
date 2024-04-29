@@ -78,7 +78,7 @@ class GrowableArray {
   void init(void)
   // Effect: Initialize the array to contain no elements.
   {
-    m_array = NULL;
+    m_array = nullptr;
     m_size = 0;
     m_size_limit = 0;
   }
@@ -87,7 +87,7 @@ class GrowableArray {
   // Effect: Deinitialize the array (freeing any memory it uses, for example).
   {
     toku_free(m_array);
-    m_array = NULL;
+    m_array = nullptr;
     m_size = 0;
     m_size_limit = 0;
   }
@@ -113,7 +113,7 @@ class GrowableArray {
   // constant.
   {
     if (m_size >= m_size_limit) {
-      if (m_array == NULL) {
+      if (m_array == nullptr) {
         m_size_limit = 1;
       } else {
         m_size_limit *= 2;

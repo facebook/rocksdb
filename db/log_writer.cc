@@ -18,8 +18,7 @@
 #include "util/crc32c.h"
 #include "util/udt_util.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace log {
+namespace ROCKSDB_NAMESPACE::log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush,
@@ -75,6 +74,9 @@ IOStatus Writer::Close(const WriteOptions& write_options) {
 
 IOStatus Writer::AddRecord(const WriteOptions& write_options,
                            const Slice& slice) {
+  if (dest_->seen_error()) {
+    return IOStatus::IOError("Seen error. Skip writing buffer.");
+  }
   const char* ptr = slice.data();
   size_t left = slice.size();
 
@@ -181,6 +183,10 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
   if (compression_type_ == kNoCompression) {
     // No need to add a record
     return IOStatus::OK();
+  }
+
+  if (dest_->seen_error()) {
+    return IOStatus::IOError("Seen error. Skip writing buffer.");
   }
 
   CompressionTypeRecord record(compression_type_);
@@ -297,5 +303,4 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
   return s;
 }
 
-}  // namespace log
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::log

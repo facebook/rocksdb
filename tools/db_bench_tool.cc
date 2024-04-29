@@ -1135,6 +1135,11 @@ DEFINE_int32(secondary_update_interval, 5,
              "Secondary instance attempts to catch up with the primary every "
              "secondary_update_interval seconds.");
 
+DEFINE_bool(open_as_follower, false,
+            "Open a RocksDB DB as a follower. The leader instance can be "
+            "running in another db_bench process.");
+
+DEFINE_string(leader_path, "", "Path to the directory of the leader DB");
 
 DEFINE_bool(report_bg_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
@@ -4570,7 +4575,7 @@ class Benchmark {
         FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
     if (FLAGS_simulate_hybrid_fs_file != "") {
-      options.bottommost_temperature = Temperature::kWarm;
+      options.last_level_temperature = Temperature::kWarm;
     }
     options.preclude_last_level_data_seconds =
         FLAGS_preclude_last_level_data_seconds;
@@ -4978,6 +4983,12 @@ class Benchmark {
               }
             },
             FLAGS_secondary_update_interval, db));
+      }
+    } else if (FLAGS_open_as_follower) {
+      std::unique_ptr<DB> dbptr;
+      s = DB::OpenAsFollower(options, db_name, FLAGS_leader_path, &dbptr);
+      if (s.ok()) {
+        db->db = dbptr.release();
       }
     } else {
       s = DB::Open(options, db_name, &db->db);

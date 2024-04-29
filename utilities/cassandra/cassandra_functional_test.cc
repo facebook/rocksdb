@@ -18,8 +18,7 @@
 #include "utilities/cassandra/test_utils.h"
 #include "utilities/merge_operators.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 
 // Path to the database on file system
 const std::string kDbName = test::PerThreadDBPath("cassandra_functional_test");
@@ -434,8 +433,7 @@ TEST_F(CassandraFunctionalTest, LoadCompactionFilterFactory) {
   ASSERT_TRUE(opts->purge_ttl_on_expiration);
 }
 
-}  // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

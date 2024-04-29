@@ -527,6 +527,13 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
           fprintf(stdout, "%s => %s\n",
                   ikey.DebugString(true, output_hex_).c_str(),
                   oss.str().c_str());
+        } else if (ikey.type == kTypeValuePreferredSeqno) {
+          auto [unpacked_value, preferred_seqno] =
+              ParsePackedValueWithSeqno(value);
+          fprintf(stdout, "%s => %s, %llu\n",
+                  ikey.DebugString(true, output_hex_).c_str(),
+                  unpacked_value.ToString(output_hex_).c_str(),
+                  static_cast<unsigned long long>(preferred_seqno));
         } else {
           fprintf(stdout, "%s => %s\n",
                   ikey.DebugString(true, output_hex_).c_str(),
@@ -565,11 +572,14 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
       // TODO: verify num_range_deletions
       if (i != table_properties_->num_entries -
                    table_properties_->num_range_deletions) {
-        ret =
-            Status::Corruption("Table property has num_entries = " +
-                               std::to_string(table_properties_->num_entries) +
-                               " but scanning the table returns " +
-                               std::to_string(i) + " records.");
+        std::ostringstream oss;
+        oss << "Table property expects "
+            << table_properties_->num_entries -
+                   table_properties_->num_range_deletions
+            << " entries when excluding range deletions,"
+            << " but scanning the table returned " << std::to_string(i)
+            << " entries";
+        ret = Status::Corruption(oss.str());
       }
     }
   }

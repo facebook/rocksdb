@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
@@ -131,16 +132,31 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
   std::vector<std::string> files_checksums;
   std::vector<std::string> files_checksum_func_names;
+  // A hint as to the temperature for *reading* the files to be ingested.
   Temperature file_temperature = Temperature::kUnknown;
 };
 
 struct GetMergeOperandsOptions {
+  using ContinueCallback = std::function<bool(Slice)>;
+
   // A limit on the number of merge operands returned by the GetMergeOperands()
   // API. In contrast with ReadOptions::merge_operator_max_count, this is a hard
   // limit: when it is exceeded, no merge operands will be returned and the
   // query will fail with an Incomplete status. See also the
   // DB::GetMergeOperands() API below.
   int expected_max_number_of_operands = 0;
+
+  // `continue_cb` will be called after reading each merge operand, excluding
+  // any base value. Operands are read in order from newest to oldest. The
+  // operand value is provided as an argument.
+  //
+  // Returning false will end the lookup process at the merge operand on which
+  // `continue_cb` was just invoked. Returning true allows the lookup to
+  // continue.
+  //
+  // If it is nullptr, `GetMergeOperands()` will behave as if it always returned
+  // true (continue fetching merge operands until there are no more).
+  ContinueCallback continue_cb;
 };
 
 // A collections of table properties objects, where
@@ -281,6 +297,29 @@ class DB {
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
+  // EXPERIMENTAL
+
+  // Open a database as a follower. The difference between this and opening
+  // as secondary is that the follower database has its own directory with
+  // links to the actual files, and can tolarate obsolete file deletions by
+  // the leader to its own database. Another difference is the follower
+  // tries to keep up with the leader by periodically tailing the leader's
+  // MANIFEST, and (in the future) memtable updates, rather than relying on
+  // the user to manually call TryCatchupWithPrimary().
+
+  // Open as a follower with the default column family
+  static Status OpenAsFollower(const Options& options, const std::string& name,
+                               const std::string& leader_path,
+                               std::unique_ptr<DB>* dbptr);
+
+  // Open as a follower with multiple column families
+  static Status OpenAsFollower(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& leader_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
+  // End EXPERIMENTAL
 
   // Open DB and run the compaction.
   // It's a read-only operation, the result won't be installed to the DB, it
@@ -642,11 +681,12 @@ class DB {
   }
 
   // Populates the `merge_operands` array with all the merge operands in the DB
-  // for `key`. The `merge_operands` array will be populated in the order of
-  // insertion. The number of entries populated in `merge_operands` will be
-  // assigned to `*number_of_operands`.
+  // for `key`, or a customizable suffix of merge operands when
+  // `GetMergeOperandsOptions::continue_cb` is set. The `merge_operands` array
+  // will be populated in the order of insertion. The number of entries
+  // populated in `merge_operands` will be assigned to `*number_of_operands`.
   //
-  // If the number of merge operands in DB for `key` is greater than
+  // If the number of merge operands to return for `key` is greater than
   // `merge_operands_options.expected_max_number_of_operands`,
   // `merge_operands` is not populated and the return value is
   // `Status::Incomplete`. In that case, `*number_of_operands` will be assigned
@@ -954,6 +994,31 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
+
+  // EXPERIMENTAL
+  // Return a cross-column-family iterator from a consistent database state.
+  //
+  // If a key exists in more than one column family, value() will be determined
+  // by the wide column value of kDefaultColumnName after coalesced as described
+  // below.
+  //
+  // Each wide column will be independently shadowed by the CFs.
+  // For example, if CF1 has "key_1" ==> {"col_1": "foo",
+  // "col_2", "baz"} and CF2 has "key_1" ==> {"col_2": "quux", "col_3", "bla"},
+  // and when the iterator is at key_1, columns() will return
+  // {"col_1": "foo", "col_2", "quux", "col_3", "bla"}
+  // In this example, value() will be empty, because none of them have values
+  // for kDefaultColumnName
+  virtual std::unique_ptr<Iterator> NewCoalescingIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
+  // EXPERIMENTAL
+  // A cross-column-family iterator that collects and returns attribute groups
+  // for each key in order provided by comparator
+  virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
@@ -1803,6 +1868,16 @@ class DB {
   //     the files cannot be ingested to the bottommost level, and it is the
   //     user's responsibility to clear the bottommost level in the overlapping
   //     range before re-attempting the ingestion.
+  //
+  // EXPERIMENTAL: the temperatures of the files after ingestion are currently
+  // determined like this:
+  // - If the ingested file is moved rather than copied, its temperature is
+  //   inherited from the input file.
+  // - If either ingest_behind or fail_if_not_bottommost_level is set to true,
+  //   then the temperature is set to the CF's last_level_temperature.
+  // - Otherwise, the temperature is set to the CF's default_write_temperature.
+  // (Landing in the last level does not currently guarantee using
+  // last_level_temperature - TODO)
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,

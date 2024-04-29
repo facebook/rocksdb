@@ -18,11 +18,10 @@
 #include <sys/syscall.h>
 #endif
 
-#include <stdlib.h>
-
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <deque>
 #include <mutex>
 #include <sstream>
@@ -465,7 +464,7 @@ int ThreadPoolImpl::Impl::UnSchedule(void* arg) {
 
 ThreadPoolImpl::ThreadPoolImpl() : impl_(new Impl()) {}
 
-ThreadPoolImpl::~ThreadPoolImpl() {}
+ThreadPoolImpl::~ThreadPoolImpl() = default;
 
 void ThreadPoolImpl::JoinAllThreads() { impl_->JoinThreads(false); }
 

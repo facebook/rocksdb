@@ -759,6 +759,24 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   }
 }
 
+Status DBTestBase::TimedPut(const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  return TimedPut(0, k, v, write_unix_time, wo);
+}
+
+Status DBTestBase::TimedPut(int cf, const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  WriteBatch wb;
+  ColumnFamilyHandle* cfh;
+  if (cf != 0) {
+    cfh = handles_[cf];
+  } else {
+    cfh = db_->DefaultColumnFamily();
+  }
+  EXPECT_OK(wb.TimedPut(cfh, k, v, write_unix_time));
+  return db_->Write(wo, &wb);
+}
+
 Status DBTestBase::Merge(const Slice& k, const Slice& v, WriteOptions wo) {
   return db_->Merge(wo, k, v);
 }
@@ -974,13 +992,13 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
+  ScopedArenaPtr<InternalIterator> iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber, handles_[cf]));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
   iter->Seek(target.Encode());
@@ -1152,7 +1170,7 @@ int DBTestBase::TotalTableFiles(int cf, int levels) {
 // Return spread of files per level
 std::string DBTestBase::FilesPerLevel(int cf) {
   int num_levels =
-      (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[1]);
+      (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[cf]);
   std::string result;
   size_t last_non_zero_offset = 0;
   for (int level = 0; level < num_levels; level++) {
@@ -1453,13 +1471,13 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
+  ScopedArenaPtr<InternalIterator> iter;
   if (cf != 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber, handles_[cf]));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber));
   }
   iter->SeekToFirst();
   ASSERT_OK(iter->status());

@@ -163,8 +163,10 @@ IOStatus DBImpl::SyncClosedLogs(const WriteOptions& write_options,
         if (error_recovery_in_prog) {
           log->file()->reset_seen_error();
         }
-        // TODO: plumb Env::IOActivity, Env::IOPriority
-        io_s = log->Close(WriteOptions());
+        // Normally the log file is closed when purging obsolete file, but if
+        // log recycling is enabled, the log file is closed here so that it
+        // can be reused.
+        io_s = log->Close(write_options);
         if (!io_s.ok()) {
           break;
         }
@@ -270,8 +272,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
-      io_tracer_, seqno_to_time_mapping_, db_id_, db_session_id_,
-      cfd->GetFullHistoryTsLow(), &blob_callback_);
+      io_tracer_, cfd->GetSuperVersion()->ShareSeqnoToTimeMapping(), db_id_,
+      db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_);
   FileMetaData file_meta;
 
   Status s;
@@ -545,8 +547,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
         &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri, io_tracer_, seqno_to_time_mapping_, db_id_, db_session_id_,
-        cfd->GetFullHistoryTsLow(), &blob_callback_));
+        thread_pri, io_tracer_,
+        cfd->GetSuperVersion()->ShareSeqnoToTimeMapping(), db_id_,
+        db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_));
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
@@ -970,7 +973,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.smallest_seqno = file_meta->fd.smallest_seqno;
     info.largest_seqno = file_meta->fd.largest_seqno;
     info.flush_reason = flush_reason;
-    for (auto listener : immutable_db_options_.listeners) {
+    for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnFlushBegin(this, info);
     }
   }
@@ -1002,7 +1005,7 @@ void DBImpl::NotifyOnFlushCompleted(
     for (auto& info : *flush_jobs_info) {
       info->triggered_writes_slowdown = triggered_writes_slowdown;
       info->triggered_writes_stop = triggered_writes_stop;
-      for (auto listener : immutable_db_options_.listeners) {
+      for (const auto& listener : immutable_db_options_.listeners) {
         listener->OnFlushCompleted(this, *info);
       }
       TEST_SYNC_POINT(
@@ -1417,6 +1420,14 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
+  if (compact_options.compression !=
+      CompressionType::kDisableCompressionOption) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Found use of deprecated option "
+                   "`CompactionOptions::compression`",
+                   cfd->GetName().c_str(), job_context.job_id);
+  }
+
   // Perform CompactFiles
   TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile2");
   TEST_SYNC_POINT_CALLBACK("TestCompactFiles:PausingManualCompaction:3",
@@ -1609,9 +1620,9 @@ Status DBImpl::CompactFilesImpl(
   }
   if (status.ok()) {
     assert(compaction_job.io_status().ok());
-    InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                       &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        *c->mutable_cf_options());
   }
   // status above captures any error during compaction_job.Install, so its ok
   // not check compaction_job.io_status() explicitly if we're not calling
@@ -1731,7 +1742,7 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   {
     CompactionJobInfo info{};
     BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, &info);
-    for (auto listener : immutable_db_options_.listeners) {
+    for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
     }
     info.status.PermitUncheckedError();
@@ -1760,7 +1771,7 @@ void DBImpl::NotifyOnCompactionCompleted(
   {
     CompactionJobInfo info{};
     BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, &info);
-    for (auto listener : immutable_db_options_.listeners) {
+    for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
     }
   }
@@ -1771,6 +1782,8 @@ void DBImpl::NotifyOnCompactionCompleted(
 
 // REQUIREMENT: block all background work by calling PauseBackgroundWork()
 // before calling this function
+// TODO (hx235): Replace Status::NotSupported() with Status::Aborted() for
+// better semantics like CompactFiles()
 Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   assert(level < cfd->NumberLevels());
   if (target_level >= cfd->NumberLevels()) {
@@ -1806,6 +1819,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   if (to_level != level) {
     std::vector<CompactionInputFiles> input(1);
     input[0].level = level;
+    // TODO (hx235): Only refit the output files in the current manual
+    // compaction instead of all the files in the output level
     for (auto& f : vstorage->LevelFiles(level)) {
       input[0].files.push_back(f);
     }
@@ -1837,6 +1852,12 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       }
     } else {
       // to_level < level
+      if (to_level == 0 && input[0].files.size() > 1) {
+        refitting_level_ = false;
+        return Status::Aborted(
+            "Moving more than 1 file from non-L0 to L0 is not allowed as it "
+            "does not bring any benefit to read nor write throughput.");
+      }
       // Check levels are empty for a trivial move
       for (int l = to_level; l < level; l++) {
         if (vstorage->NumLevelFiles(l) > 0) {
@@ -1868,7 +1889,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         ,
         LLONG_MAX /* max compaction bytes, not applicable */,
         0 /* output path ID, not applicable */, mutable_cf_options.compression,
-        mutable_cf_options.compression_opts, Temperature::kUnknown,
+        mutable_cf_options.compression_opts,
+        mutable_cf_options.default_write_temperature,
         0 /* max_subcompactions, not applicable */,
         {} /* grandparents, not applicable */, false /* is manual */,
         "" /* trim_ts */, -1 /* score, not applicable */,
@@ -2150,16 +2172,6 @@ Status DBImpl::RunManualCompaction(
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
                max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
-      if (!scheduled) {
-        // There is a conflicting compaction
-        if (manual_compaction_paused_ > 0 || manual.canceled == true) {
-          // Stop waiting since it was canceled. Pretend the error came from
-          // compaction so the below cleanup/error handling code can process it.
-          manual.done = true;
-          manual.status =
-              Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-        }
-      }
       if (!manual.done) {
         bg_cv_.Wait();
       }
@@ -2232,6 +2244,17 @@ Status DBImpl::RunManualCompaction(
       TEST_SYNC_POINT("DBImpl::RunManualCompaction:Scheduled");
       if (final_output_level) {
         *final_output_level = compaction->output_level();
+      }
+    }
+    if (!scheduled) {
+      // There is nothing scheduled to wait on, so any cancellation can end the
+      // manual now.
+      if (manual_compaction_paused_ > 0 || manual.canceled == true) {
+        // Stop waiting since it was canceled. Pretend the error came from
+        // compaction so the below cleanup/error handling code can process it.
+        manual.done = true;
+        manual.status =
+            Status::Incomplete(Status::SubCode::kManualCompactionPaused);
       }
     }
   }
@@ -3028,6 +3051,8 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
     return;
   }
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
+    TEST_SYNC_POINT_CALLBACK("SchedulePendingCompaction::cfd",
+                             static_cast<void*>(cfd));
     AddToCompactionQueue(cfd);
     ++unscheduled_compactions_;
   }
@@ -3220,7 +3245,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         column_families_not_to_flush.push_back(cfd);
         continue;
       }
-      superversion_contexts.emplace_back(SuperVersionContext(true));
+      superversion_contexts.emplace_back(true);
       bg_flush_args.emplace_back(cfd, max_memtable_id,
                                  &(superversion_contexts.back()), flush_reason);
     }
@@ -3725,9 +3750,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           compaction_released = true;
         });
     io_s = versions_->io_status();
-    InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                       &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        *c->mutable_cf_options());
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -3800,9 +3825,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         });
     io_s = versions_->io_status();
     // Use latest MutableCFOptions
-    InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                       &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), job_context->superversion_contexts.data(),
+        *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -3895,9 +3920,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         compaction_job.Install(*c->mutable_cf_options(), &compaction_released);
     io_s = compaction_job.io_status();
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                         &job_context->superversion_contexts[0],
-                                         *c->mutable_cf_options());
+      InstallSuperVersionAndScheduleWork(
+          c->column_family_data(), job_context->superversion_contexts.data(),
+          *c->mutable_cf_options());
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -4044,7 +4069,6 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompactionState* m) {
     ++it;
   }
   assert(false);
-  return;
 }
 
 bool DBImpl::ShouldntRunManualCompaction(ManualCompactionState* m) {
@@ -4341,6 +4365,7 @@ Status DBImpl::WaitForCompact(
     }
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || unscheduled_compactions_ ||
+         (wait_for_compact_options.wait_for_purge && bg_purge_scheduled_) ||
          unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {
       if (wait_for_compact_options.timeout.count()) {
@@ -4348,6 +4373,7 @@ Status DBImpl::WaitForCompact(
           return Status::TimedOut();
         }
       } else {
+        TEST_SYNC_POINT("DBImpl::WaitForCompact:InsideLoop");
         bg_cv_.Wait();
       }
     } else if (wait_for_compact_options.close_db) {

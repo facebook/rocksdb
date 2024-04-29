@@ -217,6 +217,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
   Statistics* const statistics = rep_->ioptions.stats;
 
   PERF_COUNTER_ADD(block_cache_hit_count, 1);
+  PERF_COUNTER_ADD(block_cache_read_byte, usage);
   PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 1,
                             static_cast<uint32_t>(rep_->level));
 
@@ -232,6 +233,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
     case BlockType::kFilter:
     case BlockType::kFilterPartitionIndex:
       PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
+      PERF_COUNTER_ADD(block_cache_filter_read_byte, usage);
 
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_hit;
@@ -242,6 +244,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
     case BlockType::kCompressionDictionary:
       // TODO: introduce perf counter for compression dictionary hit count
+      PERF_COUNTER_ADD(block_cache_compression_dict_read_byte, usage);
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_compression_dict_hit;
       } else {
@@ -251,6 +254,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
     case BlockType::kIndex:
       PERF_COUNTER_ADD(block_cache_index_hit_count, 1);
+      PERF_COUNTER_ADD(block_cache_index_read_byte, usage);
 
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_hit;
@@ -631,6 +635,19 @@ Status BlockBasedTable::Open(
                            prefetch_buffer.get(), file_size, &footer,
                            kBlockBasedTableMagicNumber);
   }
+  // If the footer is corrupted and the FS supports checksum verification and
+  // correction, try reading the footer again
+  if (s.IsCorruption()) {
+    RecordTick(ioptions.statistics.get(), SST_FOOTER_CORRUPTION_COUNT);
+    if (CheckFSFeatureSupport(ioptions.fs.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      IOOptions retry_opts = opts;
+      retry_opts.verify_and_reconstruct_read = true;
+      s = ReadFooterFromFile(retry_opts, file.get(), *ioptions.fs,
+                             prefetch_buffer.get(), file_size, &footer,
+                             kBlockBasedTableMagicNumber);
+    }
+  }
   if (!s.ok()) {
     return s;
   }
@@ -921,6 +938,17 @@ Status BlockBasedTable::ReadPropertiesBlock(
     } else {
       assert(table_properties != nullptr);
       rep_->table_properties = std::move(table_properties);
+
+      if (s.ok()) {
+        s = rep_->seqno_to_time_mapping.DecodeFrom(
+            rep_->table_properties->seqno_to_time_mapping);
+      }
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            rep_->ioptions.logger,
+            "Problem reading or processing seqno-to-time mapping: %s",
+            s.ToString().c_str());
+      }
       rep_->blocks_maybe_compressed =
           rep_->table_properties->compression_name !=
           CompressionTypeToString(kNoCompression);
@@ -1231,6 +1259,10 @@ void BlockBasedTable::SetupForCompaction() {}
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
     const {
   return rep_->table_properties;
+}
+
+const SeqnoToTimeMapping& BlockBasedTable::GetSeqnoToTimeMapping() const {
+  return rep_->seqno_to_time_mapping;
 }
 
 size_t BlockBasedTable::ApproximateMemoryUsage() const {
@@ -2307,11 +2339,18 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
               biter.key(), &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
+            break;
           }
 
-          if (!get_context->SaveValue(
-                  parsed_key, biter.value(), &matched,
-                  biter.IsValuePinned() ? &biter : nullptr)) {
+          Status read_status;
+          bool ret = get_context->SaveValue(
+              parsed_key, biter.value(), &matched, &read_status,
+              biter.IsValuePinned() ? &biter : nullptr);
+          if (!read_status.ok()) {
+            s = read_status;
+            break;
+          }
+          if (!ret) {
             if (get_context->State() == GetContext::GetState::kFound) {
               does_referenced_key_exist = true;
               referenced_data_size = biter.key().size() + biter.value().size();
@@ -2320,7 +2359,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             break;
           }
         }
-        s = biter.status();
+        if (s.ok()) {
+          s = biter.status();
+        }
         if (!s.ok()) {
           break;
         }

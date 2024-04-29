@@ -13,8 +13,7 @@
 #include "table/get_context.h"
 #include "util/coding.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace mock {
+namespace ROCKSDB_NAMESPACE::mock {
 
 KVVector MakeMockFile(std::initializer_list<KVPair> l) { return KVVector(l); }
 
@@ -221,7 +220,13 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
     }
 
     bool dont_care __attribute__((__unused__));
-    if (!get_context->SaveValue(parsed_key, iter->value(), &dont_care)) {
+    Status read_status;
+    bool ret = get_context->SaveValue(parsed_key, iter->value(), &dont_care,
+                                      &read_status);
+    if (!read_status.ok()) {
+      return read_status;
+    }
+    if (!ret) {
       break;
     }
   }
@@ -347,5 +352,4 @@ void MockTableFactory::AssertLatestFiles(
   }
 }
 
-}  // namespace mock
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::mock

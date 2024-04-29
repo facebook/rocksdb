@@ -5,13 +5,12 @@
 //
 #include "util/string_util.h"
 
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <algorithm>
+#include <cerrno>
 #include <cinttypes>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -266,7 +265,9 @@ std::string UnescapeOptionString(const std::string& escaped_string) {
 }
 
 std::string trim(const std::string& str) {
-  if (str.empty()) return std::string();
+  if (str.empty()) {
+    return std::string();
+  }
   size_t start = 0;
   size_t end = str.size() - 1;
   while (isspace(str[start]) != 0 && start < end) {
@@ -346,14 +347,15 @@ uint64_t ParseUint64(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10LL;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20LL;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30LL;
-    else if (c == 't' || c == 'T')
+    } else if (c == 't' || c == 'T') {
       num <<= 40LL;
+    }
   }
 
   return num;
@@ -371,14 +373,15 @@ int64_t ParseInt64(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10LL;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20LL;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30LL;
-    else if (c == 't' || c == 'T')
+    } else if (c == 't' || c == 'T') {
       num <<= 40LL;
+    }
   }
 
   return num;
@@ -396,12 +399,13 @@ int ParseInt(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30;
+    }
   }
 
   return num;

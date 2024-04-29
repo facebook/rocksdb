@@ -19,17 +19,17 @@ namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  Temperature src_temp_hint,
                   std::unique_ptr<WritableFileWriter>& dest_writer,
                   uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer,
-                  const Temperature temperature) {
+                  const std::shared_ptr<IOTracer>& io_tracer) {
   FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
   const IOOptions opts;
 
   {
-    soptions.temperature = temperature;
+    soptions.temperature = src_temp_hint;
     std::unique_ptr<FSSequentialFile> srcfile;
     io_s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
     if (!io_s.ok()) {
@@ -72,15 +72,15 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
 }
 
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                  const std::string& destination, uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer,
-                  const Temperature temperature) {
+                  Temperature src_temp_hint, const std::string& destination,
+                  Temperature dst_temp, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer) {
   FileOptions options;
   IOStatus io_s;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
-    options.temperature = temperature;
+    options.temperature = dst_temp;
     std::unique_ptr<FSWritableFile> destfile;
     io_s = fs->NewWritableFile(destination, options, &destfile, nullptr);
     if (!io_s.ok()) {
@@ -92,8 +92,8 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
         new WritableFileWriter(std::move(destfile), destination, options));
   }
 
-  return CopyFile(fs, source, dest_writer, size, use_fsync, io_tracer,
-                  temperature);
+  return CopyFile(fs, source, src_temp_hint, dest_writer, size, use_fsync,
+                  io_tracer);
 }
 
 // Utility function to create a file with the provided contents

@@ -313,6 +313,10 @@ TEST_F(DBMemTableTest, InsertWithHint) {
   ASSERT_EQ("foo_v3", Get("foo_k3"));
   ASSERT_EQ("bar_v1", Get("bar_k1"));
   ASSERT_EQ("bar_v2", Get("bar_k2"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), "foo_k1", "foo_k4"));
+  ASSERT_EQ(hint_bar, rep->last_hint_in());
+  ASSERT_EQ(hint_bar, rep->last_hint_out());
+  ASSERT_EQ(5, rep->num_insert_with_hint());
   ASSERT_EQ("vvv", Get("NotInPrefixDomain"));
 }
 

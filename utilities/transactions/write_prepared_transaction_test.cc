@@ -1197,7 +1197,9 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
     // create a common_snapshots for each combination.
     size_t new_comb_cnt = size_t(1) << old_size;
     for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++, loop_id++) {
-      if (loop_id % split_cnt_ != split_id_) continue;
+      if (loop_id % split_cnt_ != split_id_) {
+        continue;
+      }
       printf(".");  // To signal progress
       fflush(stdout);
       std::vector<SequenceNumber> common_snapshots;
@@ -1619,7 +1621,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
     }
   });
   ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
-    while (1) {
+    while (true) {
       MutexLock l(&mutex);
       if (txns.empty()) {
         break;
@@ -1668,7 +1670,9 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
       ASSERT_OK(ReOpen());
     }
 
-    if (n % split_cnt_ != split_id_) continue;
+    if (n % split_cnt_ != split_id_) {
+      continue;
+    }
     if (n % 1000 == 0) {
       printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }

@@ -405,7 +405,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
     requests_buf[0] =
         BlobReadRequest(key_refs[0], blob_offsets[0], blob_sizes[0],
-                        kNoCompression, nullptr, &statuses_buf[0]);
+                        kNoCompression, nullptr, statuses_buf.data());
     requests_buf[1] =
         BlobReadRequest(key_refs[1], blob_offsets[1], blob_sizes[1] + 1,
                         kNoCompression, nullptr, &statuses_buf[1]);

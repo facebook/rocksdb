@@ -611,6 +611,11 @@ Slice ForwardIterator::key() const {
   return current_->key();
 }
 
+uint64_t ForwardIterator::write_unix_time() const {
+  assert(valid_);
+  return current_->write_unix_time();
+}
+
 Slice ForwardIterator::value() const {
   assert(valid_);
   return current_->value();
@@ -704,8 +709,12 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
                                        kMaxSequenceNumber /* upper_bound */);
-  mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
-  sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping =
+      sv_->GetSeqnoToTimeMapping();
+  mutable_iter_ =
+      sv_->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_);
+  sv_->imm->AddIterators(read_options_, seqno_to_time_mapping, &imm_iters_,
+                         &arena_);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         sv_->mem->NewRangeTombstoneIterator(
@@ -769,8 +778,12 @@ void ForwardIterator::RenewIterators() {
   }
   imm_iters_.clear();
 
-  mutable_iter_ = svnew->mem->NewIterator(read_options_, &arena_);
-  svnew->imm->AddIterators(read_options_, &imm_iters_, &arena_);
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping =
+      svnew->GetSeqnoToTimeMapping();
+  mutable_iter_ =
+      svnew->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_);
+  svnew->imm->AddIterators(read_options_, seqno_to_time_mapping, &imm_iters_,
+                           &arena_);
   ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
                                        kMaxSequenceNumber /* upper_bound */);
   if (!read_options_.ignore_range_deletions) {

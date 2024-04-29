@@ -50,8 +50,14 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
 
       GetContext* get_context = miter->get_context;
 
-      if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
-                          get_context)) {
+      Status read_status;
+      bool ret =
+          GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
+                          get_context, &read_status);
+      if (!read_status.ok()) {
+        CO_RETURN read_status;
+      }
+      if (ret) {
         table_range.SkipKey(miter);
       } else {
         row_cache_entries.emplace_back();
@@ -103,7 +109,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
          ++miter) {
       std::string& row_cache_entry = row_cache_entries[row_idx++];
       const Slice& user_key = miter->ukey_with_ts;
-      ;
       GetContext* get_context = miter->get_context;
 
       get_context->SetReplayLog(nullptr);

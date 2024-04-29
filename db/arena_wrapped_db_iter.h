@@ -87,15 +87,14 @@ class ArenaWrappedDBIter : public Iterator {
             const MutableCFOptions& mutable_cf_options, const Version* version,
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-            ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+            ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
             bool expose_blob_index, bool allow_refresh);
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
-  void StoreRefreshInfo(DBImpl* db_impl, ColumnFamilyData* cfd,
+  void StoreRefreshInfo(ColumnFamilyHandleImpl* cfh,
                         ReadCallback* read_callback, bool expose_blob_index) {
-    db_impl_ = db_impl;
-    cfd_ = cfd;
+    cfh_ = cfh;
     read_callback_ = read_callback;
     expose_blob_index_ = expose_blob_index;
   }
@@ -104,8 +103,7 @@ class ArenaWrappedDBIter : public Iterator {
   DBIter* db_iter_ = nullptr;
   Arena arena_;
   uint64_t sv_number_;
-  ColumnFamilyData* cfd_ = nullptr;
-  DBImpl* db_impl_ = nullptr;
+  ColumnFamilyHandleImpl* cfh_ = nullptr;
   ReadOptions read_options_;
   ReadCallback* read_callback_;
   bool expose_blob_index_ = false;
@@ -116,13 +114,13 @@ class ArenaWrappedDBIter : public Iterator {
 };
 
 // Generate the arena wrapped iterator class.
-// `db_impl` and `cfd` are used for reneweal. If left null, renewal will not
+// `cfh` is used for reneweal. If left null, renewal will not
 // be supported.
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, ReadCallback* read_callback,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool expose_blob_index = false, bool allow_refresh = true);
+    ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false,
+    bool allow_refresh = true);
 }  // namespace ROCKSDB_NAMESPACE

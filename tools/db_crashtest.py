@@ -60,9 +60,7 @@ default_params = {
     ),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
-    # Disabled compression_parallel_threads as the feature is not stable
-    # lambda: random.choice([1] * 9 + [4])
-    "compression_parallel_threads": 1,
+    "compression_parallel_threads": lambda: random.choice([1] * 3 + [4, 8, 16]),
     "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "compression_use_zstd_dict_trainer": lambda: random.randint(0, 1),
     "compression_checksum": lambda: random.randint(0, 1),
@@ -76,12 +74,23 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
+    # `inplace_update_support` is incompatible with DB that has delete
+    # range data in memtables.
+    # Such data can result from any of the previous db stress runs
+    # using delete range.
+    # Since there is no easy way to keep track of whether delete range
+    # is used in any of the previous runs,
+    # to simpify our testing, we set `inplace_update_support` across
+    # runs and to disable delete range accordingly
+    # (see below `finalize_and_sanitize`).
+    "inplace_update_support": random.choice([0] * 9 + [1]),
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
-    "get_live_files_one_in": lambda: random.choice([10000, 1000000]),
+    "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
+    "get_all_column_family_metadata_one_in": lambda: random.choice([10000, 1000000]),
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.
     "get_sorted_wal_files_one_in": 0,
@@ -96,6 +105,7 @@ default_params = {
     "max_bytes_for_level_base": 10485760,
     # max_key has to be the same across invocations for verification to work, hence no lambda
     "max_key": random.choice([100000, 25000000]),
+    "max_sequential_skip_in_iterations": lambda: random.choice([1, 2, 8, 16]),
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
@@ -107,6 +117,8 @@ default_params = {
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
+    "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
+    "disable_manual_compaction_one_in": lambda: random.choice([10000, 1000000]),
     "prefix_size": lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
     "progress_reports": 0,
@@ -148,6 +160,15 @@ default_params = {
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "daily_offpeak_time_utc": lambda: random.choice(
+        [
+            "",
+            "",
+            "00:00-23:59",
+            "04:00-08:00",
+            "23:30-03:15"
+        ]
+    ),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
@@ -160,7 +181,9 @@ default_params = {
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
-    "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
+    # TODO(hx235): Enable `wal_bytes_per_sync` after fixing the DB recovery such
+    # that it won't recover past the WAL data hole created by this option
+    "wal_bytes_per_sync": 0,
     "compaction_readahead_size": lambda: random.choice(
         [0, 0, 1024 * 1024]),
     "db_write_buffer_size": lambda: random.choice(
@@ -176,8 +199,8 @@ default_params = {
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
-    "verify_checksum_one_in": lambda: random.choice([100000, 1000000]),
-    "verify_file_checksums_one_in": lambda: random.choice([100000, 1000000]),
+    "verify_checksum_one_in": lambda: random.choice([1000, 1000000]),
+    "verify_file_checksums_one_in": lambda: random.choice([1000, 1000000]),
     "verify_db_one_in": lambda: random.choice([10000, 100000]),
     "continuous_verification_interval": 0,
     "max_key_len": 3,
@@ -189,6 +212,7 @@ default_params = {
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
     "sync_fault_injection": lambda: random.randint(0, 1),
     "get_property_one_in":  lambda: random.choice([100000, 1000000]),
+    "get_properties_of_all_tables_one_in":  lambda: random.choice([100000, 1000000]),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]
@@ -227,8 +251,60 @@ default_params = {
     ),
     "auto_readahead_size" : lambda: random.choice([0, 1]),
     "verify_iterator_with_expected_state_one_in": 5,
+    "allow_fallocate": lambda: random.choice([0, 1]),
+    "table_cache_numshardbits": lambda: random.choice([6] * 3 + [-1] * 2 + [0]),
+    "enable_write_thread_adaptive_yield": lambda: random.choice([0, 1]),
+    "log_readahead_size": lambda: random.choice([0, 16 * 1024 * 1024]),
+    "bgerror_resume_retry_interval": lambda: random.choice([10000, 1000000]),
+    "delete_obsolete_files_period_micros": lambda: random.choice([6 * 60 * 60 * 1000000, 30 * 1000000]),
+    "max_log_file_size": lambda: random.choice([0, 1024 * 1024]),
+    "log_file_time_to_roll": lambda: random.choice([0, 60]),
+    "use_adaptive_mutex": lambda: random.choice([0, 1]),
+    "advise_random_on_open": lambda: random.choice([0] + [1] * 3),
+    "WAL_ttl_seconds": lambda: random.choice([0, 60]),
+    "WAL_size_limit_MB": lambda: random.choice([0, 1]),
+    "strict_bytes_per_sync": lambda: random.choice([0, 1]),
+    "avoid_flush_during_shutdown": lambda: random.choice([0, 1]),
+    "fill_cache": lambda: random.choice([0, 1]),
+    "optimize_multiget_for_io": lambda: random.choice([0, 1]),
+    "memtable_insert_hint_per_batch": lambda: random.choice([0, 1]),
+    "dump_malloc_stats": lambda: random.choice([0, 1]),
+    "stats_history_buffer_size": lambda: random.choice([0, 1024 * 1024]),
+    "skip_stats_update_on_db_open": lambda: random.choice([0, 1]),
+    "optimize_filters_for_hits": lambda: random.choice([0, 1]),
+    "sample_for_compression": lambda: random.choice([0, 5]),
+    "report_bg_io_stats": lambda: random.choice([0, 1]),
+    "cache_index_and_filter_blocks_with_high_priority": lambda: random.choice([0, 1]),
+    "use_delta_encoding": lambda: random.choice([0, 1]),
+    "verify_compression": lambda: random.choice([0, 1]),
+    "read_amp_bytes_per_bit": lambda: random.choice([0, 32]),
+    "enable_index_compression": lambda: random.choice([0, 1]),
+    "index_shortening": lambda: random.choice([0, 1, 2]),
+    "metadata_charge_policy": lambda: random.choice([0, 1]),
+    "use_adaptive_mutex_lru": lambda: random.choice([0, 1]),
+    "compress_format_version": lambda: random.choice([1, 2]),
+    "manifest_preallocation_size": lambda: random.choice([0, 5 * 1024]),
+    "enable_checksum_handoff": lambda: random.choice([0, 1]),
+    "max_total_wal_size": lambda: random.choice([0] * 4 + [64 * 1024 * 1024]),
+    "high_pri_pool_ratio": lambda: random.choice([0, 0.5]),
+    "low_pri_pool_ratio": lambda: random.choice([0, 0.5]),
+    "soft_pending_compaction_bytes_limit" : lambda: random.choice([1024 * 1024] + [64 * 1073741824] * 4),
+    "hard_pending_compaction_bytes_limit" : lambda: random.choice([2 * 1024 * 1024] + [256 * 1073741824] * 4),
+    "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
+    "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
+    "block_align": lambda: random.choice([0, 1]),
+    "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
+    "enable_custom_split_merge": lambda: random.choice([0, 1]),
+    "adm_policy": lambda: random.choice([0, 1, 2, 3]),
+    "last_level_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    "default_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
+    # after fixing the surfaced issue with delete range
+    "enable_memtable_insert_with_hint_prefix_extractor": 0,
+    "check_multiget_consistency": lambda: random.choice([0, 0, 0, 1]),
+    "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
 }
-
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
@@ -385,8 +461,9 @@ cf_consistency_params = {
     "write_buffer_size": 1024 * 1024,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     # Snapshots are used heavily in this test mode, while they are incompatible
-    # with compaction filter.
+    # with compaction filter, inplace_update_support
     "enable_compaction_filter": 0,
+    "inplace_update_support": 0,
     # `CfConsistencyStressTest::TestIngestExternalFile()` is not implemented.
     "ingest_external_file_one_in": 0,
     # `CfConsistencyStressTest::TestIterateAgainstExpected()` is not implemented.
@@ -410,6 +487,8 @@ txn_params = {
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with TransactionDB which uses snapshot.
+    "inplace_update_support": 0,
 }
 
 # For optimistic transaction db
@@ -421,11 +500,12 @@ optimistic_txn_params = {
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with OptimisticTransactionDB which uses snapshot.
+    "inplace_update_support": 0,
 }
 
 best_efforts_recovery_params = {
     "best_efforts_recovery": 1,
-    "atomic_flush": 0,
     "disable_wal": 1,
     "column_families": 1,
     "skip_verifydb": 1,
@@ -470,7 +550,6 @@ ts_params = {
 }
 
 tiered_params = {
-    "enable_tiered_storage": 1,
     # Set tiered compaction hot data time as: 1 minute, 1 hour, 10 hour
     "preclude_last_level_data_seconds": lambda: random.choice([60, 3600, 36000]),
     # only test universal compaction for now, level has known issue of
@@ -479,6 +558,8 @@ tiered_params = {
     # tiered storage doesn't support blob db yet
     "enable_blob_files": 0,
     "use_blob_db": 0,
+    "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm"]),
+    "last_level_temperature": "kCold",
 }
 
 multiops_txn_default_params = {
@@ -530,6 +611,8 @@ multiops_txn_default_params = {
     "use_multi_get_entity": 0,
     # `MultiOpsTxnsStressTest::TestIterateAgainstExpected()` is not implemented.
     "verify_iterator_with_expected_state_one_in": 0,
+    # This test uses snapshot heavily which is incompatible with this option.
+    "inplace_update_support": 0,
 }
 
 multiops_wc_txn_params = {
@@ -566,8 +649,6 @@ def finalize_and_sanitize(src_params):
         dest_params["compression_max_dict_buffer_bytes"] = 0
     if dest_params.get("compression_type") != "zstd":
         dest_params["compression_zstd_max_train_bytes"] = 0
-    if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
-        dest_params["memtablerep"] = "skip_list"
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
@@ -587,6 +668,7 @@ def finalize_and_sanitize(src_params):
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
+        dest_params["inplace_update_support"] = 0
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
 
@@ -604,6 +686,11 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    if dest_params["inplace_update_support"] == 1:
+       dest_params["delpercent"] += dest_params["delrangepercent"]
+       dest_params["delrangepercent"] = 0
+       dest_params["readpercent"] += dest_params["prefixpercent"]
+       dest_params["prefixpercent"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
@@ -621,6 +708,11 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
+        # verification upon reopen. Currently reopen does not restore expected state
+        # with potential data loss in mind like start of each `./db_stress` run.
+        # Therefore it always expects no data loss.
+        dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
@@ -647,15 +739,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_pipelined_write"] = 0
     if dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0:
         dest_params["sst_file_manager_bytes_per_truncate"] = 0
-    if dest_params.get("enable_compaction_filter", 0) == 1:
-        # Compaction filter is incompatible with snapshots. Need to avoid taking
-        # snapshots, as well as avoid operations that use snapshots for
-        # verification.
-        dest_params["acquire_snapshot_one_in"] = 0
-        dest_params["compact_range_one_in"] = 0
-        # Give the iterator ops away to reads.
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
-        dest_params["iterpercent"] = 0
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
@@ -668,7 +751,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_pipelined_write"] = 0
     if dest_params.get("best_efforts_recovery") == 1:
         dest_params["disable_wal"] = 1
-        dest_params["atomic_flush"] = 0
         dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
@@ -727,12 +809,38 @@ def finalize_and_sanitize(src_params):
         # with each other. There is no external APIs to ensure that.
         dest_params["use_multiget"] = 0
         dest_params["use_multi_get_entity"] = 0
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10);
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
         # Only best efforts recovery test support disabling wal and
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
           dest_params["disable_wal"] = 0
+    if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
+        dest_params["memtablerep"] = "skip_list"
+        dest_params["inplace_update_support"] = 0
+    if (dest_params.get("enable_compaction_filter", 0) == 1
+        or dest_params.get("inplace_update_support", 0) == 1):
+        # Compaction filter, inplace update support are incompatible with snapshots. Need to avoid taking
+        # snapshots, as well as avoid operations that use snapshots for
+        # verification.
+        dest_params["acquire_snapshot_one_in"] = 0
+        dest_params["compact_range_one_in"] = 0
+        # Give the iterator ops away to reads.
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["iterpercent"] = 0
+        dest_params["check_multiget_consistency"] = 0
+        dest_params["check_multiget_entity_consistency"] = 0
+    if dest_params.get("disable_wal") == 1:
+        # disableWAL and recycle_log_file_num options are not mutually
+        # compatible at the moment
+        dest_params["recycle_log_file_num"] = 0
+    # Enabling block_align with compression is not supported
+    if dest_params.get("block_align") == 1:
+        dest_params["compression_type"] = "none"
+        dest_params["bottommost_compression_type"] = "none"
+    # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
+    if dest_params.get("periodic_compaction_seconds") == 0:
+        dest_params["daily_offpeak_time_utc"] = ""
     return dest_params
 
 

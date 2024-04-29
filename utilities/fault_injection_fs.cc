@@ -33,7 +33,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::string kNewFileNoOverwrite = "";
+const std::string kNewFileNoOverwrite;
 
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
@@ -47,7 +47,7 @@ std::string TestFSGetDirName(const std::string filename) {
 
 // Trim the tailing "/" in the end of `str`
 std::string TestFSTrimDirname(const std::string& str) {
-  size_t found = str.find_last_not_of("/");
+  size_t found = str.find_last_not_of('/');
   if (found == std::string::npos) {
     return str;
   }
@@ -74,7 +74,6 @@ void CalculateTypedChecksum(const ChecksumType& checksum_type, const char* data,
     uint32_t v = XXH32(data, size, 0);
     PutFixed32(checksum, v);
   }
-  return;
 }
 
 IOStatus FSFileState::DropUnsyncedData() {
@@ -196,9 +195,10 @@ IOStatus TestFSWritableFile::Append(
                          data.size(), &checksum);
   if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
       checksum != verification_info.checksum.ToString()) {
-    std::string msg = "Data is corrupted! Origin data checksum: " +
-                      verification_info.checksum.ToString() +
-                      "current data checksum: " + checksum;
+    std::string msg =
+        "Data is corrupted! Origin data checksum: " +
+        verification_info.checksum.ToString(true) +
+        "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
   if (target_->use_direct_io()) {
@@ -229,9 +229,10 @@ IOStatus TestFSWritableFile::PositionedAppend(
                          data.size(), &checksum);
   if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
       checksum != verification_info.checksum.ToString()) {
-    std::string msg = "Data is corrupted! Origin data checksum: " +
-                      verification_info.checksum.ToString() +
-                      "current data checksum: " + checksum;
+    std::string msg =
+        "Data is corrupted! Origin data checksum: " +
+        verification_info.checksum.ToString(true) +
+        "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
   target_->PositionedAppend(data, offset, options, dbg);
@@ -254,15 +255,10 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   }
   writable_file_opened_ = false;
   IOStatus io_s;
-  if (!target_->use_direct_io()) {
-    io_s = target_->Append(state_.buffer_, options, dbg);
-  }
-  if (io_s.ok()) {
-    state_.buffer_.resize(0);
-    // Ignore sync errors
-    target_->Sync(options, dbg).PermitUncheckedError();
-    io_s = target_->Close(options, dbg);
-  }
+  // Drop buffered data that was never synced because close is not a syncing
+  // mechanism in POSIX file semantics.
+  state_.buffer_.resize(0);
+  io_s = target_->Close(options, dbg);
   if (io_s.ok()) {
     IOStatus in_s = fs_->InjectMetadataWriteError();
     if (!in_s.ok()) {
@@ -630,6 +626,17 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
     }
   }
   return io_s;
+}
+
+IOStatus FaultInjectionTestFS::ReuseWritableFile(
+    const std::string& fname, const std::string& old_fname,
+    const FileOptions& file_opts, std::unique_ptr<FSWritableFile>* result,
+    IODebugContext* dbg) {
+  IOStatus s = RenameFile(old_fname, fname, file_opts.io_options, dbg);
+  if (!s.ok()) {
+    return s;
+  }
+  return NewWritableFile(fname, file_opts, result, dbg);
 }
 
 IOStatus FaultInjectionTestFS::NewRandomRWFile(
@@ -1014,7 +1021,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
                                             uint64_t* number, FileType* type) {
-  std::size_t found = file_name.find_last_of("/");
+  std::size_t found = file_name.find_last_of('/');
   std::string file = file_name.substr(found);
   return ParseFileName(file, number, type);
 }

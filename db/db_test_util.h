@@ -24,6 +24,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "file/filename.h"
+#include "options/options_helper.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -40,7 +41,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "table/mock_table.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -729,7 +729,11 @@ class FileTemperatureTestFS : public FileSystemWrapper {
           if (e != current_sst_file_temperatures_.end() &&
               e->second != opts.temperature) {
             result->reset();
-            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+            return IOStatus::PathNotFound(
+                "Read requested temperature " +
+                temperature_to_string[opts.temperature] +
+                " but stored with temperature " +
+                temperature_to_string[e->second] + " for " + fname);
           }
         }
         *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
@@ -758,7 +762,11 @@ class FileTemperatureTestFS : public FileSystemWrapper {
           if (e != current_sst_file_temperatures_.end() &&
               e->second != opts.temperature) {
             result->reset();
-            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+            return IOStatus::PathNotFound(
+                "Read requested temperature " +
+                temperature_to_string[opts.temperature] +
+                " but stored with temperature " +
+                temperature_to_string[e->second] + " for " + fname);
           }
         }
         *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
@@ -792,9 +800,35 @@ class FileTemperatureTestFS : public FileSystemWrapper {
     return target()->NewWritableFile(fname, opts, result, dbg);
   }
 
+  IOStatus DeleteFile(const std::string& fname, const IOOptions& options,
+                      IODebugContext* dbg) override {
+    IOStatus ios = target()->DeleteFile(fname, options, dbg);
+    if (ios.ok()) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(GetFileName(fname), &number, &type) &&
+          type == kTableFile) {
+        MutexLock lock(&mu_);
+        current_sst_file_temperatures_.erase(number);
+      }
+    }
+    return ios;
+  }
+
   void CopyCurrentSstFileTemperatures(std::map<uint64_t, Temperature>* out) {
     MutexLock lock(&mu_);
     *out = current_sst_file_temperatures_;
+  }
+
+  size_t CountCurrentSstFilesWithTemperature(Temperature temp) {
+    MutexLock lock(&mu_);
+    size_t count = 0;
+    for (const auto& e : current_sst_file_temperatures_) {
+      if (e.second == temp) {
+        ++count;
+      }
+    }
+    return count;
   }
 
   void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
@@ -1140,6 +1174,12 @@ class DBTestBase : public testing::Test {
 
   Status Put(int cf, const Slice& k, const Slice& v,
              WriteOptions wo = WriteOptions());
+
+  Status TimedPut(const Slice& k, const Slice& v, uint64_t write_unix_time,
+                  WriteOptions wo = WriteOptions());
+
+  Status TimedPut(int cf, const Slice& k, const Slice& v,
+                  uint64_t write_unix_time, WriteOptions wo = WriteOptions());
 
   Status Merge(const Slice& k, const Slice& v,
                WriteOptions wo = WriteOptions());

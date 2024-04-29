@@ -870,7 +870,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
                                            output_level, 1, enable_compression),
                         GetCompressionOptions(mutable_cf_options_, vstorage_,
                                               output_level, enable_compression),
-                        Temperature::kUnknown,
+                        mutable_cf_options_.default_write_temperature,
                         /* max_subcompactions */ 0, grandparents,
                         /* is manual */ false, /* trim_ts */ "", score_,
                         false /* deletion_compaction */,
@@ -1139,7 +1139,8 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // from bottom_start_idx and bottom_end_idx, but for now, we use
   // SetupOtherInputs() for simplicity.
   int parent_index = -1;  // Create and use bottom_start_idx?
-  if (!picker_->SetupOtherInputs(cf_name_, vstorage_, &second_last_level_inputs,
+  if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
+                                 &second_last_level_inputs,
                                  &bottom_level_inputs, &parent_index,
                                  /*base_index=*/-1)) {
     return nullptr;
@@ -1204,7 +1205,7 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
                          true /* enable_compression */),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
-      Temperature::kUnknown,
+      mutable_cf_options_.default_write_temperature,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true,
@@ -1310,8 +1311,9 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       int parent_index = -1;
 
       output_level_inputs.level = output_level;
-      if (!picker_->SetupOtherInputs(cf_name_, vstorage_, &start_level_inputs,
-                                     &output_level_inputs, &parent_index, -1)) {
+      if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
+                                     &start_level_inputs, &output_level_inputs,
+                                     &parent_index, -1)) {
         return nullptr;
       }
       inputs.push_back(start_level_inputs);
@@ -1347,7 +1349,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       /* max_grandparent_overlap_bytes */ GetMaxOverlappingBytes(), path_id,
       GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
-      Temperature::kUnknown,
+      mutable_cf_options_.default_write_temperature,
       /* max_subcompactions */ 0, grandparents, /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true,
@@ -1440,7 +1442,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
                          true /* enable_compression */),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
-      Temperature::kUnknown,
+      mutable_cf_options_.default_write_temperature,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true, compaction_reason);

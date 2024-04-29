@@ -32,7 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class LRUCacheTest : public testing::Test {
  public:
-  LRUCacheTest() {}
+  LRUCacheTest() = default;
   ~LRUCacheTest() override { DeleteCache(); }
 
   void DeleteCache() {
@@ -57,10 +57,11 @@ class LRUCacheTest : public testing::Test {
   }
 
   void Insert(const std::string& key,
-              Cache::Priority priority = Cache::Priority::LOW) {
+              Cache::Priority priority = Cache::Priority::LOW,
+              size_t charge = 1) {
     EXPECT_OK(cache_->Insert(key, 0 /*hash*/, nullptr /*value*/,
-                             &kNoopCacheItemHelper, 1 /*charge*/,
-                             nullptr /*handle*/, priority));
+                             &kNoopCacheItemHelper, charge, nullptr /*handle*/,
+                             priority));
   }
 
   void Insert(char key, Cache::Priority priority = Cache::Priority::LOW) {
@@ -144,8 +145,10 @@ class LRUCacheTest : public testing::Test {
     ASSERT_EQ(num_bottom_pri_pool_keys, bottom_pri_pool_keys);
   }
 
- private:
+ protected:
   LRUCacheShard* cache_ = nullptr;
+
+ private:
   Cache::EvictionCallback eviction_callback_;
 };
 
@@ -378,7 +381,7 @@ class ClockCacheTest : public testing::Test {
   using Table = typename Shard::Table;
   using TableOpts = typename Table::Opts;
 
-  ClockCacheTest() {}
+  ClockCacheTest() = default;
   ~ClockCacheTest() override { DeleteShard(); }
 
   void DeleteShard() {
@@ -1976,7 +1979,7 @@ TEST_P(BasicSecondaryCacheTest, BasicWaitAllTest) {
     ah.priority = Cache::Priority::LOW;
     cache->StartAsyncLookup(ah);
   }
-  cache->WaitAll(&async_handles[0], async_handles.size());
+  cache->WaitAll(async_handles.data(), async_handles.size());
   for (size_t i = 0; i < async_handles.size(); ++i) {
     SCOPED_TRACE("i = " + std::to_string(i));
     Cache::Handle* result = async_handles[i].Result();
@@ -2701,6 +2704,23 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   delete db2;
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+TEST_F(LRUCacheTest, InsertAfterReducingCapacity) {
+  // Fix a bug in LRU cache where it may try to remove a low pri entry's
+  // charge from high pri pool. It causes
+  // Assertion failed: (high_pri_pool_usage_ >= lru_low_pri_->total_charge),
+  // function MaintainPoolSize, file lru_cache.cc
+  NewCache(/*capacity=*/10, /*high_pri_pool_ratio=*/0.2,
+           /*low_pri_pool_ratio=*/0.8);
+  // high pri pool size and usage are both 2
+  Insert("x", Cache::Priority::HIGH);
+  Insert("y", Cache::Priority::HIGH);
+  cache_->SetCapacity(5);
+  // high_pri_pool_size is 1, the next time we try to maintain pool size,
+  // we will move entries from high pri pool to low pri pool
+  // The bug was deducting this entry's charge from high pri pool usage.
+  Insert("aaa", Cache::Priority::LOW, /*charge=*/3);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

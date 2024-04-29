@@ -150,7 +150,7 @@ class ConditionalFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  explicit ChangeFilter() {}
+  explicit ChangeFilter() = default;
 
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
               std::string* new_value, bool* value_changed) const override {
@@ -289,7 +289,7 @@ class ConditionalFilterFactory : public CompactionFilterFactory {
 
 class ChangeFilterFactory : public CompactionFilterFactory {
  public:
-  explicit ChangeFilterFactory() {}
+  explicit ChangeFilterFactory() = default;
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
@@ -342,7 +342,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
@@ -434,7 +434,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
@@ -717,8 +717,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     Arena arena;
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(read_options, &arena,
-                                                           kMaxSequenceNumber));
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
+        read_options, &arena, kMaxSequenceNumber));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {

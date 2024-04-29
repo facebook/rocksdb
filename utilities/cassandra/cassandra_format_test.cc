@@ -11,8 +11,7 @@
 #include "utilities/cassandra/serialize.h"
 #include "utilities/cassandra/test_utils.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 
 TEST(ColumnTest, Column) {
   char data[4] = {'d', 'a', 't', 'a'};
@@ -367,8 +366,7 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   compacted.ConvertExpiredColumnsToTombstones(&changed);
   EXPECT_FALSE(changed);
 }
-}  // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

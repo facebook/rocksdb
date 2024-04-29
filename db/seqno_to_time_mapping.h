@@ -265,4 +265,34 @@ class SeqnoToTimeMapping {
   pair_const_iterator FindGreaterEqSeqno(SequenceNumber seqno) const;
 };
 
+// === Utility methods used for TimedPut === //
+
+// Pack a value Slice and a unix write time into buffer `buf` and return a Slice
+// for the packed value backed by `buf`.
+Slice PackValueAndWriteTime(const Slice& value, uint64_t unix_write_time,
+                            std::string* buf);
+
+// Pack a value Slice and a sequence number into buffer `buf` and return a Slice
+// for the packed value backed by `buf`.
+Slice PackValueAndSeqno(const Slice& value, SequenceNumber seqno,
+                        std::string* buf);
+
+// Parse a packed value to get the write time.
+uint64_t ParsePackedValueForWriteTime(const Slice& value);
+
+// Parse a packed value to get the value and the write time. The unpacked value
+// Slice is backed up by the same memory backing up `value`.
+std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value);
+
+// Parse a packed value to get the sequence number.
+SequenceNumber ParsePackedValueForSeqno(const Slice& value);
+
+// Parse a packed value to get the value and the sequence number. The unpacked
+// value Slice is backed up by the same memory backing up `value`.
+std::tuple<Slice, SequenceNumber> ParsePackedValueWithSeqno(const Slice& value);
+
+// Parse a packed value to get the value. The unpacked value Slice is backed up
+// by the same memory backing up `value`.
+Slice ParsePackedValueForValue(const Slice& value);
+
 }  // namespace ROCKSDB_NAMESPACE

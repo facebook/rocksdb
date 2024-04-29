@@ -81,7 +81,14 @@ enum class IOType : uint8_t {
 
 // enum representing various operations supported by underlying FileSystem.
 // These need to be set in SupportedOps API for RocksDB to use them.
-enum FSSupportedOps { kAsyncIO, kFSBuffer };
+enum FSSupportedOps {
+  kAsyncIO,   // Supports async reads
+  kFSBuffer,  // Supports handing off the file system allocated read buffer
+              // to the caller of Read/MultiRead
+  kVerifyAndReconstructRead,  // Supports a higher level of data integrity. See
+                              // the verify_and_reconstruct_read flag in
+                              // IOOptions.
+};
 
 // Per-request options that can be passed down to the FileSystem
 // implementation. These are hints and are not necessarily guaranteed to be
@@ -120,6 +127,18 @@ struct IOOptions {
   // directories and list only files in GetChildren API.
   bool do_not_recurse;
 
+  // Setting this flag indicates a corruption was detected by a previous read,
+  // so the caller wants to re-read the data with much stronger data integrity
+  // checking and correction, i.e requests the file system to reconstruct the
+  // data from redundant copies and verify checksums, if available, in order
+  // to have a better chance of success. It is expected that this will have a
+  // much higher overhead than a normal read.
+  // This is a hint. At a minimum, the file system should implement this flag in
+  // FSRandomAccessFile::Read and FSSequentialFile::Read
+  // NOTE: The file system must support kVerifyAndReconstructRead in
+  // FSSupportedOps, otherwise this feature will not be used.
+  bool verify_and_reconstruct_read;
+
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
@@ -131,7 +150,8 @@ struct IOOptions {
         rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_),
-        do_not_recurse(false) {}
+        do_not_recurse(false),
+        verify_and_reconstruct_read(false) {}
 };
 
 struct DirFsyncOptions {
@@ -682,6 +702,16 @@ class FileSystem : public Customizable {
     return IOStatus::OK();
   }
 
+  // EXPERIMENTAL
+  // Discard any directory metadata cached in memory for the specified
+  // directory and its descendants. Useful for distributed file systems
+  // where the local cache may be out of sync with the actual directory state.
+  //
+  // The implementation is not required to be thread safe. Its the caller's
+  // responsibility to ensure that no directory operations happen
+  // concurrently.
+  virtual void DiscardCacheForDirectory(const std::string& /*path*/) {}
+
   // Indicates to upper layers which FileSystem operations mentioned in
   // FSSupportedOps are supported by underlying FileSystem. Each bit in
   // supported_ops argument represent corresponding FSSupportedOps operation.
@@ -769,6 +799,8 @@ class FSSequentialFile {
   // SequentialFileWrapper too.
 };
 
+using FSAllocationPtr = std::unique_ptr<void, std::function<void(void*)>>;
+
 // A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
   // Input parameter that represents the file offset in bytes.
@@ -835,7 +867,7 @@ struct FSReadRequest {
   // - FSReadRequest::result should point to fs_scratch.
   // - This is needed only if FSSupportedOps::kFSBuffer support is provided by
   // underlying FS.
-  std::unique_ptr<void, std::function<void(void*)>> fs_scratch;
+  FSAllocationPtr fs_scratch;
 };
 
 // A file abstraction for randomly reading the contents of a file.
@@ -1600,6 +1632,10 @@ class FileSystemWrapper : public FileSystem {
 
   IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
+  }
+
+  void DiscardCacheForDirectory(const std::string& path) override {
+    target_->DiscardCacheForDirectory(path);
   }
 
   void SupportedOps(int64_t& supported_ops) override {

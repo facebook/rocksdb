@@ -104,7 +104,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   if (result.recycle_log_file_num &&
       (result.wal_recovery_mode ==
            WALRecoveryMode::kTolerateCorruptedTailRecords ||
-       result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
        result.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
     // - kTolerateCorruptedTailRecords is inconsistent with recycle log file
     //   feature. WAL recycling expects recovery success upon encountering a
@@ -281,12 +280,6 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is incompatible with enable_pipelined_write");
   }
 
-  // TODO remove this restriction
-  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
-    return Status::InvalidArgument(
-        "atomic_flush is currently incompatible with best-efforts recovery");
-  }
-
   if (db_options.use_direct_io_for_flush_and_compaction &&
       0 == db_options.writable_file_max_buffer_size) {
     return Status::InvalidArgument(
@@ -420,7 +413,8 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
-    uint64_t* recovered_seq, RecoveryContext* recovery_ctx) {
+    bool is_retry, uint64_t* recovered_seq, RecoveryContext* recovery_ctx,
+    bool* can_retry) {
   mutex_.AssertHeld();
 
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
@@ -536,7 +530,31 @@ Status DBImpl::Recover(
   Status s;
   bool missing_table_file = false;
   if (!immutable_db_options_.best_efforts_recovery) {
-    s = versions_->Recover(column_families, read_only, &db_id_);
+    // Status of reading the descriptor file
+    Status desc_status;
+    s = versions_->Recover(column_families, read_only, &db_id_,
+                           /*no_error_if_files_missing=*/false, is_retry,
+                           &desc_status);
+    desc_status.PermitUncheckedError();
+    if (can_retry) {
+      // If we're opening for the first time and the failure is likely due to
+      // a corrupt MANIFEST file (could result in either the log::Reader
+      // detecting a corrupt record, or SST files not found error due to
+      // discarding badly formed tail records)
+      if (!is_retry &&
+          (desc_status.IsCorruption() || s.IsNotFound() || s.IsCorruption()) &&
+          CheckFSFeatureSupport(fs_.get(),
+                                FSSupportedOps::kVerifyAndReconstructRead)) {
+        *can_retry = true;
+        ROCKS_LOG_ERROR(
+            immutable_db_options_.info_log,
+            "Possible corruption detected while replaying MANIFEST %s, %s. "
+            "Will be retried.",
+            desc_status.ToString().c_str(), s.ToString().c_str());
+      } else {
+        *can_retry = false;
+      }
+    }
   } else {
     assert(!files_in_dbname.empty());
     s = versions_->TryRecover(column_families, read_only, files_in_dbname,
@@ -774,8 +792,8 @@ Status DBImpl::Recover(
       std::sort(wals.begin(), wals.end());
 
       bool corrupted_wal_found = false;
-      s = RecoverLogFiles(wals, &next_sequence, read_only, &corrupted_wal_found,
-                          recovery_ctx);
+      s = RecoverLogFiles(wals, &next_sequence, read_only, is_retry,
+                          &corrupted_wal_found, recovery_ctx);
       if (corrupted_wal_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
@@ -1085,13 +1103,14 @@ bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
 // REQUIRES: wal_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
-                               bool* corrupted_wal_found,
+                               bool is_retry, bool* corrupted_wal_found,
                                RecoveryContext* recovery_ctx) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
     const char* fname;
     Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
+    bool* old_log_record;
     void Corruption(size_t bytes, const Status& s) override {
       ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
                      (status == nullptr ? "(ignoring error) " : ""), fname,
@@ -1100,10 +1119,19 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         *status = s;
       }
     }
+
+    void OldLogRecord(size_t bytes) override {
+      if (old_log_record != nullptr) {
+        *old_log_record = true;
+      }
+      ROCKS_LOG_WARN(info_log, "%s: dropping %d bytes; possibly recycled",
+                     fname, static_cast<int>(bytes));
+    }
   };
 
   mutex_.AssertHeld();
   Status status;
+  bool old_log_record = false;
   std::unordered_map<int, VersionEdit> version_edits;
   // no need to refcount because iteration is under mutex
   for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -1186,7 +1214,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
       file_reader.reset(new SequentialFileReader(
           std::move(file), fname, immutable_db_options_.log_readahead_size,
-          io_tracer_));
+          io_tracer_, /*listeners=*/{}, /*rate_limiter=*/nullptr, is_retry));
     }
 
     // Create the log reader.
@@ -1194,6 +1222,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     reporter.env = env_;
     reporter.info_log = immutable_db_options_.info_log.get();
     reporter.fname = fname.c_str();
+    reporter.old_log_record = &old_log_record;
     if (!immutable_db_options_.paranoid_checks ||
         immutable_db_options_.wal_recovery_mode ==
             WALRecoveryMode::kSkipAnyCorruptedRecords) {
@@ -1341,7 +1370,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
     }
 
-    if (!status.ok()) {
+    if (!status.ok() || old_log_record) {
       if (status.IsNotSupported()) {
         // We should not treat NotSupported as corruption. It is rather a clear
         // sign that we are processing a WAL that is produced by an incompatible
@@ -1366,6 +1395,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         }
         // We should ignore the error but not continue replaying
         status = Status::OK();
+        old_log_record = false;
         stop_replay_for_corruption = true;
         corrupted_wal_number = wal_number;
         if (corrupted_wal_found != nullptr) {
@@ -1636,7 +1666,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   Status s;
   TableProperties table_properties;
   {
-    ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
+    ScopedArenaPtr<InternalIterator> iter(
+        mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] [WriteLevel0TableForRecovery]"
                     " Level-0 table #%" PRIu64 ": started",
@@ -1689,7 +1720,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
           0 /* file_creation_time */, db_id_, db_session_id_,
           0 /* target_file_size */, meta.fd.GetNumber());
-      SeqnoToTimeMapping empty_seqno_to_time_mapping;
       Version* version = cfd->current();
       version->Ref();
       uint64_t num_input_entries = 0;
@@ -1700,7 +1730,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           snapshot_seqs, earliest_write_conflict_snapshot, kMaxSequenceNumber,
           snapshot_checker, paranoid_file_checks, cfd->internal_stats(), &io_s,
           io_tracer_, BlobFileCreationReason::kRecovery,
-          empty_seqno_to_time_mapping, &event_logger_, job_id,
+          nullptr /* seqno_to_time_mapping */, &event_logger_, job_id,
           nullptr /* table_properties */, write_hint,
           nullptr /*full_history_ts_low*/, &blob_callback_, version,
           &num_input_entries);
@@ -1799,11 +1829,9 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   if (db_options.persist_stats_to_disk) {
-    column_families.push_back(
-        ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+    column_families.emplace_back(kPersistentStatsColumnFamilyName, cf_options);
   }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
@@ -1830,8 +1858,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   const bool kBatchPerTxn = true;
   ThreadStatusUtil::SetEnableTracking(db_options.enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_DBOPEN);
-  Status s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
-                          !kSeqPerBatch, kBatchPerTxn);
+  bool can_retry = false;
+  Status s;
+  do {
+    s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
+                     !kSeqPerBatch, kBatchPerTxn, can_retry, &can_retry);
+  } while (!s.ok() && can_retry);
   ThreadStatusUtil::ResetThreadStatus();
   return s;
 }
@@ -1953,7 +1985,8 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                    const bool seq_per_batch, const bool batch_per_txn) {
+                    const bool seq_per_batch, const bool batch_per_txn,
+                    const bool is_retry, bool* can_retry) {
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
 
@@ -1972,7 +2005,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   handles->clear();
 
   size_t max_write_buffer_size = 0;
-  for (auto cf : column_families) {
+  for (const auto& cf : column_families) {
     max_write_buffer_size =
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
   }
@@ -2026,8 +2059,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   uint64_t recovered_seq(kMaxSequenceNumber);
   s = impl->Recover(column_families, false /* read_only */,
                     false /* error_if_wal_file_exists */,
-                    false /* error_if_data_exists_in_wals */, &recovered_seq,
-                    &recovery_ctx);
+                    false /* error_if_data_exists_in_wals */, is_retry,
+                    &recovered_seq, &recovery_ctx, can_retry);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
@@ -2044,8 +2077,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     if (s.ok()) {
-      impl->alive_log_files_.push_back(
-          DBImpl::LogFileNumberSize(impl->logfile_number_));
+      impl->alive_log_files_.emplace_back(impl->logfile_number_);
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
@@ -2093,7 +2125,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     // set column family handles
-    for (auto cf : column_families) {
+    for (const auto& cf : column_families) {
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (cfd != nullptr) {

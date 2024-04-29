@@ -13,6 +13,7 @@
 #include "rocksdb/types.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -169,8 +170,8 @@ TEST_F(PinnableSliceTest, Move) {
 // Unit test for SmallEnumSet
 class SmallEnumSetTest : public testing::Test {
  public:
-  SmallEnumSetTest() {}
-  ~SmallEnumSetTest() {}
+  SmallEnumSetTest() = default;
+  ~SmallEnumSetTest() = default;
 };
 
 TEST_F(SmallEnumSetTest, SmallEnumSetTest1) {
@@ -271,6 +272,71 @@ TEST(StatusTest, Update) {
   ASSERT_TRUE(
       s.UpdateIfOk(Status()).UpdateIfOk(notf).UpdateIfOk(inc).IsNotFound());
   ASSERT_TRUE(s.IsNotFound());
+}
+
+// ***************************************************************** //
+// Unit test for UnownedPtr
+TEST(UnownedPtrTest, Tests) {
+  {
+    int x = 0;
+    UnownedPtr<int> p(&x);
+    ASSERT_EQ(p.get(), &x);
+    ASSERT_EQ(*p, 0);
+    x = 1;
+    ASSERT_EQ(*p, 1);
+    ASSERT_EQ(p.get(), &x);
+    ASSERT_EQ(*p, 1);
+    *p = 2;
+    ASSERT_EQ(x, 2);
+    ASSERT_EQ(*p, 2);
+    ASSERT_EQ(p.get(), &x);
+    ASSERT_EQ(*p, 2);
+  }
+  {
+    std::unique_ptr<std::pair<int, int>> u =
+        std::make_unique<std::pair<int, int>>();
+    *u = {1, 2};
+    UnownedPtr<std::pair<int, int>> p;
+    ASSERT_FALSE(p);
+    p = u.get();
+    ASSERT_TRUE(p);
+    ASSERT_EQ(p->first, 1);
+    // These must not compile:
+    /*
+    u = p;
+    u = std::move(p);
+    std::unique_ptr<std::pair<int, int>> v{p};
+    std::unique_ptr<std::pair<int, int>> v{std::move(p)};
+    */
+    // END must not compile
+
+    UnownedPtr<std::pair<int, int>> q;
+    q = std::move(p);
+    ASSERT_EQ(q->first, 1);
+    // Not committing to any moved-from semantics (on p here)
+  }
+  {
+    std::shared_ptr<std::pair<int, int>> s =
+        std::make_shared<std::pair<int, int>>();
+    *s = {1, 2};
+    UnownedPtr<std::pair<int, int>> p;
+    ASSERT_FALSE(p);
+    p = s.get();
+    ASSERT_TRUE(p);
+    ASSERT_EQ(p->first, 1);
+    // These must not compile:
+    /*
+    s = p;
+    s = std::move(p);
+    std::unique_ptr<std::pair<int, int>> t{p};
+    std::unique_ptr<std::pair<int, int>> t{std::move(p)};
+    */
+    // END must not compile
+    UnownedPtr<std::pair<int, int>> q;
+    q = std::move(p);
+    ASSERT_EQ(q->first, 1);
+    // Not committing to any moved-from semantics (on p here)
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

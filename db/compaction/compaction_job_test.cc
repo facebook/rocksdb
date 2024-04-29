@@ -308,7 +308,7 @@ class CompactionJobTestBase : public testing::Test {
                                 kDefaultColumnFamilyName, -1 /* level */),
             file_writer.get()));
     // Build table.
-    for (auto kv : contents) {
+    for (const auto& kv : contents) {
       std::string key;
       std::string value;
       std::tie(key, value) = kv;
@@ -327,7 +327,7 @@ class CompactionJobTestBase : public testing::Test {
     SequenceNumber smallest_seqno = kMaxSequenceNumber;
     SequenceNumber largest_seqno = 0;
     uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
-    for (auto kv : contents) {
+    for (const auto& kv : contents) {
       ParsedInternalKey key;
       std::string skey;
       std::string value;
@@ -1473,7 +1473,7 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
 }
 
 TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
-  cf_options_.bottommost_temperature = Temperature::kCold;
+  cf_options_.last_level_temperature = Temperature::kCold;
   SyncPoint::GetInstance()->SetCallBack(
       "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
         auto supports_per_key_placement = static_cast<bool*>(arg);

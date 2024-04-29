@@ -63,7 +63,6 @@
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
@@ -534,7 +533,9 @@ class MemTableConstructor : public Constructor {
   InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
     return new KeyConvertingIterator(
-        memtable_->NewIterator(ReadOptions(), &arena_), true);
+        memtable_->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
+                               &arena_),
+        true);
   }
 
   bool AnywayDeleteIterator() const override { return true; }
@@ -3187,6 +3188,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
   Options options;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   options.create_if_missing = true;
+  options.compression = kNoCompression;
   options.statistics = CreateDBStatistics();
   table_options.index_type =
       BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
@@ -3195,6 +3197,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
   table_options.block_align = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  ASSERT_OK(options.table_factory->ValidateOptions(
+      DBOptions(options), ColumnFamilyOptions(options)));
 
   TableConstructor c(BytewiseComparator());
   GenerateKVMap(&c);
@@ -3325,6 +3329,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
   std::unique_ptr<Env> env(
       new CompositeEnvWrapper(c.env_, FileSystem::Default()));
   options.env = env.get();
+  options.compression = kNoCompression;
   options.statistics = CreateDBStatistics();
   c.env_ = env.get();
 
@@ -3337,6 +3342,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
   table_options.block_align = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  ASSERT_OK(options.table_factory->ValidateOptions(
+      DBOptions(options), ColumnFamilyOptions(options)));
 
   GenerateKVMap(&c);
 
@@ -4893,12 +4900,13 @@ TEST_F(MemTableTest, Simple) {
 
   for (int i = 0; i < 2; ++i) {
     Arena arena;
-    ScopedArenaIterator arena_iter_guard;
+    ScopedArenaPtr<InternalIterator> arena_iter_guard;
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = GetMemTable()->NewIterator(ReadOptions(), &arena);
-      arena_iter_guard.set(iter);
+      iter = GetMemTable()->NewIterator(
+          ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena);
+      arena_iter_guard.reset(iter);
     } else {
       iter = GetMemTable()->NewRangeTombstoneIterator(
           ReadOptions(), kMaxSequenceNumber /* read_seq */,
@@ -5423,6 +5431,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   Options options;
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_OK(options.table_factory->ValidateOptions(
+      DBOptions(options), ColumnFamilyOptions(options)));
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -5473,7 +5483,10 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   std::unique_ptr<TableReader> table_reader;
   bbto.block_align = false;
   Options options2;
+  options2.compression = kNoCompression;
   options2.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_OK(options2.table_factory->ValidateOptions(
+      DBOptions(options2), ColumnFamilyOptions(options2)));
   ImmutableOptions ioptions2(options2);
   const MutableCFOptions moptions2(options2);
 
@@ -5503,6 +5516,31 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   table_reader.reset();
 }
 
+TEST_P(BlockBasedTableTest, FixBlockAlignMismatchedFileChecksums) {
+  Options options;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  BlockBasedTableOptions bbto;
+  bbto.block_align = true;
+  bbto.block_size = 1024;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_OK(options.table_factory->ValidateOptions(
+      DBOptions(options), ColumnFamilyOptions(options)));
+  const std::string kDBPath =
+      test::PerThreadDBPath("block_align_padded_bytes_verify_file_checksums");
+  ASSERT_OK(DestroyDB(kDBPath, options));
+  DB* db;
+  ASSERT_OK(DB::Open(options, kDBPath, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "k1", "v1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Before the fix, VerifyFileChecksums() will fail as padded bytes from
+  // aligning blocks are used to generate the checksum to compare against the
+  // one not generated by padded bytes
+  ASSERT_OK(db->VerifyFileChecksums(ReadOptions()));
+  delete db;
+}
+
 TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
@@ -5514,6 +5552,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   Options options;
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_OK(options.table_factory->ValidateOptions(
+      DBOptions(options), ColumnFamilyOptions(options)));
 
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
@@ -5820,6 +5860,7 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
 TEST_P(BlockBasedTableTest, BadOptions) {
   ROCKSDB_NAMESPACE::Options options;
   options.compression = kNoCompression;
+  options.create_if_missing = true;
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_size = 4000;
   bbto.block_align = true;
@@ -5828,13 +5869,29 @@ TEST_P(BlockBasedTableTest, BadOptions) {
       test::PerThreadDBPath("block_based_table_bad_options_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   ASSERT_OK(DestroyDB(kDBPath, options));
-  ROCKSDB_NAMESPACE::DB* db;
-  ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &db));
 
-  bbto.block_size = 4096;
-  options.compression = kSnappyCompression;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &db));
+  std::unique_ptr<DB> db;
+  {
+    ROCKSDB_NAMESPACE::DB* _db;
+    ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &_db));
+
+    bbto.block_size = 4096;
+    options.compression = kSnappyCompression;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &_db));
+
+    options.compression = kNoCompression;
+    options.bottommost_compression = kSnappyCompression;
+    ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &_db));
+
+    options.bottommost_compression = kNoCompression;
+    options.compression_per_level.emplace_back(kSnappyCompression);
+    ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &_db));
+
+    options.compression_per_level.clear();
+    ASSERT_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &_db));
+    db.reset(_db);
+  }
 }
 
 TEST_F(BBTTailPrefetchTest, TestTailPrefetchStats) {

@@ -20,6 +20,7 @@
 #include "db/kv_checksum.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/version_edit.h"
 #include "memory/allocator.h"
 #include "memory/concurrent_arena.h"
@@ -28,6 +29,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
+#include "util/cast_util.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 #include "util/hash_containers.h"
@@ -203,7 +205,11 @@ class MemTable {
   // arena: If not null, the arena needs to be used to allocate the Iterator.
   //        Calling ~Iterator of the iterator will destroy all the states but
   //        those allocated in arena.
-  InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
+  // seqno_to_time_mapping: it's used to support return write unix time for the
+  // data, currently only needed for iterators serving user reads.
+  InternalIterator* NewIterator(
+      const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena);
 
   // Returns an iterator that yields the range tombstones of the memtable.
   // The caller must ensure that the underlying MemTable remains live
@@ -320,9 +326,10 @@ class MemTable {
                         const ProtectionInfoKVOS64* kv_prot_info);
 
   // Returns the number of successive merge entries starting from the newest
-  // entry for the key up to the last non-merge entry or last entry for the
-  // key in the memtable.
-  size_t CountSuccessiveMergeEntries(const LookupKey& key);
+  // entry for the key. The count ends when the oldest entry in the memtable
+  // with which the newest entry would be merged is reached, or the count
+  // reaches `limit`.
+  size_t CountSuccessiveMergeEntries(const LookupKey& key, size_t limit);
 
   // Update counters and flush status after inserting a whole write batch
   // Used in concurrent memtable inserts.

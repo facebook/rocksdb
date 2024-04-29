@@ -280,7 +280,7 @@ class DBTablePropertiesInRangeTest : public DBTestBase,
     // run the query
     TablePropertiesCollection props;
     ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
-    EXPECT_OK(db_->GetPropertiesOfTablesInRange(default_cf, &ranges[0],
+    EXPECT_OK(db_->GetPropertiesOfTablesInRange(default_cf, ranges.data(),
                                                 ranges.size(), &props));
 
     const Comparator* ucmp = default_cf->GetComparator();

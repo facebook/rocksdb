@@ -14,6 +14,7 @@
 
 #include "include/org_rocksdb_Transaction.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/jni_multiget_helpers.h"
 #include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
 
@@ -230,7 +231,7 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
     return value.Fetch();
-  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
   }
 }
@@ -267,31 +268,6 @@ jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jclass, jlong jhandle,
   }
 }
 
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-// used by txn_multi_get_helper below
-std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> txn_column_families_helper(
-    JNIEnv* env, jlongArray jcolumn_family_handles, bool* has_exception) {
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
-  if (jcolumn_family_handles != nullptr) {
-    const jsize len_cols = env->GetArrayLength(jcolumn_family_handles);
-    if (len_cols > 0) {
-      jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
-      if (jcfh == nullptr) {
-        // exception thrown: OutOfMemoryError
-        *has_exception = JNI_TRUE;
-        return std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>();
-      }
-      for (int i = 0; i < len_cols; i++) {
-        auto* cf_handle =
-            reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcfh[i]);
-        cf_handles.push_back(cf_handle);
-      }
-      env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
-    }
-  }
-  return cf_handles;
-}
-
 typedef std::function<std::vector<ROCKSDB_NAMESPACE::Status>(
     const ROCKSDB_NAMESPACE::ReadOptions&,
     const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>
@@ -316,91 +292,6 @@ void free_key_values(std::vector<jbyte*>& keys_to_free) {
   }
 }
 
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-// cf multi get
-jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
-                                  const jlong& jread_options_handle,
-                                  const jobjectArray& jkey_parts) {
-  const jsize len_key_parts = env->GetArrayLength(jkey_parts);
-
-  std::vector<ROCKSDB_NAMESPACE::Slice> key_parts;
-  std::vector<jbyte*> keys_to_free;
-  for (int i = 0; i < len_key_parts; i++) {
-    const jobject jk = env->GetObjectArrayElement(jkey_parts, i);
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      free_key_values(keys_to_free);
-      return nullptr;
-    }
-    jbyteArray jk_ba = reinterpret_cast<jbyteArray>(jk);
-    const jsize len_key = env->GetArrayLength(jk_ba);
-    jbyte* jk_val = new jbyte[len_key];
-    if (jk_val == nullptr) {
-      // exception thrown: OutOfMemoryError
-      env->DeleteLocalRef(jk);
-      free_key_values(keys_to_free);
-
-      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-      (env)->ThrowNew(exception_cls,
-                      "Insufficient Memory for CF handle array.");
-      return nullptr;
-    }
-    env->GetByteArrayRegion(jk_ba, 0, len_key, jk_val);
-
-    ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(jk_val),
-                                       len_key);
-    key_parts.push_back(key_slice);
-    keys_to_free.push_back(jk_val);
-    env->DeleteLocalRef(jk);
-  }
-
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  std::vector<std::string> value_parts;
-  std::vector<ROCKSDB_NAMESPACE::Status> s =
-      fn_multi_get(*read_options, key_parts, &value_parts);
-
-  // free up allocated byte arrays
-  free_key_values(keys_to_free);
-
-  // prepare the results
-  const jclass jcls_ba = env->FindClass("[B");
-  jobjectArray jresults =
-      env->NewObjectArray(static_cast<jsize>(s.size()), jcls_ba, nullptr);
-  if (jresults == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
-
-  // add to the jresults
-  for (std::vector<ROCKSDB_NAMESPACE::Status>::size_type i = 0; i != s.size();
-       i++) {
-    if (s[i].ok()) {
-      jbyteArray jentry_value =
-          env->NewByteArray(static_cast<jsize>(value_parts[i].size()));
-      if (jentry_value == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-      }
-
-      env->SetByteArrayRegion(
-          jentry_value, 0, static_cast<jsize>(value_parts[i].size()),
-          const_cast<jbyte*>(
-              reinterpret_cast<const jbyte*>(value_parts[i].c_str())));
-      if (env->ExceptionCheck()) {
-        // exception thrown: ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jentry_value);
-        return nullptr;
-      }
-
-      env->SetObjectArrayElement(jresults, static_cast<jsize>(i), jentry_value);
-      env->DeleteLocalRef(jentry_value);
-    }
-  }
-
-  return jresults;
-}
-
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    multiGet
@@ -409,24 +300,22 @@ jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
 jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B_3J(
     JNIEnv* env, jclass /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jobjectArray jkey_parts, jlongArray jcolumn_family_handles) {
-  bool has_exception = false;
-  const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>
-      column_family_handles = txn_column_families_helper(
-          env, jcolumn_family_handles, &has_exception);
-  if (has_exception) {
-    // exception thrown: OutOfMemoryError
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkey_parts)) {
     return nullptr;
   }
+  auto cf_handles =
+      ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handlesFromJLongArray(
+          env, jcolumn_family_handles);
+  if (!cf_handles) return nullptr;
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnMultiGet fn_multi_get = std::bind<std::vector<ROCKSDB_NAMESPACE::Status> (
-      ROCKSDB_NAMESPACE::Transaction::*)(
-      const ROCKSDB_NAMESPACE::ReadOptions&,
-      const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>&,
-      const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGet, txn, std::placeholders::_1,
-      column_family_handles, std::placeholders::_2, std::placeholders::_3);
-  return txn_multi_get_helper(env, fn_multi_get, jread_options_handle,
-                              jkey_parts);
+  std::vector<std::string> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses = txn->MultiGet(
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+      *cf_handles, keys.slices(), &values);
+
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*
@@ -437,15 +326,19 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B_3J(
 jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B(
     JNIEnv* env, jclass /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jobjectArray jkey_parts) {
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkey_parts)) {
+    return nullptr;
+  }
+
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnMultiGet fn_multi_get = std::bind<std::vector<ROCKSDB_NAMESPACE::Status> (
-      ROCKSDB_NAMESPACE::Transaction::*)(
-      const ROCKSDB_NAMESPACE::ReadOptions&,
-      const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGet, txn, std::placeholders::_1,
-      std::placeholders::_2, std::placeholders::_3);
-  return txn_multi_get_helper(env, fn_multi_get, jread_options_handle,
-                              jkey_parts);
+  std::vector<std::string> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses = txn->MultiGet(
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+      keys.slices(), &values);
+
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*
@@ -486,12 +379,12 @@ jint Java_org_rocksdb_Transaction_getForUpdate__JJ_3BII_3BIIJZZ(
     jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
     jint jval_off, jint jval_len, jlong jcolumn_family_handle,
     jboolean jexclusive, jboolean jdo_validate) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
@@ -500,6 +393,36 @@ jint Java_org_rocksdb_Transaction_getForUpdate__JJ_3BII_3BIIJZZ(
         env,
         txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
                           &value.pinnable_slice(), jexclusive, jdo_validate));
+    return value.Fetch();
+  } catch (ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    getDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJZZ)I
+ */
+jint Java_org_rocksdb_Transaction_getDirect(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
+    jobject jkey_bb, jint jkey_off, jint jkey_part_len, jobject jval_bb,
+    jint jval_off, jint jval_len, jlong jcolumn_family_handle) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off,
+                                              jkey_part_len);
+    ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
+                                                        jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Get(*read_options, column_family_handle, key.slice(),
+                      &value.pinnable_slice()));
     return value.Fetch();
   } catch (const ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
@@ -546,25 +469,22 @@ jint Java_org_rocksdb_Transaction_getDirectForUpdate(
 jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B_3J(
     JNIEnv* env, jclass, jlong jhandle, jlong jread_options_handle,
     jobjectArray jkey_parts, jlongArray jcolumn_family_handles) {
-  bool has_exception = false;
-  const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>
-      column_family_handles = txn_column_families_helper(
-          env, jcolumn_family_handles, &has_exception);
-  if (has_exception) {
-    // exception thrown: OutOfMemoryError
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkey_parts)) {
     return nullptr;
   }
+  auto cf_handles =
+      ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handlesFromJLongArray(
+          env, jcolumn_family_handles);
+  if (!cf_handles) return nullptr;
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnMultiGet fn_multi_get_for_update = std::bind<std::vector<
-      ROCKSDB_NAMESPACE::Status> (ROCKSDB_NAMESPACE::Transaction::*)(
-      const ROCKSDB_NAMESPACE::ReadOptions&,
-      const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>&,
-      const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGetForUpdate, txn,
-      std::placeholders::_1, column_family_handles, std::placeholders::_2,
-      std::placeholders::_3);
-  return txn_multi_get_helper(env, fn_multi_get_for_update,
-                              jread_options_handle, jkey_parts);
+  std::vector<std::string> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses = txn->MultiGetForUpdate(
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+      *cf_handles, keys.slices(), &values);
+
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*
@@ -575,15 +495,19 @@ jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B_3J(
 jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B(
     JNIEnv* env, jclass /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jobjectArray jkey_parts) {
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkey_parts)) {
+    return nullptr;
+  }
+
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnMultiGet fn_multi_get_for_update = std::bind<std::vector<
-      ROCKSDB_NAMESPACE::Status> (ROCKSDB_NAMESPACE::Transaction::*)(
-      const ROCKSDB_NAMESPACE::ReadOptions&,
-      const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGetForUpdate, txn,
-      std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-  return txn_multi_get_helper(env, fn_multi_get_for_update,
-                              jread_options_handle, jkey_parts);
+  std::vector<std::string> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses = txn->MultiGetForUpdate(
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+      keys.slices(), &values);
+
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
+                                                          statuses);
 }
 
 /*

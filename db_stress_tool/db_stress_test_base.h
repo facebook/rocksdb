@@ -206,14 +206,24 @@ class StressTest {
 
   Status TestPauseBackground(ThreadState* thread);
 
+  Status TestDisableFileDeletions(ThreadState* thread);
+
+  Status TestDisableManualCompaction(ThreadState* thread);
+
   void TestAcquireSnapshot(ThreadState* thread, int rand_column_family,
                            const std::string& keystr, uint64_t i);
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
+
   Status VerifyGetLiveFiles() const;
+  Status VerifyGetLiveFilesMetaData() const;
+  Status VerifyGetLiveFilesStorageInfo() const;
+  Status VerifyGetAllColumnFamilyMetaData() const;
+
   Status VerifyGetSortedWalFiles() const;
   Status VerifyGetCurrentWalFile() const;
   void TestGetProperty(ThreadState* thread) const;
+  Status TestGetPropertiesOfAllTables() const;
 
   virtual Status TestApproximateSize(
       ThreadState* thread, uint64_t iteration,

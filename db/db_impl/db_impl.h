@@ -50,6 +50,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -59,7 +60,6 @@
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
-#include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/hash.h"
 #include "util/repeatable_thread.h"
@@ -351,6 +351,17 @@ class DBImpl : public DB {
 
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
+
+  // EXPERIMENTAL
+  std::unique_ptr<Iterator> NewCoalescingIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
+  // EXPERIMENTAL
+  std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
   // Create a timestamped snapshot. This snapshot can be shared by multiple
   // readers. If any of them uses it for write conflict checking, then
   // is_write_conflict_boundary is true. For simplicity, set it to true by
@@ -646,8 +657,8 @@ class DBImpl : public DB {
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
-                                      ColumnFamilyData* cfd, SuperVersion* sv,
-                                      SequenceNumber snapshot,
+                                      ColumnFamilyHandleImpl* cfh,
+                                      SuperVersion* sv, SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool expose_blob_index = false,
                                       bool allow_refresh = true);
@@ -1046,7 +1057,8 @@ class DBImpl : public DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                     const bool seq_per_batch, const bool batch_per_txn);
+                     const bool seq_per_batch, const bool batch_per_txn,
+                     const bool is_retry, bool* can_retry);
 
   static IOStatus CreateAndNewDirectory(
       FileSystem* fs, const std::string& dirname,
@@ -1218,6 +1230,22 @@ class DBImpl : public DB {
   // sequence numbers from [1, last] to map to [now minus
   // populate_historical_seconds, now].
   void RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds);
+
+  // Everytime DB's seqno to time mapping changed (which already hold the db
+  // mutex), we install a new SuperVersion in each column family with a shared
+  // copy of the new mapping while holding the db mutex.
+  // This is done for all column families even though the column family does not
+  // explicitly enabled the
+  // `preclude_last_level_data_seconds` or `preserve_internal_time_seconds`
+  // features.
+  // This mapping supports iterators to fulfill the
+  // "rocksdb.iterator.write-time" iterator property for entries in memtables.
+  //
+  // Since this new SuperVersion doesn't involve an LSM tree shape change, we
+  // don't schedule work after installing this SuperVersion. It returns the used
+  // `SuperVersionContext` for clean up after release mutex.
+  void InstallSeqnoToTimeMappingInSV(
+      std::vector<SuperVersionContext>* sv_contexts);
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1507,7 +1535,7 @@ class DBImpl : public DB {
   Status WriteRecoverableState();
 
   // Actual implementation of Close()
-  Status CloseImpl();
+  virtual Status CloseImpl();
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
@@ -1519,9 +1547,9 @@ class DBImpl : public DB {
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_wal_file_exists = false,
-      bool error_if_data_exists_in_wals = false,
+      bool error_if_data_exists_in_wals = false, bool is_retry = false,
       uint64_t* recovered_seq = nullptr,
-      RecoveryContext* recovery_ctx = nullptr);
+      RecoveryContext* recovery_ctx = nullptr, bool* can_retry = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
@@ -1901,7 +1929,7 @@ class DBImpl : public DB {
   // corrupted_log_found is set to true if we recover from a corrupted log file.
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
-                         bool* corrupted_log_found,
+                         bool is_retry, bool* corrupted_log_found,
                          RecoveryContext* recovery_ctx);
 
   // The following two methods are used to flush a memtable to
@@ -2309,10 +2337,7 @@ class DBImpl : public DB {
   // A structure to hold the information required to process MultiGet of keys
   // belonging to one column family. For a multi column family MultiGet, there
   // will be a container of these objects.
-  struct MultiGetColumnFamilyData {
-    ColumnFamilyHandle* cf;
-    ColumnFamilyData* cfd;
-
+  struct MultiGetKeyRangePerCf {
     // For the batched MultiGet which relies on sorted keys, start specifies
     // the index of first key belonging to this column family in the sorted
     // list.
@@ -2322,31 +2347,33 @@ class DBImpl : public DB {
     // belonging to this column family in the sorted list
     size_t num_keys;
 
+    MultiGetKeyRangePerCf() : start(0), num_keys(0) {}
+
+    MultiGetKeyRangePerCf(size_t first, size_t count)
+        : start(first), num_keys(count) {}
+  };
+
+  // A structure to contain ColumnFamilyData and the SuperVersion obtained for
+  // the consistent view of DB
+  struct ColumnFamilySuperVersionPair {
+    ColumnFamilyHandleImpl* cfh;
+    ColumnFamilyData* cfd;
+
     // SuperVersion for the column family obtained in a manner that ensures a
     // consistent view across all column families in the DB
     SuperVersion* super_version;
-    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family,
-                             SuperVersion* sv)
-        : cf(column_family),
-          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()),
-          start(0),
-          num_keys(0),
+    ColumnFamilySuperVersionPair(ColumnFamilyHandle* column_family,
+                                 SuperVersion* sv)
+        : cfh(static_cast<ColumnFamilyHandleImpl*>(column_family)),
+          cfd(cfh->cfd()),
           super_version(sv) {}
 
-    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, size_t first,
-                             size_t count, SuperVersion* sv)
-        : cf(column_family),
-          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()),
-          start(first),
-          num_keys(count),
-          super_version(sv) {}
-
-    MultiGetColumnFamilyData() = default;
+    ColumnFamilySuperVersionPair() = default;
   };
 
   // A common function to obtain a consistent snapshot, which can be implicit
   // if the user doesn't specify a snapshot in read_options, across
-  // multiple column families for MultiGet. It will attempt to get an implicit
+  // multiple column families. It will attempt to get an implicit
   // snapshot without acquiring the db_mutes, but will give up after a few
   // tries and acquire the mutex if a memtable flush happens. The template
   // allows both the batched and non-batched MultiGet to call this with
@@ -2355,18 +2382,26 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
+  // `extra_sv_ref` is used to indicate whether thread-local SuperVersion
+  // should be obtained with an extra ref (by GetReferencedSuperVersion()) or
+  // not (by GetAndRefSuperVersion()). For instance, point lookup like MultiGet
+  // does not require SuperVersion to be re-acquired throughout the entire
+  // invocation (no need extra ref), while MultiCfIterators may need the
+  // SuperVersion to be updated during Refresh() (requires extra ref).
+  //
   // `sv_from_thread_local` being set to false indicates that the SuperVersion
   // obtained from the ColumnFamilyData, whereas true indicates they are thread
   // local.
+  //
   // A non-OK status will be returned if for a column family that enables
   // user-defined timestamp feature, the specified `ReadOptions.timestamp`
   // attemps to read collapsed history.
-  template <class T>
-  Status MultiCFSnapshot(
-      const ReadOptions& read_options, ReadCallback* callback,
-      std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
-          iter_deref_func,
-      T* cf_list, SequenceNumber* snapshot, bool* sv_from_thread_local);
+  template <class T, typename IterDerefFuncType>
+  Status MultiCFSnapshot(const ReadOptions& read_options,
+                         ReadCallback* callback,
+                         IterDerefFuncType iter_deref_func, T* cf_list,
+                         bool extra_sv_ref, SequenceNumber* snapshot,
+                         bool* sv_from_thread_local);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number
@@ -2388,6 +2423,13 @@ class DBImpl : public DB {
                                       std::string ts_low);
 
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+
+  template <typename IterType, typename ImplType,
+            typename ErrorIteratorFuncType>
+  std::unique_ptr<IterType> NewMultiCfIterator(
+      const ReadOptions& _read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      ErrorIteratorFuncType error_iterator_func);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;

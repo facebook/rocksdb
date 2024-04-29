@@ -17,7 +17,6 @@
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "table/merging_iterator.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
@@ -37,6 +36,8 @@ Status ExternalSstFileIngestionJob::Prepare(
   // Read the information of files we are ingesting
   for (const std::string& file_path : external_files_paths) {
     IngestedFileInfo file_to_ingest;
+    // For temperature, first assume it matches provided hint
+    file_to_ingest.file_temperature = file_temperature;
     status =
         GetIngestedFileInfo(file_path, next_file_number++, &file_to_ingest, sv);
     if (!status.ok()) {
@@ -88,11 +89,6 @@ Status ExternalSstFileIngestionJob::Prepare(
         break;
       }
     }
-  }
-
-  // Hanlde the file temperature
-  for (size_t i = 0; i < num_files; i++) {
-    files_to_ingest_[i].file_temperature = file_temperature;
   }
 
   if (ingestion_options_.ingest_behind && files_overlap_) {
@@ -159,10 +155,25 @@ Status ExternalSstFileIngestionJob::Prepare(
     if (f.copy_file) {
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
-      // CopyFile also sync the new file.
-      status =
-          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
+      // Always determining the destination temperature from the ingested-to
+      // level would be difficult because in general we only find out the level
+      // ingested to later, during Run().
+      // However, we can guarantee "last level" temperature for when the user
+      // requires ingestion to the last level.
+      Temperature dst_temp =
+          (ingestion_options_.ingest_behind ||
+           ingestion_options_.fail_if_not_bottommost_level)
+              ? sv->mutable_cf_options.last_level_temperature
+              : sv->mutable_cf_options.default_write_temperature;
+      // Note: CopyFile also syncs the new file.
+      status = CopyFile(fs_.get(), path_outside_db, f.file_temperature,
+                        path_inside_db, dst_temp, 0, db_options_.use_fsync,
+                        io_tracer_);
+      // The destination of the copy will be ingested
+      f.file_temperature = dst_temp;
+    } else {
+      // Note: we currently assume that linking files does not cross
+      // temperatures, so no need to change f.file_temperature
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {
@@ -515,7 +526,8 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
         ,
         LLONG_MAX /* max compaction bytes, not applicable */,
         0 /* output path ID, not applicable */, mutable_cf_options.compression,
-        mutable_cf_options.compression_opts, Temperature::kUnknown,
+        mutable_cf_options.compression_opts,
+        mutable_cf_options.default_write_temperature,
         0 /* max_subcompaction, not applicable */,
         {} /* grandparents, not applicable */, false /* is manual */,
         "" /* trim_ts */, -1 /* score, not applicable */,
@@ -648,10 +660,18 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
     IngestedFileInfo* file_to_ingest,
     std::unique_ptr<TableReader>* table_reader) {
   std::unique_ptr<FSRandomAccessFile> sst_file;
+  FileOptions fo{env_options_};
+  fo.temperature = file_to_ingest->file_temperature;
   Status status =
-      fs_->NewRandomAccessFile(external_file, env_options_, &sst_file, nullptr);
+      fs_->NewRandomAccessFile(external_file, fo, &sst_file, nullptr);
   if (!status.ok()) {
     return status;
+  }
+  Temperature updated_temp = sst_file->GetTemperature();
+  if (updated_temp != Temperature::kUnknown &&
+      updated_temp != file_to_ingest->file_temperature) {
+    // The hint was missing or wrong. Track temperature reported by storage.
+    file_to_ingest->file_temperature = updated_temp;
   }
   std::unique_ptr<RandomAccessFileReader> sst_file_reader(
       new RandomAccessFileReader(std::move(sst_file), external_file,
@@ -1026,12 +1046,12 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     IngestedFileInfo* file_to_ingest) {
   auto* vstorage = cfd_->current()->storage_info();
-  // First, check if new files fit in the bottommost level
-  int bottom_lvl = cfd_->NumberLevels() - 1;
-  if (!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
+  // First, check if new files fit in the last level
+  int last_lvl = cfd_->NumberLevels() - 1;
+  if (!IngestedFileFitInLevel(file_to_ingest, last_lvl)) {
     return Status::InvalidArgument(
         "Can't ingest_behind file as it doesn't fit "
-        "at the bottommost level!");
+        "at the last level!");
   }
 
   // Second, check if despite allow_ingest_behind=true we still have 0 seqnums
@@ -1046,7 +1066,7 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     }
   }
 
-  file_to_ingest->picked_level = bottom_lvl;
+  file_to_ingest->picked_level = last_lvl;
   return Status::OK();
 }
 

@@ -1258,7 +1258,8 @@ class VersionSet {
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false, std::string* db_id = nullptr,
-                 bool no_error_if_files_missing = false);
+                 bool no_error_if_files_missing = false, bool is_retry = false,
+                 Status* log_status = nullptr);
 
   Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
                     bool read_only,

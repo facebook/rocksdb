@@ -526,6 +526,9 @@ enum Tickers : uint32_t {
   // Number of FS reads avoided due to scan prefetching
   PREFETCH_HITS,
 
+  // Footer corruption detected when opening an SST file for reading
+  SST_FOOTER_CORRUPTION_COUNT,
+
   TICKER_ENUM_MAX
 };
 

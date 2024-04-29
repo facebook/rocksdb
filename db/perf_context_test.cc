@@ -1121,6 +1121,23 @@ TEST_F(PerfContextTest, MergeOperandCount) {
   verify();
 }
 
+TEST_F(PerfContextTest, WriteMemtableTimePerfLevel) {
+  // Write and check time
+  ASSERT_OK(DestroyDB(kDbName, Options()));
+  std::shared_ptr<DB> db = OpenDb();
+
+  SetPerfLevel(PerfLevel::kEnableWait);
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "foo1", "bar"));
+  ASSERT_GT(perf_context.write_memtable_time, 0);
+
+  SetPerfLevel(PerfLevel::kEnableCount);
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "foo0", "bar"));
+  ASSERT_EQ(perf_context.write_memtable_time, 0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

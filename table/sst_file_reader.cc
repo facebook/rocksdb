@@ -15,6 +15,7 @@
 #include "rocksdb/file_system.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
+#include "table/table_iterator.h"
 #include "table/table_reader.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,6 +25,9 @@ struct SstFileReader::Rep {
   EnvOptions soptions;
   ImmutableOptions ioptions;
   MutableCFOptions moptions;
+  // Keep a member variable for this, since `NewIterator()` uses a const
+  // reference of `ReadOptions`.
+  ReadOptions roptions_for_table_iter;
 
   std::unique_ptr<TableReader> table_reader;
 
@@ -31,7 +35,10 @@ struct SstFileReader::Rep {
       : options(opts),
         soptions(options),
         ioptions(options),
-        moptions(ColumnFamilyOptions(options)) {}
+        moptions(ColumnFamilyOptions(options)) {
+    roptions_for_table_iter =
+        ReadOptions(/*_verify_checksums=*/true, /*_fill_cache=*/false);
+  }
 };
 
 SstFileReader::SstFileReader(const Options& options) : rep_(new Rep(options)) {}
@@ -81,18 +88,32 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
                       ? roptions.snapshot->GetSequenceNumber()
                       : kMaxSequenceNumber;
   ArenaWrappedDBIter* res = new ArenaWrappedDBIter();
-  res->Init(r->options.env, roptions, r->ioptions, r->moptions,
-            nullptr /* version */, sequence,
-            r->moptions.max_sequential_skip_in_iterations,
-            0 /* version_number */, nullptr /* read_callback */,
-            nullptr /* db_impl */, nullptr /* cfd */,
-            true /* expose_blob_index */, false /* allow_refresh */);
+  res->Init(
+      r->options.env, roptions, r->ioptions, r->moptions, nullptr /* version */,
+      sequence, r->moptions.max_sequential_skip_in_iterations,
+      0 /* version_number */, nullptr /* read_callback */, nullptr /* cfh */,
+      true /* expose_blob_index */, false /* allow_refresh */);
   auto internal_iter = r->table_reader->NewIterator(
       res->GetReadOptions(), r->moptions.prefix_extractor.get(),
       res->GetArena(), false /* skip_filters */,
       TableReaderCaller::kSSTFileReader);
   res->SetIterUnderDBIter(internal_iter);
   return res;
+}
+
+std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
+  auto r = rep_.get();
+  InternalIterator* internal_iter = r->table_reader->NewIterator(
+      r->roptions_for_table_iter, r->moptions.prefix_extractor.get(),
+      /*arena*/ nullptr, false /* skip_filters */,
+      TableReaderCaller::kSSTFileReader);
+  assert(internal_iter);
+  if (internal_iter == nullptr) {
+    // Do not attempt to create a TableIterator if we cannot get a valid
+    // InternalIterator.
+    return nullptr;
+  }
+  return std::make_unique<TableIterator>(internal_iter);
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
@@ -104,6 +125,42 @@ Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
   assert(read_options.io_activity == Env::IOActivity::kUnknown);
   return rep_->table_reader->VerifyChecksum(read_options,
                                             TableReaderCaller::kSSTFileReader);
+}
+
+Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
+  Rep* r = rep_.get();
+  std::unique_ptr<InternalIterator> internal_iter{r->table_reader->NewIterator(
+      read_options, r->moptions.prefix_extractor.get(), nullptr,
+      false /* skip_filters */, TableReaderCaller::kSSTFileReader)};
+  internal_iter->SeekToFirst();
+  Status s = internal_iter->status();
+  if (!s.ok()) {
+    return s;
+  }
+  uint64_t num_read = 0;
+  for (; internal_iter->Valid(); internal_iter->Next()) {
+    ++num_read;
+  };
+  s = internal_iter->status();
+  if (!s.ok()) {
+    return s;
+  }
+  std::shared_ptr<const TableProperties> tp = GetTableProperties();
+  if (!tp) {
+    s = Status::Corruption("table properties not available");
+  } else {
+    // TODO: verify num_range_deletions
+    uint64_t expected = tp->num_entries - tp->num_range_deletions;
+    if (num_read != expected) {
+      std::ostringstream oss;
+      oss << "Table property expects " << expected
+          << " entries when excluding range deletions,"
+          << " but scanning the table returned " << std::to_string(num_read)
+          << " entries";
+      s = Status::Corruption(oss.str());
+    }
+  }
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -26,6 +26,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/cast_util.h"
 #include "util/hash_containers.h"
 #include "util/thread_local.h"
 
@@ -168,6 +169,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
+  virtual DBImpl* db() const { return db_; }
 
   uint32_t GetID() const override;
   const std::string& GetName() const override;
@@ -218,6 +220,9 @@ struct SuperVersion {
   // enable UDT feature, this is an empty string.
   std::string full_history_ts_low;
 
+  // A shared copy of the DB's seqno to time mapping.
+  std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping{nullptr};
+
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
@@ -231,8 +236,23 @@ struct SuperVersion {
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
   void Cleanup();
-  void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
-            MemTableListVersion* new_imm, Version* new_current);
+  void Init(
+      ColumnFamilyData* new_cfd, MemTable* new_mem,
+      MemTableListVersion* new_imm, Version* new_current,
+      std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping);
+
+  // Share the ownership of the seqno to time mapping object referred to in this
+  // SuperVersion. To be used by the new SuperVersion to be installed after this
+  // one if seqno to time mapping does not change in between these two
+  // SuperVersions. Or to share the ownership of the mapping with a FlushJob.
+  std::shared_ptr<const SeqnoToTimeMapping> ShareSeqnoToTimeMapping() {
+    return seqno_to_time_mapping;
+  }
+
+  // Access the seqno to time mapping object in this SuperVersion.
+  UnownedPtr<const SeqnoToTimeMapping> GetSeqnoToTimeMapping() const {
+    return seqno_to_time_mapping.get();
+  }
 
   // The value of dummy is not actually used. kSVInUse takes its address as a
   // mark in the thread local storage to indicate the SuperVersion is in use

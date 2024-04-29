@@ -422,7 +422,7 @@ bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
     // TODO: consider changing?
   } else if (pairs_.empty()) {
     enforced_ = true;
-    pairs_.push_back({seqno, time});
+    pairs_.emplace_back(seqno, time);
     // skip normal enforced check below
     return true;
   } else {
@@ -437,13 +437,13 @@ bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
           // reset
           assert(false);
         } else {
-          pairs_.push_back({seqno, time});
+          pairs_.emplace_back(seqno, time);
           added = true;
         }
       }
     } else if (!enforced_) {
       // Treat like AddUnenforced and fix up below
-      pairs_.push_back({seqno, time});
+      pairs_.emplace_back(seqno, time);
       added = true;
     } else {
       // Out of order append attempted
@@ -490,4 +490,54 @@ std::string SeqnoToTimeMapping::ToHumanString() const {
   return ret;
 }
 
+Slice PackValueAndWriteTime(const Slice& value, uint64_t unix_write_time,
+                            std::string* buf) {
+  buf->assign(value.data(), value.size());
+  PutFixed64(buf, unix_write_time);
+  return Slice(*buf);
+}
+
+Slice PackValueAndSeqno(const Slice& value, SequenceNumber seqno,
+                        std::string* buf) {
+  buf->assign(value.data(), value.size());
+  PutFixed64(buf, seqno);
+  return Slice(*buf);
+}
+
+uint64_t ParsePackedValueForWriteTime(const Slice& value) {
+  assert(value.size() >= sizeof(uint64_t));
+  Slice write_time_slice(value.data() + value.size() - sizeof(uint64_t),
+                         sizeof(uint64_t));
+  uint64_t write_time;
+  [[maybe_unused]] auto res = GetFixed64(&write_time_slice, &write_time);
+  assert(res);
+  return write_time;
+}
+
+std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value) {
+  return std::make_tuple(Slice(value.data(), value.size() - sizeof(uint64_t)),
+                         ParsePackedValueForWriteTime(value));
+}
+
+SequenceNumber ParsePackedValueForSeqno(const Slice& value) {
+  assert(value.size() >= sizeof(SequenceNumber));
+  Slice seqno_slice(value.data() + value.size() - sizeof(uint64_t),
+                    sizeof(uint64_t));
+  SequenceNumber seqno;
+  [[maybe_unused]] auto res = GetFixed64(&seqno_slice, &seqno);
+  assert(res);
+  return seqno;
+}
+
+std::tuple<Slice, SequenceNumber> ParsePackedValueWithSeqno(
+    const Slice& value) {
+  return std::make_tuple(
+      Slice(value.data(), value.size() - sizeof(SequenceNumber)),
+      ParsePackedValueForSeqno(value));
+}
+
+Slice ParsePackedValueForValue(const Slice& value) {
+  assert(value.size() >= sizeof(uint64_t));
+  return Slice(value.data(), value.size() - sizeof(uint64_t));
+}
 }  // namespace ROCKSDB_NAMESPACE

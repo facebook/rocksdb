@@ -118,7 +118,7 @@ class DBIter final : public Iterator {
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
-         ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+         ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
          bool expose_blob_index);
 
   // No copying allowed
@@ -367,6 +367,12 @@ class DBIter final : public Iterator {
   // and should not be used across functions. Reusing this object can reduce
   // overhead of calling construction of the function if creating it each time.
   ParsedInternalKey ikey_;
+
+  // The approximate write time for the entry. It is deduced from the entry's
+  // sequence number if the seqno to time mapping is available. For a
+  // kTypeValuePreferredSeqno entry, this is the write time specified by the
+  // user.
+  uint64_t saved_write_unix_time_;
   std::string saved_value_;
   Slice pinned_value_;
   // for prefix seek mode to support prev()
@@ -417,8 +423,7 @@ class DBIter final : public Iterator {
   MergeContext merge_context_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-  DBImpl* db_impl_;
-  ColumnFamilyData* cfd_;
+  ColumnFamilyHandleImpl* cfh_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
@@ -428,15 +433,12 @@ class DBIter final : public Iterator {
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
-Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
-                        const ImmutableOptions& ioptions,
-                        const MutableCFOptions& mutable_cf_options,
-                        const Comparator* user_key_comparator,
-                        InternalIterator* internal_iter, const Version* version,
-                        const SequenceNumber& sequence,
-                        uint64_t max_sequential_skip_in_iterations,
-                        ReadCallback* read_callback, DBImpl* db_impl = nullptr,
-                        ColumnFamilyData* cfd = nullptr,
-                        bool expose_blob_index = false);
+Iterator* NewDBIterator(
+    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options,
+    const Comparator* user_key_comparator, InternalIterator* internal_iter,
+    const Version* version, const SequenceNumber& sequence,
+    uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
+    ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false);
 
 }  // namespace ROCKSDB_NAMESPACE

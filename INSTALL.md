@@ -126,7 +126,6 @@ most processors made since roughly 2013.
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
-            * run `brew tap homebrew/versions; brew install gcc7 --use-llvm` to install gcc 7 (or higher).
     * run `brew install rocksdb`
 
 * **FreeBSD** (11.01):

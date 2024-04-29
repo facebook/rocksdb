@@ -744,7 +744,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   const size_t capacity = size_t{1} << 25;
   const int num_shard_bits = 0;  // 1 shard
   int iterations_tested = 0;
-  for (std::shared_ptr<Cache> base_cache :
+  for (const std::shared_ptr<Cache>& base_cache :
        {NewLRUCache(capacity, num_shard_bits),
         // FixedHyperClockCache
         HyperClockCacheOptions(
@@ -990,7 +990,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
     SCOPED_TRACE("Partition? " + std::to_string(partition));
-    for (std::shared_ptr<Cache> cache :
+    for (const std::shared_ptr<Cache>& cache :
          {NewLRUCache(capacity),
           HyperClockCacheOptions(
               capacity,
@@ -1251,7 +1251,7 @@ void DummyFillCache(Cache& cache, size_t entry_size,
 
 class CountingLogger : public Logger {
  public:
-  ~CountingLogger() override {}
+  ~CountingLogger() override = default;
   using Logger::Logv;
   void Logv(const InfoLogLevel log_level, const char* format,
             va_list /*ap*/) override {
@@ -1373,7 +1373,7 @@ class StableCacheKeyTestFS : public FaultInjectionTestFS {
     SetFailGetUniqueId(true);
   }
 
-  ~StableCacheKeyTestFS() override {}
+  ~StableCacheKeyTestFS() override = default;
 
   IOStatus LinkFile(const std::string&, const std::string&, const IOOptions&,
                     IODebugContext*) override {
@@ -1566,7 +1566,7 @@ class CacheKeyTest : public testing::Test {
     tp_.db_id = std::to_string(db_id_);
     tp_.orig_file_number = file_number;
     bool is_stable;
-    std::string cur_session_id = "";  // ignored
+    std::string cur_session_id;       // ignored
     uint64_t cur_file_number = 42;    // ignored
     OffsetableCacheKey rv;
     BlockBasedTable::SetupBaseCacheKey(&tp_, cur_session_id, cur_file_number,
@@ -1834,6 +1834,7 @@ class DBBlockCachePinningTest
   PinningTier unpartitioned_pinning_;
 };
 
+#ifdef LZ4
 TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   // Creates one file in L0 and one file in L1. Both files have enough data that
   // their index and filter blocks are partitioned. The L1 file will also have
@@ -1845,10 +1846,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   const int kNumKeysPerFile = kBlockSize * kNumBlocksPerFile / kKeySize;
 
   Options options = CurrentOptions();
-  // `kNoCompression` makes the unit test more portable. But it relies on the
-  // current behavior of persisting/accessing dictionary even when there's no
-  // (de)compression happening, which seems fairly likely to change over time.
-  options.compression = kNoCompression;
+  options.compression = kLZ4Compression;
   options.compression_opts.max_dict_bytes = 4 << 10;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
@@ -1961,6 +1959,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   ASSERT_EQ(expected_compression_dict_misses,
             TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
+#endif
 
 INSTANTIATE_TEST_CASE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,

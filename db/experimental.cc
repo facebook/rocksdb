@@ -17,9 +17,7 @@
 #include "logging/logging.h"
 #include "util/atomic.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace experimental {
-
+namespace ROCKSDB_NAMESPACE::experimental {
 
 Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
                            const Slice* begin, const Slice* end) {
@@ -378,7 +376,7 @@ enum BuiltinSstQueryFilters : char {
 
 class SstQueryFilterBuilder {
  public:
-  virtual ~SstQueryFilterBuilder() {}
+  virtual ~SstQueryFilterBuilder() = default;
   virtual void Add(const Slice& key,
                    const KeySegmentsExtractor::Result& extracted,
                    const Slice* prev_key,
@@ -395,7 +393,7 @@ class SstQueryFilterConfigImpl : public SstQueryFilterConfig {
       const KeySegmentsExtractor::KeyCategorySet& categories)
       : input_(input), categories_(categories) {}
 
-  virtual ~SstQueryFilterConfigImpl() {}
+  virtual ~SstQueryFilterConfigImpl() = default;
 
   virtual std::unique_ptr<SstQueryFilterBuilder> NewBuilder(
       bool sanity_checks) const = 0;
@@ -1210,5 +1208,4 @@ Status SstQueryFilterConfigsManager::MakeShared(
   return s;
 }
 
-}  // namespace experimental
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::experimental

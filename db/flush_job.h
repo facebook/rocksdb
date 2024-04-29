@@ -39,7 +39,6 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
-#include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
@@ -73,7 +72,7 @@ class FlushJob {
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-           const SeqnoToTimeMapping& seq_time_mapping,
+           std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
            const std::string& db_id = "", const std::string& db_session_id = "",
            std::string full_history_ts_low = "",
            BlobFileCompletionCallback* blob_callback = nullptr);
@@ -157,7 +156,7 @@ class FlushJob {
   // this job. All memtables in this column family with an ID smaller than or
   // equal to max_memtable_id_ will be selected for flush.
   uint64_t max_memtable_id_;
-  const FileOptions file_options_;
+  FileOptions file_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
   std::atomic<bool>* shutting_down_;
@@ -210,10 +209,14 @@ class FlushJob {
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
 
-  // reference to the seqno_to_time_mapping_ in db_impl.h, not safe to read
-  // without db mutex
-  const SeqnoToTimeMapping& db_impl_seqno_to_time_mapping_;
-  SeqnoToTimeMapping seqno_to_time_mapping_;
+  // Shared copy of DB's seqno to time mapping stored in SuperVersion. The
+  // ownership is shared with this FlushJob when it's created.
+  // FlushJob accesses and ref counts immutable MemTables directly via
+  // `MemTableListVersion` instead of ref `SuperVersion`, so we need to give
+  // the flush job shared ownership of the mapping.
+  // Note this is only installed when seqno to time recording feature is
+  // enables, so it could be nullptr.
+  std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping_;
 
   // Keeps track of the newest user-defined timestamp for this flush job if
   // `persist_user_defined_timestamps` flag is false.

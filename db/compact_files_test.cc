@@ -34,8 +34,8 @@ class CompactFilesTest : public testing::Test {
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
+  FlushedFileCollector() = default;
+  ~FlushedFileCollector() override = default;
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -45,7 +45,7 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> GetFlushedFiles() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> result;
-    for (auto fname : flushed_files_) {
+    for (const auto& fname : flushed_files_) {
       result.push_back(fname);
     }
     return result;
@@ -159,7 +159,9 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   // Compact files except the file in L3
   std::vector<std::string> files;
   for (int i = 0; i < 6; ++i) {
-    if (i == 3) continue;
+    if (i == 3) {
+      continue;
+    }
     for (auto& file : meta.levels[i].files) {
       files.push_back(file.db_path + "/" + file.name);
     }
@@ -228,7 +230,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForCompact());
 
   // verify all compaction input files are deleted
-  for (auto fname : l0_files) {
+  for (const auto& fname : l0_files) {
     ASSERT_EQ(Status::NotFound(), env_->FileExists(fname));
   }
   delete db;
@@ -439,6 +441,50 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
   }
 }
 
+TEST_F(CompactFilesTest, CompressionWithBlockAlign) {
+  Options options;
+  options.compression = CompressionType::kNoCompression;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+
+  std::shared_ptr<FlushedFileCollector> collector =
+      std::make_shared<FlushedFileCollector>();
+  options.listeners.push_back(collector);
+
+  {
+    BlockBasedTableOptions bbto;
+    bbto.block_align = true;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  }
+
+  std::unique_ptr<DB> db;
+  {
+    DB* _db = nullptr;
+    ASSERT_OK(DB::Open(options, db_name_, &_db));
+    db.reset(_db);
+  }
+
+  ASSERT_OK(db->Put(WriteOptions(), "key", "val"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Ensure background work is fully finished including listener callbacks
+  // before accessing listener state.
+  ASSERT_OK(
+      static_cast_with_check<DBImpl>(db.get())->TEST_WaitForBackgroundWork());
+  auto l0_files = collector->GetFlushedFiles();
+  ASSERT_EQ(1, l0_files.size());
+
+  // We can run this test even without Snappy support because we expect the
+  // `CompactFiles()` to fail before actually invoking Snappy compression.
+  CompactionOptions compaction_opts;
+  compaction_opts.compression = CompressionType::kSnappyCompression;
+  ASSERT_TRUE(db->CompactFiles(compaction_opts, l0_files, 1 /* output_level */)
+                  .IsInvalidArgument());
+
+  compaction_opts.compression = CompressionType::kDisableCompressionOption;
+  ASSERT_OK(db->CompactFiles(compaction_opts, l0_files, 1 /* output_level */));
+}
+
 TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   Options options;
   options.create_if_missing = true;
@@ -492,4 +538,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

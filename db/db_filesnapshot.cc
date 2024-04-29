@@ -151,6 +151,29 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     }
   }
 
+  if (s.ok()) {
+    size_t wal_size = files.size();
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Number of log files %" ROCKSDB_PRIszt " (%" ROCKSDB_PRIszt
+                   " required by manifest)",
+                   wal_size, required_by_manifest.size());
+#ifndef NDEBUG
+    std::ostringstream wal_names;
+    for (const auto& wal : files) {
+      wal_names << wal->PathName() << " ";
+    }
+
+    std::ostringstream wal_required_by_manifest_names;
+    for (const auto& wal : required_by_manifest) {
+      wal_required_by_manifest_names << wal << ".log ";
+    }
+
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Log files : %s .Log files required by manifest: %s.",
+                   wal_names.str().c_str(),
+                   wal_required_by_manifest_names.str().c_str());
+#endif  // NDEBUG
+  }
   return s;
 }
 
@@ -371,10 +394,6 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   size_t wal_size = live_wal_files.size();
-
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Number of log files %" ROCKSDB_PRIszt, live_wal_files.size());
-
   // Link WAL files. Copy exact size of last one because it is the only one
   // that has changes after the last flush.
   auto wal_dir = immutable_db_options_.GetWalDir();
@@ -390,8 +409,11 @@ Status DBImpl::GetLiveFilesStorageInfo(
       info.file_number = live_wal_files[i]->LogNumber();
       info.file_type = kWalFile;
       info.size = live_wal_files[i]->SizeFileBytes();
-      // Only last should need to be trimmed
-      info.trim_to_size = (i + 1 == wal_size);
+      // Trim the log either if its the last one, or log file recycling is
+      // enabled. In the latter case, a hard link doesn't prevent the file
+      // from being renamed and recycled. So we need to copy it instead.
+      info.trim_to_size = (i + 1 == wal_size) ||
+                          (immutable_db_options_.recycle_log_file_num > 0);
       if (opts.include_checksum_info) {
         info.file_checksum_func_name = kUnknownFileChecksumFuncName;
         info.file_checksum = kUnknownFileChecksum;
