@@ -5541,6 +5541,70 @@ TEST_P(BlockBasedTableTest, FixBlockAlignMismatchedFileChecksums) {
   delete db;
 }
 
+class NoBufferAlignmenttWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  explicit NoBufferAlignmenttWritableFile(
+      std::unique_ptr<FSWritableFile>&& file)
+      : FSWritableFileOwnerWrapper(std::move(file)) {}
+  size_t GetRequiredBufferAlignment() const override { return 1; }
+};
+
+class NoBufferAlignmenttWritableFileFileSystem : public FileSystemWrapper {
+ public:
+  explicit NoBufferAlignmenttWritableFileFileSystem(
+      const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() {
+    return "NoBufferAlignmenttWritableFileFileSystem";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewWritableFile(const std::string& fname,
+                           const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
+    EXPECT_OK(s);
+    result->reset(new NoBufferAlignmenttWritableFile(std::move(*result)));
+    return s;
+  }
+};
+
+TEST_P(BlockBasedTableTest,
+       FixBlockAlignFlushDuringPadMismatchedFileChecksums) {
+  Options options;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  // To force flush during pad by enforcing a small buffer size
+  options.writable_file_max_buffer_size = 1;
+  // To help enforce a small buffer size by removing buffer alignment
+  Env* raw_env = Env::Default();
+  std::shared_ptr<NoBufferAlignmenttWritableFileFileSystem> fs =
+      std::make_shared<NoBufferAlignmenttWritableFileFileSystem>(
+          raw_env->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(raw_env, fs));
+  options.env = env.get();
+
+  BlockBasedTableOptions bbto;
+  bbto.block_align = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  const std::string kDBPath = test::PerThreadDBPath(
+      "block_align_flush_during_flush_verify_file_checksums");
+  ASSERT_OK(DestroyDB(kDBPath, options));
+  DB* db;
+  ASSERT_OK(DB::Open(options, kDBPath, &db));
+
+  ASSERT_OK(db->Put(WriteOptions(), "k1", "k2"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Before the fix, VerifyFileChecksums() will fail as incorrect padded bytes
+  // were used to generate checksum upon file creation
+  ASSERT_OK(db->VerifyFileChecksums(ReadOptions()));
+  delete db;
+}
+
 TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
