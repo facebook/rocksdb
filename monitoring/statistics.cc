@@ -83,6 +83,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {MEMTABLE_MISS, "rocksdb.memtable.miss"},
     {GET_HIT_L0, "rocksdb.l0.hit"},
     {GET_HIT_L1, "rocksdb.l1.hit"},
+    {GET_HIT_L2, "rocksdb.l2.hit"},
+    {GET_HIT_L3, "rocksdb.l3.hit"},
     {GET_HIT_L2_AND_UP, "rocksdb.l2andup.hit"},
     {COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"},
     {COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"},

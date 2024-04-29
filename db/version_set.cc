@@ -2479,7 +2479,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           RecordTick(db_statistics_, GET_HIT_L0);
         } else if (fp.GetHitFileLevel() == 1) {
           RecordTick(db_statistics_, GET_HIT_L1);
-        } else if (fp.GetHitFileLevel() >= 2) {
+        } else if (fp.GetHitFileLevel() == 2) {
+          RecordTick(db_statistics_, GET_HIT_L2);
+        } else if (fp.GetHitFileLevel() == 3) {
+          RecordTick(db_statistics_, GET_HIT_L3);
+        } else if (fp.GetHitFileLevel() >= 4) {
           RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
         }
 

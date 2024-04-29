@@ -145,6 +145,9 @@ enum Tickers : uint32_t {
   GET_HIT_L0,
   // # of Get() queries served by L1
   GET_HIT_L1,
+  GET_HIT_L2,
+  GET_HIT_L3,
+
   // # of Get() queries served by L2 and up
   GET_HIT_L2_AND_UP,
 

@@ -93,7 +93,11 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
           RecordTick(db_statistics_, GET_HIT_L0);
         } else if (hit_file_level == 1) {
           RecordTick(db_statistics_, GET_HIT_L1);
-        } else if (hit_file_level >= 2) {
+        } else if (hit_file_level == 2) {
+          RecordTick(db_statistics_, GET_HIT_L2);
+        } else if (hit_file_level == 3) {
+          RecordTick(db_statistics_, GET_HIT_L3);
+        } else if (hit_file_level >= 4) {
           RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
         }
 
