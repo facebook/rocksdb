@@ -1561,10 +1561,8 @@ class DBImpl : public DB {
   void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
 
   // Collect a deduplicated collection of paths used by this DB, including
-  // dbname_, DBOptions.db_paths, ColumnFamilyOptions.cf_paths. These paths
-  // cannot be dynamically changed, so they are collected once during DB
-  // initialization and used throughout the DB session.
-  void CollectAllDBPaths();
+  // dbname_, DBOptions.db_paths, ColumnFamilyOptions.cf_paths.
+  std::set<std::string> CollectAllDBPaths();
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -2728,11 +2726,6 @@ class DBImpl : public DB {
   int bg_purge_scheduled_;
 
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
-
-  // A set of all the directories used by this DB.
-  // Note that these paths do not have a tailing path separator "/"
-  // (kFilePathSeparator).
-  std::unordered_set<std::string> all_db_paths_;
 
   // shall we disable deletion of obsolete files
   // if 0 the deletion is enabled.

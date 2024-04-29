@@ -180,7 +180,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     // PurgeObsoleteFiles will dedupe duplicate files.
     IOOptions io_opts;
     io_opts.do_not_recurse = true;
-    for (auto& path : all_db_paths_) {
+    for (auto& path : CollectAllDBPaths()) {
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
@@ -945,16 +945,18 @@ Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
   return s;
 }
 
-void DBImpl::CollectAllDBPaths() {
-  all_db_paths_.insert(NormalizePath(dbname_));
+std::set<std::string> DBImpl::CollectAllDBPaths() {
+  std::set<std::string> all_db_paths;
+  all_db_paths.insert(NormalizePath(dbname_));
   for (const auto& db_path : immutable_db_options_.db_paths) {
-    all_db_paths_.insert(NormalizePath(db_path.path));
+    all_db_paths.insert(NormalizePath(db_path.path));
   }
   for (const auto* cfd : *versions_->GetColumnFamilySet()) {
     for (const auto& cf_path : cfd->ioptions()->cf_paths) {
-      all_db_paths_.insert(NormalizePath(cf_path.path));
+      all_db_paths.insert(NormalizePath(cf_path.path));
     }
   }
+  return all_db_paths;
 }
 
 Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
@@ -962,7 +964,7 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
   Status s;
-  for (const auto& path : all_db_paths_) {
+  for (const auto& path : CollectAllDBPaths()) {
     std::vector<std::string> files;
     s = env_->GetChildren(path, &files);
     if (!s.ok()) {

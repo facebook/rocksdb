@@ -1989,6 +1989,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
+  std::set<std::string> all_db_paths = impl->CollectAllDBPaths();
   if (!impl->immutable_db_options_.info_log) {
     s = impl->init_logger_creation_s_;
     delete impl;
@@ -1998,7 +1999,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {
-    for (auto& path : impl->all_db_paths_) {
+    for (const auto& path : all_db_paths) {
       s = impl->env_->CreateDirIfMissing(path);
       if (!s.ok()) {
         break;
@@ -2007,7 +2008,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
     // For recovery from NoSpace() error, we can only handle
     // the case where the database is stored in a single path
-    if (impl->all_db_paths_.size() <= 1) {
+    if (all_db_paths.size() <= 1) {
       impl->error_handler_.EnableAutoRecovery();
     }
   }
@@ -2169,7 +2170,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         impl->WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
     *dbptr = impl;
     impl->opened_successfully_ = true;
-    impl->MaybeScheduleFlushOrCompaction();
   } else {
     persist_options_status.PermitUncheckedError();
   }
@@ -2193,27 +2193,27 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // WAL write failures and resultant forced flushes
     sfm->ReserveDiskBuffer(max_write_buffer_size,
                            impl->immutable_db_options_.db_paths[0].path);
+  }
 
+  if (s.ok()) {
     // When the DB is stopped, it's possible that there are some .trash files
     // that were not deleted yet, when we open the DB we will find these .trash
     // files and schedule them to be deleted (or delete immediately if
     // SstFileManager was not used).
-    // Note that we only start doing this after `TrackExistingDataFiles` are
-    // called, the `max_trash_db_ratio` is ineffective otherwise and these
-    // files' deletion won't be rate limited which can cause discard stall.
-    for (const auto& path : impl->all_db_paths_) {
+    // Note that we only start doing this and below delete obsolete file after
+    // `TrackExistingDataFiles` are called, the `max_trash_db_ratio` is
+    // ineffective otherwise and these files' deletion won't be rate limited
+    // which can cause discard stall.
+    for (const auto& path : all_db_paths) {
       DeleteScheduler::CleanupDirectory(impl->immutable_db_options_.env, sfm,
                                         path)
           .PermitUncheckedError();
     }
-  }
-
-  if (s.ok()) {
     impl->mutex_.Lock();
-    // Only start deleting obsolete files after all existing files are tracked
-    // in SstFileManager via `TrackExistingDataFiles`. This will do a full scan.
+    // This will do a full scan.
     impl->DeleteObsoleteFiles();
     TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");
+    impl->MaybeScheduleFlushOrCompaction();
     impl->mutex_.Unlock();
   }
 
