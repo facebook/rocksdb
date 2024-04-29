@@ -435,6 +435,22 @@ class GetEntityCommand : public LDBCommand {
   std::string key_;
 };
 
+class MultiGetEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "multi_get_entity"; }
+
+  MultiGetEntityCommand(const std::vector<std::string>& params,
+                        const std::map<std::string, std::string>& options,
+                        const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::vector<std::string> keys_;
+};
+
 class ApproxSizeCommand : public LDBCommand {
  public:
   static std::string Name() { return "approxsize"; }
