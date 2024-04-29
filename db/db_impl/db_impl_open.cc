@@ -1989,7 +1989,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
-  std::set<std::string> all_db_paths = impl->CollectAllDBPaths();
   if (!impl->immutable_db_options_.info_log) {
     s = impl->init_logger_creation_s_;
     delete impl;
@@ -1999,7 +1998,16 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {
-    for (const auto& path : all_db_paths) {
+    std::vector<std::string> paths;
+    for (auto& db_path : impl->immutable_db_options_.db_paths) {
+      paths.emplace_back(db_path.path);
+    }
+    for (auto& cf : column_families) {
+      for (auto& cf_path : cf.options.cf_paths) {
+        paths.emplace_back(cf_path.path);
+      }
+    }
+    for (const auto& path : paths) {
       s = impl->env_->CreateDirIfMissing(path);
       if (!s.ok()) {
         break;
@@ -2008,7 +2016,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
     // For recovery from NoSpace() error, we can only handle
     // the case where the database is stored in a single path
-    if (all_db_paths.size() <= 1) {
+    if (paths.size() <= 1) {
       impl->error_handler_.EnableAutoRecovery();
     }
   }
@@ -2204,7 +2212,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // `TrackExistingDataFiles` are called, the `max_trash_db_ratio` is
     // ineffective otherwise and these files' deletion won't be rate limited
     // which can cause discard stall.
-    for (const auto& path : all_db_paths) {
+    for (const auto& path : impl->CollectAllDBPaths()) {
       DeleteScheduler::CleanupDirectory(impl->immutable_db_options_.env, sfm,
                                         path)
           .PermitUncheckedError();
