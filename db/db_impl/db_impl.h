@@ -686,9 +686,12 @@ class DBImpl : public DB {
 
   // Similar to Write() but will call the callback once on the single write
   // thread to determine whether it is safe to perform the write.
-  virtual Status WriteWithCallback(const WriteOptions& write_options,
-                                   WriteBatch* my_batch,
-                                   WriteCallback* callback);
+  // And will call the `post_wal_write_cb` after wal write finishes in pipelined
+  // write mode.
+  virtual Status WriteWithCallback(
+      const WriteOptions& write_options, WriteBatch* my_batch,
+      WriteCallback* callback,
+      PostWalWriteCallback* post_wal_write_cb = nullptr);
 
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into the current
@@ -1497,6 +1500,7 @@ class DBImpl : public DB {
   // batch that does not have duplicate keys.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
+                   PostWalWriteCallback* post_wal_write_cb = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
@@ -1505,6 +1509,7 @@ class DBImpl : public DB {
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
+                            PostWalWriteCallback* post_wal_write_cb = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);

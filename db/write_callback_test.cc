@@ -84,6 +84,19 @@ class MockWriteCallback : public WriteCallback {
   bool AllowWriteBatching() override { return allow_batching_; }
 };
 
+class MockPostWalWriteCallback : public PostWalWriteCallback {
+ public:
+  std::atomic<bool> was_called_{false};
+
+  MockPostWalWriteCallback() = default;
+
+  MockPostWalWriteCallback(const MockPostWalWriteCallback& other) {
+    was_called_.store(other.was_called_.load());
+  }
+
+  void OnWalWriteFinish() { was_called_.store(true); }
+};
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class WriteCallbackPTest
     : public WriteCallbackTest,
@@ -119,9 +132,11 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
       kvs_.clear();
       write_batch_.Clear();
       callback_.was_called_.store(false);
+      post_wal_write_cb_.was_called_.store(false);
     }
 
     MockWriteCallback callback_;
+    MockPostWalWriteCallback post_wal_write_cb_;
     WriteBatch write_batch_;
     std::vector<std::pair<string, string>> kvs_;
   };
@@ -326,19 +341,26 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
         // seq_per_batch_ requires a natural batch separator or Noop
         ASSERT_OK(WriteBatchInternal::InsertNoop(&write_op.write_batch_));
         const size_t ONE_BATCH = 1;
-        s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
-                               &write_op.callback_, nullptr, 0, false, nullptr,
-                               ONE_BATCH,
-                               two_queues_ ? &publish_seq_callback : nullptr);
+        s = db_impl->WriteImpl(
+            woptions, &write_op.write_batch_, &write_op.callback_,
+            &write_op.post_wal_write_cb_, nullptr, 0, false, nullptr, ONE_BATCH,
+            two_queues_ ? &publish_seq_callback : nullptr);
       } else {
         s = db_impl->WriteWithCallback(woptions, &write_op.write_batch_,
-                                       &write_op.callback_);
+                                       &write_op.callback_,
+                                       &write_op.post_wal_write_cb_);
       }
 
       if (write_op.callback_.should_fail_) {
         ASSERT_TRUE(s.IsBusy());
+        ASSERT_FALSE(write_op.post_wal_write_cb_.was_called_.load());
       } else {
         ASSERT_OK(s);
+        if (enable_pipelined_write_ && enable_WAL_) {
+          ASSERT_TRUE(write_op.post_wal_write_cb_.was_called_.load());
+        } else {
+          ASSERT_FALSE(write_op.post_wal_write_cb_.was_called_.load());
+        }
       }
     };
 

@@ -24,4 +24,14 @@ class WriteCallback {
   virtual bool AllowWriteBatching() = 0;
 };
 
+class PostWalWriteCallback {
+ public:
+  virtual ~PostWalWriteCallback() {}
+
+  // Will be called after wal write finishes.
+  // Note: this callback is only invoked in pipelined write mode after a write
+  // group's WAL write is finished.
+  virtual void OnWalWriteFinish() = 0;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

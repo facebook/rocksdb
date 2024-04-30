@@ -154,8 +154,9 @@ Status WritePreparedTxn::PrepareInternal() {
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                          !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
+                          /*callback*/ nullptr, /*post_wal_write_cb=*/nullptr,
+                          &log_number_, /*log ref*/ 0, !DISABLE_MEMTABLE,
+                          &seq_used, prepare_batch_cnt_,
                           &add_prepared_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
@@ -248,7 +249,7 @@ Status WritePreparedTxn::CommitInternal() {
   // true. See the comments about GetCommitTimeWriteBatch() in
   // include/rocksdb/utilities/transaction.h.
   s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                          zero_log_number, disable_memtable, &seq_used,
+                          nullptr, zero_log_number, disable_memtable, &seq_used,
                           batch_cnt, pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   const SequenceNumber commit_batch_seq = seq_used;
@@ -285,8 +286,8 @@ Status WritePreparedTxn::CommitInternal() {
   const size_t ONE_BATCH = 1;
   const uint64_t NO_REF_LOG = 0;
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_with_aux_batch);
+                          nullptr, NO_REF_LOG, DISABLE_MEMTABLE, &seq_used,
+                          ONE_BATCH, &update_commit_map_with_aux_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
 }
@@ -451,8 +452,8 @@ Status WritePreparedTxn::RollbackInternal() {
   // data that is written to DB but not yet committed, while
   // the rollback batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
-                          NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          pre_release_callback);
+                          nullptr, NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used,
+                          ONE_BATCH, pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
     return s;
@@ -477,8 +478,8 @@ Status WritePreparedTxn::RollbackInternal() {
   s = WriteBatchInternal::InsertNoop(&empty_batch);
   assert(s.ok());
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_with_prepare);
+                          nullptr, NO_REF_LOG, DISABLE_MEMTABLE, &seq_used,
+                          ONE_BATCH, &update_commit_map_with_prepare);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "RollbackInternal (status=%s) commit: %" PRIu64,
