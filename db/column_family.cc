@@ -13,6 +13,7 @@
 #include <cinttypes>
 #include <limits>
 #include <sstream>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -956,7 +957,13 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
   auto write_stall_condition = WriteStallCondition::kNormal;
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
+
+    // TODO(tgriggs): get the write_controller for this column family
     auto write_controller = column_family_set_->write_controller_;
+
+    std::shared_ptr<WriteController> cf_write_controller = column_family_set_->write_controllers_[id_];
+    std::cout << "[TGRIGGS_LOG] CFID=" << id_ << ", wc addr = " << cf_write_controller.get() << std::endl;
+    
     uint64_t compaction_needed_bytes =
         vstorage->estimated_compaction_needed_bytes();
 
@@ -1648,6 +1655,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  Cache* table_cache,
                                  WriteBufferManager* _write_buffer_manager,
                                  WriteController* _write_controller,
+                                 std::vector<std::shared_ptr<WriteController>> _write_controllers,
                                  BlockCacheTracer* const block_cache_tracer,
                                  const std::shared_ptr<IOTracer>& io_tracer,
                                  const std::string& db_id,
@@ -1664,6 +1672,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       table_cache_(table_cache),
       write_buffer_manager_(_write_buffer_manager),
       write_controller_(_write_controller),
+      write_controllers_(_write_controllers),
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
       db_id_(db_id),

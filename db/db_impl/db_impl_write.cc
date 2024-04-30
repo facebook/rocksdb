@@ -430,10 +430,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
 
   size_t num_cfs = 2;
-  size_t last_batch_sizes[num_cfs] = {0, 0};
+  for (int i = 0; i < num_cfs; ++i) {
+    last_batch_sizes_[i] = 0;
+  }
+  
+  // size_t last_batch_sizes[num_cfs] = {0, 0};
 
   for (auto w_it = write_group.begin(); w_it != write_group.end(); ++w_it) {
-    // std::cout << "[TGRIGGS_LOG] found writer:\n";
     rocksdb::WriteThread::Writer* cur_w = w_it.writer;
     size_t batch_size = WriteBatchInternal::ByteSize(cur_w->batch);
 
@@ -441,11 +444,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     try {
       w.batch->Iterate(&inspector);
     } catch (const IterationStopException& e) {
-      // std::cout << "Iteration stopped after the first Put operation." << std::endl;
+      // Stopped iteration after a single Put(). That's enough to identify CF.
     }
     uint32_t cf_id = inspector.GetCFID();
-    last_batch_sizes[cf_id] += batch_size;
-
+    last_batch_sizes_[cf_id] += batch_size;
     // std::cout << "[TGRIGGS_LOG] batch size = " << batch_size << ", cf_id = " << cf_id << std::endl;
   }
 
@@ -1276,7 +1278,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
     InstrumentedMutexLock l(&mutex_);
-    // TODO(tgriggs): here is the delay.
+    // TODO(tgriggs): here is the delay 
     status = DelayWrite(last_batch_group_size_, write_thread_, write_options);
     PERF_TIMER_START(write_pre_and_post_process_time);
   }

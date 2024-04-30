@@ -5098,13 +5098,14 @@ VersionSet::VersionSet(
     const std::string& dbname, const ImmutableDBOptions* _db_options,
     const FileOptions& storage_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
+    std::vector<std::shared_ptr<WriteController>> write_controllers,
     BlockCacheTracer* const block_cache_tracer,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
     const std::string& db_session_id, const std::string& daily_offpeak_time_utc,
     ErrorHandler* const error_handler, const bool read_only)
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
-          write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
+          write_buffer_manager, write_controller, write_controllers, block_cache_tracer, io_tracer,
           db_id, db_session_id)),
       table_cache_(table_cache),
       env_(_db_options->env),
@@ -5201,12 +5202,13 @@ void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
+    std::vector<std::shared_ptr<WriteController>> wcs = column_family_set_->write_controllers();
     // db_id becomes the source of truth after DBImpl::Recover():
     // https://github.com/facebook/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
     // Note: we may not be able to recover db_id from MANIFEST if
     // options.write_dbid_to_manifest is false (default).
     column_family_set_.reset(new ColumnFamilySet(
-        dbname_, db_options_, file_options_, table_cache_, wbm, wc,
+        dbname_, db_options_, file_options_, table_cache_, wbm, wc, wcs,
         block_cache_tracer_, io_tracer_, db_id_, db_session_id_));
   }
   db_id_.clear();
@@ -6325,7 +6327,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc, std::vector<std::shared_ptr<WriteController>>(),
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
                       /*db_id*/ "",
                       /*db_session_id*/ "", options->daily_offpeak_time_utc,
@@ -7369,7 +7371,7 @@ ReactiveVersionSet::ReactiveVersionSet(
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
     const std::shared_ptr<IOTracer>& io_tracer)
     : VersionSet(dbname, _db_options, _file_options, table_cache,
-                 write_buffer_manager, write_controller,
+                 write_buffer_manager, write_controller, std::vector<std::shared_ptr<WriteController>>(),
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
                  /*error_handler=*/nullptr, /*read_only=*/true) {}

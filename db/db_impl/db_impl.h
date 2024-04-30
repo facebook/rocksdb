@@ -920,6 +920,7 @@ class DBImpl : public DB {
   }
 
   const WriteController& write_controller() { return write_controller_; }
+  const std::vector<std::shared_ptr<WriteController>>& write_controllers() { return write_controllers_; }
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
@@ -2602,12 +2603,14 @@ class DBImpl : public DB {
   WriteThread nonmem_write_thread_;
 
   WriteController write_controller_;
+  std::vector<std::shared_ptr<WriteController>> write_controllers_;
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.
   // Note: This is to protect memtable and compaction. If the batch only writes
   // to the WAL its size need not to be included in this.
   uint64_t last_batch_group_size_;
+  uint64_t last_batch_sizes_[2] = {0, 0};
 
   FlushScheduler flush_scheduler_;
 
