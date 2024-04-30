@@ -769,7 +769,9 @@ Status DBTestBase::TimedPut(const Slice& k, const Slice& v,
 
 Status DBTestBase::TimedPut(int cf, const Slice& k, const Slice& v,
                             uint64_t write_unix_time, WriteOptions wo) {
-  WriteBatch wb;
+  WriteBatch wb(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                wo.protection_bytes_per_key,
+                /*default_cf_ts_sz=*/0);
   ColumnFamilyHandle* cfh;
   if (cf != 0) {
     cfh = handles_[cf];

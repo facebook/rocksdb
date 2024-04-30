@@ -534,6 +534,10 @@ DEFINE_int64(
     preserve_internal_time_seconds, 0,
     "Preserve internal time information which is attached to each SST.");
 
+DEFINE_uint32(use_timed_put_one_in, 0,
+              "If greater than zero, TimedPut is used per every N write ops on "
+              "on average.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
