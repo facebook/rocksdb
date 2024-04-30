@@ -1,0 +1,1 @@
+`BlockBasedTableOptions::optimize_filters_for_memory` is now set to true by default. When `partition_filters=false`, this could lead to somewhat increased average RSS memory usage by the block cache, but this "extra" usage is within the allowed memory budget and should make memory usage more consistent (by minimizing internal fragmentation for more kinds of blocks).

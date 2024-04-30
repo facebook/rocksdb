@@ -643,11 +643,10 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<Logger> info_log = nullptr;
 
-#ifdef NDEBUG
-  InfoLogLevel info_log_level = INFO_LEVEL;
-#else
-  InfoLogLevel info_log_level = DEBUG_LEVEL;
-#endif  // NDEBUG
+  // Minimum level for sending log messages to info_log. The default is
+  // INFO_LEVEL when RocksDB is compiled in release mode, and DEBUG_LEVEL
+  // when it is compiled in debug mode.
+  InfoLogLevel info_log_level = Logger::kDefaultLogLevel;
 
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set. Value -1 means
