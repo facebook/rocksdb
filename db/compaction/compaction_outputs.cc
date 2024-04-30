@@ -27,7 +27,9 @@ Status CompactionOutputs::Finish(
   if (s.ok()) {
     SeqnoToTimeMapping relevant_mapping;
     relevant_mapping.CopyFromSeqnoRange(
-        seqno_to_time_mapping, meta->fd.smallest_seqno, meta->fd.largest_seqno);
+        seqno_to_time_mapping,
+        std::min(smallest_preferred_seqno_, meta->fd.smallest_seqno),
+        meta->fd.largest_seqno);
     relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
     builder_->SetSeqnoTimeTableProperties(relevant_mapping,
                                           meta->oldest_ancester_time);
@@ -422,6 +424,11 @@ Status CompactionOutputs::AddToOutput(
   }
 
   const ParsedInternalKey& ikey = c_iter.ikey();
+  if (ikey.type == kTypeValuePreferredSeqno) {
+    SequenceNumber preferred_seqno = ParsePackedValueForSeqno(value);
+    smallest_preferred_seqno_ =
+        std::min(smallest_preferred_seqno_, preferred_seqno);
+  }
   s = current_output().meta.UpdateBoundaries(key, value, ikey.sequence,
                                              ikey.type);
 

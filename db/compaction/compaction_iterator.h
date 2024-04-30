@@ -437,6 +437,17 @@ class CompactionIterator {
   // iterator output (or current key in the underlying iterator during
   // NextFromInput()).
   ParsedInternalKey ikey_;
+
+  // When a kTypeValuePreferredSeqno entry's preferred seqno is safely swapped
+  // in in this compaction, this field saves its original sequence number for
+  // range checking whether it's safe to be placed on the penultimate level.
+  // This is to ensure when such an entry happens to be the right boundary of
+  // penultimate safe range, it won't get excluded because with the preferred
+  // seqno swapped in, it's now larger than the right boundary (itself before
+  // the swap). This is safe to do, because preferred seqno is swapped in only
+  // when no entries with the same user key exist on lower levels and this entry
+  // is already visible in the earliest snapshot.
+  std::optional<SequenceNumber> saved_seq_for_penul_check_ = kMaxSequenceNumber;
   // Stores whether ikey_.user_key is valid. If set to false, the user key is
   // not compared against the current key in the underlying iterator.
   bool has_current_user_key_ = false;
