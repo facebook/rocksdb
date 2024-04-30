@@ -175,6 +175,22 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
   return s;
 }
 
+class IterationStopException : public std::exception {};
+class PutInspector : public rocksdb::WriteBatch::Handler {
+public:
+  virtual rocksdb::Status PutCF(uint32_t column_family_id, const rocksdb::Slice& key, const rocksdb::Slice& value) override {
+    (void) key;
+    (void) value;
+    column_family_id_ = column_family_id;
+    // std::cout << "Put Operation in CF " << column_family_id << " - Key: " << key.ToString() << std::endl;
+    throw IterationStopException();
+    return rocksdb::Status::OK();
+  }
+  uint32_t GetCFID() { return column_family_id_; }
+private:
+  uint32_t column_family_id_ = 99;
+};
+
 // The main write queue. This is the only write queue that updates LastSequence.
 // When using one write queue, the same sequence also indicates the last
 // published sequence.
@@ -391,6 +407,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // with the other thread
 
     // PreprocessWrite does its own perf timing.
+    // TODO(tgriggs): This is where delays will occur
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     status = PreprocessWrite(write_options, &log_context, &write_context);
@@ -411,6 +428,30 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   TEST_SYNC_POINT("DBImpl::WriteImpl:BeforeLeaderEnters");
   last_batch_group_size_ =
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
+
+  size_t num_cfs = 2;
+  size_t last_batch_sizes[num_cfs] = {0, 0};
+
+  for (auto w_it = write_group.begin(); w_it != write_group.end(); ++w_it) {
+    // std::cout << "[TGRIGGS_LOG] found writer:\n";
+    rocksdb::WriteThread::Writer* cur_w = w_it.writer;
+    size_t batch_size = WriteBatchInternal::ByteSize(cur_w->batch);
+
+    PutInspector inspector;
+    try {
+      w.batch->Iterate(&inspector);
+    } catch (const IterationStopException& e) {
+      // std::cout << "Iteration stopped after the first Put operation." << std::endl;
+    }
+    uint32_t cf_id = inspector.GetCFID();
+    last_batch_sizes[cf_id] += batch_size;
+
+    // std::cout << "[TGRIGGS_LOG] batch size = " << batch_size << ", cf_id = " << cf_id << std::endl;
+  }
+
+  // for (int i = 0; i < num_cfs; ++i) {
+  //   std::cout << "[TGRIGGS_LOG] cf_id=" << i << ", size=" << last_batch_sizes[i] << std::endl;
+  // }
 
   IOStatus io_s;
   Status pre_release_cb_status;
@@ -1235,6 +1276,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
     InstrumentedMutexLock l(&mutex_);
+    // TODO(tgriggs): here is the delay.
     status = DelayWrite(last_batch_group_size_, write_thread_, write_options);
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
