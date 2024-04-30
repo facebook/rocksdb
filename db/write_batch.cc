@@ -494,6 +494,8 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         std::tie(*value, *write_unix_time) =
             ParsePackedValueWithWriteTime(packed_value);
       } else {
+        // Caller doesn't want to unpack write_unix_time, so keep it packed in
+        // the value.
         *value = packed_value;
       }
       break;
@@ -890,12 +892,11 @@ Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValuePreferredSeqno));
     PutVarint32(&b->rep_, column_family_id);
   }
+  std::string value_buf;
+  Slice packed_value =
+      PackValueAndWriteTime(value, write_unix_time, &value_buf);
   PutLengthPrefixedSlice(&b->rep_, key);
-  std::string encoded_write_time;
-  PutFixed64(&encoded_write_time, write_unix_time);
-  std::array<Slice, 2> value_with_time{{value, encoded_write_time}};
-  SliceParts packed_value(value_with_time.data(), 2);
-  PutLengthPrefixedSliceParts(&b->rep_, packed_value);
+  PutLengthPrefixedSlice(&b->rep_, packed_value);
 
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_TIMED_PUT,
@@ -906,8 +907,7 @@ Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
     // `kTypeColumnFamilyValuePreferredSeqno` here.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVO(SliceParts(&key, 1), packed_value,
-                        kTypeValuePreferredSeqno)
+            .ProtectKVO(key, packed_value, kTypeValuePreferredSeqno)
             .ProtectC(column_family_id));
   }
   return save.commit();

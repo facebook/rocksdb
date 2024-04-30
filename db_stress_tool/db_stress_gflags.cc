@@ -536,8 +536,7 @@ DEFINE_int64(
 
 DEFINE_uint32(use_timed_put_one_in, 0,
               "If greater than zero, TimedPut is used per every N write ops on "
-              "on average. (N is an approximation, the actual average would be "
-              "higher when use_put_entity_one_in is also enabled)");
+              "on average.");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -939,8 +938,7 @@ DEFINE_bool(use_merge, false,
 
 DEFINE_uint32(use_put_entity_one_in, 0,
               "If greater than zero, PutEntity will be used once per every N "
-              "write ops on average. (N is an approximation, the actual average"
-              "would be higher when use_timed_put_one_in is also enabled)");
+              "write ops on average.");
 
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
