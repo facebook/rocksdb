@@ -3759,15 +3759,17 @@ TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredUserAsksToIgnore) {
   int num_entries_per_memtable = 2;
   column_family_options_.memtable_factory.reset(
       test::NewSpecialSkipListFactory(num_entries_per_memtable - 1));
+  // Make sure there is no memory pressure to not retain udts.
   column_family_options_.max_write_buffer_number = 8;
   Open();
   ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(1)));
   ASSERT_OK(Put(0, "bar", EncodeAsUint64(2), "v1"));
   ASSERT_OK(Put(0, "baz", EncodeAsUint64(2), "v1"));
+  // Created the first memtable and scheduled it for flush.
   ASSERT_OK(Put(0, "foo", EncodeAsUint64(2), "v1"));
   // Not all keys expired but user asks to ignore it.
   FlushOptions fopt;
-  fopt.ignore_unexpired_udt = true;
+  fopt.strict_udt_retention = false;
   ASSERT_OK(dbfull()->Flush(fopt, handles_[0]));
 
   std::string effective_full_history_ts_low;
@@ -3779,7 +3781,7 @@ TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredUserAsksToIgnore) {
   ASSERT_OK(Put(0, "foo", EncodeAsUint64(4), "v2"));
   // Not all keys expired but user asks to ignore it.
   CompactRangeOptions copt;
-  copt.ignore_unexpired_udt_for_flush = true;
+  copt.strict_udt_retention = false;
   ASSERT_OK(dbfull()->CompactRange(copt, handles_[0], nullptr, nullptr));
 
   ASSERT_OK(

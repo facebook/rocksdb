@@ -1157,7 +1157,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   if (s.ok() && flush_needed) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
-    fo.ignore_unexpired_udt = options.ignore_unexpired_udt_for_flush;
+    fo.strict_udt_retention = options.strict_udt_retention;
     if (immutable_db_options_.atomic_flush) {
       s = AtomicFlushMemTables(fo, FlushReason::kManualCompaction);
     } else {
@@ -2344,7 +2344,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(
             cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */));
-        if (flush_options.ignore_unexpired_udt) {
+        if (!flush_options.strict_udt_retention) {
           cfd->SetManualFlushAsksToIgnoreUDT();
         }
       }
@@ -2429,7 +2429,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
-      if (flush_options.ignore_unexpired_udt) {
+      if (!flush_options.strict_udt_retention) {
         // This is no-op for statistics cfd.
         tmp_cfd->ClearManualFlushAsksToIgnoreUDT();
       }
@@ -2451,11 +2451,11 @@ Status DBImpl::AtomicFlushMemTables(
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
   }
-  if (flush_options.ignore_unexpired_udt) {
+  if (!flush_options.strict_udt_retention) {
     std::ostringstream oss;
     oss << "User-defined timestamps in Memtable only feature is not compatible"
-           "with atomic flush. FlushOptions.ignore_unexpired_udt should not be"
-           "set to true.";
+           "with atomic flush. FlushOptions.strict_udt_retention should not be"
+           "set to false.";
     return Status::TryAgain(oss.str());
   }
   Status s;
