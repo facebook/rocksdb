@@ -2,6 +2,10 @@ package org.rocksdb;
 
 import java.nio.ByteBuffer;
 
+
+/**
+ * Class to parse internal key to extract user key, entry type, sequence number.
+ */
 public class ParsedEntryInfo extends RocksObject {
   protected ParsedEntryInfo() {
     super(newParseEntryInstance());
