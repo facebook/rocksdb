@@ -1,6 +1,43 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.2.0 (05/01/2024)
+### New Features
+* Added two options `deadline` and `max_size_bytes` for CacheDumper to exit early
+* Added a new API `GetEntityFromBatchAndDB` to `WriteBatchWithIndex` that can be used for wide-column point lookups with read-your-own-writes consistency. Similarly to `GetFromBatchAndDB`, the API can combine data from the write batch with data from the underlying database if needed. See the API comments for more details.
+* [Experimental] Introduce two new cross-column-family iterators - CoalescingIterator and AttributeGroupIterator. The CoalescingIterator enables users to iterate over multiple column families and access their values and columns. During this iteration, if the same key exists in more than one column family, the keys in the later column family will overshadow the previous ones. The AttributeGroupIterator allows users to gather wide columns per Column Family and create attribute groups while iterating over keys across all CFs.
+* Added a new API `MultiGetEntityFromBatchAndDB` to `WriteBatchWithIndex` that can be used for batched wide-column point lookups with read-your-own-writes consistency. Similarly to `MultiGetFromBatchAndDB`, the API can combine data from the write batch with data from the underlying database if needed. See the API comments for more details.
+* *Adds a `SstFileReader::NewTableIterator` API to support programmatically read a SST file as a raw table file.
+* Add an option to `WaitForCompactOptions` - `wait_for_purge` to make `WaitForCompact()` API wait for background purge to complete
+
+### Public API Changes
+* DeleteRange() will return NotSupported() if row_cache is configured since they don't work together in some cases.
+* Deprecated `CompactionOptions::compression` since `CompactionOptions`'s API for configuring compression was incomplete, unsafe, and likely unnecessary
+* Using `OptionChangeMigration()` to migrate from non-FIFO to FIFO compaction
+with `Options::compaction_options_fifo.max_table_files_size` > 0 can cause
+the whole DB to be dropped right after migration if the migrated data is larger than
+`max_table_files_size`
+
+### Behavior Changes
+* Enabling `BlockBasedTableOptions::block_align` is now incompatible (i.e., APIs will return `Status::InvalidArgument`) with more ways of enabling compression: `CompactionOptions::compression`, `ColumnFamilyOptions::compression_per_level`, and `ColumnFamilyOptions::bottommost_compression`.
+* Changed the default value of `CompactionOptions::compression` to `kDisableCompressionOption`, which means the compression type is determined by the `ColumnFamilyOptions`.
+* `BlockBasedTableOptions::optimize_filters_for_memory` is now set to true by default. When `partition_filters=false`, this could lead to somewhat increased average RSS memory usage by the block cache, but this "extra" usage is within the allowed memory budget and should make memory usage more consistent (by minimizing internal fragmentation for more kinds of blocks).
+* Dump all keys for cache dumper impl if `SetDumpFilter()` is not called
+* `CompactRange()` with `CompactRangeOptions::change_level = true` and `CompactRangeOptions::target_level = 0` that ends up moving more than 1 file from non-L0 to L0 will return `Status::Aborted()`.
+* On distributed file systems that support file system level checksum verification and reconstruction reads, RocksDB will now retry a file read if the initial read fails RocksDB block level or record level checksum verification. This applies to MANIFEST file reads when the DB is opened, and to SST file reads at all times.
+
+### Bug Fixes
+* Fix a bug causing `VerifyFileChecksums()` to return false-positive corruption under `BlockBasedTableOptions::block_align=true`
+* Provide consistent view of the database across the column families for `NewIterators()` API.
+* Fixed feature interaction bug for `DeleteRange()` together with `ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor`. The impact of this bug would likely be corruption or crashing.
+* Fixed hang in `DisableManualCompactions()` where compactions waiting to be scheduled due to conflicts would not be canceled promptly
+* Fixed a regression when `ColumnFamilyOptions::max_successive_merges > 0` where the CPU overhead for deciding whether to merge could have increased unless the user had set the option `ColumnFamilyOptions::strict_max_successive_merges`
+* Fixed a bug in `MultiGet()` and `MultiGetEntity()` together with blob files (`ColumnFamilyOptions::enable_blob_files == true`). An error looking up one of the keys could cause the results to be wrong for other keys for which the statuses were `Status::OK`.
+* Fixed a bug where wrong padded bytes are used to generate file checksum and `DataVerificationInfo::checksum` upon file creation
+* Correctly implemented the move semantics of `PinnableWideColumns`.
+* Fixed a bug when the recycle_log_file_num in DBOptions is changed from 0 to non-zero when a DB is reopened. On a subsequent reopen, if a log file created when recycle_log_file_num==0 was reused previously, is alive and is empty, we could end up inserting stale WAL records into the memtable.
+* *Fix a bug where obsolete files' deletion during DB::Open are not rate limited with `SstFilemManager`'s slow deletion feature even if it's configured.
+
 ## 9.1.0 (03/22/2024)
 ### New Features
 * Added an option, `GetMergeOperandsOptions::continue_cb`, to give users the ability to end `GetMergeOperands()`'s lookup process before all merge operands were found.
