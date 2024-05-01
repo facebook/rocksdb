@@ -698,7 +698,6 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/cassandra_compactionfilterjni.cc              \
   java/rocksjni/cassandra_value_operator.cc                   \
-  java/rocksjni/raw_sst_file_reader_iterator.cc               \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocks_callback_object.cc                      \
   java/rocksjni/rocksjni.cc                                   \
@@ -735,4 +734,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \
   java/rocksjni/write_batch_with_index.cc                     \
-  java/rocksjni/write_buffer_manager.cc
+  java/rocksjni/write_buffer_manager.cc                       \
+  java/rocksjni/parsed_entry_info.cc                          \
+  java/rocksjni/type_util.cc
+

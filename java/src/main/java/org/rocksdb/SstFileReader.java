@@ -40,10 +40,10 @@ public class SstFileReader extends RocksObject {
    *
    * @return instance of iterator object.
    */
-  public RawSstFileReaderIterator newTableIterator() {
+  public SstFileReaderIterator newTableIterator() {
     assert (isOwningHandle());
     final long iter = newTableIterator(nativeHandle_);
-    return new RawSstFileReaderIterator(this, iter);
+    return new SstFileReaderIterator(this, iter);
   }
 
   /**

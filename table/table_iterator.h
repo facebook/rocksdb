@@ -8,7 +8,6 @@
 
 #include "rocksdb/iterator.h"
 #include "table/internal_iterator.h"
-#include "rocksdb/utilities/types_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 // An iterator wrapper class used to wrap an `InternalIterator` created by API
@@ -25,7 +24,7 @@ class TableIterator : public Iterator {
   }
 
  public:
-  explicit TableIterator(InternalIterator* iter, Options* options) : iter_(iter), options_(options) {}
+  explicit TableIterator(InternalIterator* iter) : iter_(iter) {}
 
   TableIterator(const TableIterator&) = delete;
   TableIterator& operator=(const TableIterator&) = delete;
@@ -49,65 +48,22 @@ class TableIterator : public Iterator {
   bool Valid() const override { return iter_->Valid(); }
   void SeekToFirst() override { return iter_->SeekToFirst(); }
   void SeekToLast() override { return iter_->SeekToLast(); }
-  void Seek(const Slice& target) override {
-      std::string seek_key_buf;
-      ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::GetInternalKeyForSeek(target, options_->comparator,
-                                                                             &seek_key_buf);
-      assert(s.ok());
-      if (!s.ok()) {
-        status_ = s;
-      }
-      iter_->Seek(seek_key_buf);
-  }
+  void Seek(const Slice& target) override { return iter_->Seek(target); }
   void SeekForPrev(const Slice& target) override {
-      std::string seek_key_buf;
-      ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::GetInternalKeyForSeekForPrev(target, options_->comparator,
-                                                                                    &seek_key_buf);
-      if(!s.ok()) {
-          status_ = s;
-      }
-      iter_->SeekForPrev(target);
+    return iter_->SeekForPrev(target);
   }
-
-  void Next() override {
-      iter_->Next();
-      init_key();
-  }
-
-  void Prev() override {
-      iter_->Prev();
-      init_key();
-  }
-
-  Slice key() const override { return ikey->user_key;}
+  void Next() override { return iter_->Next(); }
+  void Prev() override { return iter_->Prev(); }
+  Slice key() const override { return iter_->key(); }
   Slice value() const override { return iter_->value(); }
-  Status status() const override {
-      if (!status_.ok()) {
-          return status_;
-      }
-      return iter_->status();
-  }
+  Status status() const override { return iter_->status(); }
   Status GetProperty(std::string /*prop_name*/,
                      std::string* /*prop*/) override {
     assert(false);
     return Status::NotSupported("TableIterator does not support GetProperty.");
   }
 
-  uint64_t SequenceNumber() {
-    return ikey->sequence;
-  }
-
-  ValueType type() {
-      return ikey->type;
-  }
-
  private:
   InternalIterator* iter_;
-  Options* options_;
-  ParsedInternalKey* ikey;
-  Status status_;
-  void init_key() {
-      ParseInternalKey(iter_->key(), ikey, true /* log_err_key */);
-  }
 };
 }  // namespace ROCKSDB_NAMESPACE

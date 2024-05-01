@@ -113,7 +113,7 @@ std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
     // InternalIterator.
     return nullptr;
   }
-  return std::make_unique<TableIterator>(internal_iter, &rep_->options);
+  return std::make_unique<TableIterator>(internal_iter);
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()

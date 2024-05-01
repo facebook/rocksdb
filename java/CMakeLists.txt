@@ -60,7 +60,6 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options.cc
         rocksjni/options_util.cc
         rocksjni/persistent_cache.cc
-        rocksjni/raw_sst_file_reader_iterator.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc
@@ -100,6 +99,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/write_batch_with_index.cc
         rocksjni/write_buffer_manager.cc
         rocksjni/writebatchhandlerjnicallback.cc
+        rocksjni/parsed_entry_info.cc
+        rocksjni/type_util.cc
 )
 
 set(JAVA_MAIN_CLASSES
@@ -220,7 +221,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/PrepopulateBlobCache.java
   src/main/java/org/rocksdb/Priority.java
-  src/main/java/org/rocksdb/RawSstFileReaderIterator.java
   src/main/java/org/rocksdb/Range.java
   src/main/java/org/rocksdb/RateLimiter.java
   src/main/java/org/rocksdb/RateLimiterMode.java
@@ -310,6 +310,9 @@ set(JAVA_MAIN_CLASSES
   src/test/java/org/rocksdb/test/TestableEventListener.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
+  src/main/java/org/rocksdb/ParsedEntryInfo.java
+  src/main/java/org/rocksdb/EntryType.java
+  src/main/java/org/rocksdb/TypeUtil.java
 )
 
 set(JAVA_TEST_CLASSES

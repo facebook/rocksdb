@@ -1166,7 +1166,7 @@ else()
   set(ROCKSDB_LIB ${ROCKSDB_STATIC_LIB})
 endif()
 
-option(WITH_JNI "build with JNI" OFF)
+option(WITH_JNI "build with JNI" ON)
 # Tests are excluded from Release builds
 CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
   "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
