@@ -1318,6 +1318,8 @@ int main(int argc, char** argv) {
       policy = rocksdb_filterpolicy_create_ribbon_hybrid(8.0, 1);
     }
     rocksdb_block_based_options_set_filter_policy(table_options, policy);
+    rocksdb_block_based_options_set_optimize_filters_for_memory(table_options,
+                                                                0);
 
     // Create new database
     rocksdb_close(db);

@@ -89,8 +89,11 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("\n\n");
   ret.append("Data Access Commands:\n");
   PutCommand::Help(ret);
+  PutEntityCommand::Help(ret);
   GetCommand::Help(ret);
+  GetEntityCommand::Help(ret);
   MultiGetCommand::Help(ret);
+  MultiGetEntityCommand::Help(ret);
   BatchPutCommand::Help(ret);
   ScanCommand::Help(ret);
   DeleteCommand::Help(ret);

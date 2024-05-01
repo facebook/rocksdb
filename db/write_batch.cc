@@ -484,13 +484,22 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad WriteBatch TimedPut");
       }
       FALLTHROUGH_INTENDED;
-    case kTypeValuePreferredSeqno:
+    case kTypeValuePreferredSeqno: {
+      Slice packed_value;
       if (!GetLengthPrefixedSlice(input, key) ||
-          !GetLengthPrefixedSlice(input, value) ||
-          !GetFixed64(input, write_unix_time)) {
+          !GetLengthPrefixedSlice(input, &packed_value)) {
         return Status::Corruption("bad WriteBatch TimedPut");
       }
+      if (write_unix_time) {
+        std::tie(*value, *write_unix_time) =
+            ParsePackedValueWithWriteTime(packed_value);
+      } else {
+        // Caller doesn't want to unpack write_unix_time, so keep it packed in
+        // the value.
+        *value = packed_value;
+      }
       break;
+    }
     default:
       return Status::Corruption("unknown WriteBatch tag");
   }
@@ -883,12 +892,11 @@ Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValuePreferredSeqno));
     PutVarint32(&b->rep_, column_family_id);
   }
+  std::string value_buf;
+  Slice packed_value =
+      PackValueAndWriteTime(value, write_unix_time, &value_buf);
   PutLengthPrefixedSlice(&b->rep_, key);
-  PutLengthPrefixedSlice(&b->rep_, value);
-  // For a kTypeValuePreferredSeqno entry, its write time is encoded separately
-  // from value in an encoded WriteBatch. They are packed into one value Slice
-  // once it's written to the database.
-  PutFixed64(&b->rep_, write_unix_time);
+  PutLengthPrefixedSlice(&b->rep_, packed_value);
 
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_TIMED_PUT,
@@ -899,7 +907,7 @@ Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
     // `kTypeColumnFamilyValuePreferredSeqno` here.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVO(key, value, kTypeValuePreferredSeqno)
+            .ProtectKVO(key, packed_value, kTypeValuePreferredSeqno)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1779,7 +1787,6 @@ Status WriteBatch::VerifyChecksum() const {
   Slice input(rep_.data() + WriteBatchInternal::kHeader,
               rep_.size() - WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
-  uint64_t unix_write_time = 0;
   char tag = 0;
   uint32_t column_family = 0;  // default
   Status s;
@@ -1792,7 +1799,7 @@ Status WriteBatch::VerifyChecksum() const {
     value.clear();
     column_family = 0;
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
-                                 &blob, &xid, &unix_write_time);
+                                 &blob, &xid, /*write_unix_time=*/nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -2514,6 +2521,11 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(ret_status.ok());
 
     if (db_ != nullptr) {
+      if (db_->immutable_db_options().row_cache) {
+        ret_status.PermitUncheckedError();
+        return Status::NotSupported(
+            "DeleteRange is not compatible with row cache.");
+      }
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
@@ -3162,8 +3174,12 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   }
 
   Status TimedPutCF(uint32_t cf, const Slice& key, const Slice& val,
-                    uint64_t /*unix_write_time*/) override {
-    return UpdateProtInfo(cf, key, val, kTypeValuePreferredSeqno);
+                    uint64_t unix_write_time) override {
+    std::string encoded_write_time;
+    PutFixed64(&encoded_write_time, unix_write_time);
+    std::array<Slice, 2> value_with_time{{val, encoded_write_time}};
+    SliceParts packed_value(value_with_time.data(), 2);
+    return UpdateProtInfo(cf, key, packed_value, kTypeValuePreferredSeqno);
   }
 
   Status PutEntityCF(uint32_t cf, const Slice& key,
@@ -3218,6 +3234,17 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
     if (prot_info_) {
       prot_info_->entries_.emplace_back(
           ProtectionInfo64().ProtectKVO(key, val, op_type).ProtectC(cf));
+    }
+    return Status::OK();
+  }
+
+  Status UpdateProtInfo(uint32_t cf, const Slice& key, const SliceParts& val,
+                        const ValueType op_type) {
+    if (prot_info_) {
+      prot_info_->entries_.emplace_back(
+          ProtectionInfo64()
+              .ProtectKVO(SliceParts(&key, 1), val, op_type)
+              .ProtectC(cf));
     }
     return Status::OK();
   }

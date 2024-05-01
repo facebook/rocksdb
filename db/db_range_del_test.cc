@@ -3806,6 +3806,21 @@ TEST_F(DBRangeDelTest, RefreshWithSnapshot) {
   iter.reset();
   db_->ReleaseSnapshot(snapshot);
 }
+
+TEST_F(DBRangeDelTest, RowCache) {
+  Options options = CurrentOptions();
+  options.row_cache = NewLRUCache(8 << 10);
+  DestroyAndReopen(options);
+  ASSERT_OK(Put(Key(3), "val"));
+  ASSERT_TRUE(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(3), Key(5))
+                  .IsNotSupported());
+  WriteBatch wb;
+  ASSERT_OK(wb.Put(Key(6), "abc"));
+  ASSERT_OK(wb.DeleteRange(Key(1), Key(5)));
+  ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsNotSupported());
+  ASSERT_EQ(Get(Key(3)), "val");
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

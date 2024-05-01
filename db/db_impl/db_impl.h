@@ -821,6 +821,8 @@ class DBImpl : public DB {
 
   uint64_t MinLogNumberToKeep();
 
+  uint64_t MinLogNumberToRecycle();
+
   // Returns the lower bound file number for SSTs that won't be deleted, even if
   // they're obsolete. This lower bound is used internally to prevent newly
   // created flush/compaction output files from being deleted before they're
@@ -2355,18 +2357,20 @@ class DBImpl : public DB {
 
   // A structure to contain ColumnFamilyData and the SuperVersion obtained for
   // the consistent view of DB
-  struct ColumnFamilyDataSuperVersionPair {
+  struct ColumnFamilySuperVersionPair {
+    ColumnFamilyHandleImpl* cfh;
     ColumnFamilyData* cfd;
 
     // SuperVersion for the column family obtained in a manner that ensures a
     // consistent view across all column families in the DB
     SuperVersion* super_version;
-    ColumnFamilyDataSuperVersionPair(ColumnFamilyHandle* column_family,
-                                     SuperVersion* sv)
-        : cfd(static_cast<ColumnFamilyHandleImpl*>(column_family)->cfd()),
+    ColumnFamilySuperVersionPair(ColumnFamilyHandle* column_family,
+                                 SuperVersion* sv)
+        : cfh(static_cast<ColumnFamilyHandleImpl*>(column_family)),
+          cfd(cfh->cfd()),
           super_version(sv) {}
 
-    ColumnFamilyDataSuperVersionPair() = default;
+    ColumnFamilySuperVersionPair() = default;
   };
 
   // A common function to obtain a consistent snapshot, which can be implicit
@@ -2380,9 +2384,17 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
+  // `extra_sv_ref` is used to indicate whether thread-local SuperVersion
+  // should be obtained with an extra ref (by GetReferencedSuperVersion()) or
+  // not (by GetAndRefSuperVersion()). For instance, point lookup like MultiGet
+  // does not require SuperVersion to be re-acquired throughout the entire
+  // invocation (no need extra ref), while MultiCfIterators may need the
+  // SuperVersion to be updated during Refresh() (requires extra ref).
+  //
   // `sv_from_thread_local` being set to false indicates that the SuperVersion
   // obtained from the ColumnFamilyData, whereas true indicates they are thread
   // local.
+  //
   // A non-OK status will be returned if for a column family that enables
   // user-defined timestamp feature, the specified `ReadOptions.timestamp`
   // attemps to read collapsed history.
@@ -2390,7 +2402,8 @@ class DBImpl : public DB {
   Status MultiCFSnapshot(const ReadOptions& read_options,
                          ReadCallback* callback,
                          IterDerefFuncType iter_deref_func, T* cf_list,
-                         SequenceNumber* snapshot, bool* sv_from_thread_local);
+                         bool extra_sv_ref, SequenceNumber* snapshot,
+                         bool* sv_from_thread_local);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number
@@ -2471,6 +2484,11 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   // Log files that we can recycle. Must be protected by db mutex_.
   std::deque<uint64_t> log_recycle_files_;
+  // The minimum log file number taht can be recycled, if log recycling is
+  // enabled. This is used to ensure that log files created by previous
+  // instances of the database are not recycled, as we cannot be sure they
+  // were created in the recyclable format.
+  uint64_t min_log_number_to_recycle_;
   // Protected by log_write_mutex_.
   bool log_dir_synced_;
   // Without two_write_queues, read and writes to log_empty_ are protected by

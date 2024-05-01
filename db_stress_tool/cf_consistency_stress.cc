@@ -36,31 +36,43 @@ class CfConsistencyStressTest : public StressTest {
 
     WriteBatch batch;
 
+    Status status;
     for (auto cf : rand_column_families) {
       ColumnFamilyHandle* const cfh = column_families_[cf];
       assert(cfh);
 
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_timed_put_one_in > 0 &&
+                 ((value_base + kLargePrimeForCommonFactorSkew) %
+                  FLAGS_use_timed_put_one_in) == 0) {
+        uint64_t write_unix_time = GetWriteUnixTime(thread);
+        status = batch.TimedPut(cfh, k, v, write_unix_time);
       } else if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
+        status = batch.Merge(cfh, k, v);
       } else {
-        batch.Put(cfh, k, v);
+        status = batch.Put(cfh, k, v);
+      }
+      if (!status.ok()) {
+        break;
       }
     }
 
-    Status s = db_->Write(write_opts, &batch);
+    if (status.ok()) {
+      status = db_->Write(write_opts, &batch);
+    }
 
-    if (!s.ok()) {
-      fprintf(stderr, "multi put or merge error: %s\n", s.ToString().c_str());
+    if (!status.ok()) {
+      fprintf(stderr, "multi put or merge error: %s\n",
+              status.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
       auto num = static_cast<long>(rand_column_families.size());
       thread->stats.AddBytesForWrites(num, (sz + 1) * num);
     }
 
-    return s;
+    return status;
   }
 
   Status TestDelete(ThreadState* thread, WriteOptions& write_opts,

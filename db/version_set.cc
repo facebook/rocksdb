@@ -2777,7 +2777,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     }
   }
 
-  if (s.ok() && !blob_ctxs.empty()) {
+  if (!blob_ctxs.empty()) {
     MultiGetBlob(read_options, keys_with_blobs_range, blob_ctxs);
   }
 

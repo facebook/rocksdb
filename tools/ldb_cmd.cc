@@ -214,6 +214,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == GetEntityCommand::Name()) {
     return new GetEntityCommand(parsed_params.cmd_params,
                                 parsed_params.option_map, parsed_params.flags);
+  } else if (parsed_params.cmd == MultiGetEntityCommand::Name()) {
+    return new MultiGetEntityCommand(parsed_params.cmd_params,
+                                     parsed_params.option_map,
+                                     parsed_params.flags);
   } else if (parsed_params.cmd == PutCommand::Name()) {
     return new PutCommand(parsed_params.cmd_params, parsed_params.option_map,
                           parsed_params.flags);
@@ -2938,7 +2942,7 @@ void MultiGetCommand::DoCommand() {
       fprintf(stderr, "Status for key %s: %s\n",
               (is_key_hex_ ? StringToHex(keys_[i]) : keys_[i]).c_str(),
               statuses[i].ToString().c_str());
-      failed = false;
+      failed = true;
     }
   }
   if (failed) {
@@ -2993,6 +2997,73 @@ void GetEntityCommand::DoCommand() {
     std::stringstream oss;
     oss << "GetEntity failed: " << st.ToString();
     exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+MultiGetEntityCommand::MultiGetEntityCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true /* is_read_only */,
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() < 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "At least one <key> must be specified for the multi_get_entity "
+        "command");
+  } else {
+    for (size_t i = 0; i < params.size(); i++) {
+      std::string key = params.at(i);
+      keys_.emplace_back(is_key_hex_ ? HexToString(key) : key);
+    }
+  }
+}
+
+void MultiGetEntityCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(MultiGetEntityCommand::Name());
+  ret.append(" <key_1> <key_2> <key_3> ...");
+  ret.append("\n");
+}
+
+void MultiGetEntityCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+
+  size_t num_keys = keys_.size();
+  std::vector<Slice> key_slices;
+  std::vector<PinnableWideColumns> results(num_keys);
+  std::vector<Status> statuses(num_keys);
+  for (const std::string& key : keys_) {
+    key_slices.emplace_back(key);
+  }
+
+  db_->MultiGetEntity(ReadOptions(), GetCfHandle(), num_keys, key_slices.data(),
+                      results.data(), statuses.data());
+
+  bool failed = false;
+  for (size_t i = 0; i < num_keys; ++i) {
+    std::string key = is_key_hex_ ? StringToHex(keys_[i]) : keys_[i];
+    if (statuses[i].ok()) {
+      std::ostringstream oss;
+      oss << key << DELIM;
+      WideColumnsHelper::DumpWideColumns(results[i].columns(), oss,
+                                         is_value_hex_);
+      fprintf(stdout, "%s\n", oss.str().c_str());
+    } else if (statuses[i].IsNotFound()) {
+      fprintf(stdout, "Key not found: %s\n", key.c_str());
+    } else {
+      fprintf(stderr, "Status for key %s: %s\n", key.c_str(),
+              statuses[i].ToString().c_str());
+      failed = true;
+    }
+  }
+  if (failed) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("one or more keys had non-okay status");
   }
 }
 
@@ -3473,7 +3544,7 @@ PutEntityCommand::PutEntityCommand(
 
 void PutEntityCommand::Help(std::string& ret) {
   ret.append("  ");
-  ret.append(PutCommand::Name());
+  ret.append(PutEntityCommand::Name());
   ret.append(
       " <key> <column1_name>:<column1_value> <column2_name>:<column2_value> "
       "<...>");

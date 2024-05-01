@@ -3997,7 +3997,7 @@ TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
-TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
+TEST_F(DBCompactionTest, CancelCompactionWaitingOnRunningConflict) {
   // This test verifies cancellation of a compaction waiting to be scheduled due
   // to conflict with a running compaction.
   //
@@ -4036,7 +4036,7 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
   // Make sure the manual compaction has seen the conflict before being canceled
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyData::CompactRange:Return",
-        "DBCompactionTest::CancelCompactionWaitingOnConflict:"
+        "DBCompactionTest::CancelCompactionWaitingOnRunningConflict:"
         "PreDisableManualCompaction"}});
   auto manual_compaction_thread = port::Thread([this]() {
     ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
@@ -4047,10 +4047,71 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
   // despite finding a conflict with an automatic compaction that is still
   // running
   TEST_SYNC_POINT(
-      "DBCompactionTest::CancelCompactionWaitingOnConflict:"
+      "DBCompactionTest::CancelCompactionWaitingOnRunningConflict:"
       "PreDisableManualCompaction");
   db_->DisableManualCompaction();
   manual_compaction_thread.join();
+}
+
+TEST_F(DBCompactionTest, CancelCompactionWaitingOnScheduledConflict) {
+  // This test verifies cancellation of a compaction waiting to be scheduled due
+  // to conflict with a scheduled (but not running) compaction.
+  //
+  // A `CompactRange()` in universal compacts all files, waiting for files to
+  // become available if they are locked for another compaction. This test
+  // blocks the compaction thread pool and then calls `CompactRange()` twice.
+  // The first call to `CompactRange()` schedules a compaction that is queued
+  // in the thread pool. The second call to `CompactRange()` blocks on the first
+  // call due to the conflict in file picking. The test verifies that
+  // `DisableManualCompaction()` can cancel both while the thread pool remains
+  // blocked.
+  const int kNumSortedRuns = 4;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  Reopen(options);
+
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  // Fill overlapping files in L0
+  Random rnd(301);
+  for (int i = 0; i < kNumSortedRuns; ++i) {
+    int key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx, false /* nowait */);
+  }
+
+  std::atomic<int> num_compact_range_calls{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "ColumnFamilyData::CompactRange:Return",
+      [&](void* /* arg */) { num_compact_range_calls++; });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int kNumManualCompactions = 2;
+  port::Thread manual_compaction_threads[kNumManualCompactions];
+  for (int i = 0; i < kNumManualCompactions; i++) {
+    manual_compaction_threads[i] = port::Thread([this]() {
+      ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                      .IsIncomplete());
+    });
+  }
+  while (num_compact_range_calls < kNumManualCompactions) {
+  }
+
+  // Cancel it. Threads should be joinable, i.e., both the scheduled and blocked
+  // manual compactions were canceled despite no compaction could have ever run.
+  db_->DisableManualCompaction();
+  for (int i = 0; i < kNumManualCompactions; i++) {
+    manual_compaction_threads[i].join();
+  }
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 }
 
 TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {

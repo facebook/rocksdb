@@ -28,6 +28,8 @@ uint64_t DBImpl::MinLogNumberToKeep() {
   return versions_->min_log_number_to_keep();
 }
 
+uint64_t DBImpl::MinLogNumberToRecycle() { return min_log_number_to_recycle_; }
+
 uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
   mutex_.AssertHeld();
   if (!pending_outputs_.empty()) {
@@ -298,7 +300,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     while (alive_log_files_.begin()->number < min_log_number) {
       auto& earliest = *alive_log_files_.begin();
       if (immutable_db_options_.recycle_log_file_num >
-          log_recycle_files_.size()) {
+              log_recycle_files_.size() &&
+          earliest.number >= MinLogNumberToRecycle()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "adding log %" PRIu64 " to recycle list\n",
                        earliest.number);

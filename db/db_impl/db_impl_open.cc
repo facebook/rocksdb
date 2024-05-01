@@ -2069,6 +2069,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->CreateWAL(write_options, new_log_number, 0 /*recycle_log_number*/,
                         preallocate_block_size, &new_log);
     if (s.ok()) {
+      // Prevent log files created by previous instance from being recycled.
+      // They might be in alive_log_file_, and might get recycled otherwise.
+      impl->min_log_number_to_recycle_ = new_log_number;
+    }
+    if (s.ok()) {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
       assert(new_log != nullptr);
