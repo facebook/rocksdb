@@ -341,7 +341,15 @@ class VersionStorageInfo {
       EpochNumberRequirement epoch_number_requirement) {
     epoch_number_requirement_ = epoch_number_requirement;
   }
-  void RecoverEpochNumbers(ColumnFamilyData* cfd);
+  // Ensure all files have epoch number set.
+  //
+  // This CF's epoch number will be reset to start from 0 if
+  // `reset` flag is true.
+  //
+  // If there is a file missing epoch number or `reset` is false,
+  // all files' epoch number will be set according to CF's epoch number.
+  // Otherwise, the CF will be updated with the max epoch number of the files.
+  void RecoverEpochNumbers(ColumnFamilyData* cfd, bool reset = true);
 
   class FileLocation {
    public:
