@@ -816,11 +816,69 @@ TEST_P(DBTieredAdmPolicyTest, CompressedOnlyTest) {
   Destroy(options);
 }
 
+TEST_P(DBTieredAdmPolicyTest, CompressedCacheAdmission) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    return;
+  }
+
+  BlockBasedTableOptions table_options;
+  // We want a block cache of size 5KB, and a compressed secondary cache of
+  // size 5KB. However, we specify a block cache size of 256KB here in order
+  // to take into account the cache reservation in the block cache on
+  // behalf of the compressed cache. The unit of cache reservation is 256KB.
+  // The effective block cache capacity will be calculated as 256 + 5 = 261KB,
+  // and 256KB will be reserved for the compressed cache, leaving 10KB for
+  // the primary block cache. We only have to worry about this here because
+  // the cache size is so small.
+  table_options.block_cache = NewCache(256 * 1024, 5 * 1024, 0, GetParam());
+  table_options.block_size = 4 * 1024;
+  table_options.cache_index_and_filter_blocks = false;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  size_t comp_cache_usage = compressed_secondary_cache()->TEST_GetUsage();
+  // Disable paranoid_file_checks so that flush will not read back the newly
+  // written file
+  options.paranoid_file_checks = false;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 256;
+  for (int i = 0; i < N; i++) {
+    std::string p_v;
+    test::CompressibleString(&rnd, 0.5, 1007, &p_v);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  // The second Get (for 5) will evict the data block loaded by the first
+  // Get, which will be admitted into the compressed secondary cache only
+  // for the kAdmPolicyAllowAll policy
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+
+  v = Get(Key(5));
+  ASSERT_EQ(1007, v.size());
+
+  if (GetParam() == TieredAdmissionPolicy::kAdmPolicyAllowAll) {
+    ASSERT_GT(compressed_secondary_cache()->TEST_GetUsage(),
+              comp_cache_usage + 128);
+  } else {
+    ASSERT_LT(compressed_secondary_cache()->TEST_GetUsage(),
+              comp_cache_usage + 128);
+  }
+
+  Destroy(options);
+}
+
 INSTANTIATE_TEST_CASE_P(
     DBTieredAdmPolicyTest, DBTieredAdmPolicyTest,
     ::testing::Values(TieredAdmissionPolicy::kAdmPolicyAuto,
                       TieredAdmissionPolicy::kAdmPolicyPlaceholder,
-                      TieredAdmissionPolicy::kAdmPolicyAllowCacheHits));
+                      TieredAdmissionPolicy::kAdmPolicyAllowCacheHits,
+                      TieredAdmissionPolicy::kAdmPolicyAllowAll));
 
 }  // namespace ROCKSDB_NAMESPACE
 
