@@ -2,8 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-
-
 #include "db/write_callback.h"
 
 #include <atomic>
@@ -15,6 +13,7 @@
 #include "db/db_impl/db_impl.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
+#include "rocksdb/wal_write_callback.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -84,17 +83,17 @@ class MockWriteCallback : public WriteCallback {
   bool AllowWriteBatching() override { return allow_batching_; }
 };
 
-class MockPostWalWriteCallback : public PostWalWriteCallback {
+class MockWalWriteCallback : public WalWriteCallback {
  public:
-  std::atomic<bool> was_called_{false};
+  std::atomic<bool> wal_write_done_{false};
 
-  MockPostWalWriteCallback() = default;
+  MockWalWriteCallback() = default;
 
-  MockPostWalWriteCallback(const MockPostWalWriteCallback& other) {
-    was_called_.store(other.was_called_.load());
+  MockWalWriteCallback(const MockWalWriteCallback& other) {
+    wal_write_done_.store(other.wal_write_done_.load());
   }
 
-  void OnWalWriteFinish() { was_called_.store(true); }
+  void OnWalWriteFinish() { wal_write_done_.store(true); }
 };
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
@@ -132,11 +131,11 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
       kvs_.clear();
       write_batch_.Clear();
       callback_.was_called_.store(false);
-      post_wal_write_cb_.was_called_.store(false);
+      wal_write_cb_.wal_write_done_.store(false);
     }
 
     MockWriteCallback callback_;
-    MockPostWalWriteCallback post_wal_write_cb_;
+    MockWalWriteCallback wal_write_cb_;
     WriteBatch write_batch_;
     std::vector<std::pair<string, string>> kvs_;
   };
@@ -341,25 +340,25 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
         // seq_per_batch_ requires a natural batch separator or Noop
         ASSERT_OK(WriteBatchInternal::InsertNoop(&write_op.write_batch_));
         const size_t ONE_BATCH = 1;
-        s = db_impl->WriteImpl(
-            woptions, &write_op.write_batch_, &write_op.callback_,
-            &write_op.post_wal_write_cb_, nullptr, 0, false, nullptr, ONE_BATCH,
-            two_queues_ ? &publish_seq_callback : nullptr);
+        s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
+                               &write_op.callback_, &write_op.wal_write_cb_,
+                               nullptr, 0, false, nullptr, ONE_BATCH,
+                               two_queues_ ? &publish_seq_callback : nullptr);
       } else {
         s = db_impl->WriteWithCallback(woptions, &write_op.write_batch_,
                                        &write_op.callback_,
-                                       &write_op.post_wal_write_cb_);
+                                       &write_op.wal_write_cb_);
       }
 
       if (write_op.callback_.should_fail_) {
         ASSERT_TRUE(s.IsBusy());
-        ASSERT_FALSE(write_op.post_wal_write_cb_.was_called_.load());
+        ASSERT_FALSE(write_op.wal_write_cb_.wal_write_done_.load());
       } else {
         ASSERT_OK(s);
         if (enable_pipelined_write_ && enable_WAL_) {
-          ASSERT_TRUE(write_op.post_wal_write_cb_.was_called_.load());
+          ASSERT_TRUE(write_op.wal_write_cb_.wal_write_done_.load());
         } else {
-          ASSERT_FALSE(write_op.post_wal_write_cb_.was_called_.load());
+          ASSERT_FALSE(write_op.wal_write_cb_.wal_write_done_.load());
         }
       }
     };
@@ -461,6 +460,20 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   s = db->Get(read_options, "a", &value);
   ASSERT_OK(s);
   ASSERT_EQ("value.a2", value);
+
+  MockWalWriteCallback wal_write_cb;
+  WriteBatch wb4;
+  ASSERT_OK(wb4.Put("a", "value.a4"));
+
+  ASSERT_NOK(db->WriteWithCallback(write_options, &wb4, &wal_write_cb));
+
+  delete db;
+  options.enable_pipelined_write = true;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_OK(db->WriteWithCallback(write_options, &wb4, &wal_write_cb));
+  ASSERT_OK(db->Get(read_options, "a", &value));
+  ASSERT_EQ(value, "value.a4");
+  ASSERT_TRUE(wal_write_cb.wal_write_done_.load());
 
   delete db;
   ASSERT_OK(DestroyDB(dbname, options));

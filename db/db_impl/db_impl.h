@@ -58,6 +58,7 @@
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/replayer.h"
+#include "rocksdb/wal_write_callback.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -230,6 +231,10 @@ class DBImpl : public DB {
 
   using DB::Write;
   Status Write(const WriteOptions& options, WriteBatch* updates) override;
+
+  using DB::WriteWithCallback;
+  Status WriteWithCallback(const WriteOptions& options, WriteBatch* updates,
+                           WalWriteCallback* wal_write_cb) override;
 
   using DB::Get;
   Status Get(const ReadOptions& _read_options,
@@ -686,12 +691,12 @@ class DBImpl : public DB {
 
   // Similar to Write() but will call the callback once on the single write
   // thread to determine whether it is safe to perform the write.
-  // And will call the `post_wal_write_cb` after wal write finishes in pipelined
+  // And will call the `wal_write_cb` after wal write finishes in pipelined
   // write mode.
-  virtual Status WriteWithCallback(
-      const WriteOptions& write_options, WriteBatch* my_batch,
-      WriteCallback* callback,
-      PostWalWriteCallback* post_wal_write_cb = nullptr);
+  virtual Status WriteWithCallback(const WriteOptions& write_options,
+                                   WriteBatch* my_batch,
+                                   WriteCallback* callback,
+                                   WalWriteCallback* wal_write_cb = nullptr);
 
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into the current
@@ -1500,7 +1505,7 @@ class DBImpl : public DB {
   // batch that does not have duplicate keys.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
-                   PostWalWriteCallback* post_wal_write_cb = nullptr,
+                   WalWriteCallback* wal_write_cb = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
@@ -1509,7 +1514,7 @@ class DBImpl : public DB {
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
-                            PostWalWriteCallback* post_wal_write_cb = nullptr,
+                            WalWriteCallback* wal_write_cb = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
