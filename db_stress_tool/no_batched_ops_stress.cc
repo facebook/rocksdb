@@ -1304,6 +1304,15 @@ class NonBatchedOpsStressTest : public StressTest {
         (value_base % FLAGS_use_put_entity_one_in) == 0) {
       s = db_->PutEntity(write_opts, cfh, k,
                          GenerateWideColumns(value_base, v));
+    } else if (FLAGS_use_timed_put_one_in > 0 &&
+               ((value_base + kLargePrimeForCommonFactorSkew) %
+                FLAGS_use_timed_put_one_in) == 0) {
+      WriteBatch wb;
+      uint64_t write_unix_time = GetWriteUnixTime(thread);
+      s = wb.TimedPut(cfh, k, v, write_unix_time);
+      if (s.ok()) {
+        s = db_->Write(write_opts, &wb);
+      }
     } else if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {

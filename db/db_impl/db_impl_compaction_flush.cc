@@ -1420,6 +1420,14 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
+  if (compact_options.compression !=
+      CompressionType::kDisableCompressionOption) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Found use of deprecated option "
+                   "`CompactionOptions::compression`",
+                   cfd->GetName().c_str(), job_context.job_id);
+  }
+
   // Perform CompactFiles
   TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile2");
   TEST_SYNC_POINT_CALLBACK("TestCompactFiles:PausingManualCompaction:3",

@@ -42,6 +42,7 @@ class BatchedOpsStressTest : public StressTest {
     ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
     assert(cfh);
 
+    Status status;
     for (int i = 9; i >= 0; --i) {
       const std::string num = std::to_string(i);
 
@@ -51,28 +52,37 @@ class BatchedOpsStressTest : public StressTest {
       // batched, non-batched, CF consistency).
       const std::string k = num + key_body;
       const std::string v = value_body + num;
-
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_timed_put_one_in > 0 &&
+                 ((value_base + kLargePrimeForCommonFactorSkew) %
+                  FLAGS_use_timed_put_one_in) == 0) {
+        uint64_t write_unix_time = GetWriteUnixTime(thread);
+        status = batch.TimedPut(cfh, k, v, write_unix_time);
       } else if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
+        status = batch.Merge(cfh, k, v);
       } else {
-        batch.Put(cfh, k, v);
+        status = batch.Put(cfh, k, v);
+      }
+      if (!status.ok()) {
+        break;
       }
     }
 
-    const Status s = db_->Write(write_opts, &batch);
+    if (status.ok()) {
+      status = db_->Write(write_opts, &batch);
+    }
 
-    if (!s.ok()) {
-      fprintf(stderr, "multiput error: %s\n", s.ToString().c_str());
+    if (!status.ok()) {
+      fprintf(stderr, "multiput error: %s\n", status.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
       // we did 10 writes each of size sz + 1
       thread->stats.AddBytesForWrites(10, (sz + 1) * 10);
     }
 
-    return s;
+    return status;
   }
 
   // Given a key K, this deletes ("0"+K), ("1"+K), ..., ("9"+K)

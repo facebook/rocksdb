@@ -821,6 +821,8 @@ class DBImpl : public DB {
 
   uint64_t MinLogNumberToKeep();
 
+  uint64_t MinLogNumberToRecycle();
+
   // Returns the lower bound file number for SSTs that won't be deleted, even if
   // they're obsolete. This lower bound is used internally to prevent newly
   // created flush/compaction output files from being deleted before they're
@@ -1419,9 +1421,8 @@ class DBImpl : public DB {
     autovector<ColumnFamilyData*> cfds_;
     autovector<const MutableCFOptions*> mutable_cf_opts_;
     autovector<autovector<VersionEdit*>> edit_lists_;
-    // Stale SST files to delete found upon recovery. This stores a mapping from
-    // such a file's absolute path to its parent directory.
-    std::unordered_map<std::string, std::string> files_to_delete_;
+    // All existing data files (SST files and Blob files) found during DB::Open.
+    std::vector<std::string> existing_data_files_;
     bool is_new_db_ = false;
   };
 
@@ -1559,22 +1560,36 @@ class DBImpl : public DB {
   // Assign db_id_ and write DB ID to manifest if necessary.
   void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
 
+  // Collect a deduplicated collection of paths used by this DB, including
+  // dbname_, DBOptions.db_paths, ColumnFamilyOptions.cf_paths.
+  std::set<std::string> CollectAllDBPaths();
+
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
   // returns.
-  // After recovery, there may be SST files in db/cf paths that are
-  // not referenced in the MANIFEST (e.g.
+  // It stores all existing data files (SST and Blob) in RecoveryContext. In
+  // the meantime, we find out the largest file number present in the paths, and
+  // bump up the version set's next_file_number_ to be 1 + largest_file_number.
+  // recovery_ctx stores the context about version edits. All those edits are
+  // persisted to new Manifest after successfully syncing the new WAL.
+  Status MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx);
+
+  // Track existing data files, including both referenced and unreferenced SST
+  // and Blob files in SstFileManager. This is only called during DB::Open and
+  // it's called before any file deletion start so that their deletion can be
+  // properly rate limited.
+  // Files may not be referenced in the MANIFEST because (e.g.
   // 1. It's best effort recovery;
   // 2. The VersionEdits referencing the SST files are appended to
   // RecoveryContext, DB crashes when syncing the MANIFEST, the VersionEdits are
   // still not synced to MANIFEST during recovery.)
-  // It stores the SST files to be deleted in RecoveryContext. In the
-  // meantime, we find out the largest file number present in the paths, and
-  // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  // recovery_ctx stores the context about version edits and files to be
-  // deleted. All those edits are persisted to new Manifest after successfully
-  // syncing the new WAL.
-  Status DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx);
+  //
+  // If the file is referenced in Manifest (typically that's the
+  // vast majority of all files), since it already has the file size
+  // on record, we don't need to query the file system. Otherwise, we query the
+  // file system for the size of an unreferenced file.
+  void TrackExistingDataFiles(
+      const std::vector<std::string>& existing_data_files);
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -2482,6 +2497,11 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   // Log files that we can recycle. Must be protected by db mutex_.
   std::deque<uint64_t> log_recycle_files_;
+  // The minimum log file number taht can be recycled, if log recycling is
+  // enabled. This is used to ensure that log files created by previous
+  // instances of the database are not recycled, as we cannot be sure they
+  // were created in the recyclable format.
+  uint64_t min_log_number_to_recycle_;
   // Protected by log_write_mutex_.
   bool log_dir_synced_;
   // Without two_write_queues, read and writes to log_empty_ are protected by

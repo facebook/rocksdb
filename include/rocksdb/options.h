@@ -643,11 +643,10 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<Logger> info_log = nullptr;
 
-#ifdef NDEBUG
-  InfoLogLevel info_log_level = INFO_LEVEL;
-#else
-  InfoLogLevel info_log_level = DEBUG_LEVEL;
-#endif  // NDEBUG
+  // Minimum level for sending log messages to info_log. The default is
+  // INFO_LEVEL when RocksDB is compiled in release mode, and DEBUG_LEVEL
+  // when it is compiled in debug mode.
+  InfoLogLevel info_log_level = Logger::kDefaultLogLevel;
 
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set. Value -1 means
@@ -1223,6 +1222,8 @@ struct DBOptions {
   bool allow_2pc = false;
 
   // A global cache for table-level rows.
+  // Used to speed up Get() queries.
+  // NOTE: does not work with DeleteRange() yet.
   // Default: nullptr (disabled)
   std::shared_ptr<RowCache> row_cache = nullptr;
 
@@ -1935,20 +1936,29 @@ Status CreateLoggerFromOptions(const std::string& dbname,
 
 // CompactionOptions are used in CompactFiles() call.
 struct CompactionOptions {
+  // DEPRECATED: this option is unsafe because it allows the user to set any
+  // `CompressionType` while always using `CompressionOptions` from the
+  // `ColumnFamilyOptions`. As a result the `CompressionType` and
+  // `CompressionOptions` can easily be inconsistent.
+  //
   // Compaction output compression type
-  // Default: snappy
+  //
+  // Default: `kDisableCompressionOption`
+  //
   // If set to `kDisableCompressionOption`, RocksDB will choose compression type
-  // according to the `ColumnFamilyOptions`, taking into account the output
-  // level if `compression_per_level` is specified.
+  // according to the `ColumnFamilyOptions`. RocksDB takes into account the
+  // output level in case the `ColumnFamilyOptions` has level-specific settings.
   CompressionType compression;
+
   // Compaction will create files of size `output_file_size_limit`.
   // Default: MAX, which means that compaction will create a single file
   uint64_t output_file_size_limit;
+
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions;
 
   CompactionOptions()
-      : compression(kSnappyCompression),
+      : compression(kDisableCompressionOption),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),
         max_subcompactions(0) {}
 };

@@ -620,6 +620,21 @@ Status BlockBasedTableFactory::ValidateOptions(
         "enabled");
   }
   if (table_options_.block_align &&
+      cf_opts.bottommost_compression != kDisableCompressionOption &&
+      cf_opts.bottommost_compression != kNoCompression) {
+    return Status::InvalidArgument(
+        "Enable block_align, but bottommost_compression enabled");
+  }
+  if (table_options_.block_align) {
+    for (auto level_compression : cf_opts.compression_per_level) {
+      if (level_compression != kDisableCompressionOption &&
+          level_compression != kNoCompression) {
+        return Status::InvalidArgument(
+            "Enable block_align, but compression_per_level enabled");
+      }
+    }
+  }
+  if (table_options_.block_align &&
       (table_options_.block_size & (table_options_.block_size - 1))) {
     return Status::InvalidArgument(
         "Block alignment requested but block size is not a power of 2");

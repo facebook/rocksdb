@@ -3566,17 +3566,18 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewImplicitSnapshot) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkFlush:done",
-        "DBImpl::MultiCFSnapshot::AfterGetSeqNum1"}});
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
 
   bool flushed = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (!flushed) {
           for (int i = 0; i < 3; ++i) {
-            ASSERT_OK(Flush(i));
             ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
                           "cf" + std::to_string(i) + "_val_new"));
           }
+          // After SV is obtained for the first CF, flush for the second CF
+          ASSERT_OK(Flush(1));
           flushed = true;
         }
       });
@@ -3607,6 +3608,7 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewImplicitSnapshot) {
 
 TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
   Options options = GetDefaultOptions();
+  options.atomic_flush = true;
   CreateAndReopenWithCF({"cf_1", "cf_2"}, options);
 
   for (int i = 0; i < 3; ++i) {
@@ -3616,17 +3618,18 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkFlush:done",
-        "DBImpl::MultiCFSnapshot::AfterGetSeqNum1"}});
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
 
   bool flushed = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
         if (!flushed) {
           for (int i = 0; i < 3; ++i) {
-            ASSERT_OK(Flush(i));
             ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
                           "cf" + std::to_string(i) + "_val_new"));
           }
+          // After SV is obtained for the first CF, do the atomic flush()
+          ASSERT_OK(Flush());
           flushed = true;
         }
       });
@@ -3646,14 +3649,13 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
     ASSERT_EQ(IterStatus(iter), "cf" + std::to_string(i) + "_key->cf" +
                                     std::to_string(i) + "_val");
   }
-
   db_->ReleaseSnapshot(snapshot);
   for (auto* iter : iters) {
     delete iter;
   }
 
-  // Thread-local SV for cf_0 is obsolete (flush happened after the first SV
-  // Ref)
+  // Thread-local SV for cf_0 is obsolete (atomic flush happened after the first
+  // SV Ref)
   auto* cfd0 =
       static_cast_with_check<ColumnFamilyHandleImpl>(handles_[0])->cfd();
   ASSERT_EQ(cfd0->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
