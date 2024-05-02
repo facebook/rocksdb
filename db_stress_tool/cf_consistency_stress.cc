@@ -355,7 +355,13 @@ class CfConsistencyStressTest : public StressTest {
             }
 
             for (auto& attribute_group : result) {
-              const bool found = attribute_group.status().ok();
+              s = attribute_group.status();
+              if (!s.ok() && !s.IsNotFound()) {
+                break;
+              }
+
+              const bool found = s.ok();
+
               if (!cmp_found && found) {
                 fprintf(
                     stderr,
@@ -394,7 +400,6 @@ class CfConsistencyStressTest : public StressTest {
                 break;
               }
             }
-
           } else {
             for (size_t i = 1; i < rand_column_families.size(); ++i) {
               assert(rand_column_families[i] >= 0);
