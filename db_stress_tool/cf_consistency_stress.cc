@@ -37,25 +37,34 @@ class CfConsistencyStressTest : public StressTest {
     WriteBatch batch;
 
     Status status;
-    for (auto cf : rand_column_families) {
-      ColumnFamilyHandle* const cfh = column_families_[cf];
-      assert(cfh);
-
-      if (FLAGS_use_put_entity_one_in > 0 &&
-          (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
-      } else if (FLAGS_use_timed_put_one_in > 0 &&
-                 ((value_base + kLargePrimeForCommonFactorSkew) %
-                  FLAGS_use_timed_put_one_in) == 0) {
-        uint64_t write_unix_time = GetWriteUnixTime(thread);
-        status = batch.TimedPut(cfh, k, v, write_unix_time);
-      } else if (FLAGS_use_merge) {
-        status = batch.Merge(cfh, k, v);
-      } else {
-        status = batch.Put(cfh, k, v);
+    if (FLAGS_use_attribute_group && FLAGS_use_put_entity_one_in > 0 &&
+        (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      std::vector<ColumnFamilyHandle*> cfhs;
+      for (auto cf : rand_column_families) {
+        cfhs.push_back(column_families_[cf]);
       }
-      if (!status.ok()) {
-        break;
+      status = batch.PutEntity(k, GenerateAttributeGroups(cfhs, value_base, v));
+    } else {
+      for (auto cf : rand_column_families) {
+        ColumnFamilyHandle* const cfh = column_families_[cf];
+        assert(cfh);
+
+        if (FLAGS_use_put_entity_one_in > 0 &&
+            (value_base % FLAGS_use_put_entity_one_in) == 0) {
+          status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        } else if (FLAGS_use_timed_put_one_in > 0 &&
+                   ((value_base + kLargePrimeForCommonFactorSkew) %
+                    FLAGS_use_timed_put_one_in) == 0) {
+          uint64_t write_unix_time = GetWriteUnixTime(thread);
+          status = batch.TimedPut(cfh, k, v, write_unix_time);
+        } else if (FLAGS_use_merge) {
+          status = batch.Merge(cfh, k, v);
+        } else {
+          status = batch.Put(cfh, k, v);
+        }
+        if (!status.ok()) {
+          break;
+        }
       }
     }
 

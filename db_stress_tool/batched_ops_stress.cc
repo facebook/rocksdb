@@ -54,7 +54,11 @@ class BatchedOpsStressTest : public StressTest {
       const std::string v = value_body + num;
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        if (FLAGS_use_attribute_group) {
+          status = batch.PutEntity(k, GenerateAttributeGroups({cfh}, value_base, v));
+        } else {
+          status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        }
       } else if (FLAGS_use_timed_put_one_in > 0 &&
                  ((value_base + kLargePrimeForCommonFactorSkew) %
                   FLAGS_use_timed_put_one_in) == 0) {
