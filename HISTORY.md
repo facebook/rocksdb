@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.2.1 (05/03/2024)
+### Public API Changes
+* Add a kAdmPolicyAllowAll option to TieredAdmissionPolicy that admits all blocks evicted from the primary block cache into the compressed secondary cache.
+
 ## 9.2.0 (05/01/2024)
 ### New Features
 * Added two options `deadline` and `max_size_bytes` for CacheDumper to exit early
