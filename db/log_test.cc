@@ -800,6 +800,24 @@ TEST_P(LogTest, TimestampSizeRecordPadding) {
   CheckRecordAndTimestampSize(second_str, ts_sz);
 }
 
+TEST_P(LogTest, GetLatestCompleteRecordOffset) {
+  ASSERT_OK(writer_->AddCompressionTypeRecord(WriteOptions()));
+  ASSERT_EQ(writer_->get_latest_complete_record_offset(),
+            writer_->TEST_block_offset());
+
+  UnorderedMap<uint32_t, size_t> ts_sz = {
+      {2, sizeof(uint64_t)},
+  };
+  ASSERT_OK(
+      writer_->MaybeAddUserDefinedTimestampSizeRecord(WriteOptions(), ts_sz));
+  ASSERT_EQ(writer_->get_latest_complete_record_offset(),
+            writer_->TEST_block_offset());
+
+  Write("foo");
+  ASSERT_EQ(writer_->get_latest_complete_record_offset(),
+            writer_->TEST_block_offset());
+}
+
 // Do NOT enable compression for this instantiation.
 INSTANTIATE_TEST_CASE_P(
     Log, LogTest,

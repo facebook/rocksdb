@@ -112,6 +112,11 @@ IOStatus WritableFileWriter::Append(const IOOptions& opts, const Slice& data,
         set_seen_error();
         return s;
       }
+
+      TEST_SYNC_POINT(
+          "WritableFileWriter::Append:FlushAfterBufferCapacityLimitReached1");
+      TEST_SYNC_POINT(
+          "WritableFileWriter::Append:FlushAfterBufferCapacityLimitReached2");
     }
     assert(buf_.CurrentSize() == 0);
   }
