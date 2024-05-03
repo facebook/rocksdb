@@ -1682,6 +1682,18 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_compression(
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_wal_compression(
     rocksdb_options_t* opt);
 
+enum {
+  rocksdb_k_by_compensated_size_compaction_pri = 0,
+  rocksdb_k_oldest_largest_seq_first_compaction_pri = 1,
+  rocksdb_k_oldest_smallest_seq_first_compaction_pri = 2,
+  rocksdb_k_min_overlapping_ratio_compaction_pri = 3,
+  rocksdb_k_round_robin_compaction_pri = 4
+};
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compaction_pri(
+    rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_compaction_pri(
+    rocksdb_options_t*);
+
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness);
