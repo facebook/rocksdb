@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#if !defined(OS_WIN)
 
 #include <string>
 #include <vector>
@@ -51,3 +52,4 @@ class DBImplFollower : public DBImplSecondary {
   port::CondVar cv_;
 };
 }  // namespace ROCKSDB_NAMESPACE
+#endif

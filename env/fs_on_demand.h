@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#if !defined(OS_WIN)
 #include <string>
 
 #include "rocksdb/file_system.h"
@@ -137,3 +138,4 @@ std::shared_ptr<FileSystem> NewOnDemandFileSystem(
     std::string local_path);
 
 }  // namespace ROCKSDB_NAMESPACE
+#endif

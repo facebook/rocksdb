@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#if !defined(OS_WIN)
 #include "env/fs_on_demand.h"
 
 #include <algorithm>
@@ -329,3 +330,4 @@ std::shared_ptr<FileSystem> NewOnDemandFileSystem(
   return std::make_shared<OnDemandFileSystem>(fs, src_path, dest_path);
 }
 }  // namespace ROCKSDB_NAMESPACE
+#endif
