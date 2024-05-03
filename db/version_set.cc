@@ -3130,6 +3130,10 @@ bool Version::MaybeInitializeFileMetaData(const ReadOptions& read_options,
   file_meta->raw_value_size = tp->raw_value_size;
   file_meta->raw_key_size = tp->raw_key_size;
   file_meta->num_range_deletions = tp->num_range_deletions;
+  // Ensure new invariants on old files
+  file_meta->num_deletions =
+      std::max(tp->num_deletions, tp->num_range_deletions);
+  file_meta->num_entries = std::max(tp->num_entries, tp->num_deletions);
   return true;
 }
 
@@ -3141,6 +3145,7 @@ void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
   accumulated_file_size_ += file_meta->fd.GetFileSize();
   accumulated_raw_key_size_ += file_meta->raw_key_size;
   accumulated_raw_value_size_ += file_meta->raw_value_size;
+  assert(file_meta->num_entries >= file_meta->num_deletions);
   accumulated_num_non_deletions_ +=
       file_meta->num_entries - file_meta->num_deletions;
   accumulated_num_deletions_ += file_meta->num_deletions;
