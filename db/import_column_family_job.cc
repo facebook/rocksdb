@@ -229,7 +229,9 @@ Status ImportColumnFamilyJob::Run() {
       s = dummy_version_builder.SaveTo(&dummy_vstorage);
     }
     if (s.ok()) {
-      dummy_vstorage.RecoverEpochNumbers(cfd_, /*reset=*/i == 0);
+      // force resetting epoch number for each file
+      dummy_vstorage.RecoverEpochNumbers(cfd_, /*restart_epoch=*/i == 0,
+                                         /*force=*/true);
       edit_.SetColumnFamily(cfd_->GetID());
 
       for (int level = 0; level < dummy_vstorage.num_levels(); level++) {

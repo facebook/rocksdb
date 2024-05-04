@@ -4618,8 +4618,8 @@ uint64_t VersionStorageInfo::GetMaxEpochNumberOfFiles() const {
 }
 
 void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
-                                             bool reset) {
-  if (reset) {
+                                             bool restart_epoch, bool force) {
+  if (restart_epoch) {
     cfd->ResetNextEpochNumber();
 
     bool reserve_epoch_num_for_file_ingested_behind =
@@ -4637,7 +4637,7 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
   }
 
   bool missing_epoch_number = HasMissingEpochNumber();
-  if (missing_epoch_number || !reset) {
+  if (missing_epoch_number || force) {
     for (int level = num_levels_ - 1; level >= 1; --level) {
       auto& files_at_level = files_[level];
       if (files_at_level.empty()) {
