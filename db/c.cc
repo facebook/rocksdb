@@ -3930,6 +3930,14 @@ void rocksdb_options_set_fifo_compaction_options(
   opt->rep.compaction_options_fifo = fifo->rep;
 }
 
+void rocksdb_options_set_compaction_pri(rocksdb_options_t* opt, int pri) {
+  opt->rep.compaction_pri = static_cast<ROCKSDB_NAMESPACE::CompactionPri>(pri);
+}
+
+int rocksdb_options_get_compaction_pri(rocksdb_options_t* opt) {
+  return opt->rep.compaction_pri;
+}
+
 char* rocksdb_options_statistics_get_string(rocksdb_options_t* opt) {
   ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
   if (statistics) {

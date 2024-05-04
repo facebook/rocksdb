@@ -134,12 +134,14 @@ bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
     auto obj = target_->Value(handle);
     // Ignore dummy entry
     if (obj != kDummyObj) {
-      bool hit = false;
+      bool force = false;
       if (adm_policy_ == TieredAdmissionPolicy::kAdmPolicyAllowCacheHits) {
-        hit = was_hit;
+        force = was_hit;
+      } else if (adm_policy_ == TieredAdmissionPolicy::kAdmPolicyAllowAll) {
+        force = true;
       }
       // Spill into secondary cache.
-      secondary_cache_->Insert(key, obj, helper, hit).PermitUncheckedError();
+      secondary_cache_->Insert(key, obj, helper, force).PermitUncheckedError();
     }
   }
   // Never takes ownership of obj
@@ -661,6 +663,7 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
         break;
       case TieredAdmissionPolicy::kAdmPolicyPlaceholder:
       case TieredAdmissionPolicy::kAdmPolicyAllowCacheHits:
+      case TieredAdmissionPolicy::kAdmPolicyAllowAll:
         if (opts.nvm_sec_cache) {
           valid_adm_policy = false;
         }

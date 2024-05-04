@@ -32,7 +32,7 @@ class Iterator : public IteratorBase {
   Iterator(const Iterator&) = delete;
   void operator=(const Iterator&) = delete;
 
-  virtual ~Iterator() {}
+  virtual ~Iterator() override {}
 
   // Return the value for the current entry.  If the entry is a plain key-value,
   // return the value as-is; if it is a wide-column entity, return the value of

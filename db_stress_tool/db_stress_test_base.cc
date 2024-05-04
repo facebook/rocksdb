@@ -2801,7 +2801,8 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Num times DB reopens      : %d\n", FLAGS_reopen);
   fprintf(stdout, "Batches/snapshots         : %d\n",
           FLAGS_test_batches_snapshots);
-  fprintf(stdout, "Do update in place        : %d\n", FLAGS_in_place_update);
+  fprintf(stdout, "Do update in place        : %d\n",
+          FLAGS_inplace_update_support);
   fprintf(stdout, "Num keys per lock         : %d\n",
           1 << FLAGS_log2_keys_per_lock);
   std::string compression = CompressionTypeToString(compression_type_e);
@@ -3597,7 +3598,6 @@ void InitializeOptionsFromFlags(
     options.compression_opts.checksum = true;
   }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
-  options.inplace_update_support = FLAGS_in_place_update;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
   options.allow_concurrent_memtable_write =
       FLAGS_allow_concurrent_memtable_write;

@@ -175,15 +175,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
       }
     }
   }
-  // When the DB is stopped, it's possible that there are some .trash files that
-  // were not deleted yet, when we open the DB we will find these .trash files
-  // and schedule them to be deleted (or delete immediately if SstFileManager
-  // was not used)
-  auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
-  for (size_t i = 0; i < result.db_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path)
-        .PermitUncheckedError();
-  }
 
   // Create a default SstFileManager for purposes of tracking compaction size
   // and facilitating recovery from out of space errors.
@@ -669,7 +660,7 @@ Status DBImpl::Recover(
   s = SetupDBId(write_options, read_only, recovery_ctx);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
-    s = DeleteUnreferencedSstFiles(recovery_ctx);
+    s = MaybeUpdateNextFileNumber(recovery_ctx);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -971,19 +962,6 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
                                     recovery_ctx.mutable_cf_opts_, read_options,
                                     write_options, recovery_ctx.edit_lists_,
                                     &mutex_, directories_.GetDbDir());
-  if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
-    mutex_.Unlock();
-    for (const auto& stale_sst_file : recovery_ctx.files_to_delete_) {
-      s = DeleteDBFile(&immutable_db_options_, stale_sst_file.first,
-                       stale_sst_file.second,
-                       /*force_bg=*/false,
-                       /*force_fg=*/false);
-      if (!s.ok()) {
-        break;
-      }
-    }
-    mutex_.Lock();
-  }
   return s;
 }
 
@@ -1982,6 +1960,50 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
   return io_s;
 }
 
+void DBImpl::TrackExistingDataFiles(
+    const std::vector<std::string>& existing_data_files) {
+  auto sfm = static_cast<SstFileManagerImpl*>(
+      immutable_db_options_.sst_file_manager.get());
+  assert(sfm);
+  std::vector<ColumnFamilyMetaData> metadata;
+  GetAllColumnFamilyMetaData(&metadata);
+
+  std::unordered_set<std::string> referenced_files;
+  for (const auto& md : metadata) {
+    for (const auto& lmd : md.levels) {
+      for (const auto& fmd : lmd.files) {
+        // We're assuming that each sst file name exists in at most one of
+        // the paths.
+        std::string file_path =
+            fmd.directory + kFilePathSeparator + fmd.relative_filename;
+        sfm->OnAddFile(file_path, fmd.size).PermitUncheckedError();
+        referenced_files.insert(file_path);
+      }
+    }
+    for (const auto& bmd : md.blob_files) {
+      std::string name = bmd.blob_file_name;
+      // The BlobMetaData.blob_file_name may start with "/".
+      if (!name.empty() && name[0] == kFilePathSeparator) {
+        name = name.substr(1);
+      }
+      // We're assuming that each blob file name exists in at most one of
+      // the paths.
+      std::string file_path = bmd.blob_file_path + kFilePathSeparator + name;
+      sfm->OnAddFile(file_path, bmd.blob_file_size).PermitUncheckedError();
+      referenced_files.insert(file_path);
+    }
+  }
+
+  for (const auto& file_path : existing_data_files) {
+    if (referenced_files.find(file_path) != referenced_files.end()) {
+      continue;
+    }
+    // There shouldn't be any duplicated files. In case there is, SstFileManager
+    // will take care of deduping it.
+    sfm->OnAddFile(file_path).PermitUncheckedError();
+  }
+}
+
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
@@ -2029,7 +2051,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         paths.emplace_back(cf_path.path);
       }
     }
-    for (auto& path : paths) {
+    for (const auto& path : paths) {
       s = impl->env_->CreateDirIfMissing(path);
       if (!s.ok()) {
         break;
@@ -2200,9 +2222,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         impl->WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
     *dbptr = impl;
     impl->opened_successfully_ = true;
-    impl->DeleteObsoleteFiles();
-    TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");
-    impl->MaybeScheduleFlushOrCompaction();
   } else {
     persist_options_status.PermitUncheckedError();
   }
@@ -2217,73 +2236,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
                    "SstFileManager instance %p", sfm);
 
-    // Notify SstFileManager about all sst files that already exist in
-    // db_paths[0] and cf_paths[0] when the DB is opened.
-
-    // SstFileManagerImpl needs to know sizes of the files. For files whose size
-    // we already know (sst files that appear in manifest - typically that's the
-    // vast majority of all files), we'll pass the size to SstFileManager.
-    // For all other files SstFileManager will query the size from filesystem.
-
-    std::vector<ColumnFamilyMetaData> metadata;
-    impl->GetAllColumnFamilyMetaData(&metadata);
-
-    std::unordered_map<std::string, uint64_t> known_file_sizes;
-    for (const auto& md : metadata) {
-      for (const auto& lmd : md.levels) {
-        for (const auto& fmd : lmd.files) {
-          known_file_sizes[fmd.relative_filename] = fmd.size;
-        }
-      }
-      for (const auto& bmd : md.blob_files) {
-        std::string name = bmd.blob_file_name;
-        // The BlobMetaData.blob_file_name may start with "/".
-        if (!name.empty() && name[0] == '/') {
-          name = name.substr(1);
-        }
-        known_file_sizes[name] = bmd.blob_file_size;
-      }
-    }
-
-    std::vector<std::string> paths;
-    paths.emplace_back(impl->immutable_db_options_.db_paths[0].path);
-    for (auto& cf : column_families) {
-      if (!cf.options.cf_paths.empty()) {
-        paths.emplace_back(cf.options.cf_paths[0].path);
-      }
-    }
-    // Remove duplicate paths.
-    std::sort(paths.begin(), paths.end());
-    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
-    IOOptions io_opts;
-    io_opts.do_not_recurse = true;
-    for (auto& path : paths) {
-      std::vector<std::string> existing_files;
-      impl->immutable_db_options_.fs
-          ->GetChildren(path, io_opts, &existing_files,
-                        /*IODebugContext*=*/nullptr)
-          .PermitUncheckedError();  //**TODO: What do to on error?
-      for (auto& file_name : existing_files) {
-        uint64_t file_number;
-        FileType file_type;
-        std::string file_path = path + "/" + file_name;
-        if (ParseFileName(file_name, &file_number, &file_type) &&
-            (file_type == kTableFile || file_type == kBlobFile)) {
-          // TODO: Check for errors from OnAddFile?
-          if (known_file_sizes.count(file_name)) {
-            // We're assuming that each sst file name exists in at most one of
-            // the paths.
-            sfm->OnAddFile(file_path, known_file_sizes.at(file_name))
-                .PermitUncheckedError();
-          } else {
-            sfm->OnAddFile(file_path).PermitUncheckedError();
-          }
-        }
-      }
-    }
+    impl->TrackExistingDataFiles(recovery_ctx.existing_data_files_);
 
     // Reserve some disk buffer space. This is a heuristic - when we run out
-    // of disk space, this ensures that there is atleast write_buffer_size
+    // of disk space, this ensures that there is at least write_buffer_size
     // amount of free space before we resume DB writes. In low disk space
     // conditions, we want to avoid a lot of small L0 files due to frequent
     // WAL write failures and resultant forced flushes
@@ -2291,6 +2247,27 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                            impl->immutable_db_options_.db_paths[0].path);
   }
 
+  if (s.ok()) {
+    // When the DB is stopped, it's possible that there are some .trash files
+    // that were not deleted yet, when we open the DB we will find these .trash
+    // files and schedule them to be deleted (or delete immediately if
+    // SstFileManager was not used).
+    // Note that we only start doing this and below delete obsolete file after
+    // `TrackExistingDataFiles` are called, the `max_trash_db_ratio` is
+    // ineffective otherwise and these files' deletion won't be rate limited
+    // which can cause discard stall.
+    for (const auto& path : impl->CollectAllDBPaths()) {
+      DeleteScheduler::CleanupDirectory(impl->immutable_db_options_.env, sfm,
+                                        path)
+          .PermitUncheckedError();
+    }
+    impl->mutex_.Lock();
+    // This will do a full scan.
+    impl->DeleteObsoleteFiles();
+    TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");
+    impl->MaybeScheduleFlushOrCompaction();
+    impl->mutex_.Unlock();
+  }
 
   if (s.ok()) {
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
