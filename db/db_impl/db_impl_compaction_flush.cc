@@ -224,9 +224,15 @@ Status DBImpl::FlushMemTableToOutputFile(
   // the host crashes after flushing and before WAL is persistent, the
   // flushed SST may contain data from write batches whose updates to
   // other (unflushed) column families are missing.
+  //
+  // When 2PC is enabled, non-recent WAL(s) may be needed for crash-recovery,
+  // even when there is only one CF in the DB, for prepared transactions that
+  // had not been committed yet. Make sure we sync them to keep the persisted
+  // WAL state at least as new as the persisted SST state.
   const bool needs_to_sync_closed_wals =
       logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1;
+      (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 ||
+       allow_2pc());
 
   // If needs_to_sync_closed_wals is true, we need to record the current
   // maximum memtable ID of this column family so that a later PickMemtables()
