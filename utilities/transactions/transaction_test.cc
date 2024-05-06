@@ -7033,6 +7033,51 @@ TEST_F(TransactionDBTest, CollapseKey) {
   }
 }
 
+TEST_F(TransactionDBTest, FlushedLogWithPendingPrepareIsSynced) {
+  // Repro for a bug where we missed a necessary sync of the old WAL during
+  // memtable flush. It happened due to applying an optimization to skip syncing
+  // the old WAL in too many scenarios (all memtable flushes on single CF
+  // databases). That optimization is only valid when memtable flush can
+  // guarantee the old WAL will not be read by crash-recovery. When the old WAL
+  // contains a prepare record without its corresponding commit, that WAL will
+  // be read by crash-recovery and therefore it must be synced.
+  const int kStartIndex = 1000;
+  int next_index = kStartIndex;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(
+      db->Put(WriteOptions(), "key" + std::to_string(next_index), "value"));
+  next_index++;
+
+  Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn->SetName("xid" + std::to_string(next_index)));
+  ASSERT_OK(
+      txn->Put(Slice("key" + std::to_string(next_index)), Slice("value")));
+  next_index++;
+  ASSERT_OK(txn->Prepare());
+
+  // Set it directly writable so new WAL containing the commit record will be
+  // recovered despite not being explicitly synced.
+  fault_fs->SetFilesystemDirectWritable(true);
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(
+      db->Put(WriteOptions(), "key" + std::to_string(next_index), "value"));
+  next_index++;
+
+  ASSERT_OK(ReOpenNoDelete());
+
+  for (int i = kStartIndex; i < next_index; i++) {
+    PinnableSlice value;
+    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(),
+                      "key" + std::to_string(i), &value));
+    ASSERT_EQ("value", value);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
