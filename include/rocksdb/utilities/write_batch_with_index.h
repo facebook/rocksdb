@@ -130,7 +130,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
           "Cannot call this method without attribute groups");
     }
     return Status::NotSupported(
-        "PutEntity not supported by WriteBatchWithIndex");
+        "PutEntity with AttributeGroups not supported by WriteBatchWithIndex");
   }
 
   using WriteBatchBase::Merge;
