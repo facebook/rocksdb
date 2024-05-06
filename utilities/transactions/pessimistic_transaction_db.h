@@ -50,6 +50,20 @@ class PessimisticTransactionDB : public TransactionDB {
   Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, const Slice& val) override;
 
+  Status PutEntity(const WriteOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns) override;
+  Status PutEntity(const WriteOptions& /* options */, const Slice& /* key */,
+                   const AttributeGroups& attribute_groups) override {
+    if (attribute_groups.empty()) {
+      return Status::InvalidArgument(
+          "Cannot call this method without attribute groups");
+    }
+    return Status::NotSupported(
+        "PutEntity with AttributeGroups not supported by "
+        "PessimisticTransactionDB");
+  }
+
   using StackableDB::Delete;
   Status Delete(const WriteOptions& wopts, ColumnFamilyHandle* column_family,
                 const Slice& key) override;

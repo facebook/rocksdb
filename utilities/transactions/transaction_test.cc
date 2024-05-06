@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/transaction_test.h"
 
 #include <algorithm>
@@ -3621,6 +3620,9 @@ TEST_P(TransactionTest, UntrackedWrites) {
   // Untracked writes should succeed even though key was written after snapshot
   s = txn->PutUntracked("untracked", "1");
   ASSERT_OK(s);
+  s = txn->PutEntityUntracked(db->DefaultColumnFamily(), "untracked",
+                              {{"hello", "world"}});
+  ASSERT_OK(s);
   s = txn->MergeUntracked("untracked", "2");
   ASSERT_OK(s);
   s = txn->DeleteUntracked("untracked");
@@ -3628,6 +3630,8 @@ TEST_P(TransactionTest, UntrackedWrites) {
 
   // Conflict
   s = txn->Put("untracked", "3");
+  ASSERT_TRUE(s.IsBusy());
+  s = txn->PutEntity(db->DefaultColumnFamily(), "untracked", {{"foo", "bar"}});
   ASSERT_TRUE(s.IsBusy());
 
   s = txn->Commit();
@@ -6981,6 +6985,121 @@ TEST_P(TransactionTest, UnlockWALStallCleared) {
 
     t1.join();
     t2.join();
+  }
+}
+
+TEST_P(TransactionTest, PutEntitySuccess) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
+    return;
+  }
+
+  constexpr char foo[] = "foo";
+  const WideColumns foo_columns{
+      {kDefaultWideColumnName, "bar"}, {"col1", "val1"}, {"col2", "val2"}};
+  const WideColumns foo_new_columns{
+      {kDefaultWideColumnName, "baz"}, {"colA", "valA"}, {"colB", "valB"}};
+
+  ASSERT_OK(db->PutEntity(WriteOptions(), db->DefaultColumnFamily(), foo,
+                          foo_columns));
+
+  {
+    std::unique_ptr<Transaction> txn(
+        db->BeginTransaction(WriteOptions(), TransactionOptions()));
+
+    ASSERT_NE(txn, nullptr);
+    ASSERT_NE(txn->GetID(), 0);
+    ASSERT_EQ(txn->GetNumPutEntities(), 0);
+
+    {
+      PinnableSlice value;
+      ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
+      ASSERT_EQ(value, foo_columns[0].value());
+    }
+
+    ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), foo, foo_new_columns));
+
+    ASSERT_EQ(txn->GetNumPutEntities(), 1);
+
+    {
+      PinnableSlice value;
+      ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
+      ASSERT_EQ(value, foo_new_columns[0].value());
+    }
+
+    ASSERT_OK(txn->Commit());
+  }
+
+  {
+    PinnableSlice value;
+    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
+    ASSERT_EQ(value, foo_new_columns[0].value());
+  }
+}
+
+TEST_P(TransactionTest, PutEntityWriteConflict) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
+    return;
+  }
+
+  constexpr char foo[] = "foo";
+  const WideColumns foo_columns{
+      {kDefaultWideColumnName, "bar"}, {"col1", "val1"}, {"col2", "val2"}};
+  constexpr char baz[] = "baz";
+  const WideColumns baz_columns{
+      {kDefaultWideColumnName, "quux"}, {"colA", "valA"}, {"colB", "valB"}};
+
+  ASSERT_OK(db->PutEntity(WriteOptions(), db->DefaultColumnFamily(), foo,
+                          foo_columns));
+  ASSERT_OK(db->PutEntity(WriteOptions(), db->DefaultColumnFamily(), baz,
+                          baz_columns));
+
+  std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+  ASSERT_NE(txn, nullptr);
+
+  const WideColumns foo_new_columns{{kDefaultWideColumnName, "FOO"},
+                                    {"hello", "world"}};
+  const WideColumns baz_new_columns{{kDefaultWideColumnName, "BAZ"},
+                                    {"ping", "pong"}};
+
+  ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), foo, foo_new_columns));
+  ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), baz, baz_new_columns));
+
+  // This PutEntity outside of a transaction will conflict with the previous
+  // write
+  const WideColumns foo_conflict_columns{{kDefaultWideColumnName, "X"},
+                                         {"conflicting", "write"}};
+  ASSERT_TRUE(db->PutEntity(WriteOptions(), db->DefaultColumnFamily(), foo,
+                            foo_conflict_columns)
+                  .IsTimedOut());
+
+  {
+    PinnableSlice value;
+    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
+    ASSERT_EQ(value, foo_columns[0].value());
+  }
+
+  {
+    PinnableSlice value;
+    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), baz, &value));
+    ASSERT_EQ(value, baz_columns[0].value());
+  }
+
+  ASSERT_OK(txn->Commit());
+
+  {
+    PinnableSlice value;
+    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
+    ASSERT_EQ(value, foo_new_columns[0].value());
+  }
+
+  {
+    PinnableSlice value;
+    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), baz, &value));
+    ASSERT_EQ(value, baz_new_columns[0].value());
   }
 }
 
