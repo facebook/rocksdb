@@ -6204,29 +6204,14 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
               NumTableFilesAtLevel(0, 0));
   }
 
-  // All CFs are pending compaction
+  // Wait until all CFs are pending compaction. WaitForFlushMemtable() can
+  // return before the next compaction is scheduled, so we need to do some
+  // waiting here.
   unsigned int tp_len = env_->GetThreadPoolQueueLen(Env::LOW);
-  if (cf_count != tp_len) {
-    // The test is flaky and fails the assertion below.
-    // Print some debug information.
-    uint64_t num_running_flushes = 0;
-    if (db_->GetIntProperty(DB::Properties::kNumRunningFlushes,
-                            &num_running_flushes)) {
-      fprintf(stdout, "Running flushes: %" PRIu64 "\n", num_running_flushes);
-    }
-    fprintf(stdout,
-            "%zu CF in compaction queue: ", pending_compaction_cfs.size());
-    for (const auto& cf_name : pending_compaction_cfs) {
-      fprintf(stdout, "%s, ", cf_name.c_str());
-    }
-    fprintf(stdout, "\n");
-
-    // print lsm
-    for (unsigned int cf = 0; cf < cf_count; cf++) {
-      fprintf(stdout, "%s: %s\n", cf_names[cf], FilesPerLevel(cf).c_str());
-    }
+  for (int i = 0; i < 10000 && tp_len < cf_count; i++) {
+    env_->SleepForMicroseconds(1000);
+    tp_len = env_->GetThreadPoolQueueLen(Env::LOW);
   }
-
   ASSERT_EQ(cf_count, tp_len);
 
   // Unblock all compaction threads

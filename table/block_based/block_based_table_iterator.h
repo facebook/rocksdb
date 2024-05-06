@@ -338,7 +338,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // different blocks when readahead_size is calculated in
   // BlockCacheLookupForReadAheadSize, to avoid index_iter_ reseek,
   // block_handles_ is used.
-  std::deque<BlockHandleInfo> block_handles_;
+  // `block_handles_` is lazily constructed to save CPU when it is unused
+  std::unique_ptr<std::deque<BlockHandleInfo>> block_handles_;
 
   // During cache lookup to find readahead size, index_iter_ is iterated and it
   // can point to a different block. is_index_at_curr_block_ keeps track of
@@ -418,7 +419,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                 : false);
   }
 
-  void ClearBlockHandles() { block_handles_.clear(); }
+  void ClearBlockHandles() {
+    if (block_handles_ != nullptr) {
+      block_handles_->clear();
+    }
+  }
 
   // Reset prev_block_offset_. If index_iter_ has moved ahead, it won't get
   // accurate prev_block_offset_.
@@ -426,7 +431,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   }
 
-  bool DoesContainBlockHandles() { return !block_handles_.empty(); }
+  bool DoesContainBlockHandles() {
+    return block_handles_ != nullptr && !block_handles_->empty();
+  }
 
   void InitializeStartAndEndOffsets(bool read_curr_block,
                                     bool& found_first_miss_block,
