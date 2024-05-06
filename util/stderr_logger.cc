@@ -38,12 +38,12 @@ void StderrLogger::Logv(const char* format, va_list ap) {
 
   va_list ap_copy;
   va_copy(ap_copy, ap);
-  const size_t log_suffix_len = vsnprintf(nullptr, 0, format, ap_copy);
+  const size_t log_suffix_len = vsnprintf(nullptr, 0, format, ap_copy) + 1;
   va_end(ap_copy);
 
   // Allocate space for the context, log_prefix, and log itself
   // Extra byte for null termination
-  size_t buf_len = ctx_len + log_prefix_len + log_suffix_len + 1;
+  size_t buf_len = ctx_len + log_prefix_len + log_suffix_len;
   std::unique_ptr<char[]> buf(new char[buf_len]);
 
   // If the logger was created without a prefix, the prefix is a nullptr
@@ -55,8 +55,7 @@ void StderrLogger::Logv(const char* format, va_list ap) {
                t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min,
                t.tm_sec, static_cast<int>(now_tv.tv_usec),
                static_cast<long long unsigned int>(thread_id), prefix);
-  written += vsnprintf(buf.get() + written, log_suffix_len, format, ap);
-  buf[written] = '\0';
+  vsnprintf(buf.get() + written, log_suffix_len, format, ap);
 
   fprintf(stderr, "%s%c", buf.get(), '\n');
 }
