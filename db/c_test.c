@@ -2041,7 +2041,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_advise_random_on_open(o, 1);
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(o));
 
-
     rocksdb_options_set_use_adaptive_mutex(o, 1);
     CheckCondition(1 == rocksdb_options_get_use_adaptive_mutex(o));
 
@@ -2111,6 +2110,9 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_compaction_style(o, 2);
     CheckCondition(2 == rocksdb_options_get_compaction_style(o));
+
+    rocksdb_options_set_compaction_pri(o, 4);
+    CheckCondition(4 == rocksdb_options_get_compaction_pri(o));
 
     rocksdb_options_set_atomic_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
@@ -2615,6 +2617,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_compaction_style(copy, 1);
     CheckCondition(1 == rocksdb_options_get_compaction_style(copy));
     CheckCondition(2 == rocksdb_options_get_compaction_style(o));
+
+    rocksdb_options_set_compaction_pri(copy, 1);
+    CheckCondition(1 == rocksdb_options_get_compaction_pri(copy));
+    CheckCondition(4 == rocksdb_options_get_compaction_pri(o));
 
     rocksdb_options_set_atomic_flush(copy, 0);
     CheckCondition(0 == rocksdb_options_get_atomic_flush(copy));

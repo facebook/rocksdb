@@ -1109,13 +1109,13 @@ def whitebox_crash_main(args, unknown_args):
             }
             # Single level universal has a lot of special logic. Ensure we cover
             # it sometimes.
-            if random.randint(0, 1) == 1:
+            if not args.test_tiered_storage and random.randint(0, 1) == 1:
                 additional_opts.update(
                     {
                         "num_levels": 1,
                     }
                 )
-        elif check_mode == 2:
+        elif check_mode == 2 and not args.test_tiered_storage:
             # normal run with FIFO compaction mode
             # ops_per_thread is divided by 5 because FIFO compaction
             # style is quite a bit slower on reads with lot of files
