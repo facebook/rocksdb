@@ -43,7 +43,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       compression_type_record_read_(false),
       uncompress_(nullptr),
       hash_state_(nullptr),
-      uncompress_hash_state_(nullptr){}
+      uncompress_hash_state_(nullptr),
+      may_skip_first_fragmented_record_(false) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -112,6 +113,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         *record = fragment;
         last_record_offset_ = prospective_record_offset;
         first_record_read_ = true;
+        may_skip_first_fragmented_record_ = false;
         return true;
 
       case kFirstType:
@@ -130,13 +132,16 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         prospective_record_offset = physical_record_offset;
         scratch->assign(fragment.data(), fragment.size());
         in_fragmented_record = true;
+        may_skip_first_fragmented_record_ = false;
         break;
 
       case kMiddleType:
       case kRecyclableMiddleType:
         if (!in_fragmented_record) {
-          ReportCorruption(fragment.size(),
-                           "missing start of fragmented record(1)");
+          if (!may_skip_first_fragmented_record_) {
+            ReportCorruption(fragment.size(),
+                             "missing start of fragmented record(1)");
+          }
         } else {
           if (record_checksum != nullptr) {
             XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
@@ -148,8 +153,11 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
       case kLastType:
       case kRecyclableLastType:
         if (!in_fragmented_record) {
-          ReportCorruption(fragment.size(),
-                           "missing start of fragmented record(2)");
+          if (!may_skip_first_fragmented_record_) {
+            ReportCorruption(fragment.size(),
+                             "missing start of fragmented record(2)");
+          }
+          may_skip_first_fragmented_record_ = false;
         } else {
           if (record_checksum != nullptr) {
             XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
@@ -192,6 +200,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
               scratch->size(),
               "user-defined timestamp size record interspersed partial record");
         }
+        may_skip_first_fragmented_record_ = false;
         prospective_record_offset = physical_record_offset;
         scratch->clear();
         last_record_offset_ = prospective_record_offset;
