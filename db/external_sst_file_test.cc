@@ -3115,7 +3115,6 @@ TEST_F(ExternalSSTFileTest, FIFOCompaction) {
   ASSERT_NOK(GenerateAndAddExternalFile(options, file_data, -1,
                                         /*allow_global_seqno=*/false, true,
                                         false, false, false, &true_data));
-  // global sequence number is always assigned, so this will fail
   ASSERT_OK(GenerateAndAddExternalFile(options, file_data, -1,
                                        /*allow_global_seqno=*/true, true, false,
                                        false, false, &true_data));

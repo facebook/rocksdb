@@ -1192,7 +1192,10 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                             false /* disable_trivial_move */,
                             std::numeric_limits<uint64_t>::max(), trim_ts);
   } else if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-    // Always try to do compaction based on CompactionOptionsFIFO.
+    // FIFOCompactionPicker::CompactRange() will ignore the input key range
+    // [begin, end] and just try to pick compaction based on the configured
+    // option `compaction_options_fifo`. So we skip checking if [begin, end]
+    // overlaps with the DB here.
     final_output_level = 0;
     s = RunManualCompaction(cfd, /*input_level=*/0, final_output_level, options,
                             begin, end, exclusive,
