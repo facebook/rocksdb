@@ -1126,6 +1126,11 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   if (options.target_path_id >= cfd->ioptions()->cf_paths.size()) {
     return Status::InvalidArgument("Invalid target path ID");
   }
+  if (options.change_level &&
+      cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+    return Status::NotSupported(
+        "FIFO compaction does not support change_level.");
+  }
 
   bool flush_needed = true;
 
@@ -1184,6 +1189,16 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
+                            false /* disable_trivial_move */,
+                            std::numeric_limits<uint64_t>::max(), trim_ts);
+  } else if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+    // FIFOCompactionPicker::CompactRange() will ignore the input key range
+    // [begin, end] and just try to pick compaction based on the configured
+    // option `compaction_options_fifo`. So we skip checking if [begin, end]
+    // overlaps with the DB here.
+    final_output_level = 0;
+    s = RunManualCompaction(cfd, /*input_level=*/0, final_output_level, options,
+                            begin, end, exclusive,
                             false /* disable_trivial_move */,
                             std::numeric_limits<uint64_t>::max(), trim_ts);
   } else {
@@ -1270,8 +1285,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       CleanupSuperVersion(super_version);
     }
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
-      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal) {
         assert(first_overlapped_level == 0);
         s = RunManualCompaction(
             cfd, first_overlapped_level, first_overlapped_level, options, begin,

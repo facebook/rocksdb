@@ -3082,6 +3082,68 @@ TEST_P(ExternalSSTFileTest,
   delete iter;
 }
 
+TEST_F(ExternalSSTFileTest, FIFOCompaction) {
+  // FIFO always ingests SST files to L0 and assign latest sequence number.
+  Options options = CurrentOptions();
+  options.num_levels = 1;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.max_open_files = -1;
+  DestroyAndReopen(options);
+  std::map<std::string, std::string> true_data;
+
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Put(Key(i), Key(i) + "_val"));
+    true_data[Key(i)] = Key(i) + "_val";
+  }
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1", FilesPerLevel());
+  std::vector<std::pair<std::string, std::string>> file_data;
+  for (int i = 0; i <= 20; i++) {
+    file_data.emplace_back(Key(i), Key(i) + "_ingest");
+  }
+  // Overlaps with memtable, will trigger flush
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_data, -1,
+                                       /*allow_global_seqno=*/true, true, false,
+                                       false, false, &true_data));
+  ASSERT_EQ("2", FilesPerLevel());
+
+  file_data.clear();
+  for (int i = 100; i <= 120; i++) {
+    file_data.emplace_back(Key(i), Key(i) + "_ingest");
+  }
+  // global sequence number is always assigned, so this will fail
+  ASSERT_NOK(GenerateAndAddExternalFile(options, file_data, -1,
+                                        /*allow_global_seqno=*/false, true,
+                                        false, false, false, &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_data, -1,
+                                       /*allow_global_seqno=*/true, true, false,
+                                       false, false, &true_data));
+
+  // Compact to data to lower level to test multi-level FIFO later
+  options.num_levels = 7;
+  options.compaction_style = kCompactionStyleUniversal;
+  ASSERT_OK(TryReopen(options));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  options.num_levels = 7;
+  options.compaction_style = kCompactionStyleFIFO;
+  ASSERT_OK(TryReopen(options));
+  file_data.clear();
+  for (int i = 200; i <= 220; i++) {
+    file_data.emplace_back(Key(i), Key(i) + "_ingest");
+  }
+  // Files are ingested into L0 for multi-level FIFO
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_data, -1,
+                                       /*allow_global_seqno=*/true, true, false,
+                                       false, false, &true_data));
+
+  ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+  VerifyDBFromMap(true_data);
+}
+
 class ExternalSSTFileWithTimestampTest : public ExternalSSTFileTest {
  public:
   ExternalSSTFileWithTimestampTest() = default;
