@@ -66,6 +66,10 @@ class TransactionBaseImpl : public Transaction {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
 
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override;
+
   using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
@@ -295,6 +299,13 @@ class TransactionBaseImpl : public Transaction {
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value) override;
+
+  Status GetEntityImpl(const ReadOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableWideColumns* columns) {
+    return write_batch_.GetEntityFromBatchAndDB(db_, options, column_family,
+                                                key, columns);
+  }
 
   Status PutEntityImpl(ColumnFamilyHandle* column_family, const Slice& key,
                        const WideColumns& columns, bool do_validate,

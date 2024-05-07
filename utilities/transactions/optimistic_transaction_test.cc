@@ -1712,6 +1712,13 @@ TEST_P(OptimisticTransactionTest, PutEntitySuccess) {
     ASSERT_EQ(txn->GetNumPutEntities(), 0);
 
     {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                               foo, &columns));
+      ASSERT_EQ(columns.columns(), foo_columns);
+    }
+
+    {
       PinnableSlice value;
       ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
       ASSERT_EQ(value, foo_columns[0].value());
@@ -1723,6 +1730,13 @@ TEST_P(OptimisticTransactionTest, PutEntitySuccess) {
     ASSERT_EQ(txn->GetNumPutEntities(), 1);
 
     {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                               foo, &columns));
+      ASSERT_EQ(columns.columns(), foo_new_columns);
+    }
+
+    {
       PinnableSlice value;
       ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
       ASSERT_EQ(value, foo_new_columns[0].value());
@@ -1732,10 +1746,10 @@ TEST_P(OptimisticTransactionTest, PutEntitySuccess) {
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(
-        txn_db->Get(ReadOptions(), txn_db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_new_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
   }
 }
 
@@ -1755,6 +1769,20 @@ TEST_P(OptimisticTransactionTest, PutEntityWriteConflict) {
   std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
   ASSERT_NE(txn, nullptr);
 
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
+  }
+
   const WideColumns foo_new_columns{{kDefaultWideColumnName, "FOO"},
                                     {"hello", "world"}};
   const WideColumns baz_new_columns{{kDefaultWideColumnName, "BAZ"},
@@ -1765,6 +1793,20 @@ TEST_P(OptimisticTransactionTest, PutEntityWriteConflict) {
   ASSERT_OK(
       txn->PutEntity(txn_db->DefaultColumnFamily(), baz, baz_new_columns));
 
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_new_columns);
+  }
+
   // This PutEntity outside of a transaction will conflict with the previous
   // write
   const WideColumns foo_conflict_columns{{kDefaultWideColumnName, "X"},
@@ -1773,27 +1815,27 @@ TEST_P(OptimisticTransactionTest, PutEntityWriteConflict) {
                               foo, foo_conflict_columns));
 
   {
-    PinnableSlice value;
-    ASSERT_OK(
-        txn_db->Get(ReadOptions(), txn_db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_conflict_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_conflict_columns);
   }
 
   ASSERT_TRUE(txn->Commit().IsBusy());  // Txn should not commit
 
   // Verify that transaction did not write anything
   {
-    PinnableSlice value;
-    ASSERT_OK(
-        txn_db->Get(ReadOptions(), txn_db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_conflict_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_conflict_columns);
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(
-        txn_db->Get(ReadOptions(), txn_db->DefaultColumnFamily(), baz, &value));
-    ASSERT_EQ(value, baz_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                baz, &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
   }
 }
 
@@ -1813,6 +1855,20 @@ TEST_P(OptimisticTransactionTest, PutEntityWriteConflictTxnTxn) {
   std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
   ASSERT_NE(txn, nullptr);
 
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
+  }
+
   const WideColumns foo_new_columns{{kDefaultWideColumnName, "FOO"},
                                     {"hello", "world"}};
   const WideColumns baz_new_columns{{kDefaultWideColumnName, "BAZ"},
@@ -1822,6 +1878,20 @@ TEST_P(OptimisticTransactionTest, PutEntityWriteConflictTxnTxn) {
       txn->PutEntity(txn_db->DefaultColumnFamily(), foo, foo_new_columns));
   ASSERT_OK(
       txn->PutEntity(txn_db->DefaultColumnFamily(), baz, baz_new_columns));
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_new_columns);
+  }
 
   std::unique_ptr<Transaction> conflicting_txn(
       txn_db->BeginTransaction(WriteOptions()));
@@ -1834,27 +1904,27 @@ TEST_P(OptimisticTransactionTest, PutEntityWriteConflictTxnTxn) {
   ASSERT_OK(conflicting_txn->Commit());
 
   {
-    PinnableSlice value;
-    ASSERT_OK(
-        txn_db->Get(ReadOptions(), txn_db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_conflict_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_conflict_columns);
   }
 
   ASSERT_TRUE(txn->Commit().IsBusy());  // Txn should not commit
 
   // Verify that transaction did not write anything
   {
-    PinnableSlice value;
-    ASSERT_OK(
-        txn_db->Get(ReadOptions(), txn_db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_conflict_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_conflict_columns);
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(
-        txn_db->Get(ReadOptions(), txn_db->DefaultColumnFamily(), baz, &value));
-    ASSERT_EQ(value, baz_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                baz, &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
   }
 }
 
