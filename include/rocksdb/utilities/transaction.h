@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <limits>
 #include <string>
 #include <vector>
@@ -317,6 +316,10 @@ class Transaction {
     pinnable_val->PinSelf();
     return s;
   }
+
+  virtual Status GetEntity(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableWideColumns* columns) = 0;
 
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,

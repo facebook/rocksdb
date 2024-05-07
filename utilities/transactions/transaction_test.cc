@@ -7013,6 +7013,13 @@ TEST_P(TransactionTest, PutEntitySuccess) {
     ASSERT_EQ(txn->GetNumPutEntities(), 0);
 
     {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                               &columns));
+      ASSERT_EQ(columns.columns(), foo_columns);
+    }
+
+    {
       PinnableSlice value;
       ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
       ASSERT_EQ(value, foo_columns[0].value());
@@ -7021,6 +7028,13 @@ TEST_P(TransactionTest, PutEntitySuccess) {
     ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), foo, foo_new_columns));
 
     ASSERT_EQ(txn->GetNumPutEntities(), 1);
+
+    {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                               &columns));
+      ASSERT_EQ(columns.columns(), foo_new_columns);
+    }
 
     {
       PinnableSlice value;
@@ -7032,9 +7046,10 @@ TEST_P(TransactionTest, PutEntitySuccess) {
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_new_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
   }
 }
 
@@ -7060,6 +7075,20 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
   std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
   ASSERT_NE(txn, nullptr);
 
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
+  }
+
   const WideColumns foo_new_columns{{kDefaultWideColumnName, "FOO"},
                                     {"hello", "world"}};
   const WideColumns baz_new_columns{{kDefaultWideColumnName, "BAZ"},
@@ -7067,6 +7096,20 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
 
   ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), foo, foo_new_columns));
   ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), baz, baz_new_columns));
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_new_columns);
+  }
 
   // This PutEntity outside of a transaction will conflict with the previous
   // write
@@ -7077,29 +7120,33 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
                   .IsTimedOut());
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_columns);
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), baz, &value));
-    ASSERT_EQ(value, baz_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz, &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
   }
 
   ASSERT_OK(txn->Commit());
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_new_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), baz, &value));
-    ASSERT_EQ(value, baz_new_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz, &columns));
+    ASSERT_EQ(columns.columns(), baz_new_columns);
   }
 }
 
