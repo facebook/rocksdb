@@ -933,21 +933,6 @@ static bool SaveValue(void* arg, const char* entry) {
   assert(s != nullptr);
   assert(!s->value || !s->columns);
 
-  std::unique_ptr<ReadLock> read_lock;
-  if (s->inplace_update_support) {
-    read_lock.reset(new ReadLock(s->mem->GetLock(s->key->user_key())));
-  }
-
-  if (s->protection_bytes_per_key > 0) {
-    *(s->status) = MemTable::VerifyEntryChecksum(
-        entry, s->protection_bytes_per_key, s->allow_data_in_errors);
-    if (!s->status->ok()) {
-      ROCKS_LOG_ERROR(s->logger, "In SaveValue: %s", s->status->getState());
-      // Memtable entry corrupted
-      return false;
-    }
-  }
-
   MergeContext* merge_context = s->merge_context;
   SequenceNumber max_covering_tombstone_seq = s->max_covering_tombstone_seq;
   const MergeOperator* merge_operator = s->merge_operator;
@@ -970,6 +955,21 @@ static bool SaveValue(void* arg, const char* entry) {
   if (user_comparator->EqualWithoutTimestamp(user_key_slice,
                                              s->key->user_key())) {
     // Correct user key
+    std::unique_ptr<ReadLock> read_lock;
+    if (s->inplace_update_support) {
+      read_lock.reset(new ReadLock(s->mem->GetLock(s->key->user_key())));
+    }
+
+    if (s->protection_bytes_per_key > 0) {
+      *(s->status) = MemTable::VerifyEntryChecksum(
+          entry, s->protection_bytes_per_key, s->allow_data_in_errors);
+      if (!s->status->ok()) {
+        ROCKS_LOG_ERROR(s->logger, "In SaveValue: %s", s->status->getState());
+        // Memtable entry corrupted
+        return false;
+      }
+    }
+
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
     SequenceNumber seq;
