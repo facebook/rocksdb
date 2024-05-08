@@ -7638,7 +7638,7 @@ TEST_F(DBCompactionTest, CompactFilesSupportKeyPlacementRangeConflict) {
 
   // To force below two CompactFiles() in order to coerce range conflict on L1
   // upon (2)
-  // (1): Compact [k2] at L0 and [k3] at L1 and output to L1 and L0
+  // (1): Compact [k2] at L0 and [k3] at L1 with output to L1
   // (2): Compact [k4] at L1 and [k1, k5] at L2 and output to L1 and L2
   options.preclude_last_level_data_seconds = 1;
   Reopen(options);

@@ -1537,16 +1537,11 @@ Status DBImpl::CompactFilesImpl(
         std::to_string(cfd->ioptions()->num_levels - 1));
   }
 
-  Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
-      &input_set, cf_meta, output_level);
-  TEST_SYNC_POINT("DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles");
-  if (!s.ok()) {
-    return s;
-  }
-
   std::vector<CompactionInputFiles> input_files;
-  s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
-      &input_files, &input_set, version->storage_info(), compact_options);
+  Status s = cfd->compaction_picker()->SanitizeAndConvertCompactionInputFiles(
+      &input_set, cf_meta, output_level, version->storage_info(), &input_files);
+  TEST_SYNC_POINT(
+      "DBImpl::CompactFilesImpl::PostSanitizeAndConvertCompactionInputFiles");
   if (!s.ok()) {
     return s;
   }
