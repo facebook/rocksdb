@@ -1283,7 +1283,8 @@ void CompactionIterator::DecideOutputLevel() {
   // saved_seq_for_penul_check_ is populated in `NextFromInput` when the
   // entry's sequence number is non zero and validity context for output this
   // entry is kSwapPreferredSeqno for use in `DecideOutputLevel`. It should be
-  // cleared out here unconditionally.
+  // cleared out here unconditionally. Otherwise, it may end up getting consumed
+  // incorrectly by a different entry.
   SequenceNumber seq_for_range_check =
       (saved_seq_for_penul_check_.has_value() &&
        saved_seq_for_penul_check_.value() != kMaxSequenceNumber)
