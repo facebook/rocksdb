@@ -928,7 +928,6 @@ struct Saver {
 }  // anonymous namespace
 
 static bool SaveValue(void* arg, const char* entry) {
-  TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
   Saver* s = static_cast<Saver*>(arg);
   assert(s != nullptr);
   assert(!s->value || !s->columns);
@@ -955,6 +954,7 @@ static bool SaveValue(void* arg, const char* entry) {
   if (user_comparator->EqualWithoutTimestamp(user_key_slice,
                                              s->key->user_key())) {
     // Correct user key
+    TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Found:entry", &entry);
     std::unique_ptr<ReadLock> read_lock;
     if (s->inplace_update_support) {
       read_lock.reset(new ReadLock(s->mem->GetLock(s->key->user_key())));
