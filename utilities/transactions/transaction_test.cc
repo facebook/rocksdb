@@ -7150,6 +7150,37 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
   }
 }
 
+TEST_P(TransactionTest, EntityReadSanityChecks) {
+  constexpr char foo[] = "foo";
+
+  std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+  ASSERT_NE(txn, nullptr);
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(txn->GetEntity(ReadOptions(), column_family, foo, &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr PinnableWideColumns* columns = nullptr;
+    ASSERT_TRUE(
+        txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, columns)
+            .IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kGet;
+
+    PinnableWideColumns columns;
+    ASSERT_TRUE(
+        txn->GetEntity(read_options, db->DefaultColumnFamily(), foo, &columns)
+            .IsInvalidArgument());
+  }
+}
+
 TEST_F(TransactionDBTest, CollapseKey) {
   ASSERT_OK(ReOpen());
   ASSERT_OK(db->Put({}, "hello", "world"));
