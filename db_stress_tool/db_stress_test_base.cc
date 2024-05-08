@@ -1513,9 +1513,18 @@ Status StressTest::VerifyGetLiveFilesMetaData() const {
 
 // Test the return status of GetLiveFilesStorageInfo()
 Status StressTest::VerifyGetLiveFilesStorageInfo() const {
+  Status status = db_->DisableFileDeletions();
+  if (!status.ok()) {
+    return status;
+  }
+
   std::vector<LiveFileStorageInfo> live_file_storage_info;
-  return db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
-                                      &live_file_storage_info);
+  status = db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                        &live_file_storage_info);
+  if (!status.ok()) {
+    return status;
+  }
+  return db_->EnableFileDeletions();
 }
 
 // Test GetAllColumnFamilyMetaData()
