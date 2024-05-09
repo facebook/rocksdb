@@ -316,7 +316,7 @@ class BatchedOpsStressTest : public StressTest {
         attribute_group_results[i].emplace_back(cfh);
         s = db_->GetEntity(read_opts_copy, key, &attribute_group_results[i]);
         if (s.ok()) {
-          s = attribute_group_results[i].front().status();
+          s = attribute_group_results[i].back().status();
         }
       } else {
         s = db_->GetEntity(read_opts_copy, cfh, key, &column_results[i]);

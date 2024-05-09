@@ -935,7 +935,7 @@ class NonBatchedOpsStressTest : public StressTest {
       attribute_groups_from_db.emplace_back(cfh);
       s = db_->GetEntity(read_opts_copy, key, &attribute_groups_from_db);
       if (s.ok()) {
-        s = attribute_groups_from_db.front().status();
+        s = attribute_groups_from_db.back().status();
       }
     } else {
       s = db_->GetEntity(read_opts_copy, cfh, key, &columns_from_db);
@@ -963,9 +963,12 @@ class NonBatchedOpsStressTest : public StressTest {
       thread->stats.AddGets(1, 1);
 
       if (!FLAGS_skip_verifydb && !read_older_ts) {
+        if (FLAGS_use_attribute_group) {
+          assert(!attribute_groups_from_db.empty());
+        }
         const WideColumns& columns =
             FLAGS_use_attribute_group
-                ? attribute_groups_from_db.front().columns()
+                ? attribute_groups_from_db.back().columns()
                 : columns_from_db.columns();
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
