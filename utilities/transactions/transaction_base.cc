@@ -289,22 +289,10 @@ Status TransactionBaseImpl::GetImpl(const ReadOptions& read_options,
                                         pinnable_val);
 }
 
-Status TransactionBaseImpl::GetEntity(const ReadOptions& _read_options,
+Status TransactionBaseImpl::GetEntity(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family,
                                       const Slice& key,
                                       PinnableWideColumns* columns) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGetEntity) {
-    return Status::InvalidArgument(
-        "Can only call GetEntity with `ReadOptions::io_activity` set to "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
-  }
-
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGetEntity;
-  }
-
   return GetEntityImpl(read_options, column_family, key, columns);
 }
 
