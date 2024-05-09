@@ -2009,6 +2009,8 @@ class DB {
     return Status::NotSupported("SuggestCompactRange() is not implemented.");
   }
 
+  // Trivially move L0 files to target level. Should not be called with another
+  // PromoteL0() concurrently
   virtual Status PromoteL0(ColumnFamilyHandle* /*column_family*/,
                            int /*target_level*/) {
     return Status::NotSupported("PromoteL0() is not implemented.");
