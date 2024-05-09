@@ -190,11 +190,17 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   ASSERT_OK(db_->Put(write_opts, "foo2", ts, "bar"));
   ASSERT_OK(Flush());
 
-  std::string start_str = "foo";
-  std::string end_str = "foo2";
-  Slice start(start_str), end(end_str);
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
-
+  port::Thread compact_range([&]() {
+    std::string start_str = "foo";
+    std::string end_str = "foo2";
+    Slice start(start_str), end(end_str);
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  });
+  // Compact random(non-existing) file receive a proper status.
+  ASSERT_TRUE(db_->CompactFiles(CompactionOptions(), db_->DefaultColumnFamily(),
+                                {"002349.sst"}, 1)
+                  .IsAborted());
+  compact_range.join();
   Close();
 }
 
