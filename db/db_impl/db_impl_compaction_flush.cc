@@ -1094,7 +1094,12 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
-    return Status::InvalidArgument("Cannot decrease full_history_ts_low");
+    std::stringstream oss;
+    oss << "Current full_history_ts_low: "
+        << ucmp->TimestampToString(current_ts_low)
+        << " is higher than provided ts: " << ucmp->TimestampToString(ts_low)
+        << std::endl;
+    return Status::InvalidArgument(oss.str());
   }
 
   Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
