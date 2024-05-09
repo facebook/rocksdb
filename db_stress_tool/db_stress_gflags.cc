@@ -756,6 +756,10 @@ DEFINE_int32(compact_range_one_in, 0,
              "If non-zero, then CompactRange() will be called once for every N "
              "operations on average.  0 indicates CompactRange() is disabled.");
 
+DEFINE_int32(promote_l0_one_in, 0,
+             "If non-zero, then PromoteL0() will be called once for every N "
+             "operations on average.  0 indicates PromoteL0() is disabled.");
+
 DEFINE_int32(mark_for_compaction_one_file_in, 0,
              "A `TablePropertiesCollectorFactory` will be registered, which "
              "creates a `TablePropertiesCollector` with `NeedCompact()` "
@@ -765,6 +769,14 @@ DEFINE_int32(mark_for_compaction_one_file_in, 0,
 DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
              "on average.  0 indicates calls to Flush() are disabled.");
+
+DEFINE_int32(key_may_exist_one_in, 0,
+             "If non-zero, then KeyMayExist() will be called "
+             "once for every N ops on average.  0 disables.");
+
+DEFINE_int32(reset_stats_one_in, 0,
+             "If non-zero, then ResetStats() will be called "
+             "once for every N ops on average.  0 disables.");
 
 DEFINE_int32(pause_background_one_in, 0,
              "If non-zero, then PauseBackgroundWork()+Continue will be called "

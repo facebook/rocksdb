@@ -462,6 +462,44 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool IsStateTracked() const override { return true; }
 
+  void TestKeyMayExist(ThreadState* thread, const ReadOptions& read_opts,
+                       const std::vector<int>& rand_column_families,
+                       const std::vector<int64_t>& rand_keys) override {
+    auto cfh = column_families_[rand_column_families[0]];
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    std::string ignore;
+    ReadOptions read_opts_copy = read_opts;
+
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
+
+    const ExpectedValue pre_read_expected_value =
+        thread->shared->Get(rand_column_families[0], rand_keys[0]);
+    bool key_may_exist = db_->KeyMayExist(read_opts_copy, cfh, key, &ignore);
+    const ExpectedValue post_read_expected_value =
+        thread->shared->Get(rand_column_families[0], rand_keys[0]);
+
+    if (!key_may_exist && !FLAGS_skip_verifydb && !read_older_ts) {
+      if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                               post_read_expected_value)) {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr,
+                "error : inconsistent values for key %s: expected state has "
+                "the key, TestKeyMayExist() returns false indicating the key "
+                "must not exist.\n",
+                key.ToString(true).c_str());
+      }
+    }
+  }
+
   Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys) override {
