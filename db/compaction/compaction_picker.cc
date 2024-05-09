@@ -920,9 +920,8 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
   // the smallest and largest key of the current compaction input
   std::string smallestkey;
   std::string largestkey;
-  bool valid_input_files_found = false;
   // a flag for initializing smallest and largest key
-  bool is_first = true;
+  bool valid_input_files_found = false;
   const int kNotFound = -1;
 
   // For each level, it does the following things:
@@ -947,11 +946,10 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
       }
       first_included = std::min(first_included, static_cast<int>(f));
       last_included = std::max(last_included, static_cast<int>(f));
-      if (is_first) {
+      if (!valid_input_files_found) {
         smallestkey = current_files[f].smallestkey;
         largestkey = current_files[f].largestkey;
         valid_input_files_found = true;
-        is_first = false;
       }
     }
     if (last_included == kNotFound) {
@@ -1047,8 +1045,6 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     return Status::Aborted(
         "There are no valid input files found for the specified files.");
   }
-  assert(!smallestkey.empty());
-  assert(!largestkey.empty());
   if (RangeOverlapWithCompaction(smallestkey, largestkey, output_level)) {
     return Status::Aborted(
         "A running compaction is writing to the same output level in an "
