@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/pessimistic_transaction.h"
 
 #include <map>
@@ -216,6 +215,21 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
   }
   return TransactionBaseImpl::GetForUpdate(read_options, column_family, key,
                                            value, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::PutEntityImpl(ColumnFamilyHandle* column_family,
+                                        const Slice& key,
+                                        const WideColumns& columns,
+                                        bool do_validate, bool assume_tracked) {
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, &columns, this]() {
+                   Status s = GetBatchForWrite()->PutEntity(column_family, key,
+                                                            columns);
+                   if (s.ok()) {
+                     ++num_put_entities_;
+                   }
+                   return s;
+                 });
 }
 
 Status WriteCommittedTxn::Put(ColumnFamilyHandle* column_family,
@@ -893,6 +907,11 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& /* unused */) override {
+      RecordKey(column_family_id, key);
+      return Status::OK();
+    }
+    Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }

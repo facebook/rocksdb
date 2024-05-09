@@ -1,0 +1,1 @@
+* CompactRange() with change_level=true on a CF with FIFO compaction will return Status::NotSupported(). 

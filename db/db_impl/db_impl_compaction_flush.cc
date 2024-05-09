@@ -224,9 +224,15 @@ Status DBImpl::FlushMemTableToOutputFile(
   // the host crashes after flushing and before WAL is persistent, the
   // flushed SST may contain data from write batches whose updates to
   // other (unflushed) column families are missing.
+  //
+  // When 2PC is enabled, non-recent WAL(s) may be needed for crash-recovery,
+  // even when there is only one CF in the DB, for prepared transactions that
+  // had not been committed yet. Make sure we sync them to keep the persisted
+  // WAL state at least as new as the persisted SST state.
   const bool needs_to_sync_closed_wals =
       logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1;
+      (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 ||
+       allow_2pc());
 
   // If needs_to_sync_closed_wals is true, we need to record the current
   // maximum memtable ID of this column family so that a later PickMemtables()
@@ -1120,6 +1126,11 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   if (options.target_path_id >= cfd->ioptions()->cf_paths.size()) {
     return Status::InvalidArgument("Invalid target path ID");
   }
+  if (options.change_level &&
+      cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+    return Status::NotSupported(
+        "FIFO compaction does not support change_level.");
+  }
 
   bool flush_needed = true;
 
@@ -1178,6 +1189,16 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
+                            false /* disable_trivial_move */,
+                            std::numeric_limits<uint64_t>::max(), trim_ts);
+  } else if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+    // FIFOCompactionPicker::CompactRange() will ignore the input key range
+    // [begin, end] and just try to pick compaction based on the configured
+    // option `compaction_options_fifo`. So we skip checking if [begin, end]
+    // overlaps with the DB here.
+    final_output_level = 0;
+    s = RunManualCompaction(cfd, /*input_level=*/0, final_output_level, options,
+                            begin, end, exclusive,
                             false /* disable_trivial_move */,
                             std::numeric_limits<uint64_t>::max(), trim_ts);
   } else {
@@ -1264,8 +1285,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       CleanupSuperVersion(super_version);
     }
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
-      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal) {
         assert(first_overlapped_level == 0);
         s = RunManualCompaction(
             cfd, first_overlapped_level, first_overlapped_level, options, begin,

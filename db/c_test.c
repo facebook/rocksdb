@@ -704,6 +704,10 @@ int main(int argc, char** argv) {
   rocksdb_block_based_options_set_block_cache(table_options, cache);
   rocksdb_block_based_options_set_data_block_index_type(table_options, 1);
   rocksdb_block_based_options_set_data_block_hash_ratio(table_options, 0.75);
+  rocksdb_block_based_options_set_top_level_index_pinning_tier(table_options,
+                                                               1);
+  rocksdb_block_based_options_set_partition_pinning_tier(table_options, 2);
+  rocksdb_block_based_options_set_unpartitioned_pinning_tier(table_options, 3);
   rocksdb_options_set_block_based_table_factory(options, table_options);
 
   rocksdb_options_set_compression(options, rocksdb_no_compression);

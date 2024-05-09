@@ -1,0 +1,1 @@
+* External file ingestion with FIFO compaction will always ingest to L0.
