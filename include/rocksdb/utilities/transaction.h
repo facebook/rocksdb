@@ -357,6 +357,12 @@ class Transaction {
     }
   }
 
+  virtual void MultiGetEntity(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              size_t num_keys, const Slice* keys,
+                              PinnableWideColumns* results, Status* statuses,
+                              bool sorted_input = false) = 0;
+
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a

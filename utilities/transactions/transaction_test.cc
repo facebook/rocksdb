@@ -6,6 +6,7 @@
 #include "utilities/transactions/transaction_test.h"
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <string>
 #include <thread>
@@ -7089,6 +7090,23 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
     ASSERT_EQ(columns.columns(), baz_columns);
   }
 
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_columns);
+    ASSERT_EQ(results[1].columns(), baz_columns);
+  }
+
   const WideColumns foo_new_columns{{kDefaultWideColumnName, "FOO"},
                                     {"hello", "world"}};
   const WideColumns baz_new_columns{{kDefaultWideColumnName, "BAZ"},
@@ -7109,6 +7127,23 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
     ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz,
                              &columns));
     ASSERT_EQ(columns.columns(), baz_new_columns);
+  }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_new_columns);
+    ASSERT_EQ(results[1].columns(), baz_new_columns);
   }
 
   // This PutEntity outside of a transaction will conflict with the previous
@@ -7133,6 +7168,25 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
     ASSERT_EQ(columns.columns(), baz_columns);
   }
 
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                       keys.data(), results.data(), statuses.data(),
+                       sorted_input);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_columns);
+    ASSERT_EQ(results[1].columns(), baz_columns);
+  }
+
   ASSERT_OK(txn->Commit());
 
   {
@@ -7148,10 +7202,31 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
         db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz, &columns));
     ASSERT_EQ(columns.columns(), baz_new_columns);
   }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                       keys.data(), results.data(), statuses.data(),
+                       sorted_input);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_new_columns);
+    ASSERT_EQ(results[1].columns(), baz_new_columns);
+  }
 }
 
 TEST_P(TransactionTest, EntityReadSanityChecks) {
   constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr size_t num_keys = 2;
 
   std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
   ASSERT_NE(txn, nullptr);
@@ -7178,6 +7253,62 @@ TEST_P(TransactionTest, EntityReadSanityChecks) {
     ASSERT_TRUE(
         txn->GetEntity(read_options, db->DefaultColumnFamily(), foo, &columns)
             .IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(ReadOptions(), column_family, num_keys, keys.data(),
+                        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr Slice* keys = nullptr;
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys, results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    constexpr PinnableWideColumns* results = nullptr;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results, statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(read_options, db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data(),
+                        sorted_input);
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
   }
 }
 

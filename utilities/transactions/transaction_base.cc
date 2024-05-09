@@ -408,6 +408,15 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& _read_options,
                                       sorted_input);
 }
 
+void TransactionBaseImpl::MultiGetEntity(const ReadOptions& read_options,
+                                         ColumnFamilyHandle* column_family,
+                                         size_t num_keys, const Slice* keys,
+                                         PinnableWideColumns* results,
+                                         Status* statuses, bool sorted_input) {
+  MultiGetEntityImpl(read_options, column_family, num_keys, keys, results,
+                     statuses, sorted_input);
+}
+
 std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
