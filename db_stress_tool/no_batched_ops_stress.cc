@@ -954,7 +954,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     const std::string key = Key(rand_keys[0]);
 
-    PinnableWideColumns from_db;
+    PinnableWideColumns columns_from_db;
+    PinnableAttributeGroups attribute_groups_from_db;
 
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
@@ -967,7 +968,16 @@ class NonBatchedOpsStressTest : public StressTest {
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
-    const Status s = db_->GetEntity(read_opts_copy, cfh, key, &from_db);
+    Status s;
+    if (FLAGS_use_attribute_group) {
+      attribute_groups_from_db.emplace_back(cfh);
+      s = db_->GetEntity(read_opts_copy, key, &attribute_groups_from_db);
+      if (s.ok()) {
+        s = attribute_groups_from_db.back().status();
+      }
+    } else {
+      s = db_->GetEntity(read_opts_copy, cfh, key, &columns_from_db);
+    }
 
     int error_count = 0;
 
@@ -991,7 +1001,13 @@ class NonBatchedOpsStressTest : public StressTest {
       thread->stats.AddGets(1, 1);
 
       if (!FLAGS_skip_verifydb && !read_older_ts) {
-        const WideColumns& columns = from_db.columns();
+        if (FLAGS_use_attribute_group) {
+          assert(!attribute_groups_from_db.empty());
+        }
+        const WideColumns& columns =
+            FLAGS_use_attribute_group
+                ? attribute_groups_from_db.back().columns()
+                : columns_from_db.columns();
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
         if (!VerifyWideColumns(columns)) {
@@ -1340,8 +1356,13 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_use_put_entity_one_in > 0 &&
         (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      s = db_->PutEntity(write_opts, cfh, k,
-                         GenerateWideColumns(value_base, v));
+      if (FLAGS_use_attribute_group) {
+        s = db_->PutEntity(write_opts, k,
+                           GenerateAttributeGroups({cfh}, value_base, v));
+      } else {
+        s = db_->PutEntity(write_opts, cfh, k,
+                           GenerateWideColumns(value_base, v));
+      }
     } else if (FLAGS_use_timed_put_one_in > 0 &&
                ((value_base + kLargePrimeForCommonFactorSkew) %
                 FLAGS_use_timed_put_one_in) == 0) {
