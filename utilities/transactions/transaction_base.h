@@ -116,6 +116,11 @@ class TransactionBaseImpl : public Transaction {
                 const Slice* keys, PinnableSlice* values, Status* statuses,
                 const bool sorted_input = false) override;
 
+  void MultiGetEntity(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableWideColumns* results,
+                      Status* statuses, bool sorted_input = false) override;
+
   using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
@@ -305,6 +310,15 @@ class TransactionBaseImpl : public Transaction {
                        PinnableWideColumns* columns) {
     return write_batch_.GetEntityFromBatchAndDB(db_, options, column_family,
                                                 key, columns);
+  }
+
+  void MultiGetEntityImpl(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, size_t num_keys,
+                          const Slice* keys, PinnableWideColumns* results,
+                          Status* statuses, bool sorted_input) {
+    write_batch_.MultiGetEntityFromBatchAndDB(db_, options, column_family,
+                                              num_keys, keys, results, statuses,
+                                              sorted_input);
   }
 
   Status PutEntityImpl(ColumnFamilyHandle* column_family, const Slice& key,
