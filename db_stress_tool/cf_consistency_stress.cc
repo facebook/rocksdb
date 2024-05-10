@@ -545,6 +545,26 @@ class CfConsistencyStressTest : public StressTest {
             has_error = true;
             break;
           }
+
+          assert(cmp_s.ok() || cmp_s.IsNotFound());
+
+          if (s.IsNotFound()) {
+            if (cmp_s.ok()) {
+              fprintf(stderr,
+                      "MultiGetEntity (AttributeGroup) returns different "
+                      "results for key %s: CF %s "
+                      "returns entity %s, CF %s returns not found\n",
+                      key_slices[i].ToString(true).c_str(),
+                      column_family_names_[0].c_str(),
+                      WideColumnsToHex(cmp_columns).c_str(),
+                      column_family_names_[j].c_str());
+              is_consistent = false;
+              break;
+            }
+
+            continue;
+          }
+
           assert(s.ok());
           if (cmp_s.IsNotFound()) {
             fprintf(stderr,
@@ -561,8 +581,8 @@ class CfConsistencyStressTest : public StressTest {
 
           if (columns != cmp_columns) {
             fprintf(stderr,
-                    "MultiGetEntity  (AttributeGroup) returns different "
-                    "results for key %s: CF %s "
+                    "MultiGetEntity (AttributeGroup) returns different results "
+                    "for key %s: CF %s "
                     "returns entity %s, CF %s returns entity %s\n",
                     key_slices[i].ToString(true).c_str(),
                     column_family_names_[0].c_str(),
@@ -575,7 +595,7 @@ class CfConsistencyStressTest : public StressTest {
 
           if (!VerifyWideColumns(columns)) {
             fprintf(stderr,
-                    "MultiGetEntity  (AttributeGroup) error: inconsistent "
+                    "MultiGetEntity (AttributeGroup) error: inconsistent "
                     "columns for key %s, "
                     "entity %s\n",
                     key_slices[i].ToString(true).c_str(),
