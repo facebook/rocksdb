@@ -2138,7 +2138,7 @@ class NonBatchedOpsStressTest : public StressTest {
     return Status::OK();
   }
 
-  bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
+  bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& opts,
                          SharedState* shared, const std::string& value_from_db,
                          std::string msg_prefix, const Status& s) const {
     if (shared->HasVerificationFailedYet()) {
@@ -2164,27 +2164,43 @@ class NonBatchedOpsStressTest : public StressTest {
         GenerateValue(expected_value.GetValueBase(), expected_value_data,
                       sizeof(expected_value_data));
 
+    std::ostringstream read_u64ts;
+    if (opts.timestamp) {
+      read_u64ts << " while read with timestamp: ";
+      uint64_t read_ts;
+      if (DecodeU64Ts(*opts.timestamp, &read_ts).ok()) {
+        read_u64ts << std::to_string(read_ts) << ", ";
+      } else {
+        read_u64ts << s.ToString()
+                   << " Encoded read timestamp: " << opts.timestamp->ToString()
+                   << ", ";
+      }
+    }
+
     // compare value_from_db with the value in the shared state
     if (s.ok()) {
       const Slice slice(value_from_db);
       const uint32_t value_base_from_db = GetValueBase(slice);
       if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
                                                   expected_value)) {
-        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
-                          key, value_from_db, "");
+        VerificationAbort(
+            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
+            cf, key, value_from_db, "");
         return false;
       }
       if (!ExpectedValueHelper::InExpectedValueBaseRange(
               value_base_from_db, expected_value, expected_value)) {
-        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
-                          key, value_from_db,
-                          Slice(expected_value_data, expected_value_data_size));
+        VerificationAbort(
+            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
+            cf, key, value_from_db,
+            Slice(expected_value_data, expected_value_data_size));
         return false;
       }
       // TODO: are the length/memcmp() checks repetitive?
       if (value_from_db.length() != expected_value_data_size) {
         VerificationAbort(shared,
-                          msg_prefix + ": Length of value read is not equal",
+                          msg_prefix + ": Length of value read is not equal" +
+                              read_u64ts.str(),
                           cf, key, value_from_db,
                           Slice(expected_value_data, expected_value_data_size));
         return false;
@@ -2192,7 +2208,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (memcmp(value_from_db.data(), expected_value_data,
                  expected_value_data_size) != 0) {
         VerificationAbort(shared,
-                          msg_prefix + ": Contents of value read don't match",
+                          msg_prefix + ": Contents of value read don't match" +
+                              read_u64ts.str(),
                           cf, key, value_from_db,
                           Slice(expected_value_data, expected_value_data_size));
         return false;
@@ -2201,14 +2218,16 @@ class NonBatchedOpsStressTest : public StressTest {
       if (ExpectedValueHelper::MustHaveExisted(expected_value,
                                                expected_value)) {
         VerificationAbort(
-            shared, msg_prefix + ": Value not found: " + s.ToString(), cf, key,
-            "", Slice(expected_value_data, expected_value_data_size));
+            shared,
+            msg_prefix + ": Value not found " + read_u64ts.str() + s.ToString(),
+            cf, key, "", Slice(expected_value_data, expected_value_data_size));
         return false;
       }
     } else {
-      VerificationAbort(shared, msg_prefix + "Non-OK status: " + s.ToString(),
-                        cf, key, "",
-                        Slice(expected_value_data, expected_value_data_size));
+      VerificationAbort(
+          shared,
+          msg_prefix + "Non-OK status " + read_u64ts.str() + s.ToString(), cf,
+          key, "", Slice(expected_value_data, expected_value_data_size));
       return false;
     }
     return true;
