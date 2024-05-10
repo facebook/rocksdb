@@ -487,9 +487,11 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
          type == kRecyclableUserDefinedTimestampSizeType);
     if (is_recyclable_type) {
       header_size = kRecyclableHeaderSize;
-      if (end_of_buffer_offset_ - buffer_.size() == 0) {
-        recycled_ = true;
+      if (first_record_read_ && !recycled_) {
+        // A recycled log should have started with a recycled record
+        return kBadRecord;
       }
+      recycled_ = true;
       // We need enough for the larger header
       if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
         int r = kEof;
