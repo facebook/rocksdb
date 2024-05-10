@@ -2212,7 +2212,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
 TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   // WAL recycling incompatible with disableWAL (below)
   options.recycle_log_file_num = 0;
-  ReOpenNoDelete();
+  ASSERT_OK(ReOpenNoDelete());
 
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   WriteOptions wal_on, wal_off;
