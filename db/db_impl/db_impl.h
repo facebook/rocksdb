@@ -342,6 +342,10 @@ class DBImpl : public DB {
                    std::string* value, std::string* timestamp,
                    bool* value_found = nullptr) override;
 
+  Status GetColumnFamily(const std::string& column_family_name,
+                                 ColumnFamilyHandle** handle) override;
+
+
   using DB::NewIterator;
   Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family) override;

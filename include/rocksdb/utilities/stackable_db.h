@@ -216,6 +216,12 @@ class StackableDB : public DB {
     return db_->KeyMayExist(options, column_family, key, value, value_found);
   }
 
+  using DB::GetColumnFamily;
+  Status GetColumnFamily(const std::string& column_family_name,
+                                 ColumnFamilyHandle** handle) override{
+    return db_->GetColumnFamily(column_family_name, handle);
+  }
+
   using DB::Delete;
   Status Delete(const WriteOptions& wopts, ColumnFamilyHandle* column_family,
                 const Slice& key) override {

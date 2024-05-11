@@ -3583,6 +3583,27 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   return s;
 }
 
+
+Status DBImpl::GetColumnFamily(const std::string& column_family_name,
+                               ColumnFamilyHandle** handle) {
+
+  Status s;
+  *handle = nullptr;
+
+  auto* cfd =
+      versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
+
+  if (cfd == nullptr) {
+    return Status::NotFound("ColumnFamily not found!");
+  }
+
+  *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
+  return s;
+
+}
+
+
+
 bool DBImpl::KeyMayExist(const ReadOptions& read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          std::string* value, std::string* timestamp,

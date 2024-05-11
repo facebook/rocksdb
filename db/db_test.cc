@@ -2640,6 +2640,26 @@ TEST_F(DBTest, ReadonlyDBGetLiveManifestSize) {
   } while (ChangeCompactOptions());
 }
 
+
+TEST_F(DBTest, GetColumnFamily) {
+
+  Options options = CurrentOptions();
+  CreateColumnFamilies({"pikachu"}, options);
+
+  ColumnFamilyHandle* get_handle = nullptr;
+  Status s = db_->GetColumnFamily("pikachu", &get_handle);
+  handles_.push_back(get_handle);
+  ASSERT_OK(s);
+  
+  ASSERT_EQ(handles_[0]->GetName(), handles_[1]->GetName());
+  ASSERT_EQ(handles_[0]->GetID(), handles_[1]->GetID());
+  ColumnFamilyData* cfd1 = ((ColumnFamilyHandleImpl*)handles_[0])->cfd();
+  ColumnFamilyData* cfd2 = ((ColumnFamilyHandleImpl*)handles_[1])->cfd();
+  ASSERT_EQ(cfd1, cfd2);
+
+}
+
+
 TEST_F(DBTest, GetLiveBlobFiles) {
   // Note: the following prevents an otherwise harmless data race between the
   // test setup code (AddBlobFile) below and the periodic stat dumping thread.
@@ -3181,6 +3201,13 @@ class ModelDB : public DB {
     }
     return true;  // Not Supported directly
   }
+
+  using DB::GetColumnFamily;
+  Status GetColumnFamily(const std::string& column_family_name,
+                         ColumnFamilyHandle** handle) override{
+    return Status();
+  }
+
   using DB::NewIterator;
   Iterator* NewIterator(const ReadOptions& options,
                         ColumnFamilyHandle* /*column_family*/) override {

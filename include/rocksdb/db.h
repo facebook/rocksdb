@@ -2080,6 +2080,13 @@ class DB {
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
+
+    // Get ColumnFamilyHandle from column_family_name
+  virtual Status GetColumnFamily(const std::string& column_family_name,
+                                 ColumnFamilyHandle** handle) {
+    return Status::NotSupported("GetColumnFamily() is not implemented.");
+  }
+
 };
 
 struct WriteStallStatsMapKeys {
