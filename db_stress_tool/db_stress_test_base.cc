@@ -2443,17 +2443,13 @@ void StressTest::TestCompactFiles(ThreadState* thread,
 
 void StressTest::TestPromoteL0(ThreadState* thread,
                                ColumnFamilyHandle* column_family) {
+  // To prevent concurrent `TestPromoteL0`s from being called since
+  // `PromoteL0()` is not compatible with concurrent `PromoteL0()`
+  MutexLock l(thread->shared->GetTestPromoteL0Mutex());
   int target_level = thread->rand.Next() % options_.num_levels;
   Status s = db_->PromoteL0(column_family, target_level);
   if (!s.ok()) {
-    // The second error occurs when another concurrent PromoteL0() moving the
-    // same files finishes first which is an allowed behavior
-    bool non_ok_status_allowed =
-        s.IsInvalidArgument() ||
-        (s.IsCorruption() &&
-         s.ToString().find("VersionBuilder: Cannot delete table file") !=
-             std::string::npos &&
-         s.ToString().find("since it is on level") != std::string::npos);
+    bool non_ok_status_allowed = s.IsInvalidArgument();
     fprintf(non_ok_status_allowed ? stdout : stderr,
             "Unable to perform PromoteL0(): %s under specified "
             "target_level: %d.\n",

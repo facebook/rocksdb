@@ -150,6 +150,8 @@ class SharedState {
 
   port::CondVar* GetCondVar() { return &cv_; }
 
+  port::Mutex* GetTestPromoteL0Mutex() { return &test_promote_l0_mu_; }
+
   StressTest* GetStressTest() const { return stress_test_; }
 
   int64_t GetMaxKey() const { return max_key_; }
@@ -384,6 +386,7 @@ class SharedState {
 
   port::Mutex mu_;
   port::CondVar cv_;
+  port::Mutex test_promote_l0_mu_;
   const uint32_t seed_;
   const int64_t max_key_;
   const uint32_t log2_keys_per_lock_;
