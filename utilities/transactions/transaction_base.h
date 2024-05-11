@@ -66,6 +66,10 @@ class TransactionBaseImpl : public Transaction {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
 
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override;
+
   using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
@@ -111,6 +115,11 @@ class TransactionBaseImpl : public Transaction {
                 ColumnFamilyHandle* column_family, const size_t num_keys,
                 const Slice* keys, PinnableSlice* values, Status* statuses,
                 const bool sorted_input = false) override;
+
+  void MultiGetEntity(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableWideColumns* results,
+                      Status* statuses, bool sorted_input = false) override;
 
   using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
@@ -295,6 +304,22 @@ class TransactionBaseImpl : public Transaction {
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value) override;
+
+  Status GetEntityImpl(const ReadOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableWideColumns* columns) {
+    return write_batch_.GetEntityFromBatchAndDB(db_, options, column_family,
+                                                key, columns);
+  }
+
+  void MultiGetEntityImpl(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, size_t num_keys,
+                          const Slice* keys, PinnableWideColumns* results,
+                          Status* statuses, bool sorted_input) {
+    write_batch_.MultiGetEntityFromBatchAndDB(db_, options, column_family,
+                                              num_keys, keys, results, statuses,
+                                              sorted_input);
+  }
 
   Status PutEntityImpl(ColumnFamilyHandle* column_family, const Slice& key,
                        const WideColumns& columns, bool do_validate,

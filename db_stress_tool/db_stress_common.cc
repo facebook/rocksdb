@@ -321,6 +321,17 @@ uint32_t GetValueBase(Slice s) {
   return res;
 }
 
+AttributeGroups GenerateAttributeGroups(
+    const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
+    const Slice& slice) {
+  WideColumns columns = GenerateWideColumns(value_base, slice);
+  AttributeGroups attribute_groups;
+  for (auto* cfh : cfhs) {
+    attribute_groups.emplace_back(cfh, columns);
+  }
+  return attribute_groups;
+}
+
 WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
   WideColumns columns;
 

@@ -289,6 +289,13 @@ Status TransactionBaseImpl::GetImpl(const ReadOptions& read_options,
                                         pinnable_val);
 }
 
+Status TransactionBaseImpl::GetEntity(const ReadOptions& read_options,
+                                      ColumnFamilyHandle* column_family,
+                                      const Slice& key,
+                                      PinnableWideColumns* columns) {
+  return GetEntityImpl(read_options, column_family, key, columns);
+}
+
 Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value,
@@ -399,6 +406,15 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& _read_options,
   write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);
+}
+
+void TransactionBaseImpl::MultiGetEntity(const ReadOptions& read_options,
+                                         ColumnFamilyHandle* column_family,
+                                         size_t num_keys, const Slice* keys,
+                                         PinnableWideColumns* results,
+                                         Status* statuses, bool sorted_input) {
+  MultiGetEntityImpl(read_options, column_family, num_keys, keys, results,
+                     statuses, sorted_input);
 }
 
 std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(

@@ -1001,6 +1001,10 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      if (thread->rand.OneInOpt(FLAGS_promote_l0_one_in)) {
+        TestPromoteL0(thread, column_family);
+      }
+
       std::vector<int> rand_column_families =
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
 
@@ -1039,6 +1043,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_get_current_wal_file_one_in)) {
         Status status = VerifyGetCurrentWalFile();
         ProcessStatus(shared, "VerifyGetCurrentWalFile", status);
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_reset_stats_one_in)) {
+        Status status = TestResetStats();
+        ProcessStatus(shared, "ResetStats", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
@@ -1133,6 +1142,10 @@ void StressTest::OperateDb(ThreadState* thread) {
         read_ts_str = GetNowNanos();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
+        TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -2428,6 +2441,29 @@ void StressTest::TestCompactFiles(ThreadState* thread,
   }
 }
 
+void StressTest::TestPromoteL0(ThreadState* thread,
+                               ColumnFamilyHandle* column_family) {
+  int target_level = thread->rand.Next() % options_.num_levels;
+  Status s = db_->PromoteL0(column_family, target_level);
+  if (!s.ok()) {
+    // The second error occurs when another concurrent PromoteL0() moving the
+    // same files finishes first which is an allowed behavior
+    bool non_ok_status_allowed =
+        s.IsInvalidArgument() ||
+        (s.IsCorruption() &&
+         s.ToString().find("VersionBuilder: Cannot delete table file") !=
+             std::string::npos &&
+         s.ToString().find("since it is on level") != std::string::npos);
+    fprintf(non_ok_status_allowed ? stdout : stderr,
+            "Unable to perform PromoteL0(): %s under specified "
+            "target_level: %d.\n",
+            s.ToString().c_str(), target_level);
+    if (!non_ok_status_allowed) {
+      thread->shared->SafeTerminate();
+    }
+  }
+}
+
 Status StressTest::TestFlush(const std::vector<int>& rand_column_families) {
   FlushOptions flush_opts;
   if (FLAGS_atomic_flush) {
@@ -2438,6 +2474,8 @@ Status StressTest::TestFlush(const std::vector<int>& rand_column_families) {
                 [this, &cfhs](int k) { cfhs.push_back(column_families_[k]); });
   return db_->Flush(flush_opts, cfhs);
 }
+
+Status StressTest::TestResetStats() { return db_->ResetStats(); }
 
 Status StressTest::TestPauseBackground(ThreadState* thread) {
   Status status = db_->PauseBackgroundWork();
@@ -2583,7 +2621,10 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
 
   CompactRangeOptions cro;
   cro.exclusive_manual_compaction = static_cast<bool>(thread->rand.Next() % 2);
-  cro.change_level = static_cast<bool>(thread->rand.Next() % 2);
+  if (static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style) !=
+      ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO) {
+    cro.change_level = static_cast<bool>(thread->rand.Next() % 2);
+  }
   if (thread->rand.OneIn(2)) {
     cro.target_level = thread->rand.Next() % options_.num_levels;
   }

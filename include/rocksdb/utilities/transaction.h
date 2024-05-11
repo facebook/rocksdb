@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <limits>
 #include <string>
 #include <vector>
@@ -318,6 +317,10 @@ class Transaction {
     return s;
   }
 
+  virtual Status GetEntity(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableWideColumns* columns) = 0;
+
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -353,6 +356,12 @@ class Transaction {
       statuses[i] = GetImpl(options, column_family, keys[i], &values[i]);
     }
   }
+
+  virtual void MultiGetEntity(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              size_t num_keys, const Slice* keys,
+                              PinnableWideColumns* results, Status* statuses,
+                              bool sorted_input = false) = 0;
 
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this

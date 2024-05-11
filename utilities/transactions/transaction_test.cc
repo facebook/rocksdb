@@ -6,6 +6,7 @@
 #include "utilities/transactions/transaction_test.h"
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <string>
 #include <thread>
@@ -2209,6 +2210,10 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
  * hidden behind improperly summed sequence ids
  */
 TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
+  // WAL recycling incompatible with disableWAL (below)
+  options.recycle_log_file_num = 0;
+  ASSERT_OK(ReOpenNoDelete());
+
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   WriteOptions wal_on, wal_off;
   wal_on.sync = true;
@@ -7013,6 +7018,13 @@ TEST_P(TransactionTest, PutEntitySuccess) {
     ASSERT_EQ(txn->GetNumPutEntities(), 0);
 
     {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                               &columns));
+      ASSERT_EQ(columns.columns(), foo_columns);
+    }
+
+    {
       PinnableSlice value;
       ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
       ASSERT_EQ(value, foo_columns[0].value());
@@ -7021,6 +7033,13 @@ TEST_P(TransactionTest, PutEntitySuccess) {
     ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), foo, foo_new_columns));
 
     ASSERT_EQ(txn->GetNumPutEntities(), 1);
+
+    {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                               &columns));
+      ASSERT_EQ(columns.columns(), foo_new_columns);
+    }
 
     {
       PinnableSlice value;
@@ -7032,9 +7051,10 @@ TEST_P(TransactionTest, PutEntitySuccess) {
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_new_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
   }
 }
 
@@ -7060,6 +7080,37 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
   std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
   ASSERT_NE(txn, nullptr);
 
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
+  }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_columns);
+    ASSERT_EQ(results[1].columns(), baz_columns);
+  }
+
   const WideColumns foo_new_columns{{kDefaultWideColumnName, "FOO"},
                                     {"hello", "world"}};
   const WideColumns baz_new_columns{{kDefaultWideColumnName, "BAZ"},
@@ -7067,6 +7118,37 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
 
   ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), foo, foo_new_columns));
   ASSERT_OK(txn->PutEntity(db->DefaultColumnFamily(), baz, baz_new_columns));
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz,
+                             &columns));
+    ASSERT_EQ(columns.columns(), baz_new_columns);
+  }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_new_columns);
+    ASSERT_EQ(results[1].columns(), baz_new_columns);
+  }
 
   // This PutEntity outside of a transaction will conflict with the previous
   // write
@@ -7077,29 +7159,160 @@ TEST_P(TransactionTest, PutEntityWriteConflict) {
                   .IsTimedOut());
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_columns);
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), baz, &value));
-    ASSERT_EQ(value, baz_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz, &columns));
+    ASSERT_EQ(columns.columns(), baz_columns);
+  }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                       keys.data(), results.data(), statuses.data(),
+                       sorted_input);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_columns);
+    ASSERT_EQ(results[1].columns(), baz_columns);
   }
 
   ASSERT_OK(txn->Commit());
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), foo, &value));
-    ASSERT_EQ(value, foo_new_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_new_columns);
   }
 
   {
-    PinnableSlice value;
-    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), baz, &value));
-    ASSERT_EQ(value, baz_new_columns[0].value());
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), baz, &columns));
+    ASSERT_EQ(columns.columns(), baz_new_columns);
+  }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{foo, baz}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                       keys.data(), results.data(), statuses.data(),
+                       sorted_input);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+
+    ASSERT_EQ(results[0].columns(), foo_new_columns);
+    ASSERT_EQ(results[1].columns(), baz_new_columns);
+  }
+}
+
+TEST_P(TransactionTest, EntityReadSanityChecks) {
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr size_t num_keys = 2;
+
+  std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+  ASSERT_NE(txn, nullptr);
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(txn->GetEntity(ReadOptions(), column_family, foo, &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr PinnableWideColumns* columns = nullptr;
+    ASSERT_TRUE(
+        txn->GetEntity(ReadOptions(), db->DefaultColumnFamily(), foo, columns)
+            .IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kGet;
+
+    PinnableWideColumns columns;
+    ASSERT_TRUE(
+        txn->GetEntity(read_options, db->DefaultColumnFamily(), foo, &columns)
+            .IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(ReadOptions(), column_family, num_keys, keys.data(),
+                        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr Slice* keys = nullptr;
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys, results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    constexpr PinnableWideColumns* results = nullptr;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results, statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    txn->MultiGetEntity(read_options, db->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data(),
+                        sorted_input);
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
   }
 }
 

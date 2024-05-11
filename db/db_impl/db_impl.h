@@ -291,6 +291,11 @@ class DBImpl : public DB {
                       const Slice* keys,
                       PinnableAttributeGroups* results) override;
 
+  void MultiGetEntityWithCallback(
+      const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+      ReadCallback* callback,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
+
   Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                             const std::string& column_family,
                             ColumnFamilyHandle** handle) override {
