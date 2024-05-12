@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <stack>
 #include <string>
 #include <vector>
@@ -37,10 +36,11 @@ class TransactionBaseImpl : public Transaction {
 
   void Reinitialize(DB* db, const WriteOptions& write_options);
 
-  // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
-  // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
-  // do_validate will be false if called from PutUntracked, DeleteUntracked,
-  // MergeUntracked, or GetForUpdate(do_validate=false)
+  // Called before executing Put, PutEntity, Merge, Delete, and GetForUpdate. If
+  // TryLock returns non-OK, the Put/PutEntity/Merge/Delete/GetForUpdate will be
+  // failed. do_validate will be false if called from PutUntracked,
+  // PutEntityUntracked, DeleteUntracked, MergeUntracked, or
+  // GetForUpdate(do_validate=false)
   virtual Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                          bool read_only, bool exclusive,
                          const bool do_validate = true,
@@ -65,6 +65,10 @@ class TransactionBaseImpl : public Transaction {
              std::string* value) override {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
+
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override;
 
   using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
@@ -112,6 +116,11 @@ class TransactionBaseImpl : public Transaction {
                 const Slice* keys, PinnableSlice* values, Status* statuses,
                 const bool sorted_input = false) override;
 
+  void MultiGetEntity(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableWideColumns* results,
+                      Status* statuses, bool sorted_input = false) override;
+
   using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
@@ -143,6 +152,15 @@ class TransactionBaseImpl : public Transaction {
              const bool assume_tracked = false) override;
   Status Put(const SliceParts& key, const SliceParts& value) override {
     return Put(nullptr, key, value);
+  }
+
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns,
+                   bool assume_tracked = false) override {
+    const bool do_validate = !assume_tracked;
+
+    return PutEntityImpl(column_family, key, columns, do_validate,
+                         assume_tracked);
   }
 
   Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
@@ -179,6 +197,15 @@ class TransactionBaseImpl : public Transaction {
                       const SliceParts& value) override;
   Status PutUntracked(const SliceParts& key, const SliceParts& value) override {
     return PutUntracked(nullptr, key, value);
+  }
+
+  Status PutEntityUntracked(ColumnFamilyHandle* column_family, const Slice& key,
+                            const WideColumns& columns) override {
+    constexpr bool do_validate = false;
+    constexpr bool assume_tracked = false;
+
+    return PutEntityImpl(column_family, key, columns, do_validate,
+                         assume_tracked);
   }
 
   Status MergeUntracked(ColumnFamilyHandle* column_family, const Slice& key,
@@ -240,6 +267,8 @@ class TransactionBaseImpl : public Transaction {
 
   uint64_t GetNumPuts() const override;
 
+  uint64_t GetNumPutEntities() const override;
+
   uint64_t GetNumDeletes() const override;
 
   uint64_t GetNumMerges() const override;
@@ -275,6 +304,26 @@ class TransactionBaseImpl : public Transaction {
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value) override;
+
+  Status GetEntityImpl(const ReadOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableWideColumns* columns) {
+    return write_batch_.GetEntityFromBatchAndDB(db_, options, column_family,
+                                                key, columns);
+  }
+
+  void MultiGetEntityImpl(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, size_t num_keys,
+                          const Slice* keys, PinnableWideColumns* results,
+                          Status* statuses, bool sorted_input) {
+    write_batch_.MultiGetEntityFromBatchAndDB(db_, options, column_family,
+                                              num_keys, keys, results, statuses,
+                                              sorted_input);
+  }
+
+  Status PutEntityImpl(ColumnFamilyHandle* column_family, const Slice& key,
+                       const WideColumns& columns, bool do_validate,
+                       bool assume_tracked);
 
   // Add a key to the list of tracked keys.
   //
@@ -320,6 +369,7 @@ class TransactionBaseImpl : public Transaction {
 
   // Count of various operations pending in this transaction
   uint64_t num_puts_ = 0;
+  uint64_t num_put_entities_ = 0;
   uint64_t num_deletes_ = 0;
   uint64_t num_merges_ = 0;
 
@@ -328,6 +378,7 @@ class TransactionBaseImpl : public Transaction {
     bool snapshot_needed_ = false;
     std::shared_ptr<TransactionNotifier> snapshot_notifier_;
     uint64_t num_puts_ = 0;
+    uint64_t num_put_entities_ = 0;
     uint64_t num_deletes_ = 0;
     uint64_t num_merges_ = 0;
 
@@ -336,12 +387,14 @@ class TransactionBaseImpl : public Transaction {
 
     SavePoint(std::shared_ptr<const Snapshot> snapshot, bool snapshot_needed,
               std::shared_ptr<TransactionNotifier> snapshot_notifier,
-              uint64_t num_puts, uint64_t num_deletes, uint64_t num_merges,
+              uint64_t num_puts, uint64_t num_put_entities,
+              uint64_t num_deletes, uint64_t num_merges,
               const LockTrackerFactory& lock_tracker_factory)
         : snapshot_(snapshot),
           snapshot_needed_(snapshot_needed),
           snapshot_notifier_(snapshot_notifier),
           num_puts_(num_puts),
+          num_put_entities_(num_put_entities),
           num_deletes_(num_deletes),
           num_merges_(num_merges),
           new_locks_(lock_tracker_factory.Create()) {}
@@ -373,10 +426,10 @@ class TransactionBaseImpl : public Transaction {
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;
 
-  // If true, future Put/Merge/Deletes will be indexed in the
-  // WriteBatchWithIndex.
-  // If false, future Put/Merge/Deletes will be inserted directly into the
-  // underlying WriteBatch and not indexed in the WriteBatchWithIndex.
+  // If true, future Put/PutEntity/Merge/Delete operations will be indexed in
+  // the WriteBatchWithIndex. If false, future Put/PutEntity/Merge/Delete
+  // operations will be inserted directly into the underlying WriteBatch and not
+  // indexed in the WriteBatchWithIndex.
   bool indexing_enabled_;
 
   // SetSnapshotOnNextOperation() has been called and the snapshot has not yet

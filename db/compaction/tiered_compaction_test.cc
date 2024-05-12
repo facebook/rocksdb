@@ -1584,7 +1584,16 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   Close();
 }
 
-TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
+// Test Param: protection_bytes_per_key for WriteBatch
+class TimedPutPrecludeLastLevelTest
+    : public PrecludeLastLevelTest,
+      public testing::WithParamInterface<size_t> {
+ public:
+  TimedPutPrecludeLastLevelTest()
+      : PrecludeLastLevelTest("timed_put_preclude_last_level_test") {}
+};
+
+TEST_P(TimedPutPrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -1598,6 +1607,8 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   options.num_levels = kNumLevels;
   options.last_level_temperature = Temperature::kCold;
   DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
 
   Random rnd(301);
 
@@ -1606,7 +1617,7 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   });
 
   for (int i = 0; i < kNumKeys / 2; i++) {
-    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100), wo));
     dbfull()->TEST_WaitForPeriodicTaskRun([&] {
       mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
     });
@@ -1620,7 +1631,7 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   // These data are eligible to be put on the last level once written to db
   // and compaction will fast track them to the last level.
   for (int i = kNumKeys / 2; i < kNumKeys; i++) {
-    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50));
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
   }
   ASSERT_OK(Flush());
 
@@ -1639,6 +1650,92 @@ TEST_F(PrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
 
   Close();
 }
+
+TEST_P(TimedPutPrecludeLastLevelTest, InterleavedTimedPutAndPut) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.preclude_last_level_data_seconds = 1 * 24 * 60 * 60;
+  options.env = mock_env_.get();
+  options.num_levels = 7;
+  options.last_level_temperature = Temperature::kCold;
+  options.default_write_temperature = Temperature::kHot;
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  // Start time: kMockStartTime = 10000000;
+  ASSERT_OK(TimedPut(0, Key(0), "v0", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(Put(Key(1), "v1", wo));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  Close();
+}
+
+TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.preclude_last_level_data_seconds = 3 * 24 * 60 * 60;
+  int seconds_between_recording = (3 * 24 * 60 * 60) / kMaxSeqnoTimePairsPerCF;
+  options.env = mock_env_.get();
+  options.num_levels = 7;
+  options.last_level_temperature = Temperature::kCold;
+  options.default_write_temperature = Temperature::kHot;
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  // Creating a snapshot to manually control when preferred sequence number is
+  // swapped in. An entry's preferred seqno won't get swapped in until it's
+  // visible to the earliest snapshot. With this, we can test relevant seqno to
+  // time mapping recorded in SST file also covers preferred seqno, not just
+  // the seqno in the internal keys.
+  auto* snap1 = db_->GetSnapshot();
+  // Start time: kMockStartTime = 10000000;
+  ASSERT_OK(TimedPut(0, Key(0), "v0", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(TimedPut(0, Key(1), "v1", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(TimedPut(0, Key(2), "v2", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(Flush());
+
+  // Should still be in penultimate level.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Wait one more day and release snapshot. Data's preferred seqno should be
+  // swapped in, but data should still stay in penultimate level. SST file's
+  // seqno to time mapping should continue to cover preferred seqno after
+  // compaction.
+  db_->ReleaseSnapshot(snap1);
+  mock_clock_->MockSleepForSeconds(1 * 24 * 60 * 60);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Wait one more day and data are eligible to be placed on last level.
+  // Instead of waiting exactly one more day, here we waited
+  // `seconds_between_recording` less seconds to show that it's not precise.
+  // Data could start to be placed on cold tier one recording interval before
+  // they exactly become cold based on the setting. For this one column family
+  // setting preserving 3 days of recording, it's about 43 minutes.
+  mock_clock_->MockSleepForSeconds(1 * 24 * 60 * 60 -
+                                   seconds_between_recording);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(TimedPutPrecludeLastLevelTest,
+                        TimedPutPrecludeLastLevelTest, ::testing::Values(0, 8));
 
 TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   const int kNumTrigger = 4;

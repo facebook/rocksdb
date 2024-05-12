@@ -1299,6 +1299,8 @@ static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
     return ROCKSDB_NAMESPACE::kAdmPolicyAllowCacheHits;
   } else if (!strcasecmp(policy, "three_queue")) {
     return ROCKSDB_NAMESPACE::kAdmPolicyThreeQueue;
+  } else if (!strcasecmp(policy, "allow_all")) {
+    return ROCKSDB_NAMESPACE::kAdmPolicyAllowAll;
   } else {
     fprintf(stderr, "Cannot parse admission policy %s\n", policy);
     exit(1);

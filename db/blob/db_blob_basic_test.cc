@@ -1551,6 +1551,57 @@ TEST_P(DBBlobBasicIOErrorMultiGetTest, MultipleBlobFiles) {
   ASSERT_TRUE(statuses[1].IsIOError());
 }
 
+TEST_F(DBBlobBasicTest, MultiGetFindTable_IOError) {
+  // Repro test for a specific bug where `MultiGet()` would fail to open a table
+  // in `FindTable()` and then proceed to return raw blob handles for the other
+  // keys.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  // Force no table cache so every read will preload the SST file.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+
+  constexpr size_t num_keys = 2;
+
+  constexpr char key1[] = "key1";
+  constexpr char value1[] = "blob1";
+
+  ASSERT_OK(Put(key1, value1));
+  ASSERT_OK(Flush());
+
+  constexpr char key2[] = "key2";
+  constexpr char value2[] = "blob2";
+
+  ASSERT_OK(Put(key2, value2));
+  ASSERT_OK(Flush());
+
+  std::atomic<int> num_files_opened = 0;
+  // This test would be more realistic if we injected an `IOError` from the
+  // `FileSystem`
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::MultiGet:FindTable", [&](void* status) {
+        num_files_opened++;
+        if (num_files_opened == 2) {
+          Status* s = static_cast<Status*>(status);
+          *s = Status::IOError();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::array<Slice, num_keys> keys{{key1, key2}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                keys.data(), values.data(), statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsIOError());
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(value2, values[1]);
+}
+
 namespace {
 
 class ReadBlobCompactionFilter : public CompactionFilter {

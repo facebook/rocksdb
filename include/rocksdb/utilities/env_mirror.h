@@ -83,7 +83,7 @@ class EnvMirror : public EnvWrapper {
     std::sort(ar.begin(), ar.end());
     std::sort(br.begin(), br.end());
     if (!as.ok() || ar != br) {
-      assert(0 == "getchildren results don't match");
+      assert(nullptr == "getchildren results don't match");
     }
     *r = ar;
     return as;

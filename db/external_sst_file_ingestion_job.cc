@@ -953,13 +953,15 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   *assigned_seqno = 0;
   auto ucmp = cfd_->user_comparator();
   const size_t ts_sz = ucmp->timestamp_size();
-  if (force_global_seqno || files_overlap_) {
+  if (force_global_seqno || files_overlap_ ||
+      compaction_style == kCompactionStyleFIFO) {
     *assigned_seqno = last_seqno + 1;
     // If files overlap, we have to ingest them at level 0.
-    if (files_overlap_) {
+    if (files_overlap_ || compaction_style == kCompactionStyleFIFO) {
       assert(ts_sz == 0);
       file_to_ingest->picked_level = 0;
-      if (ingestion_options_.fail_if_not_bottommost_level) {
+      if (ingestion_options_.fail_if_not_bottommost_level &&
+          cfd_->NumberLevels() > 1) {
         status = Status::TryAgain(
             "Files cannot be ingested to Lmax. Please make sure key range of "
             "Lmax does not overlap with files to ingest.");

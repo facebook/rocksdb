@@ -297,6 +297,7 @@ class CompactionOutputs {
   std::unique_ptr<TableBuilder> builder_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   uint64_t current_output_file_size_ = 0;
+  SequenceNumber smallest_preferred_seqno_ = kMaxSequenceNumber;
 
   // all the compaction outputs so far
   std::vector<Output> outputs_;

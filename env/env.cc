@@ -825,6 +825,15 @@ WritableFile::~WritableFile() = default;
 
 MemoryMappedFileBuffer::~MemoryMappedFileBuffer() = default;
 
+// This const variable can be used in public headers without introducing the
+// possibility of ODR violations due to varying macro definitions.
+const InfoLogLevel Logger::kDefaultLogLevel =
+#ifdef NDEBUG
+    INFO_LEVEL;
+#else
+    DEBUG_LEVEL;
+#endif  // NDEBUG
+
 Logger::~Logger() = default;
 
 Status Logger::Close() {

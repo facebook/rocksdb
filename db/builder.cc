@@ -210,6 +210,7 @@ Status BuildTable(
     const bool logical_strip_timestamp =
         ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
 
+    SequenceNumber smallest_preferred_seqno = kMaxSequenceNumber;
     std::string key_after_flush_buf;
     std::string value_buf;
     c_iter.SeekToFirst();
@@ -242,6 +243,8 @@ Status BuildTable(
         if (preferred_seqno < ikey.sequence) {
           value_after_flush =
               PackValueAndSeqno(unpacked_value, preferred_seqno, &value_buf);
+          smallest_preferred_seqno =
+              std::min(smallest_preferred_seqno, preferred_seqno);
         } else {
           // Cannot get a useful preferred seqno, convert it to a kTypeValue.
           UpdateInternalKey(&key_after_flush_buf, ikey.sequence, kTypeValue);
@@ -326,9 +329,10 @@ Status BuildTable(
     } else {
       SeqnoToTimeMapping relevant_mapping;
       if (seqno_to_time_mapping) {
-        relevant_mapping.CopyFromSeqnoRange(*seqno_to_time_mapping,
-                                            meta->fd.smallest_seqno,
-                                            meta->fd.largest_seqno);
+        relevant_mapping.CopyFromSeqnoRange(
+            *seqno_to_time_mapping,
+            std::min(meta->fd.smallest_seqno, smallest_preferred_seqno),
+            meta->fd.largest_seqno);
         relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
         relevant_mapping.Enforce(tboptions.file_creation_time);
       }

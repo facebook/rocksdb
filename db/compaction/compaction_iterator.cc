@@ -997,25 +997,37 @@ void CompactionIterator::NextFromInput() {
       // A special case involving range deletion is handled separately below.
       auto [unpacked_value, preferred_seqno] =
           ParsePackedValueWithSeqno(value_);
-      assert(preferred_seqno < ikey_.sequence);
-      InternalKey ikey_after_swap(ikey_.user_key, preferred_seqno, kTypeValue);
-      Slice ikey_after_swap_slice(*ikey_after_swap.rep());
+      assert(preferred_seqno < ikey_.sequence || ikey_.sequence == 0);
       if (range_del_agg_->ShouldDelete(
-              ikey_after_swap_slice,
-              RangeDelPositioningMode::kForwardTraversal)) {
-        // A range tombstone that doesn't cover this kTypeValuePreferredSeqno
-        // entry may end up covering the entry, so it's not safe to swap
-        // preferred sequence number. In this case, we output the entry as is.
-        validity_info_.SetValid(ValidContext::kNewUserKey);
+              key_, RangeDelPositioningMode::kForwardTraversal)) {
+        ++iter_stats_.num_record_drop_hidden;
+        ++iter_stats_.num_record_drop_range_del;
+        AdvanceInputIter();
       } else {
-        iter_stats_.num_timed_put_swap_preferred_seqno++;
-        ikey_.sequence = preferred_seqno;
-        ikey_.type = kTypeValue;
-        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-        key_ = current_key_.GetInternalKey();
-        ikey_.user_key = current_key_.GetUserKey();
-        value_ = unpacked_value;
-        validity_info_.SetValid(ValidContext::kSwapPreferredSeqno);
+        InternalKey ikey_after_swap(ikey_.user_key,
+                                    std::min(preferred_seqno, ikey_.sequence),
+                                    kTypeValue);
+        Slice ikey_after_swap_slice(*ikey_after_swap.rep());
+        if (range_del_agg_->ShouldDelete(
+                ikey_after_swap_slice,
+                RangeDelPositioningMode::kForwardTraversal)) {
+          // A range tombstone that doesn't cover this kTypeValuePreferredSeqno
+          // entry will end up covering the entry, so it's not safe to swap
+          // preferred sequence number. In this case, we output the entry as is.
+          validity_info_.SetValid(ValidContext::kNewUserKey);
+        } else {
+          if (ikey_.sequence != 0) {
+            iter_stats_.num_timed_put_swap_preferred_seqno++;
+            saved_seq_for_penul_check_ = ikey_.sequence;
+            ikey_.sequence = preferred_seqno;
+          }
+          ikey_.type = kTypeValue;
+          current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+          key_ = current_key_.GetInternalKey();
+          ikey_.user_key = current_key_.GetUserKey();
+          value_ = unpacked_value;
+          validity_info_.SetValid(ValidContext::kSwapPreferredSeqno);
+        }
       }
     } else if (ikey_.type == kTypeMerge) {
       if (!merge_helper_->HasOperator()) {
@@ -1268,6 +1280,21 @@ void CompactionIterator::DecideOutputLevel() {
   }
 #endif  // NDEBUG
 
+  // saved_seq_for_penul_check_ is populated in `NextFromInput` when the
+  // entry's sequence number is non zero and validity context for output this
+  // entry is kSwapPreferredSeqno for use in `DecideOutputLevel`. It should be
+  // cleared out here unconditionally. Otherwise, it may end up getting consumed
+  // incorrectly by a different entry.
+  SequenceNumber seq_for_range_check =
+      (saved_seq_for_penul_check_.has_value() &&
+       saved_seq_for_penul_check_.value() != kMaxSequenceNumber)
+          ? saved_seq_for_penul_check_.value()
+          : ikey_.sequence;
+  saved_seq_for_penul_check_ = std::nullopt;
+  ParsedInternalKey ikey_for_range_check = ikey_;
+  if (seq_for_range_check != ikey_.sequence) {
+    ikey_for_range_check.sequence = seq_for_range_check;
+  }
   if (output_to_penultimate_level_) {
     // If it's decided to output to the penultimate level, but unsafe to do so,
     // still output to the last level. For example, moving the data from a lower
@@ -1276,7 +1303,7 @@ void CompactionIterator::DecideOutputLevel() {
     // not from this compaction.
     // TODO: add statistic for declined output_to_penultimate_level
     bool safe_to_penultimate_level =
-        compaction_->WithinPenultimateLevelOutputRange(ikey_);
+        compaction_->WithinPenultimateLevelOutputRange(ikey_for_range_check);
     if (!safe_to_penultimate_level) {
       output_to_penultimate_level_ = false;
       // It could happen when disable/enable `last_level_temperature` while
@@ -1288,7 +1315,7 @@ void CompactionIterator::DecideOutputLevel() {
       // snapshot is released before enabling `last_level_temperature` feature
       // We will migrate the feature to `last_level_temperature` and maybe make
       // it not dynamically changeable.
-      if (ikey_.sequence > earliest_snapshot_) {
+      if (seq_for_range_check > earliest_snapshot_) {
         status_ = Status::Corruption(
             "Unsafe to store Seq later than snapshot in the last level if "
             "per_key_placement is enabled");

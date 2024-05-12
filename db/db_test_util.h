@@ -1071,6 +1071,7 @@ class DBTestBase : public testing::Test {
     kSkipNoSeekToLast = 32,
     kSkipFIFOCompaction = 128,
     kSkipMmapReads = 256,
+    kSkipRowCache = 512,
   };
 
   const int kRangeDelSkipConfigs =
@@ -1078,7 +1079,9 @@ class DBTestBase : public testing::Test {
       kSkipPlainTable |
       // MmapReads disables the iterator pinning that RangeDelAggregator
       // requires.
-      kSkipMmapReads;
+      kSkipMmapReads |
+      // Not compatible yet.
+      kSkipRowCache;
 
   // `env_do_fsync` decides whether the special Env would do real
   // fsync for files and directories. Skipping fsync can speed up

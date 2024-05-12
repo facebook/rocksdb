@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <limits>
 #include <string>
 #include <vector>
@@ -165,7 +164,7 @@ class Transaction {
   virtual void SetSnapshot() = 0;
 
   // Similar to SetSnapshot(), but will not change the current snapshot
-  // until Put/Merge/Delete/GetForUpdate/MultigetForUpdate is called.
+  // until Put/PutEntity/Merge/Delete/GetForUpdate/MultigetForUpdate is called.
   // By calling this function, the transaction will essentially call
   // SetSnapshot() for you right before performing the next write/GetForUpdate.
   //
@@ -268,10 +267,10 @@ class Transaction {
   // points.
   virtual void SetSavePoint() = 0;
 
-  // Undo all operations in this transaction (Put, Merge, Delete, PutLogData)
-  // since the most recent call to SetSavePoint() and removes the most recent
-  // SetSavePoint().
-  // If there is no previous call to SetSavePoint(), returns Status::NotFound()
+  // Undo all operations in this transaction (Put, PutEntity, Merge, Delete,
+  // PutLogData) since the most recent call to SetSavePoint() and removes the
+  // most recent SetSavePoint(). If there is no previous call to SetSavePoint(),
+  // returns Status::NotFound()
   virtual Status RollbackToSavePoint() = 0;
 
   // Pop the most recent save point.
@@ -318,6 +317,10 @@ class Transaction {
     return s;
   }
 
+  virtual Status GetEntity(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableWideColumns* columns) = 0;
+
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -353,6 +356,12 @@ class Transaction {
       statuses[i] = GetImpl(options, column_family, keys[i], &values[i]);
     }
   }
+
+  virtual void MultiGetEntity(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              size_t num_keys, const Slice* keys,
+                              PinnableWideColumns* results, Status* statuses,
+                              bool sorted_input = false) = 0;
 
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
@@ -461,9 +470,9 @@ class Transaction {
   virtual Iterator* GetIterator(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family) = 0;
 
-  // Put, Merge, Delete, and SingleDelete behave similarly to the corresponding
-  // functions in WriteBatch, but will also do conflict checking on the
-  // keys being written.
+  // Put, PutEntity, Merge, Delete, and SingleDelete behave similarly to the
+  // corresponding functions in WriteBatch, but will also do conflict checking
+  // on the keys being written.
   //
   // assume_tracked=true expects the key be already tracked. More
   // specifically, it means the the key was previous tracked in the same
@@ -488,6 +497,10 @@ class Transaction {
                      const SliceParts& value,
                      const bool assume_tracked = false) = 0;
   virtual Status Put(const SliceParts& key, const SliceParts& value) = 0;
+
+  virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns,
+                           bool assume_tracked = false) = 0;
 
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value,
@@ -528,6 +541,10 @@ class Transaction {
   virtual Status PutUntracked(const SliceParts& key,
                               const SliceParts& value) = 0;
 
+  virtual Status PutEntityUntracked(ColumnFamilyHandle* column_family,
+                                    const Slice& key,
+                                    const WideColumns& columns) = 0;
+
   virtual Status MergeUntracked(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) = 0;
   virtual Status MergeUntracked(const Slice& key, const Slice& value) = 0;
@@ -556,18 +573,18 @@ class Transaction {
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
 
-  // By default, all Put/Merge/Delete operations will be indexed in the
-  // transaction so that Get/GetForUpdate/GetIterator can search for these
+  // By default, all Put/PutEntity/Merge/Delete operations will be indexed in
+  // the transaction so that Get/GetForUpdate/GetIterator can search for these
   // keys.
   //
   // If the caller does not want to fetch the keys about to be written,
   // they may want to avoid indexing as a performance optimization.
   // Calling DisableIndexing() will turn off indexing for all future
-  // Put/Merge/Delete operations until EnableIndexing() is called.
+  // Put/PutEntity/Merge/Delete operations until EnableIndexing() is called.
   //
-  // If a key is Put/Merge/Deleted after DisableIndexing is called and then
-  // is fetched via Get/GetForUpdate/GetIterator, the result of the fetch is
-  // undefined.
+  // If a key is written (using Put/PutEntity/Merge/Delete) after
+  // DisableIndexing is called and then is fetched via
+  // Get/GetForUpdate/GetIterator, the result of the fetch is undefined.
   virtual void DisableIndexing() = 0;
   virtual void EnableIndexing() = 0;
 
@@ -578,9 +595,10 @@ class Transaction {
   // number of keys that need to be checked for conflicts at commit time.
   virtual uint64_t GetNumKeys() const = 0;
 
-  // Returns the number of Puts/Deletes/Merges that have been applied to this
-  // transaction so far.
+  // Returns the number of Put/PutEntity/Delete/Merge operations that have been
+  // applied to this transaction so far.
   virtual uint64_t GetNumPuts() const = 0;
+  virtual uint64_t GetNumPutEntities() const = 0;
   virtual uint64_t GetNumDeletes() const = 0;
   virtual uint64_t GetNumMerges() const = 0;
 

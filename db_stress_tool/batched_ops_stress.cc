@@ -42,6 +42,7 @@ class BatchedOpsStressTest : public StressTest {
     ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
     assert(cfh);
 
+    Status status;
     for (int i = 9; i >= 0; --i) {
       const std::string num = std::to_string(i);
 
@@ -51,28 +52,42 @@ class BatchedOpsStressTest : public StressTest {
       // batched, non-batched, CF consistency).
       const std::string k = num + key_body;
       const std::string v = value_body + num;
-
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        if (FLAGS_use_attribute_group) {
+          status =
+              batch.PutEntity(k, GenerateAttributeGroups({cfh}, value_base, v));
+        } else {
+          status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        }
+      } else if (FLAGS_use_timed_put_one_in > 0 &&
+                 ((value_base + kLargePrimeForCommonFactorSkew) %
+                  FLAGS_use_timed_put_one_in) == 0) {
+        uint64_t write_unix_time = GetWriteUnixTime(thread);
+        status = batch.TimedPut(cfh, k, v, write_unix_time);
       } else if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
+        status = batch.Merge(cfh, k, v);
       } else {
-        batch.Put(cfh, k, v);
+        status = batch.Put(cfh, k, v);
+      }
+      if (!status.ok()) {
+        break;
       }
     }
 
-    const Status s = db_->Write(write_opts, &batch);
+    if (status.ok()) {
+      status = db_->Write(write_opts, &batch);
+    }
 
-    if (!s.ok()) {
-      fprintf(stderr, "multiput error: %s\n", s.ToString().c_str());
+    if (!status.ok()) {
+      fprintf(stderr, "multiput error: %s\n", status.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
       // we did 10 writes each of size sz + 1
       thread->stats.AddBytesForWrites(10, (sz + 1) * 10);
     }
 
-    return s;
+    return status;
   }
 
   // Given a key K, this deletes ("0"+K), ("1"+K), ..., ("9"+K)
@@ -290,12 +305,22 @@ class BatchedOpsStressTest : public StressTest {
 
     constexpr size_t num_keys = 10;
 
-    std::array<PinnableWideColumns, num_keys> results;
+    std::array<PinnableWideColumns, num_keys> column_results;
+    std::array<PinnableAttributeGroups, num_keys> attribute_group_results;
 
     for (size_t i = 0; i < num_keys; ++i) {
       const std::string key = std::to_string(i) + key_suffix;
 
-      const Status s = db_->GetEntity(read_opts_copy, cfh, key, &results[i]);
+      Status s;
+      if (FLAGS_use_attribute_group) {
+        attribute_group_results[i].emplace_back(cfh);
+        s = db_->GetEntity(read_opts_copy, key, &attribute_group_results[i]);
+        if (s.ok()) {
+          s = attribute_group_results[i].back().status();
+        }
+      } else {
+        s = db_->GetEntity(read_opts_copy, cfh, key, &column_results[i]);
+      }
 
       if (!s.ok() && !s.IsNotFound()) {
         fprintf(stderr, "GetEntity error: %s\n", s.ToString().c_str());
@@ -307,14 +332,21 @@ class BatchedOpsStressTest : public StressTest {
       }
     }
 
-    for (size_t i = 0; i < num_keys; ++i) {
-      const WideColumns& columns = results[i].columns();
+    const WideColumns& columns_to_compare =
+        FLAGS_use_attribute_group ? attribute_group_results[0].front().columns()
+                                  : column_results[0].columns();
 
-      if (!CompareColumns(results[0].columns(), columns)) {
+    for (size_t i = 1; i < num_keys; ++i) {
+      const WideColumns& columns =
+          FLAGS_use_attribute_group
+              ? attribute_group_results[i].front().columns()
+              : column_results[i].columns();
+
+      if (!CompareColumns(columns_to_compare, columns)) {
         fprintf(stderr,
                 "GetEntity error: inconsistent entities for key %s: %s, %s\n",
                 StringToHex(key_suffix).c_str(),
-                WideColumnsToHex(results[0].columns()).c_str(),
+                WideColumnsToHex(columns_to_compare).c_str(),
                 WideColumnsToHex(columns).c_str());
       }
 

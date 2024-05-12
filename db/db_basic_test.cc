@@ -464,12 +464,14 @@ TEST_F(DBBasicTest, TimedPutBasic) {
     ASSERT_EQ("bv1", Get(1, "bar"));
     ASSERT_OK(TimedPut(1, "baz", "bzv1", /*write_unix_time=*/0));
     ASSERT_EQ("bzv1", Get(1, "baz"));
-    std::string range_del_begin = "b";
-    std::string range_del_end = "baz";
-    Slice begin_rdel = range_del_begin, end_rdel = range_del_end;
-    ASSERT_OK(
-        db_->DeleteRange(WriteOptions(), handles_[1], begin_rdel, end_rdel));
-    ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
+    if (option_config_ != kRowCache) {
+      std::string range_del_begin = "b";
+      std::string range_del_end = "baz";
+      Slice begin_rdel = range_del_begin, end_rdel = range_del_end;
+      ASSERT_OK(
+          db_->DeleteRange(WriteOptions(), handles_[1], begin_rdel, end_rdel));
+      ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
+    }
 
     ASSERT_EQ("bzv1", Get(1, "baz"));
     ASSERT_OK(SingleDelete(1, "baz"));

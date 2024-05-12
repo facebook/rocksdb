@@ -28,6 +28,8 @@ uint64_t DBImpl::MinLogNumberToKeep() {
   return versions_->min_log_number_to_keep();
 }
 
+uint64_t DBImpl::MinLogNumberToRecycle() { return min_log_number_to_recycle_; }
+
 uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
   mutex_.AssertHeld();
   if (!pending_outputs_.empty()) {
@@ -175,31 +177,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
-    std::set<std::string> paths;
-    for (size_t path_id = 0; path_id < immutable_db_options_.db_paths.size();
-         path_id++) {
-      paths.insert(immutable_db_options_.db_paths[path_id].path);
-    }
-
-    // Note that if cf_paths is not specified in the ColumnFamilyOptions
-    // of a particular column family, we use db_paths as the cf_paths
-    // setting. Hence, there can be multiple duplicates of files from db_paths
-    // in the following code. The duplicate are removed while identifying
-    // unique files in PurgeObsoleteFiles.
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      for (size_t path_id = 0; path_id < cfd->ioptions()->cf_paths.size();
-           path_id++) {
-        auto& path = cfd->ioptions()->cf_paths[path_id].path;
-
-        if (paths.find(path) == paths.end()) {
-          paths.insert(path);
-        }
-      }
-    }
-
+    // PurgeObsoleteFiles will dedupe duplicate files.
     IOOptions io_opts;
     io_opts.do_not_recurse = true;
-    for (auto& path : paths) {
+    for (auto& path : CollectAllDBPaths()) {
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
@@ -298,7 +279,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     while (alive_log_files_.begin()->number < min_log_number) {
       auto& earliest = *alive_log_files_.begin();
       if (immutable_db_options_.recycle_log_file_num >
-          log_recycle_files_.size()) {
+              log_recycle_files_.size() &&
+          earliest.number >= MinLogNumberToRecycle()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "adding log %" PRIu64 " to recycle list\n",
                        earliest.number);
@@ -963,28 +945,26 @@ Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
-  mutex_.AssertHeld();
-  std::vector<std::string> paths;
-  paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
+std::set<std::string> DBImpl::CollectAllDBPaths() {
+  std::set<std::string> all_db_paths;
+  all_db_paths.insert(NormalizePath(dbname_));
   for (const auto& db_path : immutable_db_options_.db_paths) {
-    paths.push_back(
-        NormalizePath(db_path.path + std::string(1, kFilePathSeparator)));
+    all_db_paths.insert(NormalizePath(db_path.path));
   }
   for (const auto* cfd : *versions_->GetColumnFamilySet()) {
     for (const auto& cf_path : cfd->ioptions()->cf_paths) {
-      paths.push_back(
-          NormalizePath(cf_path.path + std::string(1, kFilePathSeparator)));
+      all_db_paths.insert(NormalizePath(cf_path.path));
     }
   }
-  // Dedup paths
-  std::sort(paths.begin(), paths.end());
-  paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+  return all_db_paths;
+}
 
+Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
+  mutex_.AssertHeld();
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
   Status s;
-  for (const auto& path : paths) {
+  for (const auto& path : CollectAllDBPaths()) {
     std::vector<std::string> files;
     s = env_->GetChildren(path, &files);
     if (!s.ok()) {
@@ -996,13 +976,10 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
       if (!ParseFileName(fname, &number, &type)) {
         continue;
       }
-      // path ends with '/' or '\\'
-      const std::string normalized_fpath = path + fname;
+      const std::string normalized_fpath = path + kFilePathSeparator + fname;
       largest_file_number = std::max(largest_file_number, number);
-      if (type == kTableFile && number >= next_file_number &&
-          recovery_ctx->files_to_delete_.find(normalized_fpath) ==
-              recovery_ctx->files_to_delete_.end()) {
-        recovery_ctx->files_to_delete_.emplace(normalized_fpath, path);
+      if ((type == kTableFile || type == kBlobFile)) {
+        recovery_ctx->existing_data_files_.push_back(normalized_fpath);
       }
     }
   }
@@ -1022,5 +999,4 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
   recovery_ctx->UpdateVersionEdits(default_cfd, edit);
   return s;
 }
-
 }  // namespace ROCKSDB_NAMESPACE

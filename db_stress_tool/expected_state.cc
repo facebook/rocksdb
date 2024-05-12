@@ -437,6 +437,28 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     return Status::OK();
   }
 
+  Status TimedPutCF(uint32_t column_family_id, const Slice& key_with_ts,
+                    const Slice& value, uint64_t write_unix_time) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+    uint64_t key_id;
+    if (!GetIntVal(key.ToString(), &key_id)) {
+      return Status::Corruption("unable to parse key", key.ToString());
+    }
+    uint32_t value_base = GetValueBase(value);
+
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      return WriteBatchInternal::TimedPut(buffered_writes_.get(),
+                                          column_family_id, key, value,
+                                          write_unix_time);
+    }
+
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
+    ++num_write_ops_;
+    return Status::OK();
+  }
+
   Status PutEntityCF(uint32_t column_family_id, const Slice& key_with_ts,
                      const Slice& entity) override {
     Slice key =

@@ -209,8 +209,11 @@ DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
+DECLARE_int32(promote_l0_one_in);
 DECLARE_int32(mark_for_compaction_one_file_in);
 DECLARE_int32(flush_one_in);
+DECLARE_int32(key_may_exist_one_in);
+DECLARE_int32(reset_stats_one_in);
 DECLARE_int32(pause_background_one_in);
 DECLARE_int32(disable_file_deletions_one_in);
 DECLARE_int32(disable_manual_compaction_one_in);
@@ -250,6 +253,7 @@ DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_uint32(use_put_entity_one_in);
+DECLARE_bool(use_attribute_group);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
@@ -351,6 +355,7 @@ DECLARE_uint32(bottommost_file_compaction_delay);
 // Tiered storage
 DECLARE_int64(preclude_last_level_data_seconds);
 DECLARE_int64(preserve_internal_time_seconds);
+DECLARE_uint32(use_timed_put_one_in);
 
 DECLARE_int32(verify_iterator_with_expected_state_one_in);
 DECLARE_bool(preserve_unverified_changes);
@@ -414,6 +419,7 @@ DECLARE_bool(inplace_update_support);
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
+constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
 
 // wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
@@ -756,6 +762,10 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
 bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
 bool VerifyWideColumns(const WideColumns& columns);
 
+AttributeGroups GenerateAttributeGroups(
+    const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
+    const Slice& slice);
+
 StressTest* CreateCfConsistencyStressTest();
 StressTest* CreateBatchedOpsStressTest();
 StressTest* CreateNonBatchedOpsStressTest();
@@ -765,6 +775,8 @@ void InitializeHotKeyGenerator(double alpha);
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
 std::string GetNowNanos();
+
+uint64_t GetWriteUnixTime(ThreadState* thread);
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

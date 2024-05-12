@@ -63,6 +63,8 @@ class TransactionTestBase : public ::testing::Test {
     options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+    // Recycling log file is generally more challenging for correctness
+    options.recycle_log_file_num = 2;
     special_env.skip_fsync_ = true;
     fault_fs.reset(new FaultInjectionTestFS(FileSystem::Default()));
     env.reset(new CompositeEnvWrapper(&special_env, fault_fs));

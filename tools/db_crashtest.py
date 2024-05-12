@@ -67,16 +67,25 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in":  lambda: random.choice([1000, 1000000]),
     "compact_range_one_in":  lambda: random.choice([1000, 1000000]),
+    "promote_l0_one_in":  lambda: random.choice([1000, 1000000]),
     "compaction_pri": random.randint(0, 4),
+    "key_may_exist_one_in":  lambda: random.choice([100, 100000]),
     "data_block_index_type": lambda: random.choice([0, 1]),
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    # TODO(hx235): re-enable `inplace_update_support` after fixing the
-    # inconsistency issue it surfaced
-    "inplace_update_support": 0,
+    # `inplace_update_support` is incompatible with DB that has delete
+    # range data in memtables.
+    # Such data can result from any of the previous db stress runs
+    # using delete range.
+    # Since there is no easy way to keep track of whether delete range
+    # is used in any of the previous runs,
+    # to simpify our testing, we set `inplace_update_support` across
+    # runs and to disable delete range accordingly
+    # (see below `finalize_and_sanitize`).
+    "inplace_update_support": random.choice([0] * 9 + [1]),
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
@@ -109,6 +118,7 @@ default_params = {
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
+    "reset_stats_one_in": lambda: random.choice([10000, 1000000]),
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
     "disable_manual_compaction_one_in": lambda: random.choice([10000, 1000000]),
@@ -140,6 +150,7 @@ default_params = {
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
+    "use_attribute_group": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
     "value_size_mult": 32,
@@ -297,6 +308,7 @@ default_params = {
     "enable_memtable_insert_with_hint_prefix_extractor": 0,
     "check_multiget_consistency": lambda: random.choice([0, 0, 0, 1]),
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
+    "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -480,6 +492,10 @@ txn_params = {
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with TransactionDB which uses snapshot.
+    "inplace_update_support": 0,
+    # TimedPut is not supported in transaction
+    "use_timed_put_one_in": 0,
 }
 
 # For optimistic transaction db
@@ -491,6 +507,10 @@ optimistic_txn_params = {
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
+    # Should not be used with OptimisticTransactionDB which uses snapshot.
+    "inplace_update_support": 0,
+    # TimedPut is not supported in transaction
+    "use_timed_put_one_in": 0,
 }
 
 best_efforts_recovery_params = {
@@ -536,6 +556,8 @@ ts_params = {
     "ingest_external_file_one_in": 0,
     # PutEntity with timestamps is not yet implemented
     "use_put_entity_one_in": 0,
+    # TimedPut is not compatible with user-defined timestamps yet.
+    "use_timed_put_one_in": 0,
 }
 
 tiered_params = {
@@ -600,6 +622,10 @@ multiops_txn_default_params = {
     "use_multi_get_entity": 0,
     # `MultiOpsTxnsStressTest::TestIterateAgainstExpected()` is not implemented.
     "verify_iterator_with_expected_state_one_in": 0,
+    # This test uses snapshot heavily which is incompatible with this option.
+    "inplace_update_support": 0,
+    # TimedPut not supported in transaction
+    "use_timed_put_one_in": 0,
 }
 
 multiops_wc_txn_params = {
@@ -673,6 +699,11 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    if dest_params["inplace_update_support"] == 1:
+       dest_params["delpercent"] += dest_params["delrangepercent"]
+       dest_params["delrangepercent"] = 0
+       dest_params["readpercent"] += dest_params["prefixpercent"]
+       dest_params["prefixpercent"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
@@ -807,9 +838,10 @@ def finalize_and_sanitize(src_params):
         # verification.
         dest_params["acquire_snapshot_one_in"] = 0
         dest_params["compact_range_one_in"] = 0
-        # Give the iterator ops away to reads.
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        # Redistribute to maintain 100% total
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10) + dest_params.get("prefixpercent", 20)
         dest_params["iterpercent"] = 0
+        dest_params["prefixpercent"] = 0
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("disable_wal") == 1:
@@ -819,9 +851,17 @@ def finalize_and_sanitize(src_params):
     # Enabling block_align with compression is not supported
     if dest_params.get("block_align") == 1:
         dest_params["compression_type"] = "none"
+        dest_params["bottommost_compression_type"] = "none"
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""
+    # `use_put_entity_one_in` cannot be enabled/disabled across runs, modify
+    # `use_timed_put_one_in` option so that they make sense together.
+    if dest_params.get("use_put_entity_one_in") == 1:
+        dest_params["use_timed_put_one_in"] = 0
+    elif (dest_params.get("use_put_entity_one_in") > 1 and
+        dest_params.get("use_timed_put_one_in") == 1):
+        dest_params["use_timed_put_one_in"] = 3
     return dest_params
 
 
@@ -1074,13 +1114,13 @@ def whitebox_crash_main(args, unknown_args):
             }
             # Single level universal has a lot of special logic. Ensure we cover
             # it sometimes.
-            if random.randint(0, 1) == 1:
+            if not args.test_tiered_storage and random.randint(0, 1) == 1:
                 additional_opts.update(
                     {
                         "num_levels": 1,
                     }
                 )
-        elif check_mode == 2:
+        elif check_mode == 2 and not args.test_tiered_storage:
             # normal run with FIFO compaction mode
             # ops_per_thread is divided by 5 because FIFO compaction
             # style is quite a bit slower on reads with lot of files
