@@ -64,7 +64,7 @@ IOStatus WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
 IOStatus WritableFileWriter::Append(const IOOptions& opts, const Slice& data,
                                     uint32_t crc32c_checksum) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
 
   StopWatch sw(clock_, stats_, hist_type_,
@@ -199,7 +199,7 @@ IOStatus WritableFileWriter::Append(const IOOptions& opts, const Slice& data,
 IOStatus WritableFileWriter::Pad(const IOOptions& opts,
                                  const size_t pad_bytes) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
   const IOOptions io_options = FinalizeIOOptions(opts);
   assert(pad_bytes < kDefaultPageSize);
@@ -348,7 +348,7 @@ IOStatus WritableFileWriter::Close(const IOOptions& opts) {
 // enabled
 IOStatus WritableFileWriter::Flush(const IOOptions& opts) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
 
   const IOOptions io_options = FinalizeIOOptions(opts);
@@ -458,7 +458,7 @@ IOStatus WritableFileWriter::PrepareIOOptions(const WriteOptions& wo,
 
 IOStatus WritableFileWriter::Sync(const IOOptions& opts, bool use_fsync) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
 
   IOOptions io_options = FinalizeIOOptions(opts);
@@ -483,7 +483,7 @@ IOStatus WritableFileWriter::Sync(const IOOptions& opts, bool use_fsync) {
 IOStatus WritableFileWriter::SyncWithoutFlush(const IOOptions& opts,
                                               bool use_fsync) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
   IOOptions io_options = FinalizeIOOptions(opts);
   if (!writable_file_->IsSyncThreadSafe()) {
@@ -495,9 +495,6 @@ IOStatus WritableFileWriter::SyncWithoutFlush(const IOOptions& opts,
   IOStatus s = SyncInternal(io_options, use_fsync);
   TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:2");
   if (!s.ok()) {
-#ifndef NDEBUG
-    sync_without_flush_called_ = true;
-#endif  // NDEBUG
     set_seen_error();
   }
   return s;
@@ -543,7 +540,7 @@ IOStatus WritableFileWriter::SyncInternal(const IOOptions& opts,
 IOStatus WritableFileWriter::RangeSync(const IOOptions& opts, uint64_t offset,
                                        uint64_t nbytes) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
 
   IOSTATS_TIMER_GUARD(range_sync_nanos);
@@ -572,7 +569,7 @@ IOStatus WritableFileWriter::RangeSync(const IOOptions& opts, uint64_t offset,
 IOStatus WritableFileWriter::WriteBuffered(const IOOptions& opts,
                                            const char* data, size_t size) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
 
   IOStatus s;
@@ -663,7 +660,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const IOOptions& opts,
                                                        const char* data,
                                                        size_t size) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
 
   IOStatus s;
@@ -877,7 +874,7 @@ IOStatus WritableFileWriter::WriteDirect(const IOOptions& opts) {
 
 IOStatus WritableFileWriter::WriteDirectWithChecksum(const IOOptions& opts) {
   if (seen_error()) {
-    return AssertFalseAndGetStatusForPrevError();
+    return GetWriterHasPreviousErrorStatus();
   }
 
   assert(use_direct_io());

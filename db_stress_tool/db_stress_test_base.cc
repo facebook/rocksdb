@@ -3787,6 +3787,7 @@ void InitializeOptionsFromFlags(
   options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
   options.strict_bytes_per_sync = FLAGS_strict_bytes_per_sync;
   options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;
+  options.avoid_sync_during_shutdown = FLAGS_avoid_sync_during_shutdown;
   options.dump_malloc_stats = FLAGS_dump_malloc_stats;
   options.stats_history_buffer_size = FLAGS_stats_history_buffer_size;
   options.skip_stats_update_on_db_open = FLAGS_skip_stats_update_on_db_open;
