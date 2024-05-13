@@ -148,7 +148,8 @@ struct ParsedInternalKey {
   // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
-  std::string DebugString(bool log_err_key, bool hex) const;
+  std::string DebugString(bool log_err_key, bool hex,
+                          const Comparator* ucmp = nullptr) const;
 
   void clear() {
     user_key.clear();
@@ -503,7 +504,7 @@ class InternalKey {
     AppendInternalKeyFooter(&rep_, s, t);
   }
 
-  std::string DebugString(bool hex) const;
+  std::string DebugString(bool hex, const Comparator* ucmp = nullptr) const;
 };
 
 inline int InternalKeyComparator::Compare(const InternalKey& a,
