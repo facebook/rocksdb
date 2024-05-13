@@ -726,19 +726,29 @@ bool LDBCommand::ParseCompressionTypeOption(
 Status LDBCommand::MaybePopulateReadTimestamp(ColumnFamilyHandle* cfh,
                                               ReadOptions& ropts,
                                               Slice* read_timestamp) {
-  if (cfh->GetComparator()->timestamp_size() == 0) {
-    return Status::OK();
-  }
+  const size_t ts_sz = cfh->GetComparator()->timestamp_size();
+
   auto iter = option_map_.find(ARG_READ_TIMESTAMP);
   if (iter == option_map_.end()) {
+    if (ts_sz == 0) {
+      return Status::OK();
+    }
     return Status::InvalidArgument(
         "column family enables user-defined timestamp while --read_timestamp "
-        "is not specified.");
+        "is not provided.");
   }
   if (iter->second.empty()) {
+    if (ts_sz == 0) {
+      return Status::OK();
+    }
     return Status::InvalidArgument(
         "column family enables user-defined timestamp while --read_timestamp "
         "is empty.");
+  }
+  if (ts_sz == 0) {
+    return Status::InvalidArgument(
+        "column family does not enable user-defined timestamps while "
+        "--read_timestamp is provided.");
   }
   uint64_t int_timestamp;
   std::istringstream iss(iter->second);
@@ -3279,11 +3289,11 @@ void BatchPutCommand::OverrideBaseOptions() {
 ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
                          const std::map<std::string, std::string>& options,
                          const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, true,
-          BuildCmdLineOptions({ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX,
-                               ARG_TO, ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP,
-                               ARG_MAX_KEYS, ARG_TTL_START, ARG_TTL_END})),
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions(
+                     {ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX, ARG_TO,
+                      ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP, ARG_MAX_KEYS,
+                      ARG_TTL_START, ARG_TTL_END, ARG_READ_TIMESTAMP})),
       start_key_specified_(false),
       end_key_specified_(false),
       max_keys_scanned_(-1),
@@ -3339,6 +3349,7 @@ void ScanCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_NO_VALUE + "]");
+  ret.append(" [--" + ARG_READ_TIMESTAMP + "=<uint64_ts>] ");
   ret.append("\n");
 }
 
@@ -3350,8 +3361,17 @@ void ScanCommand::DoCommand() {
 
   int num_keys_scanned = 0;
   ReadOptions scan_read_opts;
+  ColumnFamilyHandle* cfh = GetCfHandle();
+  Slice read_timestamp;
+  Status st = MaybePopulateReadTimestamp(cfh, scan_read_opts, &read_timestamp);
+  if (!st.ok()) {
+    std::stringstream oss;
+    oss << "Scan failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+    return;
+  }
   scan_read_opts.total_order_seek = true;
-  Iterator* it = db_->NewIterator(scan_read_opts, GetCfHandle());
+  Iterator* it = db_->NewIterator(scan_read_opts, cfh);
   if (start_key_specified_) {
     it->Seek(start_key_);
   } else {

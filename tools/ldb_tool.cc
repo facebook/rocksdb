@@ -87,7 +87,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              "=<int,e.g.:2097152>\n");
   ret.append("  --" + LDBCommand::ARG_READ_TIMESTAMP +
              "=<uint64_ts, e.g.:323> : read timestamp, required if column "
-             "family enables timestamp, otherwise ignored.");
+             "family enables timestamp, otherwise invalid if provided.");
 
   ret.append("\n\n");
   ret.append("Data Access Commands:\n");

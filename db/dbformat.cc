@@ -163,6 +163,7 @@ std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex,
     if (ts_sz_for_debug == 0) {
       result += user_key.ToString(hex);
     } else {
+      assert(user_key.size() >= ts_sz_for_debug);
       Slice user_key_without_ts = user_key;
       user_key_without_ts.remove_suffix(ts_sz_for_debug);
       result += user_key_without_ts.ToString(hex);
