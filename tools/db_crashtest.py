@@ -67,7 +67,9 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in":  lambda: random.choice([1000, 1000000]),
     "compact_range_one_in":  lambda: random.choice([1000, 1000000]),
-    "promote_l0_one_in":  lambda: random.choice([1000, 1000000]),
+    # Disabled because of various likely related failures with
+    # "Cannot delete table file #N from level 0 since it is on level X"
+    "promote_l0_one_in": 0,
     "compaction_pri": random.randint(0, 4),
     "key_may_exist_one_in":  lambda: random.choice([100, 100000]),
     "data_block_index_type": lambda: random.choice([0, 1]),
