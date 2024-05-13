@@ -789,7 +789,8 @@ TEST_P(LogTest, TimestampSizeRecordPadding) {
   UnorderedMap<uint32_t, size_t> ts_sz = {
       {2, sizeof(uint64_t)},
   };
-  ASSERT_OK(writer_->MaybeAddUserDefinedTimestampSizeRecord(WriteOptions(), ts_sz));
+  ASSERT_OK(
+      writer_->MaybeAddUserDefinedTimestampSizeRecord(WriteOptions(), ts_sz));
   ASSERT_LT(writer_->TEST_block_offset(), kBlockSize);
 
   const auto second_str = BigString("bar", 1000);
