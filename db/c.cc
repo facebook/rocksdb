@@ -44,6 +44,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksdb/wide_columns.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "util/stderr_logger.h"
@@ -102,6 +103,7 @@ using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::PerfContext;
 using ROCKSDB_NAMESPACE::PerfLevel;
 using ROCKSDB_NAMESPACE::PinnableSlice;
+using ROCKSDB_NAMESPACE::PinnableWideColumns;
 using ROCKSDB_NAMESPACE::PrepopulateBlobCache;
 using ROCKSDB_NAMESPACE::RandomAccessFile;
 using ROCKSDB_NAMESPACE::Range;
@@ -125,6 +127,8 @@ using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
 using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
+using ROCKSDB_NAMESPACE::WideColumn;
+using ROCKSDB_NAMESPACE::WideColumns;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
@@ -258,6 +262,9 @@ struct rocksdb_perfcontext_t {
 };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
+};
+struct rocksdb_pinnablewidecolumns_t {
+  PinnableWideColumns rep;
 };
 struct rocksdb_transactiondb_options_t {
   TransactionDBOptions rep;
@@ -1175,6 +1182,23 @@ void rocksdb_put_cf_with_ts(rocksdb_t* db,
                          Slice(ts, tslen), Slice(val, vallen)));
 }
 
+void rocksdb_put_entity_cf(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                           rocksdb_column_family_handle_t* column_family,
+                           const char* key, size_t keylen, size_t num_columns,
+                           const char* const* names_list,
+                           const size_t* names_list_sizes,
+                           const char* const* values_list,
+                           const size_t* values_list_sizes, char** errptr) {
+  WideColumns columns(num_columns);
+  for (size_t i = 0; i < num_columns; i++) {
+    WideColumn column(Slice(names_list[i], names_list_sizes[i]),
+                      Slice(values_list[i], values_list_sizes[i]));
+    columns.push_back(column);
+  }
+  SaveError(errptr, db->rep->PutEntity(options->rep, column_family->rep,
+                                       Slice(key, keylen), columns));
+}
+
 void rocksdb_delete(rocksdb_t* db, const rocksdb_writeoptions_t* options,
                     const char* key, size_t keylen, char** errptr) {
   SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen)));
@@ -1371,6 +1395,16 @@ char* rocksdb_get_cf_with_ts(rocksdb_t* db,
     }
   }
   return result;
+}
+
+rocksdb_pinnablewidecolumns_t* rocksdb_get_entity_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr) {
+  rocksdb_pinnablewidecolumns_t* columns = new (rocksdb_pinnablewidecolumns_t);
+  SaveError(errptr, db->rep->GetEntity(options->rep, column_family->rep,
+                                       Slice(key, keylen), &columns->rep));
+  return columns;
 }
 
 void rocksdb_multi_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
@@ -6695,6 +6729,41 @@ const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* v,
 
   *vlen = v->rep.size();
   return v->rep.data();
+}
+
+void rocksdb_pinnablewidecolumns_destroy(rocksdb_pinnablewidecolumns_t* v) {
+  delete v;
+}
+
+size_t rocksdb_pinnablewidecolumns_len(const rocksdb_pinnablewidecolumns_t* v) {
+  if (!v) {
+    return 0;
+  }
+  return v->rep.columns().size();
+}
+
+void rocksdb_pinnablewidecolumns_name(const rocksdb_pinnablewidecolumns_t* v,
+                                      const size_t n, const char** name,
+                                      size_t* name_len) {
+  if (!v) {
+    *name_len = 0;
+    return;
+  }
+  Slice column_name = v->rep.columns()[n].name();
+  *name = column_name.data();
+  *name_len = column_name.size();
+}
+
+void rocksdb_pinnablewidecolumns_value(const rocksdb_pinnablewidecolumns_t* v,
+                                       const size_t n, const char** value,
+                                       size_t* value_len) {
+  if (!v) {
+    *value_len = 0;
+    return;
+  }
+  Slice column_name = v->rep.columns()[n].value();
+  *value = column_name.data();
+  *value_len = column_name.size();
 }
 
 // container to keep databases and caches in order to use
