@@ -3,8 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include <assert.h>
-
+#include <cassert>
 #include <iostream>
 #include <memory>
 
@@ -87,7 +86,9 @@ class EnvMergeTest : public EnvWrapper {
   static std::unique_ptr<EnvMergeTest> singleton_;
 
   static EnvMergeTest* GetInstance() {
-    if (nullptr == singleton_) singleton_.reset(new EnvMergeTest);
+    if (nullptr == singleton_) {
+      singleton_.reset(new EnvMergeTest);
+    }
     return singleton_.get();
   }
 };
@@ -145,7 +146,7 @@ class Counters {
     assert(db_);
   }
 
-  virtual ~Counters() {}
+  virtual ~Counters() = default;
 
   // public interface of Counters.
   // All four functions return false
@@ -194,7 +195,7 @@ class Counters {
         std::cerr << "value corruption\n";
         return false;
       }
-      *value = DecodeFixed64(&str[0]);
+      *value = DecodeFixed64(str.data());
       return true;
     } else {
       std::cerr << s.ToString() << std::endl;
@@ -220,14 +221,18 @@ class Counters {
     uint64_t value = default_;
     int result = get(key, &value);
     assert(result);
-    if (result == 0) exit(1);  // Disable unused variable warning.
+    if (result == 0) {
+      exit(1);  // Disable unused variable warning.
+    }
     return value;
   }
 
   void assert_add(const std::string& key, uint64_t value) {
     int result = add(key, value);
     assert(result);
-    if (result == 0) exit(1);  // Disable unused variable warning.
+    if (result == 0) {
+      exit(1);  // Disable unused variable warning.
+    }
   }
 };
 
@@ -349,7 +354,7 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
       });
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WakeUpAndDone", [&](void* arg) {
-        auto* mutex = reinterpret_cast<InstrumentedMutex*>(arg);
+        auto* mutex = static_cast<InstrumentedMutex*>(arg);
         mutex->AssertHeld();
         int thread_id = get_thread_id();
         ASSERT_EQ(2, thread_id);
@@ -375,12 +380,12 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread set_options_thread([&]() {
-    ASSERT_OK(reinterpret_cast<DBImpl*>(db)->SetOptions(
+    ASSERT_OK(static_cast<DBImpl*>(db)->SetOptions(
         {{"disable_auto_compactions", "false"}}));
   });
   TEST_SYNC_POINT("testCountersWithCompactionAndFlush:BeforeCompact");
   port::Thread compact_thread([&]() {
-    ASSERT_OK(reinterpret_cast<DBImpl*>(db)->CompactRange(
+    ASSERT_OK(static_cast<DBImpl*>(db)->CompactRange(
         CompactRangeOptions(), db->DefaultColumnFamily(), nullptr, nullptr));
   });
 
@@ -496,7 +501,7 @@ void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
   std::string get_value_str;
   ASSERT_OK(db->Get(ReadOptions(), key, &get_value_str));
   assert(get_value_str.size() == sizeof(uint64_t));
-  uint64_t get_value = DecodeFixed64(&get_value_str[0]);
+  uint64_t get_value = DecodeFixed64(get_value_str.data());
   ASSERT_EQ(get_value, num_merges * merge_value);
   ASSERT_EQ(num_merge_operator_calls,
             static_cast<size_t>((num_merges % (max_num_merges + 1))));

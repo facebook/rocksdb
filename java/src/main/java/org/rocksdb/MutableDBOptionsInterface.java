@@ -418,7 +418,7 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * <p>
    * That way RocksDB's compaction is doing sequential instead of random reads.
    * <p>
-   * Default: 0
+   * Default: 2MB
    *
    * @param compactionReadaheadSize The compaction read-ahead size
    *

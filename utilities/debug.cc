@@ -38,7 +38,11 @@ static std::unordered_map<std::string, ValueType> value_type_string_map = {
     {"TypeCommitXIDAndTimestamp", ValueType::kTypeCommitXIDAndTimestamp},
     {"TypeWideColumnEntity", ValueType::kTypeWideColumnEntity},
     {"TypeColumnFamilyWideColumnEntity",
-     ValueType::kTypeColumnFamilyWideColumnEntity}};
+     ValueType::kTypeColumnFamilyWideColumnEntity},
+    {"TypeValuePreferredSeqno", ValueType::kTypeValuePreferredSeqno},
+    {"TypeColumnFamilyValuePreferredSeqno",
+     ValueType::kTypeColumnFamilyValuePreferredSeqno},
+};
 
 std::string KeyVersion::GetTypeName() const {
   std::string type_name;
@@ -78,7 +82,7 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   auto icmp = InternalKeyComparator(idb->GetOptions(cfh).comparator);
   ReadOptions read_options;
   Arena arena;
-  ScopedArenaIterator iter(
+  ScopedArenaPtr<InternalIterator> iter(
       idb->NewInternalIterator(read_options, &arena, kMaxSequenceNumber, cfh));
 
   if (!begin_key.empty()) {

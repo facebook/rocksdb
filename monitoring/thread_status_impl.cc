@@ -67,7 +67,7 @@ const std::string ThreadStatus::MicrosToString(uint64_t micros) {
 
 const std::string& ThreadStatus::GetOperationPropertyName(
     ThreadStatus::OperationType op_type, int i) {
-  static const std::string empty_str = "";
+  static const std::string empty_str;
   switch (op_type) {
     case ThreadStatus::OP_COMPACTION:
       if (i >= NUM_COMPACTION_PROPERTIES) {

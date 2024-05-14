@@ -102,7 +102,7 @@ class OptimisticTransactionDB : public StackableDB {
                      std::vector<ColumnFamilyHandle*>* handles,
                      OptimisticTransactionDB** dbptr);
 
-  virtual ~OptimisticTransactionDB() {}
+  ~OptimisticTransactionDB() override {}
 
   // Starts a new Transaction.
   //

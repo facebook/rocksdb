@@ -79,7 +79,7 @@ struct CacheRecordHeader {
 };
 
 struct CacheRecord {
-  CacheRecord() {}
+  CacheRecord() = default;
   CacheRecord(const Slice& key, const Slice& val)
       : hdr_(MAGIC, static_cast<uint32_t>(key.size()),
              static_cast<uint32_t>(val.size())),

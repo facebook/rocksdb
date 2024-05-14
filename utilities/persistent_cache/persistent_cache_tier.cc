@@ -82,9 +82,9 @@ bool PersistentCacheTier::Erase(const Slice& /*key*/) {
 
 std::string PersistentCacheTier::PrintStats() {
   std::ostringstream os;
-  for (auto tier_stats : Stats()) {
+  for (const auto& tier_stats : Stats()) {
     os << "---- next tier -----" << std::endl;
-    for (auto stat : tier_stats) {
+    for (const auto& stat : tier_stats) {
       os << stat.first << ": " << stat.second << std::endl;
     }
   }

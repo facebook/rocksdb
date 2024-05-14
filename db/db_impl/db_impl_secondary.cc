@@ -28,7 +28,7 @@ DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
   LogFlush(immutable_db_options_.info_log);
 }
 
-DBImplSecondary::~DBImplSecondary() {}
+DBImplSecondary::~DBImplSecondary() = default;
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
@@ -327,6 +327,7 @@ Status DBImplSecondary::RecoverLogFiles(
       status = *wal_read_status;
     }
     if (!status.ok()) {
+      wal_read_status->PermitUncheckedError();
       return status;
     }
   }
@@ -497,8 +498,8 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
 
   Iterator* result = nullptr;
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh != nullptr);
   auto cfd = cfh->cfd();
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
     return NewErrorIterator(Status::NotSupported(
         "tailing iterator not supported in secondary mode"));
@@ -517,27 +518,28 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
         return NewErrorIterator(s);
       }
     }
-    result = NewIteratorImpl(read_options, cfd, sv, snapshot, read_callback);
+    result = NewIteratorImpl(read_options, cfh, sv, snapshot,
+                             nullptr /*read_callback*/);
   }
   return result;
 }
 
 ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
-    const ReadOptions& read_options, ColumnFamilyData* cfd,
+    const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* read_callback, bool expose_blob_index, bool allow_refresh) {
-  assert(nullptr != cfd);
+  assert(nullptr != cfh);
   assert(snapshot == kMaxSequenceNumber);
   snapshot = versions_->LastSequence();
   assert(snapshot != kMaxSequenceNumber);
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
-      super_version->current, snapshot,
+      env_, read_options, *cfh->cfd()->ioptions(),
+      super_version->mutable_cf_options, super_version->current, snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number, read_callback, this, cfd,
-      expose_blob_index, allow_refresh);
+      super_version->version_number, read_callback, cfh, expose_blob_index,
+      allow_refresh);
   auto internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
+      db_iter->GetReadOptions(), cfh->cfd(), super_version, db_iter->GetArena(),
       snapshot, /* allow_unprepared_value */ true, db_iter);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
@@ -596,28 +598,29 @@ Status DBImplSecondary::NewIterators(
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
     SequenceNumber read_seq(kMaxSequenceNumber);
-    autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;
+    autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
     const bool check_read_ts =
         read_options.timestamp && read_options.timestamp->size() > 0;
-    for (auto cfh : column_families) {
-      ColumnFamilyData* cfd = static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+    for (auto cf : column_families) {
+      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+      auto cfd = cfh->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-      cfd_to_sv.emplace_back(cfd, sv);
+      cfh_to_sv.emplace_back(cfh, sv);
       if (check_read_ts) {
         const Status s =
             FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
         if (!s.ok()) {
-          for (auto prev_entry : cfd_to_sv) {
+          for (auto prev_entry : cfh_to_sv) {
             CleanupSuperVersion(std::get<1>(prev_entry));
           }
           return s;
         }
       }
     }
-    assert(cfd_to_sv.size() == column_families.size());
-    for (auto [cfd, sv] : cfd_to_sv) {
+    assert(cfh_to_sv.size() == column_families.size());
+    for (auto [cfh, sv] : cfh_to_sv) {
       iterators->push_back(
-          NewIteratorImpl(read_options, cfd, sv, read_seq, read_callback));
+          NewIteratorImpl(read_options, cfh, sv, read_seq, read_callback));
     }
   }
   return Status::OK();
@@ -802,7 +805,7 @@ Status DB::OpenAsSecondary(
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {
-    for (auto cf : column_families) {
+    for (const auto& cf : column_families) {
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (nullptr == cfd) {

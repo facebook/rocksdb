@@ -64,7 +64,7 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        const auto* compaction = reinterpret_cast<Compaction*>(arg);
+        const auto* compaction = static_cast<Compaction*>(arg);
         ASSERT_NE(nullptr, compaction);
         ASSERT_EQ(0, compaction->start_level());
         ASSERT_EQ(1, compaction->num_input_levels());
@@ -172,8 +172,8 @@ TEST_F(TimestampCompatibleCompactionTest, MultipleSubCompactions) {
 
 class TestFilePartitioner : public SstPartitioner {
  public:
-  explicit TestFilePartitioner() {}
-  ~TestFilePartitioner() override {}
+  explicit TestFilePartitioner() = default;
+  ~TestFilePartitioner() override = default;
 
   const char* Name() const override { return "TestFilePartitioner"; }
   PartitionerResult ShouldPartition(
@@ -188,7 +188,7 @@ class TestFilePartitioner : public SstPartitioner {
 
 class TestFilePartitionerFactory : public SstPartitionerFactory {
  public:
-  explicit TestFilePartitionerFactory() {}
+  explicit TestFilePartitionerFactory() = default;
   std::unique_ptr<SstPartitioner> CreatePartitioner(
       const SstPartitioner::Context& /*context*/) const override {
     std::unique_ptr<SstPartitioner> ret =

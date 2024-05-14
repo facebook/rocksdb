@@ -273,7 +273,7 @@ TEST_F(DBFlushTest, ScheduleOnlyOneBgThread) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
-        auto unscheduled_flushes = *reinterpret_cast<int*>(arg);
+        auto unscheduled_flushes = *static_cast<int*>(arg);
         ASSERT_EQ(0, unscheduled_flushes);
         ++called;
       });
@@ -1368,14 +1368,15 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
       ASSERT_OK(iter->status());
       key = (iter->key()).ToString(false);
       value = (iter->value()).ToString(false);
-      if (key.compare(KEY3) == 0)
+      if (key.compare(KEY3) == 0) {
         ASSERT_EQ(value, p_v3b);
-      else if (key.compare(KEY4) == 0)
+      } else if (key.compare(KEY4) == 0) {
         ASSERT_EQ(value, p_v4);
-      else if (key.compare(KEY5) == 0)
+      } else if (key.compare(KEY5) == 0) {
         ASSERT_EQ(value, p_v5);
-      else
+      } else {
         ASSERT_EQ(value, NOT_FOUND);
+      }
       count++;
     }
     ASSERT_OK(iter->status());
@@ -1405,22 +1406,25 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
     ASSERT_OK(iter->status());
     key = (iter->key()).ToString(false);
     value = (iter->value()).ToString(false);
-    if (key.compare(KEY2) == 0)
+    if (key.compare(KEY2) == 0) {
       ASSERT_EQ(value, p_v2);
-    else if (key.compare(KEY3) == 0)
+    } else if (key.compare(KEY3) == 0) {
       ASSERT_EQ(value, p_v3b);
-    else if (key.compare(KEY4) == 0)
+    } else if (key.compare(KEY4) == 0) {
       ASSERT_EQ(value, p_v4);
-    else if (key.compare(KEY5) == 0)
+    } else if (key.compare(KEY5) == 0) {
       ASSERT_EQ(value, p_v5);
-    else
+    } else {
       ASSERT_EQ(value, NOT_FOUND);
+    }
     count++;
   }
 
   // Expected count here is 4: KEY2, KEY3, KEY4, KEY5.
   ASSERT_EQ(count, EXPECTED_COUNT_END);
-  if (iter) delete iter;
+  if (iter) {
+    delete iter;
+  }
 
   Close();
 }
@@ -1792,7 +1796,7 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   std::atomic<uint64_t> num_memtable_at_first_flush(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table:num_memtables", [&](void* arg) {
-        uint64_t* mems_size = reinterpret_cast<uint64_t*>(arg);
+        uint64_t* mems_size = static_cast<uint64_t*>(arg);
         // atomic_compare_exchange_strong sometimes updates the value
         // of ZERO (the "expected" object), so we make sure ZERO is indeed...
         // zero.
@@ -2039,7 +2043,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table", [&listener](void* arg) {
         // Wait for the second flush finished, out of mutex.
-        auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
+        auto* mems = static_cast<autovector<MemTable*>*>(arg);
         if (mems->front()->GetEarliestSequenceNumber() == listener->seq1 - 1) {
           TEST_SYNC_POINT(
               "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:"
@@ -2387,7 +2391,7 @@ TEST_F(DBFlushTest, PickRightMemtables) {
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", [&](void* arg) {
-        auto* job = reinterpret_cast<FlushJob*>(arg);
+        auto* job = static_cast<FlushJob*>(arg);
         assert(job);
         const auto& mems = job->GetMemTables();
         assert(mems.size() == 1);
@@ -2500,7 +2504,7 @@ TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
   class SimpleTestFlushListener : public EventListener {
    public:
     explicit SimpleTestFlushListener(DBFlushTest* _test) : test_(_test) {}
-    ~SimpleTestFlushListener() override {}
+    ~SimpleTestFlushListener() override = default;
 
     void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
       ASSERT_EQ(static_cast<uint32_t>(0), info.cf_id);
@@ -2635,7 +2639,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* db_impl = static_cast<DBImpl*>(db_);
   ASSERT_TRUE(db_impl->allow_2pc());
   ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
 }
@@ -3036,6 +3040,39 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBAtomicFlushTest, FailureInMultiCfAutomaticFlush) {
+  bool atomic_flush = GetParam();
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  const int kNumKeysTriggerFlush = 4;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysTriggerFlush));
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    ASSERT_OK(Put(static_cast<int>(cf), "a", "value"));
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ScheduleFlushes:PreSwitchMemtable",
+      [&](void* /*arg*/) { fault_injection_env->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 1; i < kNumKeysTriggerFlush; ++i) {
+    ASSERT_OK(Put(0, "key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  // Next write after failed flush should fail.
+  ASSERT_NOK(Put(0, "x", "y"));
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // In atomic flush, concurrent bg flush threads commit to the MANIFEST in
 // serial, in the order of their picked memtables for each column family.
 // Only when a bg flush thread finds out that its memtables are the earliest
@@ -3139,7 +3176,7 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
-        auto* ptr = reinterpret_cast<IOStatus*>(arg);
+        auto* ptr = static_cast<IOStatus*>(arg);
         assert(ptr);
         *ptr = IOStatus::IOError("Injected failure");
       });

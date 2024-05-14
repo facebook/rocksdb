@@ -127,7 +127,7 @@ struct CacheUsageOptions {
 
 // For advanced user only
 struct BlockBasedTableOptions {
-  static const char* kName() { return "BlockTableOptions"; };
+  static const char* kName() { return "BlockTableOptions"; }
   // @flush_block_policy_factory creates the instances of flush block policy.
   // which provides a configurable way to determine when to flush a block in
   // the block based tables.  If not set, table builder will use the default
@@ -518,7 +518,15 @@ struct BlockBasedTableOptions {
   // 6 -- Modified the file footer and checksum matching so that SST data
   // misplaced within or between files is as likely to fail checksum
   // verification as random corruption. Also checksum-protects SST footer.
-  uint32_t format_version = 5;
+  // Can be read by RocksDB versions >= 8.6.0.
+  //
+  // Using the default setting of format_version is strongly recommended, so
+  // that available enhancements are adopted eventually and automatically. The
+  // default setting will only update to the latest after thorough production
+  // validation and sufficient time and number of releases have elapsed
+  // (6 months recommended) to ensure a clean downgrade/revert path for users
+  // who might only upgrade a few times per year.
+  uint32_t format_version = 6;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
@@ -674,9 +682,8 @@ struct BlockBasedTablePropertyNames {
 };
 
 // Create default block based table factory.
-extern TableFactory* NewBlockBasedTableFactory(
+TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
-
 
 enum EncodingType : char {
   // Always write full keys without any special encoding.
@@ -705,7 +712,7 @@ struct PlainTablePropertyNames {
 const uint32_t kPlainTableVariableLength = 0;
 
 struct PlainTableOptions {
-  static const char* kName() { return "PlainTableOptions"; };
+  static const char* kName() { return "PlainTableOptions"; }
   // @user_key_len: plain table has optimization for fix-sized keys, which can
   //                be specified via user_key_len.  Alternatively, you can pass
   //                `kPlainTableVariableLength` if your keys have variable
@@ -763,7 +770,7 @@ struct PlainTableOptions {
 // the hash bucket found, a binary search is executed for hash conflicts.
 // Finally, a linear search is used.
 
-extern TableFactory* NewPlainTableFactory(
+TableFactory* NewPlainTableFactory(
     const PlainTableOptions& options = PlainTableOptions());
 
 struct CuckooTablePropertyNames {
@@ -799,7 +806,7 @@ struct CuckooTablePropertyNames {
 };
 
 struct CuckooTableOptions {
-  static const char* kName() { return "CuckooTableOptions"; };
+  static const char* kName() { return "CuckooTableOptions"; }
 
   // Determines the utilization of hash tables. Smaller values
   // result in larger hash tables with fewer collisions.
@@ -830,21 +837,20 @@ struct CuckooTableOptions {
 };
 
 // Cuckoo Table Factory for SST table format using Cache Friendly Cuckoo Hashing
-extern TableFactory* NewCuckooTableFactory(
+TableFactory* NewCuckooTableFactory(
     const CuckooTableOptions& table_options = CuckooTableOptions());
-
 
 class RandomAccessFileReader;
 
 // A base class for table factories.
 class TableFactory : public Customizable {
  public:
-  virtual ~TableFactory() override {}
+  ~TableFactory() override {}
 
-  static const char* kBlockCacheOpts() { return "BlockCache"; };
-  static const char* kBlockBasedTableName() { return "BlockBasedTable"; };
+  static const char* kBlockCacheOpts() { return "BlockCache"; }
+  static const char* kBlockBasedTableName() { return "BlockBasedTable"; }
   static const char* kPlainTableName() { return "PlainTable"; }
-  static const char* kCuckooTableName() { return "CuckooTable"; };
+  static const char* kCuckooTableName() { return "CuckooTable"; }
 
   // Creates and configures a new TableFactory from the input options and id.
   static Status CreateFromString(const ConfigOptions& config_options,
@@ -923,11 +929,10 @@ class TableFactory : public Customizable {
 // @plain_table_factory: plain table factory to use. If NULL, use a default one.
 // @cuckoo_table_factory: cuckoo table factory to use. If NULL, use a default
 // one.
-extern TableFactory* NewAdaptiveTableFactory(
+TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write = nullptr,
     std::shared_ptr<TableFactory> block_based_table_factory = nullptr,
     std::shared_ptr<TableFactory> plain_table_factory = nullptr,
     std::shared_ptr<TableFactory> cuckoo_table_factory = nullptr);
-
 
 }  // namespace ROCKSDB_NAMESPACE

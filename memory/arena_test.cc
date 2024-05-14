@@ -12,6 +12,7 @@
 #ifndef OS_WIN
 #include <sys/resource.h>
 #endif
+#include "port/jemalloc_helper.h"
 #include "port/port.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
@@ -170,7 +171,7 @@ static void SimpleTest(size_t huge_page_size) {
       r[b] = i % 256;
     }
     bytes += s;
-    allocated.push_back(std::make_pair(s, r));
+    allocated.emplace_back(s, r);
     ASSERT_GE(arena.ApproximateMemoryUsage(), bytes);
     if (i > N / 10) {
       ASSERT_LE(arena.ApproximateMemoryUsage(), bytes * 1.10);
@@ -267,7 +268,21 @@ TEST_F(ArenaTest, UnmappedAllocation) {
   // Verify that it's possible to get unmapped pages in large allocations,
   // for memory efficiency and to ensure we don't accidentally waste time &
   // space initializing the memory.
-  constexpr size_t kBlockSize = 2U << 20;
+
+#ifdef ROCKSDB_JEMALLOC
+  // With Jemalloc config.fill, the pages are written to before we get them
+  uint8_t fill = 0;
+  size_t fill_sz = sizeof(fill);
+  mallctl("config.fill", &fill, &fill_sz, nullptr, 0);
+  if (fill) {
+    ROCKSDB_GTEST_BYPASS("Test skipped because of config.fill==true");
+    return;
+  }
+#endif  // ROCKSDB_JEMALLOC
+
+  // This block size value is smaller than the smallest x86 huge page size,
+  // so should not be fulfilled by a transparent huge page mapping.
+  constexpr size_t kBlockSize = 1U << 20;
   Arena arena(kBlockSize);
 
   // The allocator might give us back recycled memory for a while, but

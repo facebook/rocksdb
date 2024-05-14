@@ -185,10 +185,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * <p>Default: nullptr</p>
    *
-   * @param logger {@link Logger} instance.
+   * @param logger {@link LoggerInterface} instance.
    * @return the instance of the current object.
    */
-  T setLogger(Logger logger);
+  T setLogger(LoggerInterface logger);
 
   /**
    * <p>Sets the RocksDB log level. Default level is INFO</p>
@@ -937,28 +937,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return the size of the write buffer
    */
   long dbWriteBufferSize();
-
-  /**
-   * Specify the file access pattern once a compaction is started.
-   * It will be applied to all input files of a compaction.
-   *
-   * Default: {@link AccessHint#NORMAL}
-   *
-   * @param accessHint The access hint
-   *
-   * @return the reference to the current options.
-   */
-  @Deprecated T setAccessHintOnCompactionStart(final AccessHint accessHint);
-
-  /**
-   * Specify the file access pattern once a compaction is started.
-   * It will be applied to all input files of a compaction.
-   *
-   * Default: {@link AccessHint#NORMAL}
-   *
-   * @return The access hint
-   */
-  @Deprecated AccessHint accessHintOnCompactionStart();
 
   /**
    * This is a maximum buffer size that is used by WinMmapReadableFile in

@@ -1342,206 +1342,186 @@ public class ColumnFamilyOptions
   private static native long copyColumnFamilyOptions(final long handle);
   private static native long newColumnFamilyOptionsFromOptions(
       final long optionsHandle);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   private static native void oldDefaults(
       final long handle, final int majorVersion, final int minorVersion);
-  private native void optimizeForSmallDb(final long handle);
+  private static native void optimizeForSmallDb(final long handle);
   private static native void optimizeForSmallDb(final long handle, final long cacheHandle);
-  private native void optimizeForPointLookup(long handle,
-      long blockCacheSizeMb);
-  private native void optimizeLevelStyleCompaction(long handle,
-      long memtableMemoryBudget);
-  private native void optimizeUniversalStyleCompaction(long handle,
-      long memtableMemoryBudget);
-  private native void setComparatorHandle(long handle, int builtinComparator);
-  private native void setComparatorHandle(long optHandle,
-      long comparatorHandle, byte comparatorType);
-  private native void setMergeOperatorName(long handle, String name);
-  private native void setMergeOperator(long handle, long mergeOperatorHandle);
-  private native void setCompactionFilterHandle(long handle,
-      long compactionFilterHandle);
-  private native void setCompactionFilterFactoryHandle(long handle,
-      long compactionFilterFactoryHandle);
-  private native void setWriteBufferSize(long handle, long writeBufferSize)
+  private static native void optimizeForPointLookup(long handle, long blockCacheSizeMb);
+  private static native void optimizeLevelStyleCompaction(long handle, long memtableMemoryBudget);
+  private static native void optimizeUniversalStyleCompaction(
+      long handle, long memtableMemoryBudget);
+  private static native void setComparatorHandle(long handle, int builtinComparator);
+  private static native void setComparatorHandle(
+      long optHandle, long comparatorHandle, byte comparatorType);
+  private static native void setMergeOperatorName(long handle, String name);
+  private static native void setMergeOperator(long handle, long mergeOperatorHandle);
+  private static native void setCompactionFilterHandle(long handle, long compactionFilterHandle);
+  private static native void setCompactionFilterFactoryHandle(
+      long handle, long compactionFilterFactoryHandle);
+  private static native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
-  private native long writeBufferSize(long handle);
-  private native void setMaxWriteBufferNumber(
-      long handle, int maxWriteBufferNumber);
-  private native int maxWriteBufferNumber(long handle);
-  private native void setMinWriteBufferNumberToMerge(
+  private static native long writeBufferSize(long handle);
+  private static native void setMaxWriteBufferNumber(long handle, int maxWriteBufferNumber);
+  private static native int maxWriteBufferNumber(long handle);
+  private static native void setMinWriteBufferNumberToMerge(
       long handle, int minWriteBufferNumberToMerge);
-  private native int minWriteBufferNumberToMerge(long handle);
-  private native void setCompressionType(long handle, byte compressionType);
-  private native byte compressionType(long handle);
-  private native void setCompressionPerLevel(long handle,
-      byte[] compressionLevels);
-  private native byte[] compressionPerLevel(long handle);
-  private native void setBottommostCompressionType(long handle,
-      byte bottommostCompressionType);
-  private native byte bottommostCompressionType(long handle);
-  private native void setBottommostCompressionOptions(final long handle,
-      final long bottommostCompressionOptionsHandle);
-  private native void setCompressionOptions(long handle,
-      long compressionOptionsHandle);
-  private native void useFixedLengthPrefixExtractor(
-      long handle, int prefixLength);
-  private native void useCappedPrefixExtractor(
-      long handle, int prefixLength);
-  private native void setNumLevels(
-      long handle, int numLevels);
-  private native int numLevels(long handle);
-  private native void setLevelZeroFileNumCompactionTrigger(
-      long handle, int numFiles);
-  private native int levelZeroFileNumCompactionTrigger(long handle);
-  private native void setLevelZeroSlowdownWritesTrigger(
-      long handle, int numFiles);
-  private native int levelZeroSlowdownWritesTrigger(long handle);
-  private native void setLevelZeroStopWritesTrigger(
-      long handle, int numFiles);
-  private native int levelZeroStopWritesTrigger(long handle);
-  private native void setTargetFileSizeBase(
-      long handle, long targetFileSizeBase);
-  private native long targetFileSizeBase(long handle);
-  private native void setTargetFileSizeMultiplier(
-      long handle, int multiplier);
-  private native int targetFileSizeMultiplier(long handle);
-  private native void setMaxBytesForLevelBase(
-      long handle, long maxBytesForLevelBase);
-  private native long maxBytesForLevelBase(long handle);
-  private native void setLevelCompactionDynamicLevelBytes(
+  private static native int minWriteBufferNumberToMerge(long handle);
+  private static native void setCompressionType(long handle, byte compressionType);
+  private static native byte compressionType(long handle);
+  private static native void setCompressionPerLevel(long handle, byte[] compressionLevels);
+  private static native byte[] compressionPerLevel(long handle);
+  private static native void setBottommostCompressionType(
+      long handle, byte bottommostCompressionType);
+  private static native byte bottommostCompressionType(long handle);
+  private static native void setBottommostCompressionOptions(
+      final long handle, final long bottommostCompressionOptionsHandle);
+  private static native void setCompressionOptions(long handle, long compressionOptionsHandle);
+  private static native void useFixedLengthPrefixExtractor(long handle, int prefixLength);
+  private static native void useCappedPrefixExtractor(long handle, int prefixLength);
+  private static native void setNumLevels(long handle, int numLevels);
+  private static native int numLevels(long handle);
+  private static native void setLevelZeroFileNumCompactionTrigger(long handle, int numFiles);
+  private static native int levelZeroFileNumCompactionTrigger(long handle);
+  private static native void setLevelZeroSlowdownWritesTrigger(long handle, int numFiles);
+  private static native int levelZeroSlowdownWritesTrigger(long handle);
+  private static native void setLevelZeroStopWritesTrigger(long handle, int numFiles);
+  private static native int levelZeroStopWritesTrigger(long handle);
+  private static native void setTargetFileSizeBase(long handle, long targetFileSizeBase);
+  private static native long targetFileSizeBase(long handle);
+  private static native void setTargetFileSizeMultiplier(long handle, int multiplier);
+  private static native int targetFileSizeMultiplier(long handle);
+  private static native void setMaxBytesForLevelBase(long handle, long maxBytesForLevelBase);
+  private static native long maxBytesForLevelBase(long handle);
+  private static native void setLevelCompactionDynamicLevelBytes(
       long handle, boolean enableLevelCompactionDynamicLevelBytes);
-  private native boolean levelCompactionDynamicLevelBytes(
-      long handle);
-  private native void setMaxBytesForLevelMultiplier(long handle, double multiplier);
-  private native double maxBytesForLevelMultiplier(long handle);
-  private native void setMaxCompactionBytes(long handle, long maxCompactionBytes);
-  private native long maxCompactionBytes(long handle);
-  private native void setArenaBlockSize(
-      long handle, long arenaBlockSize)
+  private static native boolean levelCompactionDynamicLevelBytes(long handle);
+  private static native void setMaxBytesForLevelMultiplier(long handle, double multiplier);
+  private static native double maxBytesForLevelMultiplier(long handle);
+  private static native void setMaxCompactionBytes(long handle, long maxCompactionBytes);
+  private static native long maxCompactionBytes(long handle);
+  private static native void setArenaBlockSize(long handle, long arenaBlockSize)
       throws IllegalArgumentException;
-  private native long arenaBlockSize(long handle);
-  private native void setDisableAutoCompactions(
-      long handle, boolean disableAutoCompactions);
-  private native boolean disableAutoCompactions(long handle);
-  private native void setCompactionStyle(long handle, byte compactionStyle);
-  private native byte compactionStyle(long handle);
-   private native void setMaxTableFilesSizeFIFO(
-      long handle, long max_table_files_size);
-  private native long maxTableFilesSizeFIFO(long handle);
-  private native void setMaxSequentialSkipInIterations(
+  private static native long arenaBlockSize(long handle);
+  private static native void setDisableAutoCompactions(long handle, boolean disableAutoCompactions);
+  private static native boolean disableAutoCompactions(long handle);
+  private static native void setCompactionStyle(long handle, byte compactionStyle);
+  private static native byte compactionStyle(long handle);
+  private static native void setMaxTableFilesSizeFIFO(long handle, long max_table_files_size);
+  private static native long maxTableFilesSizeFIFO(long handle);
+  private static native void setMaxSequentialSkipInIterations(
       long handle, long maxSequentialSkipInIterations);
-  private native long maxSequentialSkipInIterations(long handle);
-  private native void setMemTableFactory(long handle, long factoryHandle);
-  private native String memTableFactoryName(long handle);
-  private native void setTableFactory(long handle, long factoryHandle);
-  private native String tableFactoryName(long handle);
+  private static native long maxSequentialSkipInIterations(long handle);
+  private static native void setMemTableFactory(long handle, long factoryHandle);
+  private static native String memTableFactoryName(long handle);
+  private static native void setTableFactory(long handle, long factoryHandle);
+  private static native String tableFactoryName(long handle);
   private static native void setCfPaths(
       final long handle, final String[] paths, final long[] targetSizes);
   private static native long cfPathsLen(final long handle);
   private static native void cfPaths(
       final long handle, final String[] paths, final long[] targetSizes);
-  private native void setInplaceUpdateSupport(
-      long handle, boolean inplaceUpdateSupport);
-  private native boolean inplaceUpdateSupport(long handle);
-  private native void setInplaceUpdateNumLocks(
-      long handle, long inplaceUpdateNumLocks)
+  private static native void setInplaceUpdateSupport(long handle, boolean inplaceUpdateSupport);
+  private static native boolean inplaceUpdateSupport(long handle);
+  private static native void setInplaceUpdateNumLocks(long handle, long inplaceUpdateNumLocks)
       throws IllegalArgumentException;
-  private native long inplaceUpdateNumLocks(long handle);
-  private native void setMemtablePrefixBloomSizeRatio(
+  private static native long inplaceUpdateNumLocks(long handle);
+  private static native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
-  private native double memtablePrefixBloomSizeRatio(long handle);
-  private native void setExperimentalMempurgeThreshold(
+  private static native double memtablePrefixBloomSizeRatio(long handle);
+  private static native void setExperimentalMempurgeThreshold(
       long handle, double experimentalMempurgeThreshold);
-  private native double experimentalMempurgeThreshold(long handle);
-  private native void setMemtableWholeKeyFiltering(long handle, boolean memtableWholeKeyFiltering);
-  private native boolean memtableWholeKeyFiltering(long handle);
-  private native void setBloomLocality(
-      long handle, int bloomLocality);
-  private native int bloomLocality(long handle);
-  private native void setMaxSuccessiveMerges(
-      long handle, long maxSuccessiveMerges)
+  private static native double experimentalMempurgeThreshold(long handle);
+  private static native void setMemtableWholeKeyFiltering(
+      long handle, boolean memtableWholeKeyFiltering);
+  private static native boolean memtableWholeKeyFiltering(long handle);
+  private static native void setBloomLocality(long handle, int bloomLocality);
+  private static native int bloomLocality(long handle);
+  private static native void setMaxSuccessiveMerges(long handle, long maxSuccessiveMerges)
       throws IllegalArgumentException;
-  private native long maxSuccessiveMerges(long handle);
-  private native void setOptimizeFiltersForHits(long handle,
-      boolean optimizeFiltersForHits);
-  private native boolean optimizeFiltersForHits(long handle);
-  private native void setMemtableHugePageSize(long handle,
-      long memtableHugePageSize);
-  private native long memtableHugePageSize(long handle);
-  private native void setSoftPendingCompactionBytesLimit(long handle,
-      long softPendingCompactionBytesLimit);
-  private native long softPendingCompactionBytesLimit(long handle);
-  private native void setHardPendingCompactionBytesLimit(long handle,
-      long hardPendingCompactionBytesLimit);
-  private native long hardPendingCompactionBytesLimit(long handle);
-  private native void setLevel0FileNumCompactionTrigger(long handle,
-      int level0FileNumCompactionTrigger);
-  private native int level0FileNumCompactionTrigger(long handle);
-  private native void setLevel0SlowdownWritesTrigger(long handle,
-      int level0SlowdownWritesTrigger);
-  private native int level0SlowdownWritesTrigger(long handle);
-  private native void setLevel0StopWritesTrigger(long handle,
-      int level0StopWritesTrigger);
-  private native int level0StopWritesTrigger(long handle);
-  private native void setMaxBytesForLevelMultiplierAdditional(long handle,
-      int[] maxBytesForLevelMultiplierAdditional);
-  private native int[] maxBytesForLevelMultiplierAdditional(long handle);
-  private native void setParanoidFileChecks(long handle,
-      boolean paranoidFileChecks);
-  private native boolean paranoidFileChecks(long handle);
-  private native void setMaxWriteBufferNumberToMaintain(final long handle,
-      final int maxWriteBufferNumberToMaintain);
-  private native int maxWriteBufferNumberToMaintain(final long handle);
-  private native void setCompactionPriority(final long handle,
-      final byte compactionPriority);
-  private native byte compactionPriority(final long handle);
-  private native void setReportBgIoStats(final long handle,
-    final boolean reportBgIoStats);
-  private native boolean reportBgIoStats(final long handle);
-  private native void setTtl(final long handle, final long ttl);
-  private native long ttl(final long handle);
-  private native void setPeriodicCompactionSeconds(
+  private static native long maxSuccessiveMerges(long handle);
+  private static native void setOptimizeFiltersForHits(long handle, boolean optimizeFiltersForHits);
+  private static native boolean optimizeFiltersForHits(long handle);
+  private static native void setMemtableHugePageSize(long handle, long memtableHugePageSize);
+  private static native long memtableHugePageSize(long handle);
+  private static native void setSoftPendingCompactionBytesLimit(
+      long handle, long softPendingCompactionBytesLimit);
+  private static native long softPendingCompactionBytesLimit(long handle);
+  private static native void setHardPendingCompactionBytesLimit(
+      long handle, long hardPendingCompactionBytesLimit);
+  private static native long hardPendingCompactionBytesLimit(long handle);
+  private static native void setLevel0FileNumCompactionTrigger(
+      long handle, int level0FileNumCompactionTrigger);
+  private static native int level0FileNumCompactionTrigger(long handle);
+  private static native void setLevel0SlowdownWritesTrigger(
+      long handle, int level0SlowdownWritesTrigger);
+  private static native int level0SlowdownWritesTrigger(long handle);
+  private static native void setLevel0StopWritesTrigger(long handle, int level0StopWritesTrigger);
+  private static native int level0StopWritesTrigger(long handle);
+  private static native void setMaxBytesForLevelMultiplierAdditional(
+      long handle, int[] maxBytesForLevelMultiplierAdditional);
+  private static native int[] maxBytesForLevelMultiplierAdditional(long handle);
+  private static native void setParanoidFileChecks(long handle, boolean paranoidFileChecks);
+  private static native boolean paranoidFileChecks(long handle);
+  private static native void setMaxWriteBufferNumberToMaintain(
+      final long handle, final int maxWriteBufferNumberToMaintain);
+  private static native int maxWriteBufferNumberToMaintain(final long handle);
+  private static native void setCompactionPriority(
+      final long handle, final byte compactionPriority);
+  private static native byte compactionPriority(final long handle);
+  private static native void setReportBgIoStats(final long handle, final boolean reportBgIoStats);
+  private static native boolean reportBgIoStats(final long handle);
+  private static native void setTtl(final long handle, final long ttl);
+  private static native long ttl(final long handle);
+  private static native void setPeriodicCompactionSeconds(
       final long handle, final long periodicCompactionSeconds);
-  private native long periodicCompactionSeconds(final long handle);
-  private native void setCompactionOptionsUniversal(final long handle,
-    final long compactionOptionsUniversalHandle);
-  private native void setCompactionOptionsFIFO(final long handle,
-    final long compactionOptionsFIFOHandle);
-  private native void setForceConsistencyChecks(final long handle,
-    final boolean forceConsistencyChecks);
-  private native boolean forceConsistencyChecks(final long handle);
-  private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
+  private static native long periodicCompactionSeconds(final long handle);
+  private static native void setCompactionOptionsUniversal(
+      final long handle, final long compactionOptionsUniversalHandle);
+  private static native void setCompactionOptionsFIFO(
+      final long handle, final long compactionOptionsFIFOHandle);
+  private static native void setForceConsistencyChecks(
+      final long handle, final boolean forceConsistencyChecks);
+  private static native boolean forceConsistencyChecks(final long handle);
+  private static native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
   private static native void setCompactionThreadLimiter(
       final long nativeHandle_, final long compactionThreadLimiterHandle);
-  private native void setMemtableMaxRangeDeletions(final long handle, final int count);
-  private native int memtableMaxRangeDeletions(final long handle);
-  private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
-  private native boolean enableBlobFiles(final long nativeHandle_);
-  private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);
-  private native long minBlobSize(final long nativeHandle_);
-  private native void setBlobFileSize(final long nativeHandle_, final long blobFileSize);
-  private native long blobFileSize(final long nativeHandle_);
-  private native void setBlobCompressionType(final long nativeHandle_, final byte compressionType);
-  private native byte blobCompressionType(final long nativeHandle_);
-  private native void setEnableBlobGarbageCollection(
+  private static native void setMemtableMaxRangeDeletions(final long handle, final int count);
+  private static native int memtableMaxRangeDeletions(final long handle);
+
+  private static native void setEnableBlobFiles(
+      final long nativeHandle_, final boolean enableBlobFiles);
+  private static native boolean enableBlobFiles(final long nativeHandle_);
+  private static native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);
+  private static native long minBlobSize(final long nativeHandle_);
+  private static native void setBlobFileSize(final long nativeHandle_, final long blobFileSize);
+  private static native long blobFileSize(final long nativeHandle_);
+  private static native void setBlobCompressionType(
+      final long nativeHandle_, final byte compressionType);
+  private static native byte blobCompressionType(final long nativeHandle_);
+  private static native void setEnableBlobGarbageCollection(
       final long nativeHandle_, final boolean enableBlobGarbageCollection);
-  private native boolean enableBlobGarbageCollection(final long nativeHandle_);
-  private native void setBlobGarbageCollectionAgeCutoff(
+  private static native boolean enableBlobGarbageCollection(final long nativeHandle_);
+  private static native void setBlobGarbageCollectionAgeCutoff(
       final long nativeHandle_, final double blobGarbageCollectionAgeCutoff);
-  private native double blobGarbageCollectionAgeCutoff(final long nativeHandle_);
-  private native void setBlobGarbageCollectionForceThreshold(
+  private static native double blobGarbageCollectionAgeCutoff(final long nativeHandle_);
+  private static native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
-  private native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
-  private native void setBlobCompactionReadaheadSize(
+  private static native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private static native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
-  private native long blobCompactionReadaheadSize(final long nativeHandle_);
-  private native void setBlobFileStartingLevel(
+  private static native long blobCompactionReadaheadSize(final long nativeHandle_);
+  private static native void setBlobFileStartingLevel(
       final long nativeHandle_, final int blobFileStartingLevel);
-  private native int blobFileStartingLevel(final long nativeHandle_);
-  private native void setPrepopulateBlobCache(
+  private static native int blobFileStartingLevel(final long nativeHandle_);
+  private static native void setPrepopulateBlobCache(
       final long nativeHandle_, final byte prepopulateBlobCache);
-  private native byte prepopulateBlobCache(final long nativeHandle_);
+  private static native byte prepopulateBlobCache(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

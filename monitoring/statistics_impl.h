@@ -46,14 +46,14 @@ class StatisticsImpl : public Statistics {
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "BasicStatistics"; }
 
-  virtual uint64_t getTickerCount(uint32_t ticker_type) const override;
-  virtual void histogramData(uint32_t histogram_type,
-                             HistogramData* const data) const override;
+  uint64_t getTickerCount(uint32_t ticker_type) const override;
+  void histogramData(uint32_t histogram_type,
+                     HistogramData* const data) const override;
   std::string getHistogramString(uint32_t histogram_type) const override;
 
-  virtual void setTickerCount(uint32_t ticker_type, uint64_t count) override;
-  virtual uint64_t getAndResetTickerCount(uint32_t ticker_type) override;
-  virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
+  void setTickerCount(uint32_t ticker_type, uint64_t count) override;
+  uint64_t getAndResetTickerCount(uint32_t ticker_type) override;
+  void recordTick(uint32_t ticker_type, uint64_t count) override;
   // The function is implemented for now for backward compatibility reason.
   // In case a user explictly calls it, for example, they may have a wrapped
   // Statistics object, passing the call to recordTick() into here, nothing
@@ -61,13 +61,12 @@ class StatisticsImpl : public Statistics {
   void measureTime(uint32_t histogramType, uint64_t time) override {
     recordInHistogram(histogramType, time);
   }
-  virtual void recordInHistogram(uint32_t histogram_type,
-                                 uint64_t value) override;
+  void recordInHistogram(uint32_t histogram_type, uint64_t value) override;
 
-  virtual Status Reset() override;
-  virtual std::string ToString() const override;
-  virtual bool getTickerMap(std::map<std::string, uint64_t>*) const override;
-  virtual bool HistEnabledForType(uint32_t type) const override;
+  Status Reset() override;
+  std::string ToString() const override;
+  bool getTickerMap(std::map<std::string, uint64_t>*) const override;
+  bool HistEnabledForType(uint32_t type) const override;
 
   const Customizable* Inner() const override { return stats_.get(); }
 

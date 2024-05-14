@@ -17,9 +17,9 @@
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
  public:
-  NonBatchedOpsStressTest() {}
+  NonBatchedOpsStressTest() = default;
 
-  virtual ~NonBatchedOpsStressTest() {}
+  virtual ~NonBatchedOpsStressTest() = default;
 
   void VerifyDb(ThreadState* thread) const override {
     // This `ReadOptions` is for validation purposes. Ignore
@@ -582,7 +582,11 @@ class NonBatchedOpsStressTest : public StressTest {
     int error_count = 0;
     // Do a consistency check between Get and MultiGet. Don't do it too
     // often as it will slow db_stress down
-    bool do_consistency_check = thread->rand.OneIn(4);
+    //
+    // CompactionFilter can make snapshot non-repeatable by removing keys
+    // protected by snapshot
+    bool do_consistency_check =
+        !FLAGS_enable_compaction_filter && thread->rand.OneIn(4);
 
     ReadOptions readoptionscopy = read_opts;
 
@@ -624,7 +628,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!shared->AllowsOverwrite(rand_key) &&
             shared->Exists(column_family, rand_key)) {
           // Just do read your write checks for keys that allow overwrites.
-          ryw_expected_values.push_back(std::nullopt);
+          ryw_expected_values.emplace_back(std::nullopt);
           continue;
         }
         // With a 1 in 10 probability, insert the just added key in the batch
@@ -667,7 +671,7 @@ class NonBatchedOpsStressTest : public StressTest {
             thread->shared->SafeTerminate();
           }
         } else {
-          ryw_expected_values.push_back(std::nullopt);
+          ryw_expected_values.emplace_back(std::nullopt);
         }
       }
     }
@@ -796,18 +800,27 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
           is_consistent = false;
         } else if (!s.ok() && tmp_s.ok()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  key.ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
           is_consistent = false;
         } else if (s.ok() && tmp_s.IsNotFound()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  key.ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
           is_consistent = false;
         } else if (s.ok() && value != expected_value.ToString()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  key.ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGet(%d) returned different results with key %s. "
+                  "Snapshot Seq No: %" PRIu64 "\n",
+                  column_family, key.ToString(true).c_str(),
+                  readoptionscopy.snapshot->GetSequenceNumber());
           fprintf(stderr, "MultiGet returned value %s\n",
                   expected_value.ToString(true).c_str());
           fprintf(stderr, "Get returned value %s\n",
@@ -910,7 +923,18 @@ class NonBatchedOpsStressTest : public StressTest {
 
     PinnableWideColumns from_db;
 
-    const Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
+    ReadOptions read_opts_copy = read_opts;
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
+
+    const Status s = db_->GetEntity(read_opts_copy, cfh, key, &from_db);
 
     int error_count = 0;
 
@@ -933,7 +957,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
       thread->stats.AddGets(1, 1);
 
-      if (!FLAGS_skip_verifydb) {
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
         const WideColumns& columns = from_db.columns();
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
@@ -956,7 +980,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
 
-      if (!FLAGS_skip_verifydb) {
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
         if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
@@ -1051,7 +1075,10 @@ class NonBatchedOpsStressTest : public StressTest {
       fault_fs_guard->DisableErrorInjection();
     }
 
-    const bool check_get_entity = !error_count && thread->rand.OneIn(4);
+    // CompactionFilter can make snapshot non-repeatable by removing keys
+    // protected by snapshot
+    const bool check_get_entity = !FLAGS_enable_compaction_filter &&
+                                  !error_count && thread->rand.OneIn(4);
 
     for (size_t i = 0; i < num_keys; ++i) {
       const Status& s = statuses[i];
@@ -1311,6 +1338,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!s.ok()) {
+      pending_expected_value.Rollback();
       if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
@@ -1368,6 +1396,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       if (!s.ok()) {
+        pending_expected_value.Rollback();
         if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
@@ -1400,6 +1429,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       if (!s.ok()) {
+        pending_expected_value.Rollback();
         if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
@@ -1464,6 +1494,10 @@ class NonBatchedOpsStressTest : public StressTest {
       s = db_->DeleteRange(write_opts, cfh, key, end_key);
     }
     if (!s.ok()) {
+      for (PendingExpectedValue& pending_expected_value :
+           pending_expected_values) {
+        pending_expected_value.Rollback();
+      }
       if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
@@ -1492,6 +1526,7 @@ class NonBatchedOpsStressTest : public StressTest {
     const std::string sst_filename =
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
+    std::ostringstream ingest_options_oss;
     if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file
       // ingestion a clean slate
@@ -1560,19 +1595,38 @@ class NonBatchedOpsStressTest : public StressTest {
       s = sst_file_writer.Finish();
     }
     if (s.ok()) {
+      IngestExternalFileOptions ingest_options;
+      ingest_options.move_files = thread->rand.OneInOpt(2);
+      ingest_options.verify_checksums_before_ingest = thread->rand.OneInOpt(2);
+      ingest_options.verify_checksums_readahead_size =
+          thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
+      ingest_options_oss << "move_files: " << ingest_options.move_files
+                         << ", verify_checksums_before_ingest: "
+                         << ingest_options.verify_checksums_before_ingest
+                         << ", verify_checksums_readahead_size: "
+                         << ingest_options.verify_checksums_readahead_size;
       s = db_->IngestExternalFile(column_families_[column_family],
-                                  {sst_filename}, IngestExternalFileOptions());
+                                  {sst_filename}, ingest_options);
     }
     if (!s.ok()) {
+      for (PendingExpectedValue& pending_expected_value :
+           pending_expected_values) {
+        pending_expected_value.Rollback();
+      }
       if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
-        fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
+        fprintf(stderr,
+                "file ingestion error: %s under specified "
+                "IngestExternalFileOptions: %s (Empty string or "
+                "missing field indicates default option or value is used)\n",
+                s.ToString().c_str(), ingest_options_oss.str().c_str());
         thread->shared->SafeTerminate();
       } else {
         fprintf(stdout, "file ingestion error: %s\n", s.ToString().c_str());
       }
     } else {
-      for (size_t i = 0; i < pending_expected_values.size(); ++i) {
-        pending_expected_values[i].Commit();
+      for (PendingExpectedValue& pending_expected_value :
+           pending_expected_values) {
+        pending_expected_value.Commit();
       }
     }
   }
@@ -2037,12 +2091,17 @@ class NonBatchedOpsStressTest : public StressTest {
         Slice slice(value_from_db);
         uint32_t value_base = GetValueBase(slice);
         shared->SyncPut(cf, key, value_base);
+        return true;
       } else if (s.IsNotFound()) {
         // Value doesn't exist in db, update state to reflect that
         shared->SyncDelete(cf, key);
+        return true;
       }
-      return true;
     }
+    char expected_value_data[kValueMaxLen];
+    size_t expected_value_data_size =
+        GenerateValue(expected_value.GetValueBase(), expected_value_data,
+                      sizeof(expected_value_data));
 
     // compare value_from_db with the value in the shared state
     if (s.ok()) {
@@ -2054,10 +2113,6 @@ class NonBatchedOpsStressTest : public StressTest {
                           key, value_from_db, "");
         return false;
       }
-      char expected_value_data[kValueMaxLen];
-      size_t expected_value_data_size =
-          GenerateValue(expected_value.GetValueBase(), expected_value_data,
-                        sizeof(expected_value_data));
       if (!ExpectedValueHelper::InExpectedValueBaseRange(
               value_base_from_db, expected_value, expected_value)) {
         VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
@@ -2084,17 +2139,16 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       if (ExpectedValueHelper::MustHaveExisted(expected_value,
                                                expected_value)) {
-        char expected_value_data[kValueMaxLen];
-        size_t expected_value_data_size =
-            GenerateValue(expected_value.GetValueBase(), expected_value_data,
-                          sizeof(expected_value_data));
         VerificationAbort(
             shared, msg_prefix + ": Value not found: " + s.ToString(), cf, key,
             "", Slice(expected_value_data, expected_value_data_size));
         return false;
       }
     } else {
-      assert(false);
+      VerificationAbort(shared, msg_prefix + "Non-OK status: " + s.ToString(),
+                        cf, key, "",
+                        Slice(expected_value_data, expected_value_data_size));
+      return false;
     }
     return true;
   }

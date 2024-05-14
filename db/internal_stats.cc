@@ -1162,7 +1162,7 @@ bool InternalStats::HandleSsTables(std::string* value, Slice /*suffix*/) {
 bool InternalStats::HandleAggregatedTableProperties(std::string* value,
                                                     Slice /*suffix*/) {
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(read_options, &tp);
   if (!s.ok()) {
@@ -1184,7 +1184,7 @@ static std::map<std::string, std::string> MapUint64ValuesToString(
 bool InternalStats::HandleAggregatedTablePropertiesMap(
     std::map<std::string, std::string>* values, Slice /*suffix*/) {
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(read_options, &tp);
   if (!s.ok()) {
@@ -1202,7 +1202,7 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* values,
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(
       read_options, &tp, static_cast<int>(level));
@@ -1221,7 +1221,7 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevelMap(
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(
       read_options, &tp, static_cast<int>(level));
@@ -1432,7 +1432,7 @@ bool InternalStats::HandleEstimatePendingCompactionBytes(uint64_t* value,
 bool InternalStats::HandleEstimateTableReadersMem(uint64_t* value,
                                                   DBImpl* /*db*/,
                                                   Version* version) {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   *value = (version == nullptr)
                ? 0
@@ -1487,7 +1487,7 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
           ->compaction_options_fifo.allow_compaction) {
     return false;
   }
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   TablePropertiesCollection collection;
   auto s = cfd_->current()->GetPropertiesOfAllTables(read_options, &collection);
@@ -2081,6 +2081,12 @@ void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
       interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001),
       interval_compact_micros / kMicrosInSec);
   value->append(buf);
+
+  snprintf(buf, sizeof(buf),
+           "Estimated pending compaction bytes: %" PRIu64 "\n",
+           vstorage->estimated_compaction_needed_bytes());
+  value->append(buf);
+
   if (is_periodic) {
     cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
     cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;

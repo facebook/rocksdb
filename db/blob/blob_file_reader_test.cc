@@ -63,7 +63,7 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
   BlobLogHeader header(column_family_id, compression, has_ttl,
                        expiration_range_header);
 
-  ASSERT_OK(blob_log_writer.WriteHeader(header));
+  ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
 
   std::vector<std::string> compressed_blobs(num);
   std::vector<Slice> blobs_to_write(num);
@@ -91,7 +91,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
   for (size_t i = 0; i < num; ++i) {
     uint64_t key_offset = 0;
-    ASSERT_OK(blob_log_writer.AddRecord(keys[i], blobs_to_write[i], &key_offset,
+    ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), keys[i],
+                                        blobs_to_write[i], &key_offset,
                                         &blob_offsets[i]));
   }
 
@@ -101,8 +102,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
   std::string checksum_method;
   std::string checksum_value;
-  ASSERT_OK(
-      blob_log_writer.AppendFooter(footer, &checksum_method, &checksum_value));
+  ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
+                                         &checksum_method, &checksum_value));
 }
 
 // Creates a test blob file with a single blob in it. Note: this method
@@ -404,7 +405,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
     requests_buf[0] =
         BlobReadRequest(key_refs[0], blob_offsets[0], blob_sizes[0],
-                        kNoCompression, nullptr, &statuses_buf[0]);
+                        kNoCompression, nullptr, statuses_buf.data());
     requests_buf[1] =
         BlobReadRequest(key_refs[1], blob_offsets[1], blob_sizes[1] + 1,
                         kNoCompression, nullptr, &statuses_buf[1]);
@@ -473,7 +474,7 @@ TEST_F(BlobFileReaderTest, Malformed) {
     BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
                          expiration_range);
 
-    ASSERT_OK(blob_log_writer.WriteHeader(header));
+    ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
   }
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;

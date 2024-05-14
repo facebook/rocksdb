@@ -24,8 +24,8 @@ class CTRCipherStream final : public BlockAccessCipherStream {
  public:
   CTRCipherStream(const std::shared_ptr<BlockCipher>& c, const char* iv,
                   uint64_t initialCounter)
-      : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter){};
-  virtual ~CTRCipherStream(){};
+      : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter){}
+  virtual ~CTRCipherStream(){}
 
   size_t BlockSize() override { return cipher_->BlockSize(); }
 

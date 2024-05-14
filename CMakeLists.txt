@@ -44,6 +44,29 @@ project(rocksdb
   HOMEPAGE_URL https://rocksdb.org/
   LANGUAGES CXX C ASM)
 
+if(APPLE)
+  # On macOS Cmake, when cross-compiling, sometimes CMAKE_SYSTEM_PROCESSOR wrongfully stays
+  # the same as CMAKE_HOST_SYSTEM_PROCESSOR regardless the target CPU.
+  # The manual call to  set(CMAKE_SYSTEM_PROCESSOR) has to be set after the project() call.
+  # because project() might reset CMAKE_SYSTEM_PROCESSOR back to the value of CMAKE_HOST_SYSTEM_PROCESSOR.
+  # Check if CMAKE_SYSTEM_PROCESSOR is not equal to CMAKE_OSX_ARCHITECTURES
+  if(NOT CMAKE_OSX_ARCHITECTURES STREQUAL "")
+    if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL CMAKE_OSX_ARCHITECTURES)
+      # Split CMAKE_OSX_ARCHITECTURES into a list
+      string(REPLACE ";" " " ARCH_LIST ${CMAKE_OSX_ARCHITECTURES})
+      separate_arguments(ARCH_LIST UNIX_COMMAND ${ARCH_LIST})
+      # Count the number of architectures
+      list(LENGTH ARCH_LIST ARCH_COUNT)
+      # Ensure that exactly one architecture is specified
+      if(NOT ARCH_COUNT EQUAL 1)
+          message(FATAL_ERROR "CMAKE_OSX_ARCHITECTURES must have exactly one value. Current value: ${CMAKE_OSX_ARCHITECTURES}")
+      endif()
+      set(CMAKE_SYSTEM_PROCESSOR ${CMAKE_OSX_ARCHITECTURES})
+      message(STATUS "CMAKE_SYSTEM_PROCESSOR is manually set to ${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+  endif()
+endif()
+
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
 endif()
@@ -76,11 +99,6 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
-
-if ($ENV{CIRCLECI})
-  message(STATUS "Build for CircieCI env, a few tests may be disabled")
-  add_definitions(-DCIRCLECI)
-endif()
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
@@ -172,7 +190,7 @@ else()
   if(WITH_ZSTD)
     find_package(zstd REQUIRED)
     add_definitions(-DZSTD)
-    include_directories(${ZSTD_INCLUDE_DIR})
+    include_directories(${ZSTD_INCLUDE_DIRS})
     list(APPEND THIRDPARTY_LIBS zstd::zstd)
   endif()
 endif()
@@ -195,7 +213,7 @@ endif()
 
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4996 /wd4100 /wd4324")
 else()
   set(CMAKE_CXX_FLAGS "-W -Wextra -Wall ${CMAKE_CXX_FLAGS} -pthread")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing -Wno-invalid-offsetof")
@@ -204,6 +222,7 @@ else()
   endif()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wa,-mbig-obj")
     add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -384,7 +403,7 @@ option(WITH_NUMA "build with NUMA policy support" OFF)
 if(WITH_NUMA)
   find_package(NUMA REQUIRED)
   add_definitions(-DNUMA)
-  include_directories(${NUMA_INCLUDE_DIR})
+  include_directories(${NUMA_INCLUDE_DIRS})
   list(APPEND THIRDPARTY_LIBS NUMA::NUMA)
 endif()
 
@@ -703,6 +722,7 @@ set(SOURCES
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc
+        db/multi_cf_iterator.cc
         db/output_validator.cc
         db/periodic_task_scheduler.cc
         db/range_del_aggregator.cc
@@ -1377,6 +1397,7 @@ if(WITH_TESTS)
         db/memtable_list_test.cc
         db/merge_helper_test.cc
         db/merge_test.cc
+        db/multi_cf_iterator_test.cc
         db/options_file_test.cc
         db/perf_context_test.cc
         db/periodic_task_scheduler_test.cc
@@ -1457,6 +1478,7 @@ if(WITH_TESTS)
         util/ribbon_test.cc
         util/slice_test.cc
         util/slice_transform_test.cc
+        util/string_util_test.cc
         util/timer_queue_test.cc
         util/timer_test.cc
         util/thread_list_test.cc
@@ -1506,7 +1528,7 @@ if(WITH_TESTS)
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+  add_custom_target(rocksdb_check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
   target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB} ${FOLLY_LIBS})
@@ -1531,7 +1553,7 @@ if(WITH_TESTS)
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
-        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(rocksdb_check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
 
@@ -1551,7 +1573,7 @@ if(WITH_TESTS)
     add_executable(c_test db/c_test.c)
     target_link_libraries(c_test ${ROCKSDB_LIB_FOR_C} testharness)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
-    add_dependencies(check c_test)
+    add_dependencies(rocksdb_check c_test)
   endif()
 endif()
 

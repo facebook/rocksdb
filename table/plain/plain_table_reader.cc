@@ -87,7 +87,6 @@ class PlainTableIterator : public InternalIterator {
   Status status_;
 };
 
-extern const uint64_t kPlainTableMagicNumber;
 PlainTableReader::PlainTableReader(
     const ImmutableOptions& ioptions,
     std::unique_ptr<RandomAccessFileReader>&& file,
@@ -126,7 +125,7 @@ Status PlainTableReader::Open(
   }
 
   std::unique_ptr<TableProperties> props;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                ioptions, read_options, &props);
@@ -300,7 +299,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   BlockContents index_block_contents;
 
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   Status s =
       ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
@@ -454,7 +453,9 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   ParsedInternalKey parsed_target;
   Status s = ParseInternalKey(target, &parsed_target,
                               false /* log_err_key */);  // TODO
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   // The key is between [low, high). Do a binary search between it.
   while (high - low > 1) {
@@ -591,7 +592,9 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   ParsedInternalKey parsed_target;
   s = ParseInternalKey(target, &parsed_target,
                        false /* log_err_key */);  // TODO
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   Slice found_value;
   while (offset < file_info_.data_end_offset) {
@@ -611,8 +614,12 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
     // can we enable the fast path?
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
       bool dont_care __attribute__((__unused__));
-      if (!get_context->SaveValue(found_key, found_value, &dont_care,
-                                  dummy_cleanable_.get())) {
+      bool ret = get_context->SaveValue(found_key, found_value, &dont_care, &s,
+                                        dummy_cleanable_.get());
+      if (!s.ok()) {
+        return s;
+      }
+      if (!ret) {
         break;
       }
     }
@@ -642,7 +649,7 @@ PlainTableIterator::PlainTableIterator(PlainTableReader* table,
   next_offset_ = offset_ = table_->file_info_.data_end_offset;
 }
 
-PlainTableIterator::~PlainTableIterator() {}
+PlainTableIterator::~PlainTableIterator() = default;
 
 bool PlainTableIterator::Valid() const {
   return offset_ < table_->file_info_.data_end_offset &&

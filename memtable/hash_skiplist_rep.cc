@@ -208,7 +208,7 @@ class HashSkipListRep : public MemTableRep {
     // This is used when there wasn't a bucket. It is cheaper than
     // instantiating an empty bucket over which to iterate.
    public:
-    EmptyIterator() {}
+    EmptyIterator() = default;
     bool Valid() const override { return false; }
     const char* key() const override {
       assert(false);
@@ -248,7 +248,7 @@ HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
   }
 }
 
-HashSkipListRep::~HashSkipListRep() {}
+HashSkipListRep::~HashSkipListRep() = default;
 
 HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
     const Slice& transformed) {
@@ -357,15 +357,16 @@ class HashSkipListRepFactory : public MemTableRepFactory {
   }
 
   using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, Allocator* allocator,
-      const SliceTransform* transform, Logger* logger) override;
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& compare,
+                                 Allocator* allocator,
+                                 const SliceTransform* transform,
+                                 Logger* logger) override;
 
   static const char* kClassName() { return "HashSkipListRepFactory"; }
   static const char* kNickName() { return "prefix_hash"; }
 
-  virtual const char* Name() const override { return kClassName(); }
-  virtual const char* NickName() const override { return kNickName(); }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
 
  private:
   HashSkipListRepOptions options_;

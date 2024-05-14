@@ -65,14 +65,17 @@ public class SstFileReader extends RocksObject {
     return getTableProperties(nativeHandle_);
   }
 
-  @Override protected final native void disposeInternal(final long handle);
-  private native long newIterator(final long handle, final long readOptionsHandle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
+  private static native long newIterator(final long handle, final long readOptionsHandle);
 
-  private native void open(final long handle, final String filePath)
-      throws RocksDBException;
+  private static native void open(final long handle, final String filePath) throws RocksDBException;
 
   private static native long newSstFileReader(final long optionsHandle);
-  private native void verifyChecksum(final long handle) throws RocksDBException;
-  private native TableProperties getTableProperties(final long handle)
+  private static native void verifyChecksum(final long handle) throws RocksDBException;
+  private static native TableProperties getTableProperties(final long handle)
       throws RocksDBException;
 }

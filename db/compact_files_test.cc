@@ -34,8 +34,8 @@ class CompactFilesTest : public testing::Test {
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
+  FlushedFileCollector() = default;
+  ~FlushedFileCollector() override = default;
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -45,7 +45,7 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> GetFlushedFiles() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> result;
-    for (auto fname : flushed_files_) {
+    for (const auto& fname : flushed_files_) {
       result.push_back(fname);
     }
     return result;
@@ -159,7 +159,9 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   // Compact files except the file in L3
   std::vector<std::string> files;
   for (int i = 0; i < 6; ++i) {
-    if (i == 3) continue;
+    if (i == 3) {
+      continue;
+    }
     for (auto& file : meta.levels[i].files) {
       files.push_back(file.db_path + "/" + file.name);
     }
@@ -228,7 +230,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForCompact());
 
   // verify all compaction input files are deleted
-  for (auto fname : l0_files) {
+  for (const auto& fname : l0_files) {
     ASSERT_EQ(Status::NotFound(), env_->FileExists(fname));
   }
   delete db;
@@ -492,4 +494,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

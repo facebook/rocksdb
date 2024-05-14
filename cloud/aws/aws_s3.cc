@@ -856,13 +856,13 @@ class WritableFileStreamBuf : public std::streambuf {
     : fileCloseStatus_(fileCloseStatus), fileWriter_(std::move(fileWriter)) {}
 
   ~WritableFileStreamBuf() {
-    *fileCloseStatus_ = fileWriter_->Close();
+    *fileCloseStatus_ = fileWriter_->Close({});
   }
 
  protected:
   // Appends a block of data to the stream. Must always write n if possible
   std::streamsize xsputn(const char* s, std::streamsize n) override {
-    auto st = fileWriter_->Append(rocksdb::Slice(s, n));
+    auto st = fileWriter_->Append({}, rocksdb::Slice(s, n));
     if (!st.ok()) {
       return EOF;
     }
@@ -885,7 +885,7 @@ class WritableFileStreamBuf : public std::streambuf {
 
   // Flushes any buffered data
   int sync() override {
-    auto st = fileWriter_->Flush();
+    auto st = fileWriter_->Flush({});
     return st.ok() ? 0 : -1;
   }
 

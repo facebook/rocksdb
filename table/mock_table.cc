@@ -13,8 +13,7 @@
 #include "table/get_context.h"
 #include "util/coding.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace mock {
+namespace ROCKSDB_NAMESPACE::mock {
 
 KVVector MakeMockFile(std::initializer_list<KVPair> l) { return KVVector(l); }
 
@@ -59,7 +58,7 @@ class MockTableReader : public TableReader {
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
-  ~MockTableReader() {}
+  ~MockTableReader() = default;
 
  private:
   const KVVector& table_;
@@ -134,7 +133,7 @@ class MockTableBuilder : public TableBuilder {
   }
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~MockTableBuilder() {}
+  ~MockTableBuilder() = default;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
@@ -221,7 +220,13 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
     }
 
     bool dont_care __attribute__((__unused__));
-    if (!get_context->SaveValue(parsed_key, iter->value(), &dont_care)) {
+    Status read_status;
+    bool ret = get_context->SaveValue(parsed_key, iter->value(), &dont_care,
+                                      &read_status);
+    if (!read_status.ok()) {
+      return read_status;
+    }
+    if (!ret) {
       break;
     }
   }
@@ -298,7 +303,7 @@ Status MockTableFactory::GetAndWriteNextID(WritableFileWriter* file,
   *next_id = next_id_.fetch_add(1);
   char buf[4];
   EncodeFixed32(buf, *next_id);
-  return file->Append(Slice(buf, 4));
+  return file->Append(IOOptions(), Slice(buf, 4));
 }
 
 Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,
@@ -347,5 +352,4 @@ void MockTableFactory::AssertLatestFiles(
   }
 }
 
-}  // namespace mock
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::mock

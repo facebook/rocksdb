@@ -80,7 +80,7 @@ struct JemallocAllocatorOptions {
 // (thread-local cache) is enabled to cache unused allocations for future use.
 // The tcache normally incurs 0.5M extra memory usage per-thread. The usage
 // can be reduced by limiting allocation sizes to cache.
-extern Status NewJemallocNodumpAllocator(
+Status NewJemallocNodumpAllocator(
     const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 

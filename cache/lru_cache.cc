@@ -277,8 +277,8 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInHighPriPool(false);
     e->SetInLowPriPool(true);
     low_pri_pool_usage_ += e->total_charge;
-    MaintainPoolSize();
     lru_low_pri_ = e;
+    MaintainPoolSize();
   } else {
     // Insert "e" to the head of bottom-pri pool.
     e->next = lru_bottom_pri_->next;
@@ -301,6 +301,7 @@ void LRUCacheShard::MaintainPoolSize() {
     // Overflow last entry in high-pri pool to low-pri pool.
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
+    assert(lru_low_pri_->InHighPriPool());
     lru_low_pri_->SetInHighPriPool(false);
     lru_low_pri_->SetInLowPriPool(true);
     assert(high_pri_pool_usage_ >= lru_low_pri_->total_charge);
@@ -312,6 +313,7 @@ void LRUCacheShard::MaintainPoolSize() {
     // Overflow last entry in low-pri pool to bottom-pri pool.
     lru_bottom_pri_ = lru_bottom_pri_->next;
     assert(lru_bottom_pri_ != &lru_);
+    assert(lru_bottom_pri_->InLowPriPool());
     lru_bottom_pri_->SetInHighPriPool(false);
     lru_bottom_pri_->SetInLowPriPool(false);
     assert(low_pri_pool_usage_ >= lru_bottom_pri_->total_charge);
@@ -339,8 +341,7 @@ void LRUCacheShard::NotifyEvicted(
   MemoryAllocator* alloc = table_.GetAllocator();
   for (LRUHandle* entry : evicted_handles) {
     if (eviction_callback_ &&
-        eviction_callback_(entry->key(),
-                           reinterpret_cast<Cache::Handle*>(entry),
+        eviction_callback_(entry->key(), static_cast<Cache::Handle*>(entry),
                            entry->HasHit())) {
       // Callback took ownership of obj; just free handle
       free(entry);
@@ -506,7 +507,7 @@ bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
     // Only call eviction callback if we're sure no one requested erasure
     // FIXME: disabled because of test churn
     if (false && was_in_cache && !erase_if_last_ref && eviction_callback_ &&
-        eviction_callback_(e->key(), reinterpret_cast<Cache::Handle*>(e),
+        eviction_callback_(e->key(), static_cast<Cache::Handle*>(e),
                            e->HasHit())) {
       // Callback took ownership of obj; just free handle
       free(e);
@@ -661,18 +662,18 @@ LRUCache::LRUCache(const LRUCacheOptions& opts) : ShardedCache(opts) {
 }
 
 Cache::ObjectPtr LRUCache::Value(Handle* handle) {
-  auto h = reinterpret_cast<const LRUHandle*>(handle);
+  auto h = static_cast<const LRUHandle*>(handle);
   return h->value;
 }
 
 size_t LRUCache::GetCharge(Handle* handle) const {
-  return reinterpret_cast<const LRUHandle*>(handle)->GetCharge(
+  return static_cast<const LRUHandle*>(handle)->GetCharge(
       GetShard(0).metadata_charge_policy_);
 }
 
 const Cache::CacheItemHelper* LRUCache::GetCacheItemHelper(
     Handle* handle) const {
-  auto h = reinterpret_cast<const LRUHandle*>(handle);
+  auto h = static_cast<const LRUHandle*>(handle);
   return h->helper;
 }
 

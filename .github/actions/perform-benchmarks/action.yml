@@ -1,0 +1,22 @@
+name: perform-benchmarks
+runs:
+  using: composite
+  steps:
+  - name: Test low-variance benchmarks
+    run: "./tools/benchmark_ci.py --db_dir ${{ runner.temp }}/rocksdb-benchmark-datadir --output_dir ${{ runner.temp }}/benchmark-results --num_keys 20000000"
+    env:
+      LD_LIBRARY_PATH: "/usr/local/lib"
+      DURATION_RO: 300
+      DURATION_RW: 500
+      NUM_THREADS: 1
+      MAX_BACKGROUND_JOBS: 4
+      CI_TESTS_ONLY: 'true'
+      WRITE_BUFFER_SIZE_MB: 16
+      TARGET_FILE_SIZE_BASE_MB: 16
+      MAX_BYTES_FOR_LEVEL_BASE_MB: 64
+      COMPRESSION_TYPE: none
+      CACHE_INDEX_AND_FILTER_BLOCKS: 1
+      MIN_LEVEL_TO_COMPRESS: 3
+      CACHE_SIZE_MB: 10240
+      MB_WRITE_PER_SEC: 2
+    shell: bash

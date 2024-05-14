@@ -44,6 +44,13 @@ struct CompactionIterationStats {
   uint64_t total_blob_bytes_read = 0;
   uint64_t num_blobs_relocated = 0;
   uint64_t total_blob_bytes_relocated = 0;
+
+  // TimedPut diagnostics
+  // Total number of kTypeValuePreferredSeqno records encountered.
+  uint64_t num_input_timed_put_records = 0;
+  // Number of kTypeValuePreferredSeqno records we ended up swapping in
+  // preferred seqno.
+  uint64_t num_timed_put_swap_preferred_seqno = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

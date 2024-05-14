@@ -61,8 +61,10 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                    "PromoteL0 FAILED. Invalid target level %d\n", target_level);
     return Status::InvalidArgument("Invalid target level");
   }
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+  const WriteOptions write_options;
+
   Status status;
   VersionEdit edit;
   JobContext job_context(next_job_id_.fetch_add(1), true);
@@ -102,7 +104,9 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
         return status;
       }
 
-      if (i == 0) continue;
+      if (i == 0) {
+        continue;
+      }
       auto prev_f = l0_files[i - 1];
       if (icmp->Compare(prev_f->largest, f->smallest) >= 0) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -143,12 +147,12 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                    read_options, &edit, &mutex_,
+                                    read_options, write_options, &edit, &mutex_,
                                     directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWork(cfd,
-                                         &job_context.superversion_contexts[0],
-                                         *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+          cfd, job_context.superversion_contexts.data(),
+          *cfd->GetLatestMutableCFOptions());
     }
   }  // lock released here
   LogFlush(immutable_db_options_.info_log);

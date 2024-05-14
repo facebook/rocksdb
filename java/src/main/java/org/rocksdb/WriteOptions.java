@@ -235,21 +235,24 @@ public class WriteOptions extends RocksObject {
 
   private static native long newWriteOptions();
   private static native long copyWriteOptions(long handle);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native void setSync(long handle, boolean flag);
-  private native boolean sync(long handle);
-  private native void setDisableWAL(long handle, boolean flag);
-  private native boolean disableWAL(long handle);
-  private native void setIgnoreMissingColumnFamilies(final long handle,
-      final boolean ignoreMissingColumnFamilies);
-  private native boolean ignoreMissingColumnFamilies(final long handle);
-  private native void setNoSlowdown(final long handle,
-      final boolean noSlowdown);
-  private native boolean noSlowdown(final long handle);
-  private native void setLowPri(final long handle, final boolean lowPri);
-  private native boolean lowPri(final long handle);
-  private native boolean memtableInsertHintPerBatch(final long handle);
-  private native void setMemtableInsertHintPerBatch(
+  private static native void setSync(long handle, boolean flag);
+  private static native boolean sync(long handle);
+  private static native void setDisableWAL(long handle, boolean flag);
+  private static native boolean disableWAL(long handle);
+  private static native void setIgnoreMissingColumnFamilies(
+      final long handle, final boolean ignoreMissingColumnFamilies);
+  private static native boolean ignoreMissingColumnFamilies(final long handle);
+  private static native void setNoSlowdown(final long handle, final boolean noSlowdown);
+  private static native boolean noSlowdown(final long handle);
+  private static native void setLowPri(final long handle, final boolean lowPri);
+  private static native boolean lowPri(final long handle);
+  private static native boolean memtableInsertHintPerBatch(final long handle);
+  private static native void setMemtableInsertHintPerBatch(
       final long handle, final boolean memtableInsertHintPerBatch);
 }

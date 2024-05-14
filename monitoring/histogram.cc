@@ -9,12 +9,11 @@
 
 #include "monitoring/histogram.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
+#include <cstdio>
 
 #include "port/port.h"
 #include "util/cast_util.h"
@@ -45,10 +44,11 @@ HistogramBucketMapper::HistogramBucketMapper() {
 size_t HistogramBucketMapper::IndexForValue(const uint64_t value) const {
   auto beg = bucketValues_.begin();
   auto end = bucketValues_.end();
-  if (value >= maxBucketValue_)
+  if (value >= maxBucketValue_) {
     return end - beg - 1;  // bucketValues_.size() - 1
-  else
+  } else {
     return std::lower_bound(beg, end, value) - beg;
+  }
 }
 
 namespace {
@@ -69,7 +69,7 @@ void HistogramStat::Clear() {
   for (unsigned int b = 0; b < num_buckets_; b++) {
     buckets_[b].store(0, std::memory_order_relaxed);
   }
-};
+}
 
 bool HistogramStat::Empty() const { return num() == 0; }
 
@@ -147,8 +147,12 @@ double HistogramStat::Percentile(double p) const {
       double r = left_point + (right_point - left_point) * pos;
       uint64_t cur_min = min();
       uint64_t cur_max = max();
-      if (r < cur_min) r = static_cast<double>(cur_min);
-      if (r > cur_max) r = static_cast<double>(cur_max);
+      if (r < cur_min) {
+        r = static_cast<double>(cur_min);
+      }
+      if (r > cur_max) {
+        r = static_cast<double>(cur_max);
+      }
       return r;
     }
   }
@@ -158,7 +162,9 @@ double HistogramStat::Percentile(double p) const {
 double HistogramStat::Average() const {
   uint64_t cur_num = num();
   uint64_t cur_sum = sum();
-  if (cur_num == 0) return 0;
+  if (cur_num == 0) {
+    return 0;
+  }
   return static_cast<double>(cur_sum) / static_cast<double>(cur_num);
 }
 
@@ -193,12 +199,16 @@ std::string HistogramStat::ToString() const {
            Percentile(99.99));
   r.append(buf);
   r.append("------------------------------------------------------\n");
-  if (cur_num == 0) return r;  // all buckets are empty
+  if (cur_num == 0) {
+    return r;  // all buckets are empty
+  }
   const double mult = 100.0 / cur_num;
   uint64_t cumulative_sum = 0;
   for (unsigned int b = 0; b < num_buckets_; b++) {
     uint64_t bucket_value = bucket_at(b);
-    if (bucket_value <= 0.0) continue;
+    if (bucket_value <= 0.0) {
+      continue;
+    }
     cumulative_sum += bucket_value;
     snprintf(buf, sizeof(buf),
              "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",

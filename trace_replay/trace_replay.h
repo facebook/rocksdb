@@ -56,7 +56,7 @@ struct Trace {
   // example, if bit at position 0 is set in write payload, then the write batch
   // will be addedd.
   uint64_t payload_map = 0;
-  // Each trace type has its own payload_struct, which will be serilized in the
+  // Each trace type has its own payload_struct, which will be serialized in the
   // payload.
   std::string payload;
 

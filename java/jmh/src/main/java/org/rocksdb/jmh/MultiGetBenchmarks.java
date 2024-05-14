@@ -55,6 +55,9 @@ public class MultiGetBenchmarks {
   RocksDB db;
   private final AtomicInteger keyIndex = new AtomicInteger();
 
+  private List<ColumnFamilyHandle> defaultCFHandles = new ArrayList<>();
+  private List<ColumnFamilyHandle> randomCFHandles = new ArrayList<>();
+
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
     RocksDB.loadLibrary();
@@ -88,11 +91,28 @@ public class MultiGetBenchmarks {
     cfHandles = cfHandlesList.toArray(new ColumnFamilyHandle[0]);
 
     // store initial data for retrieving via get
+    for (int j = 0; j < keyCount; j++) {
+      final byte[] paddedValue = Arrays.copyOf(ba("value" + j), valueSize);
+      db.put(ba("key" + j), paddedValue);
+    }
+
+    // store initial data for retrieving via get - column families
     for (int i = 0; i < cfs; i++) {
       for (int j = 0; j < keyCount; j++) {
         final byte[] paddedValue = Arrays.copyOf(ba("value" + j), valueSize);
         db.put(cfHandles[i], ba("key" + j), paddedValue);
       }
+    }
+
+    // build a big list of default column families for efficient passing
+    final ColumnFamilyHandle defaultCFH = db.getDefaultColumnFamily();
+    for (int i = 0; i < keyCount; i++) {
+      defaultCFHandles.add(defaultCFH);
+    }
+
+    // list of random cfs
+    for (int i = 0; i < keyCount; i++) {
+      randomCFHandles.add(cfHandlesList.get((int) (Math.random() * cfs)));
     }
 
     try (final FlushOptions flushOptions = new FlushOptions()
@@ -163,15 +183,13 @@ public class MultiGetBenchmarks {
 
   @Setup
   public void allocateSliceBuffers() {
-    keysBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
+    keysBuffer = ByteBuffer.allocateDirect(keyCount * keySize);
     valuesBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
     valueBuffersList = new ArrayList<>();
     keyBuffersList = new ArrayList<>();
     for (int i = 0; i < keyCount; i++) {
-      valueBuffersList.add(valuesBuffer.slice());
-      valuesBuffer.position(i * valueSize);
-      keyBuffersList.add(keysBuffer.slice());
-      keysBuffer.position(i * keySize);
+      valueBuffersList.add(valuesBuffer.slice(i * valueSize, valueSize));
+      keyBuffersList.add(keysBuffer.slice(i * keySize, keySize));
     }
   }
 
@@ -181,13 +199,60 @@ public class MultiGetBenchmarks {
   }
 
   @Benchmark
-  public List<byte[]> multiGet10() throws RocksDBException {
+  public void multiGetList10() throws RocksDBException {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     if (fromKeyIdx >= 0) {
       final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
       final List<byte[]> valueResults = db.multiGetAsList(keys);
       for (final byte[] result : valueResults) {
         if (result.length != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
+      }
+    }
+  }
+
+  @Benchmark
+  public void multiGetListExplicitCF20() throws RocksDBException {
+    final int fromKeyIdx = next(multiGetSize, keyCount);
+    if (fromKeyIdx >= 0) {
+      final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<ColumnFamilyHandle> columnFamilyHandles =
+          defaultCFHandles.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<byte[]> valueResults = db.multiGetAsList(columnFamilyHandles, keys);
+      for (final byte[] result : valueResults) {
+        if (result.length != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
+      }
+    }
+  }
+
+  @Benchmark
+  public void multiGetListRandomCF30() throws RocksDBException {
+    final int fromKeyIdx = next(multiGetSize, keyCount);
+    if (fromKeyIdx >= 0) {
+      final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<ColumnFamilyHandle> columnFamilyHandles =
+          randomCFHandles.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<byte[]> valueResults = db.multiGetAsList(columnFamilyHandles, keys);
+      for (final byte[] result : valueResults) {
+        if (result.length != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
+      }
+    }
+  }
+
+  @Benchmark
+  public List<byte[]> multiGetBB200() throws RocksDBException {
+    final int fromKeyIdx = next(multiGetSize, keyCount);
+    if (fromKeyIdx >= 0) {
+      final List<ByteBuffer> keys = keys(keyBuffersList, fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<ByteBuffer> values =
+          valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<ByteBufferGetStatus> statusResults = db.multiGetByteBuffers(keys, values);
+      for (final ByteBufferGetStatus result : statusResults) {
+        if (result.status.getCode() != Status.Code.Ok)
+          throw new RuntimeException("Test status not OK: " + result.status);
+        if (result.value.limit() != valueSize)
           throw new RuntimeException("Test valueSize assumption wrong");
       }
     }

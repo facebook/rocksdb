@@ -79,6 +79,8 @@ std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
         PrepareDelete(cf, key, &prepared);
     if (prepared) {
       pending_expected_values.push_back(pending_expected_value);
+    } else {
+      pending_expected_value.PermitUnclosedPendingState();
     }
   }
   return pending_expected_values;
@@ -185,7 +187,7 @@ ExpectedStateManager::ExpectedStateManager(size_t max_key,
       num_column_families_(num_column_families),
       latest_(nullptr) {}
 
-ExpectedStateManager::~ExpectedStateManager() {}
+ExpectedStateManager::~ExpectedStateManager() = default;
 
 const std::string FileExpectedStateManager::kLatestBasename = "LATEST";
 const std::string FileExpectedStateManager::kStateFilenameSuffix = ".state";
@@ -306,9 +308,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
 
   // Populate a tempfile and then rename it to atomically create "<seqno>.state"
   // with contents from "LATEST.state"
-  Status s = CopyFile(FileSystem::Default(), latest_file_path,
-                      state_file_temp_path, 0 /* size */, false /* use_fsync */,
-                      nullptr /* io_tracer */, Temperature::kUnknown);
+  Status s =
+      CopyFile(FileSystem::Default(), latest_file_path, Temperature::kUnknown,
+               state_file_temp_path, Temperature::kUnknown, 0 /* size */,
+               false /* use_fsync */, nullptr /* io_tracer */);
   if (s.ok()) {
     s = FileSystem::Default()->RenameFile(state_file_temp_path, state_file_path,
                                           IOOptions(), nullptr /* dbg */);
@@ -631,9 +634,9 @@ Status FileExpectedStateManager::Restore(DB* db) {
     // We are going to replay on top of "`seqno`.state" to create a new
     // "LATEST.state". Start off by creating a tempfile so we can later make the
     // new "LATEST.state" appear atomically using `RenameFile()`.
-    s = CopyFile(FileSystem::Default(), state_file_path, latest_file_temp_path,
-                 0 /* size */, false /* use_fsync */, nullptr /* io_tracer */,
-                 Temperature::kUnknown);
+    s = CopyFile(FileSystem::Default(), state_file_path, Temperature::kUnknown,
+                 latest_file_temp_path, Temperature::kUnknown, 0 /* size */,
+                 false /* use_fsync */, nullptr /* io_tracer */);
   }
 
   {
@@ -658,26 +661,26 @@ Status FileExpectedStateManager::Restore(DB* db) {
     if (s.ok()) {
       s = replayer->Prepare();
     }
-    for (;;) {
+    for (; s.ok();) {
       std::unique_ptr<TraceRecord> record;
       s = replayer->Next(&record);
       if (!s.ok()) {
+        if (s.IsCorruption() && handler->IsDone()) {
+          // There could be a corruption reading the tail record of the trace
+          // due to `db_stress` crashing while writing it. It shouldn't matter
+          // as long as we already found all the write ops we need to catch up
+          // the expected state.
+          s = Status::OK();
+        }
+        if (s.IsIncomplete()) {
+          // OK because `Status::Incomplete` is expected upon finishing all the
+          // trace records.
+          s = Status::OK();
+        }
         break;
       }
       std::unique_ptr<TraceRecordResult> res;
-      record->Accept(handler.get(), &res);
-    }
-    if (s.IsCorruption() && handler->IsDone()) {
-      // There could be a corruption reading the tail record of the trace due to
-      // `db_stress` crashing while writing it. It shouldn't matter as long as
-      // we already found all the write ops we need to catch up the expected
-      // state.
-      s = Status::OK();
-    }
-    if (s.IsIncomplete()) {
-      // OK because `Status::Incomplete` is expected upon finishing all the
-      // trace records.
-      s = Status::OK();
+      s = record->Accept(handler.get(), &res);
     }
   }
 

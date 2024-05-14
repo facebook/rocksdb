@@ -1197,7 +1197,9 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
     // create a common_snapshots for each combination.
     size_t new_comb_cnt = size_t(1) << old_size;
     for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++, loop_id++) {
-      if (loop_id % split_cnt_ != split_id_) continue;
+      if (loop_id % split_cnt_ != split_id_) {
+        continue;
+      }
       printf(".");  // To signal progress
       fflush(stdout);
       std::vector<SequenceNumber> common_snapshots;
@@ -1521,7 +1523,7 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
   txn_options.set_snapshot = true;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
   auto snap = txn1->GetSnapshot();
-  auto snap_impl = reinterpret_cast<const SnapshotImpl*>(snap);
+  auto snap_impl = static_cast<const SnapshotImpl*>(snap);
   // If ::Initialize calls the overriden SetSnapshot, min_uncommitted_ must be
   // udpated
   ASSERT_GT(snap_impl->min_uncommitted_, kMinUnCommittedSeq);
@@ -1619,7 +1621,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
     }
   });
   ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
-    while (1) {
+    while (true) {
       MutexLock l(&mutex);
       if (txns.empty()) {
         break;
@@ -1668,7 +1670,9 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
       ASSERT_OK(ReOpen());
     }
 
-    if (n % split_cnt_ != split_id_) continue;
+    if (n % split_cnt_ != split_id_) {
+      continue;
+    }
     if (n % 1000 == 0) {
       printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }
@@ -2643,7 +2647,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
 
   int count_value = 0;
   auto callback = [&](void* arg) {
-    auto* ikey = reinterpret_cast<ParsedInternalKey*>(arg);
+    auto* ikey = static_cast<ParsedInternalKey*>(arg);
     if (ikey->user_key == "key1") {
       count_value++;
       if (count_value == 2) {
@@ -3082,8 +3086,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
-        const auto* const ikey =
-            reinterpret_cast<const ParsedInternalKey*>(arg);
+        const auto* const ikey = static_cast<const ParsedInternalKey*>(arg);
         assert(ikey);
         if (ikey->user_key == "b") {
           assert(ikey->type == kTypeValue);
@@ -3156,8 +3159,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
-        const auto* const ikey =
-            reinterpret_cast<const ParsedInternalKey*>(arg);
+        const auto* const ikey = static_cast<const ParsedInternalKey*>(arg);
         assert(ikey);
         if (ikey->user_key == "b") {
           assert(ikey->type == kTypeValue);
@@ -3222,7 +3224,7 @@ TEST_P(WritePreparedTransactionTest, SingleDeleteAfterRollback) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* arg) {
-        const auto* const c = reinterpret_cast<const Compaction*>(arg);
+        const auto* const c = static_cast<const Compaction*>(arg);
         assert(!c);
         // Trigger once only for SingleDelete during flush.
         if (0 == count) {
@@ -4040,7 +4042,7 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
-  if (getenv("CIRCLECI")) {
+  if (getenv("CIRCLECI") || getenv("GITHUB_ACTIONS")) {
     // Looking for backtrace on "Resource temporarily unavailable" exceptions
     ::testing::FLAGS_gtest_catch_exceptions = false;
   }

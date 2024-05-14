@@ -199,18 +199,21 @@ public class TransactionDBOptions extends RocksObject {
   }
 
   private static native long newTransactionDBOptions();
-  private native long getMaxNumLocks(final long handle);
-  private native void setMaxNumLocks(final long handle,
-      final long maxNumLocks);
-  private native long getNumStripes(final long handle);
-  private native void setNumStripes(final long handle, final long numStripes);
-  private native long getTransactionLockTimeout(final long handle);
-  private native void setTransactionLockTimeout(final long handle,
-      final long transactionLockTimeout);
-  private native long getDefaultLockTimeout(final long handle);
-  private native void setDefaultLockTimeout(final long handle,
-      final long transactionLockTimeout);
-  private native byte getWritePolicy(final long handle);
-  private native void setWritePolicy(final long handle, final byte writePolicy);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native long getMaxNumLocks(final long handle);
+  private static native void setMaxNumLocks(final long handle, final long maxNumLocks);
+  private static native long getNumStripes(final long handle);
+  private static native void setNumStripes(final long handle, final long numStripes);
+  private static native long getTransactionLockTimeout(final long handle);
+  private static native void setTransactionLockTimeout(
+      final long handle, final long transactionLockTimeout);
+  private static native long getDefaultLockTimeout(final long handle);
+  private static native void setDefaultLockTimeout(
+      final long handle, final long transactionLockTimeout);
+  private static native byte getWritePolicy(final long handle);
+  private static native void setWritePolicy(final long handle, final byte writePolicy);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

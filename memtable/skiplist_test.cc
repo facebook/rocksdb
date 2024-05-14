@@ -340,7 +340,7 @@ class TestState {
 };
 
 static void ConcurrentReader(void* arg) {
-  TestState* state = reinterpret_cast<TestState*>(arg);
+  TestState* state = static_cast<TestState*>(arg);
   Random rnd(state->seed_);
   int64_t reads = 0;
   state->Change(TestState::RUNNING);

@@ -595,6 +595,6 @@ struct PerKeyPlacementContext {
 #endif /* !NDEBUG */
 
 // Return sum of sizes of all files in `files`.
-extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
+uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -28,29 +28,34 @@ class GenericRateLimiter : public RateLimiter {
  public:
   GenericRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
                      int32_t fairness, RateLimiter::Mode mode,
-                     const std::shared_ptr<SystemClock>& clock,
-                     bool auto_tuned);
+                     const std::shared_ptr<SystemClock>& clock, bool auto_tuned,
+                     int64_t single_burst_bytes);
 
   virtual ~GenericRateLimiter();
 
   // This API allows user to dynamically change rate limiter's bytes per second.
-  virtual void SetBytesPerSecond(int64_t bytes_per_second) override;
+  void SetBytesPerSecond(int64_t bytes_per_second) override;
 
-  virtual Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
+  Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes() and bytes >= 0. Negative bytes
   // passed in will be rounded up to 0.
   using RateLimiter::Request;
-  virtual void Request(const int64_t bytes, const Env::IOPriority pri,
-                       Statistics* stats) override;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats) override;
 
-  virtual int64_t GetSingleBurstBytes() const override {
-    return refill_bytes_per_period_.load(std::memory_order_relaxed);
+  int64_t GetSingleBurstBytes() const override {
+    int64_t raw_single_burst_bytes =
+        raw_single_burst_bytes_.load(std::memory_order_relaxed);
+    if (raw_single_burst_bytes == 0) {
+      return refill_bytes_per_period_.load(std::memory_order_relaxed);
+    }
+    return raw_single_burst_bytes;
   }
 
-  virtual int64_t GetTotalBytesThrough(
+  int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
@@ -63,7 +68,7 @@ class GenericRateLimiter : public RateLimiter {
     return total_bytes_through_[pri];
   }
 
-  virtual int64_t GetTotalRequests(
+  int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
@@ -76,7 +81,7 @@ class GenericRateLimiter : public RateLimiter {
     return total_requests_[pri];
   }
 
-  virtual Status GetTotalPendingRequests(
+  Status GetTotalPendingRequests(
       int64_t* total_pending_requests,
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     assert(total_pending_requests != nullptr);
@@ -93,7 +98,7 @@ class GenericRateLimiter : public RateLimiter {
     return Status::OK();
   }
 
-  virtual int64_t GetBytesPerSecond() const override {
+  int64_t GetBytesPerSecond() const override {
     return rate_bytes_per_sec_.load(std::memory_order_relaxed);
   }
 
@@ -108,10 +113,8 @@ class GenericRateLimiter : public RateLimiter {
   void RefillBytesAndGrantRequestsLocked();
   std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
-  int64_t CalculateRefillPeriodUsLocked(int64_t single_burst_bytes);
   Status TuneLocked();
   void SetBytesPerSecondLocked(int64_t bytes_per_second);
-  void SetSingleBurstBytesLocked(int64_t single_burst_bytes);
 
   uint64_t NowMicrosMonotonicLocked() {
     return clock_->NowNanos() / std::milli::den;
@@ -120,10 +123,12 @@ class GenericRateLimiter : public RateLimiter {
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
-  std::atomic<int64_t> refill_period_us_;
+  const int64_t refill_period_us_;
 
   std::atomic<int64_t> rate_bytes_per_sec_;
   std::atomic<int64_t> refill_bytes_per_period_;
+  // This value is validated but unsanitized (may be zero).
+  std::atomic<int64_t> raw_single_burst_bytes_;
   std::shared_ptr<SystemClock> clock_;
 
   bool stop_;

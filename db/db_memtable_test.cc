@@ -121,7 +121,7 @@ class TestPrefixExtractor : public SliceTransform {
 
  private:
   const char* separator(const Slice& key) const {
-    return reinterpret_cast<const char*>(memchr(key.data(), '_', key.size()));
+    return static_cast<const char*>(memchr(key.data(), '_', key.size()));
   }
 };
 
@@ -287,7 +287,7 @@ TEST_F(DBMemTableTest, InsertWithHint) {
   options.env = env_;
   Reopen(options);
   MockMemTableRep* rep =
-      reinterpret_cast<MockMemTableRepFactory*>(options.memtable_factory.get())
+      static_cast<MockMemTableRepFactory*>(options.memtable_factory.get())
           ->rep();
   ASSERT_OK(Put("foo_k1", "foo_v1"));
   ASSERT_EQ(nullptr, rep->last_hint_in());

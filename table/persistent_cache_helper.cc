@@ -40,7 +40,6 @@ void PersistentCacheHelper::InsertUncompressed(
   cache_options.persistent_cache
       ->Insert(key.AsSlice(), contents.data.data(), contents.data.size())
       .PermitUncheckedError();
-  ;
 }
 
 Status PersistentCacheHelper::LookupSerialized(

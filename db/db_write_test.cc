@@ -269,6 +269,47 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBWriteTest, WriteThreadWaitNanosCounter) {
+  Options options = GetOptions();
+  std::vector<port::Thread> threads;
+
+  Reopen(options);
+
+  std::function<void()> write_func = [&]() {
+    PerfContext* perf_ctx = get_perf_context();
+    SetPerfLevel(PerfLevel::kEnableWait);
+    perf_ctx->Reset();
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:WriteFunc");
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "bar", "val2"));
+    ASSERT_GT(perf_ctx->write_thread_wait_nanos, 2000000U);
+  };
+
+  std::function<void()> sleep_func = [&]() {
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:1");
+    SystemClock::Default()->SleepForMicroseconds(2000);
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:2");
+  };
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WriteThread::EnterAsBatchGroupLeader:End",
+        "DBWriteTest::WriteThreadWaitNanosCounter:WriteFunc"},
+       {"WriteThread::AwaitState:BlockingWaiting",
+        "DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:1"},
+       {"DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:2",
+        "WriteThread::ExitAsBatchGroupLeader:Start"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  threads.emplace_back(sleep_func);
+  threads.emplace_back(write_func);
+
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "foo", "val1"));
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   constexpr int kNumThreads = 5;
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
@@ -286,7 +327,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
         ready_count++;
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           leader_count++;
           while (ready_count < kNumThreads) {
@@ -296,7 +337,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   for (int i = 0; i < kNumThreads; i++) {
-    threads.push_back(port::Thread(
+    threads.emplace_back(
         [&](int index) {
           // All threads should fail.
           auto res = Put("key" + std::to_string(index), "value");
@@ -313,7 +354,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
             ASSERT_FALSE(res.ok());
           }
         },
-        i));
+        i);
   }
   for (int i = 0; i < kNumThreads; i++) {
     threads[i].join();
@@ -384,7 +425,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
           second_write_in_progress = true;
           return;
         }
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           active_writers++;
           if (leader.load() == nullptr) {
@@ -404,7 +445,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:Start", [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader && !finished_WAL_write) {
           finished_WAL_write = true;
           while (active_writers.load() < 3) {
@@ -416,7 +457,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
       [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader) {
           while (!second_write_in_progress.load()) {
             // wait for the old follower thread to start the next write
@@ -778,6 +819,95 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
   // written WAL size should less than 100KB (even included HEADER & FOOTER
   // overhead)
   ASSERT_LE(bytes_num, 1024 * 100);
+}
+
+void CorruptLogFile(Env* env, Options& options, std::string log_path,
+                    uint64_t log_num, int record_num) {
+  std::shared_ptr<FileSystem> fs = env->GetFileSystem();
+  std::unique_ptr<SequentialFileReader> file_reader;
+  Status status;
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    status = fs->NewSequentialFile(log_path, FileOptions(), &file, nullptr);
+    ASSERT_EQ(status, IOStatus::OK());
+    file_reader.reset(new SequentialFileReader(std::move(file), log_path));
+  }
+  std::unique_ptr<log::Reader> reader(new log::Reader(
+      nullptr, std::move(file_reader), nullptr, false, log_num));
+  std::string scratch;
+  Slice record;
+  uint64_t record_checksum;
+  for (int i = 0; i < record_num; ++i) {
+    ASSERT_TRUE(reader->ReadRecord(&record, &scratch, options.wal_recovery_mode,
+                                   &record_checksum));
+  }
+  uint64_t rec_start = reader->LastRecordOffset();
+  reader.reset();
+  {
+    std::unique_ptr<FSRandomRWFile> file;
+    status = fs->NewRandomRWFile(log_path, FileOptions(), &file, nullptr);
+    ASSERT_EQ(status, IOStatus::OK());
+    uint32_t bad_lognum = 0xff;
+    ASSERT_EQ(file->Write(
+                  rec_start + 7,
+                  Slice(reinterpret_cast<char*>(&bad_lognum), sizeof(uint32_t)),
+                  IOOptions(), nullptr),
+              IOStatus::OK());
+    ASSERT_OK(file->Close(IOOptions(), nullptr));
+    file.reset();
+  }
+}
+
+TEST_P(DBWriteTest, RecycleLogTest) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  Reopen(options);
+  ASSERT_OK(Put(Key(1), "val1"));
+  ASSERT_OK(Put(Key(2), "val1"));
+
+  uint64_t latest_log_num = 0;
+  std::unique_ptr<LogFile> log_file;
+  ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+  latest_log_num = log_file->LogNumber();
+  Reopen(options);
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  // Corrupt second entry of first log
+  std::string log_path = LogFileName(dbname_, latest_log_num);
+  CorruptLogFile(env_, options, log_path, latest_log_num, 2);
+
+  Reopen(options);
+  ASSERT_EQ(Get(Key(1)), "val1");
+  ASSERT_EQ(Get(Key(2)), "NOT_FOUND");
+  ASSERT_EQ(Get(Key(3)), "NOT_FOUND");
+}
+
+TEST_P(DBWriteTest, RecycleLogTestCFAheadOfWAL) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, Key(1), "val1"));
+  ASSERT_OK(Put(0, Key(2), "val2"));
+
+  uint64_t latest_log_num = 0;
+  std::unique_ptr<LogFile> log_file;
+  ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+  latest_log_num = log_file->LogNumber();
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, Key(3), "val3"));
+
+  // Corrupt second entry of first log
+  std::string log_path = LogFileName(dbname_, latest_log_num);
+  CorruptLogFile(env_, options, log_path, latest_log_num, 2);
+
+  ASSERT_EQ(TryReopenWithColumnFamilies({"default", "pikachu"}, options),
+            Status::Corruption());
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,

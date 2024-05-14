@@ -5,10 +5,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "utilities/blob_db/blob_file.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
 #include <memory>
 
 #include "db/column_family.h"
@@ -19,9 +18,7 @@
 #include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace ROCKSDB_NAMESPACE {
-
-namespace blob_db {
+namespace ROCKSDB_NAMESPACE::blob_db {
 
 BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
                    Logger* info_log)
@@ -78,7 +75,8 @@ void BlobFile::MarkObsolete(SequenceNumber sequence) {
   obsolete_.store(true);
 }
 
-Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
+Status BlobFile::WriteFooterAndCloseLocked(const WriteOptions& write_options,
+                                           SequenceNumber sequence) {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
   if (HasTTL()) {
@@ -86,7 +84,8 @@ Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   }
 
   // this will close the file and reset the Writable File Pointer.
-  Status s = log_writer_->AppendFooter(footer, /* checksum_method */ nullptr,
+  Status s = log_writer_->AppendFooter(write_options, footer,
+                                       /* checksum_method */ nullptr,
                                        /* checksum_value */ nullptr);
   if (s.ok()) {
     closed_ = true;
@@ -118,9 +117,11 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   } else {
     buf.reserve(BlobLogFooter::kSize + 10);
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
-                              &result, &buf[0], nullptr);
+                              &result, buf.data(), nullptr);
   }
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   if (result.size() != BlobLogFooter::kSize) {
     // should not happen
     return Status::IOError("EOF reached before footer");
@@ -137,10 +138,10 @@ Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
   return Status::OK();
 }
 
-Status BlobFile::Fsync() {
+Status BlobFile::Fsync(const WriteOptions& write_options) {
   Status s;
   if (log_writer_.get()) {
-    s = log_writer_->Sync();
+    s = log_writer_->Sync(write_options);
   }
   return s;
 }
@@ -240,7 +241,7 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   } else {
     header_buf.reserve(BlobLogHeader::kSize);
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
-                          &header_buf[0], nullptr);
+                          header_buf.data(), nullptr);
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
@@ -281,8 +282,8 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   } else {
     footer_buf.reserve(BlobLogFooter::kSize);
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
-                          BlobLogFooter::kSize, &footer_slice, &footer_buf[0],
-                          nullptr);
+                          BlobLogFooter::kSize, &footer_slice,
+                          footer_buf.data(), nullptr);
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
@@ -307,5 +308,4 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   return Status::OK();
 }
 
-}  // namespace blob_db
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::blob_db

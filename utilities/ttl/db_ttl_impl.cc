@@ -109,8 +109,7 @@ bool TtlMergeOperator::PartialMergeMulti(const Slice& key,
       return false;
     }
 
-    operands_without_ts.push_back(
-        Slice(operand.data(), operand.size() - ts_len));
+    operands_without_ts.emplace_back(operand.data(), operand.size() - ts_len);
   }
 
   // Apply the user partial-merge operator (store result in *new_value)
@@ -339,8 +338,7 @@ Status DBWithTTL::Open(const Options& options, const std::string& dbname,
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DBWithTTL::Open(db_options, dbname, column_families, &handles,
                              dbptr, {ttl}, read_only);
@@ -493,7 +491,11 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          PinnableSlice* value) {
+                          PinnableSlice* value, std::string* timestamp) {
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not supported");
+  }
   Status st = db_->Get(options, column_family, key, value);
   if (!st.ok()) {
     return st;
@@ -505,22 +507,34 @@ Status DBWithTTLImpl::Get(const ReadOptions& options,
   return StripTS(value);
 }
 
-std::vector<Status> DBWithTTLImpl::MultiGet(
-    const ReadOptions& options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  auto statuses = db_->MultiGet(options, column_family, keys, values);
-  for (size_t i = 0; i < keys.size(); ++i) {
-    if (!statuses[i].ok()) {
-      continue;
+void DBWithTTLImpl::MultiGet(const ReadOptions& options, const size_t num_keys,
+                             ColumnFamilyHandle** column_families,
+                             const Slice* keys, PinnableSlice* values,
+                             std::string* timestamps, Status* statuses,
+                             const bool /*sorted_input*/) {
+  if (timestamps) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported(
+          "MultiGet() returning timestamps not implemented.");
     }
-    statuses[i] = SanityCheckTimestamp((*values)[i]);
-    if (!statuses[i].ok()) {
-      continue;
-    }
-    statuses[i] = StripTS(&(*values)[i]);
+    return;
   }
-  return statuses;
+
+  db_->MultiGet(options, num_keys, column_families, keys, values, timestamps,
+                statuses);
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (!statuses[i].ok()) {
+      continue;
+    }
+    PinnableSlice tmp_val = std::move(values[i]);
+    values[i].PinSelf(tmp_val);
+    assert(!values[i].IsPinned());
+    statuses[i] = SanityCheckTimestamp(values[i]);
+    if (!statuses[i].ok()) {
+      continue;
+    }
+    statuses[i] = StripTS(&values[i]);
+  }
 }
 
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,
@@ -615,7 +629,9 @@ void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {
   opts = GetOptions(h);
   filter = std::static_pointer_cast<TtlCompactionFilterFactory>(
       opts.compaction_filter_factory);
-  if (!filter) return;
+  if (!filter) {
+    return;
+  }
   filter->SetTtl(ttl);
 }
 

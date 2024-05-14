@@ -5,8 +5,7 @@
 
 #include "test_agg_merge.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <deque>
 #include <vector>
 

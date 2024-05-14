@@ -30,11 +30,9 @@ class CompactionOutputs {
   // compaction output file
   struct Output {
     Output(FileMetaData&& _meta, const InternalKeyComparator& _icmp,
-           bool _enable_order_check, bool _enable_hash, bool _finished,
-           uint64_t precalculated_hash)
+           bool _enable_hash, bool _finished, uint64_t precalculated_hash)
         : meta(std::move(_meta)),
-          validator(_icmp, _enable_order_check, _enable_hash,
-                    precalculated_hash),
+          validator(_icmp, _enable_hash, precalculated_hash),
           finished(_finished) {}
     FileMetaData meta;
     OutputValidator validator;
@@ -49,10 +47,10 @@ class CompactionOutputs {
 
   // Add generated output to the list
   void AddOutput(FileMetaData&& meta, const InternalKeyComparator& icmp,
-                 bool enable_order_check, bool enable_hash,
-                 bool finished = false, uint64_t precalculated_hash = 0) {
-    outputs_.emplace_back(std::move(meta), icmp, enable_order_check,
-                          enable_hash, finished, precalculated_hash);
+                 bool enable_hash, bool finished = false,
+                 uint64_t precalculated_hash = 0) {
+    outputs_.emplace_back(std::move(meta), icmp, enable_hash, finished,
+                          precalculated_hash);
   }
 
   // Set new table builder for the current output

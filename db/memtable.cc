@@ -61,6 +61,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
       inplace_callback(ioptions.inplace_callback),
       max_successive_merges(mutable_cf_options.max_successive_merges),
+      strict_max_successive_merges(
+          mutable_cf_options.strict_max_successive_merges),
       statistics(ioptions.stats),
       merge_operator(ioptions.merge_operator.get()),
       info_log(ioptions.logger),
@@ -379,11 +381,13 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 class MemTableIterator : public InternalIterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
+                   UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
                    Arena* arena, bool use_range_del_table = false)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         comparator_(mem.comparator_),
         valid_(false),
+        seqno_to_time_mapping_(seqno_to_time_mapping),
         arena_mode_(arena != nullptr),
         value_pinned_(
             !mem.GetImmutableMemTableOptions()->inplace_update_support),
@@ -514,6 +518,21 @@ class MemTableIterator : public InternalIterator {
     assert(Valid());
     return GetLengthPrefixedSlice(iter_->key());
   }
+
+  uint64_t write_unix_time() const override {
+    assert(Valid());
+    ParsedInternalKey pikey;
+    Status s = ParseInternalKey(key(), &pikey, /*log_err_key=*/false);
+    if (!s.ok()) {
+      return std::numeric_limits<uint64_t>::max();
+    } else if (kTypeValuePreferredSeqno == pikey.type) {
+      return ParsePackedValueForWriteTime(value());
+    } else if (!seqno_to_time_mapping_ || seqno_to_time_mapping_->Empty()) {
+      return std::numeric_limits<uint64_t>::max();
+    }
+    return seqno_to_time_mapping_->GetProximalTimeBeforeSeqno(pikey.sequence);
+  }
+
   Slice value() const override {
     assert(Valid());
     Slice key_slice = GetLengthPrefixedSlice(iter_->key());
@@ -538,6 +557,8 @@ class MemTableIterator : public InternalIterator {
   const MemTable::KeyComparator comparator_;
   MemTableRep::Iterator* iter_;
   bool valid_;
+  // The seqno to time mapping is owned by the SuperVersion.
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping_;
   bool arena_mode_;
   bool value_pinned_;
   uint32_t protection_bytes_per_key_;
@@ -556,11 +577,13 @@ class MemTableIterator : public InternalIterator {
   }
 };
 
-InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
-                                        Arena* arena) {
+InternalIterator* MemTable::NewIterator(
+    const ReadOptions& read_options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
-  return new (mem) MemTableIterator(*this, read_options, arena);
+  return new (mem)
+      MemTableIterator(*this, read_options, seqno_to_time_mapping, arena);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
@@ -594,9 +617,9 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
   if (!cache->initialized.load(std::memory_order_acquire)) {
     cache->reader_mutex.lock();
     if (!cache->tombstones) {
-      auto* unfragmented_iter =
-          new MemTableIterator(*this, read_options, nullptr /* arena */,
-                               true /* use_range_del_table */);
+      auto* unfragmented_iter = new MemTableIterator(
+          *this, read_options, nullptr /* seqno_to_time_mapping= */,
+          nullptr /* arena */, true /* use_range_del_table */);
       cache->tombstones.reset(new FragmentedRangeTombstoneList(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
           comparator_.comparator));
@@ -614,10 +637,10 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   assert(!IsFragmentedRangeTombstonesConstructed(false));
   // There should be no concurrent Construction
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
-    // TODO: plumb Env::IOActivity
-    auto* unfragmented_iter =
-        new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
-                             true /* use_range_del_table */);
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    auto* unfragmented_iter = new MemTableIterator(
+        *this, ReadOptions(), nullptr /*seqno_to_time_mapping=*/,
+        nullptr /* arena */, true /* use_range_del_table */);
 
     fragmented_range_tombstone_list_ =
         std::make_unique<FragmentedRangeTombstoneList>(
@@ -922,7 +945,7 @@ struct Saver {
 
 static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
-  Saver* s = reinterpret_cast<Saver*>(arg);
+  Saver* s = static_cast<Saver*>(arg);
   assert(s != nullptr);
   assert(!s->value || !s->columns);
 
@@ -1007,7 +1030,8 @@ static bool SaveValue(void* arg, const char* entry) {
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
          type == kTypeWideColumnEntity || type == kTypeDeletion ||
-         type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp) &&
+         type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp ||
+         type == kTypeValuePreferredSeqno) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
@@ -1059,12 +1083,17 @@ static bool SaveValue(void* arg, const char* entry) {
 
         return false;
       }
-      case kTypeValue: {
+      case kTypeValue:
+      case kTypeValuePreferredSeqno: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
         }
 
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+
+        if (type == kTypeValuePreferredSeqno) {
+          v = ParsePackedValueForValue(v);
+        }
 
         *(s->status) = Status::OK();
 
@@ -1087,8 +1116,8 @@ static bool SaveValue(void* arg, const char* entry) {
                 merge_operator, s->key->user_key(),
                 MergeHelper::kPlainBaseValue, v, merge_context->GetOperands(),
                 s->logger, s->statistics, s->clock,
-                /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+                s->value, s->columns);
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1140,8 +1169,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), MergeHelper::kWideBaseValue,
                 v, merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr, s->value, s->columns);
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1178,8 +1207,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
                 merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr, s->value, s->columns);
           } else {
             // We have found a final value (a base deletion) and have newer
             // merge operands that we do not intend to merge. Nothing remains
@@ -1218,13 +1247,21 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
                 merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr, s->value, s->columns);
           }
 
           *(s->found_final_value) = true;
           return false;
         }
+        if (merge_context->get_merge_operands_options != nullptr &&
+            merge_context->get_merge_operands_options->continue_cb != nullptr &&
+            !merge_context->get_merge_operands_options->continue_cb(v)) {
+          // We were told not to continue.
+          *(s->found_final_value) = true;
+          return false;
+        }
+
         return true;
       }
       default: {
@@ -1388,7 +1425,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         range_indexes[num_keys++] = iter.index();
       }
     }
-    bloom_filter_->MayContain(num_keys, &bloom_keys[0], &may_match[0]);
+    bloom_filter_->MayContain(num_keys, bloom_keys.data(), may_match.data());
     for (int i = 0; i < num_keys; ++i) {
       if (!may_match[i]) {
         temp_range.SkipIndex(range_indexes[i]);
@@ -1610,7 +1647,8 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
   return Status::NotFound();
 }
 
-size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
+size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key,
+                                             size_t limit) {
   Slice memkey = key.memtable_key();
 
   // A total ordered iterator is costly for some memtablerep (prefix aware
@@ -1622,7 +1660,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
 
   size_t num_successive_merges = 0;
 
-  for (; iter->Valid(); iter->Next()) {
+  for (; iter->Valid() && num_successive_merges < limit; iter->Next()) {
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);

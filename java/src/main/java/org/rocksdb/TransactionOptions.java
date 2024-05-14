@@ -169,21 +169,22 @@ public class TransactionOptions extends RocksObject
   }
 
   private static native long newTransactionOptions();
-  private native boolean isSetSnapshot(final long handle);
-  private native void setSetSnapshot(final long handle,
-      final boolean setSnapshot);
-  private native boolean isDeadlockDetect(final long handle);
-  private native void setDeadlockDetect(final long handle,
-      final boolean deadlockDetect);
-  private native long getLockTimeout(final long handle);
-  private native void setLockTimeout(final long handle, final long lockTimeout);
-  private native long getExpiration(final long handle);
-  private native void setExpiration(final long handle, final long expiration);
-  private native long getDeadlockDetectDepth(final long handle);
-  private native void setDeadlockDetectDepth(final long handle,
-      final long deadlockDetectDepth);
-  private native long getMaxWriteBatchSize(final long handle);
-  private native void setMaxWriteBatchSize(final long handle,
-      final long maxWriteBatchSize);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native boolean isSetSnapshot(final long handle);
+  private static native void setSetSnapshot(final long handle, final boolean setSnapshot);
+  private static native boolean isDeadlockDetect(final long handle);
+  private static native void setDeadlockDetect(final long handle, final boolean deadlockDetect);
+  private static native long getLockTimeout(final long handle);
+  private static native void setLockTimeout(final long handle, final long lockTimeout);
+  private static native long getExpiration(final long handle);
+  private static native void setExpiration(final long handle, final long expiration);
+  private static native long getDeadlockDetectDepth(final long handle);
+  private static native void setDeadlockDetectDepth(
+      final long handle, final long deadlockDetectDepth);
+  private static native long getMaxWriteBatchSize(final long handle);
+  private static native void setMaxWriteBatchSize(final long handle, final long maxWriteBatchSize);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

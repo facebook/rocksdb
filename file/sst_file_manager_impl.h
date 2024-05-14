@@ -88,16 +88,16 @@ class SstFileManagerImpl : public SstFileManager {
   std::unordered_map<std::string, uint64_t> GetTrackedFiles() override;
 
   // Return delete rate limit in bytes per second.
-  virtual int64_t GetDeleteRateBytesPerSecond() override;
+  int64_t GetDeleteRateBytesPerSecond() override;
 
   // Update the delete rate limit in bytes per second.
-  virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
+  void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
 
   // Return trash/DB size ratio where new files will be deleted immediately
-  virtual double GetMaxTrashDBRatio() override;
+  double GetMaxTrashDBRatio() override;
 
   // Update trash/DB size ratio where new files will be deleted immediately
-  virtual void SetMaxTrashDBRatio(double ratio) override;
+  void SetMaxTrashDBRatio(double ratio) override;
 
   // Return the total size of trash files
   uint64_t GetTotalTrashSize() override;

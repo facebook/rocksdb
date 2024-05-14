@@ -134,6 +134,7 @@ Status PessimisticTransactionDB::Initialize(
     assert(batch_info.log_number_);
     assert(recovered_trx->name_.length());
 
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     WriteOptions w_options;
     w_options.sync = true;
     TransactionOptions t_options;
@@ -203,8 +204,7 @@ Status TransactionDB::Open(const Options& options,
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   Status s = TransactionDB::Open(db_options, txn_db_options, dbname,
                                  column_families, &handles, dbptr);

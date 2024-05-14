@@ -25,6 +25,19 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+std::string ValueWithWriteTime(std::string val, uint64_t write_time = 0) {
+  std::string result = val;
+  PutFixed64(&result, write_time);
+  return result;
+}
+std::string ValueWithPreferredSeqno(std::string val,
+                                    SequenceNumber preferred_seqno = 0) {
+  std::string result = val;
+  PutFixed64(&result, preferred_seqno);
+  return result;
+}
+}  // namespace
 
 // TODO(icanadi) Mock out everything else:
 // 1. VersionSet
@@ -55,7 +68,7 @@ class FlushJobTestBase : public testing::Test {
   }
 
   void NewDB() {
-    ASSERT_OK(SetIdentityFile(env_, dbname_));
+    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
     VersionEdit new_db;
 
     new_db.SetLogNumber(0);
@@ -89,19 +102,19 @@ class FlushJobTestBase : public testing::Test {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
       new_db.EncodeTo(&record);
-      s = log.AddRecord(record);
+      s = log.AddRecord(WriteOptions(), record);
       ASSERT_OK(s);
 
       for (const auto& e : new_cfs) {
         record.clear();
         e.EncodeTo(&record);
-        s = log.AddRecord(record);
+        s = log.AddRecord(WriteOptions(), record);
         ASSERT_OK(s);
       }
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
     ASSERT_OK(s);
   }
 
@@ -132,7 +145,7 @@ class FlushJobTestBase : public testing::Test {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 
@@ -156,7 +169,7 @@ class FlushJobTestBase : public testing::Test {
   bool persist_udt_ = true;
   bool paranoid_file_checks_ = false;
 
-  SeqnoToTimeMapping empty_seqno_to_time_mapping_;
+  std::shared_ptr<SeqnoToTimeMapping> empty_seqno_to_time_mapping_;
 };
 
 class FlushJobTest : public FlushJobTestBase {
@@ -588,7 +601,7 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
       Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
 
   // When the state from WriteController is normal.
-  ASSERT_EQ(flush_job.GetRateLimiterPriorityForWrite(), Env::IO_HIGH);
+  ASSERT_EQ(flush_job.GetRateLimiterPriority(), Env::IO_HIGH);
 
   WriteController* write_controller =
       flush_job.versions_->GetColumnFamilySet()->write_controller();
@@ -597,15 +610,78 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
     // When the state from WriteController is Delayed.
     std::unique_ptr<WriteControllerToken> delay_token =
         write_controller->GetDelayToken(1000000);
-    ASSERT_EQ(flush_job.GetRateLimiterPriorityForWrite(), Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(), Env::IO_USER);
   }
 
   {
     // When the state from WriteController is Stopped.
     std::unique_ptr<WriteControllerToken> stop_token =
         write_controller->GetStopToken();
-    ASSERT_EQ(flush_job.GetRateLimiterPriorityForWrite(), Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(), Env::IO_USER);
   }
+}
+
+TEST_F(FlushJobTest, ReplaceTimedPutWriteTimeWithPreferredSeqno) {
+  JobContext job_context(0);
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                           kMaxSequenceNumber);
+  new_mem->Ref();
+  std::shared_ptr<SeqnoToTimeMapping> seqno_to_time_mapping =
+      std::make_shared<SeqnoToTimeMapping>();
+  // Seqno: 10,       11, ... 20,
+  // Time:  ...  500      ...      600
+  // GetProximalSeqnoBeforeTime(500) -> 10
+  // GetProximalSeqnoBeforeTime(600) -> 20
+  seqno_to_time_mapping->Append(10, 500);
+  seqno_to_time_mapping->Append(20, 600);
+
+  ASSERT_OK(new_mem->Add(SequenceNumber(15), kTypeValuePreferredSeqno, "bar",
+                         ValueWithWriteTime("bval", 500),
+                         nullptr /*kv_prot_info*/));
+  ASSERT_OK(new_mem->Add(SequenceNumber(18), kTypeValuePreferredSeqno, "foo",
+                         ValueWithWriteTime("fval", 600),
+                         nullptr /*kv_prot_info*/));
+
+  auto inserted_entries = mock::MakeMockFile();
+  InternalKey smallest_internal_key("bar", SequenceNumber(15),
+                                    kTypeValuePreferredSeqno);
+  inserted_entries.push_back({smallest_internal_key.Encode().ToString(),
+                              ValueWithPreferredSeqno("bval", 10)});
+  InternalKey largest_internal_key("foo", SequenceNumber(18), kTypeValue);
+  inserted_entries.push_back(
+      {largest_internal_key.Encode().ToString(), "fval"});
+  autovector<MemTable*> to_delete;
+  new_mem->ConstructFragmentedRangeTombstones();
+  cfd->imm()->Add(new_mem, &to_delete);
+  for (auto& m : to_delete) {
+    delete m;
+  }
+
+  EventLogger event_logger(db_options_.info_log.get());
+  SnapshotChecker* snapshot_checker = nullptr;  // not relevant
+  FlushJob flush_job(
+      dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
+      *cfd->GetLatestMutableCFOptions(),
+      std::numeric_limits<uint64_t>::max() /* memtable_id */, env_options_,
+      versions_.get(), &mutex_, &shutting_down_, {}, kMaxSequenceNumber,
+      snapshot_checker, &job_context, FlushReason::kTest, nullptr, nullptr,
+      nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
+      true, true /* sync_output_directory */, true /* write_manifest */,
+      Env::Priority::USER, nullptr /*IOTracer*/, seqno_to_time_mapping);
+
+  FileMetaData file_meta;
+  mutex_.Lock();
+  flush_job.PickMemTable();
+  ASSERT_OK(flush_job.Run(nullptr, &file_meta));
+  mutex_.Unlock();
+
+  ASSERT_EQ(smallest_internal_key.Encode().ToString(),
+            file_meta.smallest.Encode().ToString());
+  ASSERT_EQ(largest_internal_key.Encode().ToString(),
+            file_meta.largest.Encode().ToString());
+  mock_table_factory_->AssertSingleFile(inserted_entries);
+  job_context.Clean();
 }
 
 // Test parameters:

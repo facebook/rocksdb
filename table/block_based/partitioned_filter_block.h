@@ -40,11 +40,10 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   void Add(const Slice& key) override;
   size_t EstimateEntriesAdded() override;
 
-  virtual Slice Finish(
-      const BlockHandle& last_partition_block_handle, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  Slice Finish(const BlockHandle& last_partition_block_handle, Status* status,
+               std::unique_ptr<const char[]>* filter_data = nullptr) override;
 
-  virtual void ResetFilterBitsBuilder() override {
+  void ResetFilterBitsBuilder() override {
     // Previously constructed partitioned filters by
     // this to-be-reset FiterBitsBuilder can also be
     // cleared
@@ -56,8 +55,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // as part of PartitionFilterBlockBuilder::Finish
   // to avoid implementation complexity of doing it elsewhere.
   // Therefore we are skipping it in here.
-  virtual Status MaybePostVerifyFilter(
-      const Slice& /* filter_content */) override {
+  Status MaybePostVerifyFilter(const Slice& /* filter_content */) override {
     return Status::OK();
   }
 

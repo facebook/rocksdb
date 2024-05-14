@@ -190,11 +190,11 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
     }
   }
 
-  if (!do_validate) {
+  if (!do_validate && kMaxTxnTimestamp != read_timestamp_) {
     return Status::InvalidArgument(
         "If do_validate is false then GetForUpdate with read_timestamp is not "
         "defined.");
-  } else if (kMaxTxnTimestamp == read_timestamp_) {
+  } else if (do_validate && kMaxTxnTimestamp == read_timestamp_) {
     return Status::InvalidArgument("read_timestamp must be set for validation");
   }
 
@@ -547,9 +547,8 @@ Status WriteCommittedTxn::PrepareInternal() {
         : db_(db), two_write_queues_(two_write_queues) {
       (void)two_write_queues_;  // to silence unused private field warning
     }
-    virtual Status Callback(SequenceNumber, bool is_mem_disabled,
-                            uint64_t log_number, size_t /*index*/,
-                            size_t /*total*/) override {
+    Status Callback(SequenceNumber, bool is_mem_disabled, uint64_t log_number,
+                    size_t /*index*/, size_t /*total*/) override {
 #ifdef NDEBUG
       (void)is_mem_disabled;
 #endif
@@ -688,7 +687,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
           const Comparator* ucmp =
               WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
           return ucmp ? ucmp->timestamp_size()
-                      : std::numeric_limits<uint64_t>::max();
+                      : std::numeric_limits<size_t>::max();
         });
     if (!s.ok()) {
       return s;
@@ -763,7 +762,7 @@ Status WriteCommittedTxn::CommitInternal() {
         const Comparator* ucmp =
             WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
         return ucmp ? ucmp->timestamp_size()
-                    : std::numeric_limits<uint64_t>::max();
+                    : std::numeric_limits<size_t>::max();
       });
     }
   }
@@ -885,7 +884,7 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
     // what the sorting is as long as it's consistent.
     std::map<uint32_t, std::set<std::string>> keys_;
 
-    Handler() {}
+    Handler() = default;
 
     void RecordKey(uint32_t column_family_id, const Slice& key) {
       auto& cfh_keys = keys_[column_family_id];

@@ -33,7 +33,7 @@ const std::string key3 = "____    ____key3";
 class CompressedSecondaryCacheTestBase : public testing::Test,
                                          public WithCacheType {
  public:
-  CompressedSecondaryCacheTestBase() {}
+  CompressedSecondaryCacheTestBase() = default;
   ~CompressedSecondaryCacheTestBase() override = default;
 
  protected:
@@ -44,7 +44,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     // Lookup an non-existent key.
     std::unique_ptr<SecondaryCacheResultHandle> handle0 =
         sec_cache->Lookup(key0, GetHelper(), this, true, /*advise_erase=*/true,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_EQ(handle0, nullptr);
 
     Random rnd(301);
@@ -59,7 +59,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the item k1 for the second time and advise erasing it.
@@ -68,7 +68,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_2 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/true,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_NE(handle1_2, nullptr);
     ASSERT_FALSE(kept_in_sec_cache);
     if (sec_cache_is_compressed) {
@@ -89,7 +89,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     // Lookup the item k1 again.
     std::unique_ptr<SecondaryCacheResultHandle> handle1_3 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/true,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_EQ(handle1_3, nullptr);
 
     // Insert and Lookup the item k2.
@@ -99,7 +99,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 2);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
@@ -115,7 +115,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     }
     std::unique_ptr<SecondaryCacheResultHandle> handle2_2 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_NE(handle2_2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2_2->Value()));
@@ -196,14 +196,14 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     bool kept_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> handle1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_EQ(handle1, nullptr);
 
     // Insert k2 and k1 is evicted.
     ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -215,14 +215,14 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
     // Create Fails.
     SetFailCreate(true);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/true,
-                          kept_in_sec_cache);
+                          /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     // Save Fails.
@@ -912,9 +912,9 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1U);
 
     bool kept_in_sec_cache{true};
-    std::unique_ptr<SecondaryCacheResultHandle> handle =
-        sec_cache->Lookup(ith_key, GetHelper(role), this, true,
-                          /*advise_erase=*/true, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle = sec_cache->Lookup(
+        ith_key, GetHelper(role), this, true,
+        /*advise_erase=*/true, /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_NE(handle, nullptr);
 
     // Lookup returns the right data
@@ -992,6 +992,8 @@ class CompressedSecCacheTestWithTiered
         /*_capacity=*/0,
         /*_estimated_entry_charge=*/256 << 10,
         /*_num_shard_bits=*/0);
+    // eviction_effort_cap setting simply to avoid churn in existing test
+    hcc_opts.eviction_effort_cap = 100;
     TieredCacheOptions opts;
     lru_opts.capacity = 0;
     lru_opts.num_shard_bits = 0;
@@ -1060,7 +1062,7 @@ bool CacheUsageWithinBounds(size_t val1, size_t val2, size_t error) {
 
 TEST_P(CompressedSecCacheTestWithTiered, CacheReservationManager) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
   // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
   // double explicit casts
@@ -1083,7 +1085,7 @@ TEST_P(CompressedSecCacheTestWithTiered, CacheReservationManager) {
 TEST_P(CompressedSecCacheTestWithTiered,
        CacheReservationManagerMultipleUpdate) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
   EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
                GetPercent(30 << 20, 1));
@@ -1169,7 +1171,7 @@ TEST_P(CompressedSecCacheTestWithTiered, AdmissionPolicy) {
 
 TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdate) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
   std::shared_ptr<Cache> tiered_cache = GetTieredCache();
 
   // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
@@ -1233,7 +1235,7 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdate) {
 
 TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
   std::shared_ptr<Cache> tiered_cache = GetTieredCache();
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
@@ -1327,7 +1329,7 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
 
 TEST_P(CompressedSecCacheTestWithTiered, ReservationOverCapacity) {
   CompressedSecondaryCache* sec_cache =
-      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+      static_cast<CompressedSecondaryCache*>(GetSecondaryCache());
   std::shared_ptr<Cache> tiered_cache = GetTieredCache();
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(110 << 20));

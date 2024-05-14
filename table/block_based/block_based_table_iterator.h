@@ -9,6 +9,7 @@
 #pragma once
 #include <deque>
 
+#include "db/seqno_to_time_mapping.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
@@ -92,6 +93,28 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return const_cast<BlockBasedTableIterator*>(this)
         ->MaterializeCurrentBlock();
   }
+
+  uint64_t write_unix_time() const override {
+    assert(Valid());
+    ParsedInternalKey pikey;
+    SequenceNumber seqno;
+    const SeqnoToTimeMapping& seqno_to_time_mapping =
+        table_->GetSeqnoToTimeMapping();
+    Status s = ParseInternalKey(key(), &pikey, /*log_err_key=*/false);
+    if (!s.ok()) {
+      return std::numeric_limits<uint64_t>::max();
+    } else if (kUnknownSeqnoBeforeAll == pikey.sequence) {
+      return kUnknownTimeBeforeAll;
+    } else if (seqno_to_time_mapping.Empty()) {
+      return std::numeric_limits<uint64_t>::max();
+    } else if (kTypeValuePreferredSeqno == pikey.type) {
+      seqno = ParsePackedValueForSeqno(value());
+    } else {
+      seqno = pikey.sequence;
+    }
+    return seqno_to_time_mapping.GetProximalTimeBeforeSeqno(seqno);
+  }
+
   Slice value() const override {
     // PrepareValue() must have been called.
     assert(!is_at_first_key_from_index_);
@@ -122,7 +145,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
     } else if (async_read_in_progress_) {
-      return Status::TryAgain();
+      return Status::TryAgain("Async read in progress");
     } else {
       return Status::OK();
     }
@@ -197,6 +220,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         index_iter_->SetReadaheadState(readahead_file_info);
       }
     }
+  }
+
+  FilePrefetchBuffer* prefetch_buffer() {
+    return block_prefetcher_.prefetch_buffer();
   }
 
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
@@ -325,6 +352,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // is used to disable the lookup.
   IterDirection direction_ = IterDirection::kForward;
 
+  void SeekSecondPass(const Slice* target);
+
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target, bool async_prefetch);
 
@@ -365,12 +394,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   // *** BEGIN APIs relevant to auto tuning of readahead_size ***
-  void FindReadAheadSizeUpperBound();
 
-  // This API is called to lookup the data blocks ahead in the cache to estimate
-  // the current readahead_size.
-  void BlockCacheLookupForReadAheadSize(uint64_t offset, size_t readahead_size,
-                                        size_t& updated_readahead_size);
+  // This API is called to lookup the data blocks ahead in the cache to tune
+  // the start and end offsets passed.
+  void BlockCacheLookupForReadAheadSize(bool read_curr_block,
+                                        uint64_t& start_offset,
+                                        uint64_t& end_offset);
 
   void ResetBlockCacheLookupVar() {
     is_index_out_of_bound_ = false;
@@ -399,6 +428,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   bool DoesContainBlockHandles() { return !block_handles_.empty(); }
 
+  void InitializeStartAndEndOffsets(bool read_curr_block,
+                                    bool& found_first_miss_block,
+                                    uint64_t& start_updated_offset,
+                                    uint64_t& end_updated_offset,
+                                    size_t& prev_handles_size);
   // *** END APIs relevant to auto tuning of readahead_size ***
 };
 }  // namespace ROCKSDB_NAMESPACE

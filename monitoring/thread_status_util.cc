@@ -175,7 +175,13 @@ bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* /*env*/) {
   return false;
 }
 
+void ThreadStatusUtil::SetEnableTracking(bool /*enable_tracking*/) {}
+
 void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* /*cfd*/) {}
+
+ThreadStatus::OperationType ThreadStatusUtil::GetThreadOperation() {
+  return ThreadStatus::OperationType::OP_UNKNOWN;
+}
 
 void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType /*op*/) {}
 
@@ -190,7 +196,7 @@ void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType /*state*/) {}
 void ThreadStatusUtil::NewColumnFamilyInfo(const DB* /*db*/,
                                            const ColumnFamilyData* /*cfd*/,
                                            const std::string& /*cf_name*/,
-                                           const Env* env) {}
+                                           const Env* /*env*/) {}
 
 void ThreadStatusUtil::EraseColumnFamilyInfo(const ColumnFamilyData* /*cfd*/) {}
 

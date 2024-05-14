@@ -76,7 +76,7 @@ Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
       task_type, TaskInfo{unique_id, repeat_period_seconds});
   if (!result.second) {
     return Status::Aborted("Failed to add periodic task");
-  };
+  }
   return Status::OK();
 }
 

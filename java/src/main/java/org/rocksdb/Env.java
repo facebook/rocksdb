@@ -162,18 +162,13 @@ public abstract class Env extends RocksObject {
   }
 
   private static native long getDefaultEnvInternal();
-  private native void setBackgroundThreads(
+  private static native void setBackgroundThreads(
       final long handle, final int number, final byte priority);
-  private native int getBackgroundThreads(final long handle,
-    final byte priority);
-  private native int getThreadPoolQueueLen(final long handle,
-      final byte priority);
-  private native void incBackgroundThreadsIfNeeded(final long handle,
-      final int number, final byte priority);
-  private native void lowerThreadPoolIOPriority(final long handle,
-      final byte priority);
-  private native void lowerThreadPoolCPUPriority(final long handle,
-      final byte priority);
-  private native ThreadStatus[] getThreadList(final long handle)
-      throws RocksDBException;
+  private static native int getBackgroundThreads(final long handle, final byte priority);
+  private static native int getThreadPoolQueueLen(final long handle, final byte priority);
+  private static native void incBackgroundThreadsIfNeeded(
+      final long handle, final int number, final byte priority);
+  private static native void lowerThreadPoolIOPriority(final long handle, final byte priority);
+  private static native void lowerThreadPoolCPUPriority(final long handle, final byte priority);
+  private static native ThreadStatus[] getThreadList(final long handle) throws RocksDBException;
 }

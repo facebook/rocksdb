@@ -139,7 +139,7 @@ class ShardedCache : public ShardedCacheBase {
 
   explicit ShardedCache(const ShardedCacheOptions& opts)
       : ShardedCacheBase(opts),
-        shards_(reinterpret_cast<CacheShard*>(port::cacheline_aligned_alloc(
+        shards_(static_cast<CacheShard*>(port::cacheline_aligned_alloc(
             sizeof(CacheShard) * GetNumShards()))),
         destroy_shards_in_dtor_(false) {}
 
@@ -192,7 +192,7 @@ class ShardedCache : public ShardedCacheBase {
     HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     HandleImpl* result = GetShard(hash).CreateStandalone(
         key, hash, obj, helper, charge, allow_uncharged);
-    return reinterpret_cast<Handle*>(result);
+    return static_cast<Handle*>(result);
   }
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper = nullptr,
@@ -202,7 +202,7 @@ class ShardedCache : public ShardedCacheBase {
     HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     HandleImpl* result = GetShard(hash).Lookup(key, hash, helper,
                                                create_context, priority, stats);
-    return reinterpret_cast<Handle*>(result);
+    return static_cast<Handle*>(result);
   }
 
   void Erase(const Slice& key) override {
@@ -212,11 +212,11 @@ class ShardedCache : public ShardedCacheBase {
 
   bool Release(Handle* handle, bool useful,
                bool erase_if_last_ref = false) override {
-    auto h = reinterpret_cast<HandleImpl*>(handle);
+    auto h = static_cast<HandleImpl*>(handle);
     return GetShard(h->GetHash()).Release(h, useful, erase_if_last_ref);
   }
   bool Ref(Handle* handle) override {
-    auto h = reinterpret_cast<HandleImpl*>(handle);
+    auto h = static_cast<HandleImpl*>(handle);
     return GetShard(h->GetHash()).Ref(h);
   }
   bool Release(Handle* handle, bool erase_if_last_ref = false) override {
@@ -259,7 +259,7 @@ class ShardedCache : public ShardedCacheBase {
     } while (remaining_work);
   }
 
-  virtual void EraseUnRefEntries() override {
+  void EraseUnRefEntries() override {
     ForEachShard([](CacheShard* cs) { cs->EraseUnRefEntries(); });
   }
 

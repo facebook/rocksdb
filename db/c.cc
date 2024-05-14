@@ -46,6 +46,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "util/stderr_logger.h"
 #include "utilities/merge_operators.h"
 
 using ROCKSDB_NAMESPACE::BackupEngine;
@@ -115,6 +116,7 @@ using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
 using ROCKSDB_NAMESPACE::SstFileWriter;
 using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
@@ -444,7 +446,7 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     size_t new_value_len;
     char* tmp_new_value = (*full_merge_)(
         state_, merge_in.key.data(), merge_in.key.size(), existing_value_data,
-        existing_value_len, &operand_pointers[0], &operand_sizes[0],
+        existing_value_len, operand_pointers.data(), operand_sizes.data(),
         static_cast<int>(n), &success, &new_value_len);
     merge_out->new_value.assign(tmp_new_value, new_value_len);
 
@@ -473,8 +475,9 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     unsigned char success;
     size_t new_value_len;
     char* tmp_new_value = (*partial_merge_)(
-        state_, key.data(), key.size(), &operand_pointers[0], &operand_sizes[0],
-        static_cast<int>(operand_count), &success, &new_value_len);
+        state_, key.data(), key.size(), operand_pointers.data(),
+        operand_sizes.data(), static_cast<int>(operand_count), &success,
+        &new_value_len);
     new_value->assign(tmp_new_value, new_value_len);
 
     if (delete_value_ != nullptr) {
@@ -884,9 +887,9 @@ rocksdb_t* rocksdb_open_and_trim_history(
     size_t trim_tslen, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   std::string trim_ts_(trim_ts, trim_tslen);
@@ -917,9 +920,9 @@ rocksdb_t* rocksdb_open_column_families(
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   DB* db;
@@ -951,9 +954,9 @@ rocksdb_t* rocksdb_open_column_families_with_ttl(
   for (int i = 0; i < num_column_families; i++) {
     ttls_vec.push_back(ttls[i]);
 
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   ROCKSDB_NAMESPACE::DBWithTTL* db;
@@ -983,9 +986,9 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     unsigned char error_if_wal_file_exists, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   DB* db;
@@ -1079,7 +1082,7 @@ rocksdb_column_family_handle_t** rocksdb_create_column_families(
   std::vector<ColumnFamilyHandle*> handles;
   std::vector<std::string> names;
   for (int i = 0; i != num_column_families; ++i) {
-    names.push_back(std::string(column_family_names[i]));
+    names.emplace_back(column_family_names[i]);
   }
   SaveError(errptr, db->rep->CreateColumnFamilies(
                         ColumnFamilyOptions(column_family_options->rep), names,
@@ -1685,6 +1688,11 @@ void rocksdb_release_snapshot(rocksdb_t* db,
   delete snapshot;
 }
 
+uint64_t rocksdb_snapshot_get_sequence_number(
+    const rocksdb_snapshot_t* snapshot) {
+  return snapshot->rep->GetSequenceNumber();
+}
+
 char* rocksdb_property_value(rocksdb_t* db, const char* propname) {
   std::string tmp;
   if (db->rep->GetProperty(Slice(propname), &tmp)) {
@@ -1872,9 +1880,8 @@ void rocksdb_disable_file_deletions(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->DisableFileDeletions());
 }
 
-void rocksdb_enable_file_deletions(rocksdb_t* db, unsigned char force,
-                                   char** errptr) {
-  SaveError(errptr, db->rep->EnableFileDeletions(force));
+void rocksdb_enable_file_deletions(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->EnableFileDeletions());
 }
 
 void rocksdb_destroy_db(const rocksdb_options_t* options, const char* name,
@@ -2782,7 +2789,9 @@ void rocksdb_options_set_cuckoo_table_factory(
 void rocksdb_set_options(rocksdb_t* db, int count, const char* const keys[],
                          const char* const values[], char** errptr) {
   std::unordered_map<std::string, std::string> options_map;
-  for (int i = 0; i < count; i++) options_map[keys[i]] = values[i];
+  for (int i = 0; i < count; i++) {
+    options_map[keys[i]] = values[i];
+  }
   SaveError(errptr, db->rep->SetOptions(options_map));
 }
 
@@ -2791,7 +2800,9 @@ void rocksdb_set_options_cf(rocksdb_t* db,
                             const char* const keys[],
                             const char* const values[], char** errptr) {
   std::unordered_map<std::string, std::string> options_map;
-  for (int i = 0; i < count; i++) options_map[keys[i]] = values[i];
+  for (int i = 0; i < count; i++) {
+    options_map[keys[i]] = values[i];
+  }
   SaveError(errptr, db->rep->SetOptions(handle->rep, options_map));
 }
 
@@ -2919,6 +2930,23 @@ void rocksdb_options_set_cf_paths(rocksdb_options_t* opt,
   opt->rep.cf_paths = cf_paths;
 }
 
+rocksdb_logger_t* rocksdb_logger_create_stderr_logger(int log_level,
+                                                      const char* prefix) {
+  rocksdb_logger_t* logger = new rocksdb_logger_t;
+
+  if (prefix) {
+    logger->rep = std::make_shared<StderrLogger>(
+        static_cast<InfoLogLevel>(log_level), prefix);
+  } else {
+    logger->rep =
+        std::make_shared<StderrLogger>(static_cast<InfoLogLevel>(log_level));
+  }
+
+  return logger;
+}
+
+void rocksdb_logger_destroy(rocksdb_logger_t* logger) { delete logger; }
+
 void rocksdb_options_set_env(rocksdb_options_t* opt, rocksdb_env_t* env) {
   opt->rep.env = (env ? env->rep : nullptr);
 }
@@ -2927,6 +2955,12 @@ void rocksdb_options_set_info_log(rocksdb_options_t* opt, rocksdb_logger_t* l) {
   if (l) {
     opt->rep.info_log = l->rep;
   }
+}
+
+rocksdb_logger_t* rocksdb_options_get_info_log(rocksdb_options_t* opt) {
+  rocksdb_logger_t* info_log = new rocksdb_logger_t;
+  info_log->rep = opt->rep.info_log;
+  return info_log;
 }
 
 void rocksdb_options_set_info_log_level(rocksdb_options_t* opt, int v) {
@@ -3049,6 +3083,14 @@ void rocksdb_options_set_max_bytes_for_level_multiplier_additional(
   }
 }
 
+void rocksdb_options_set_ttl(rocksdb_options_t* opt, uint64_t seconds) {
+  opt->rep.ttl = seconds;
+}
+
+uint64_t rocksdb_options_get_ttl(rocksdb_options_t* opt) {
+  return opt->rep.ttl;
+}
+
 void rocksdb_options_set_periodic_compaction_seconds(rocksdb_options_t* opt,
                                                      uint64_t seconds) {
   opt->rep.periodic_compaction_seconds = seconds;
@@ -3111,7 +3153,7 @@ void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
                                            unsigned char val) {
   opt->rep.enable_blob_files = val;
 }
-extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
+ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
     rocksdb_options_t* opt) {
   return opt->rep.enable_blob_files;
 }
@@ -3481,35 +3523,6 @@ void rocksdb_options_set_advise_random_on_open(rocksdb_options_t* opt,
 unsigned char rocksdb_options_get_advise_random_on_open(
     rocksdb_options_t* opt) {
   return opt->rep.advise_random_on_open;
-}
-
-void rocksdb_options_set_access_hint_on_compaction_start(rocksdb_options_t* opt,
-                                                         int v) {
-  switch (v) {
-    case 0:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::NONE;
-      break;
-    case 1:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::NORMAL;
-      break;
-    case 2:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::SEQUENTIAL;
-      break;
-    case 3:
-      opt->rep.access_hint_on_compaction_start =
-          ROCKSDB_NAMESPACE::Options::WILLNEED;
-      break;
-    default:
-      assert(0);
-  }
-}
-
-int rocksdb_options_get_access_hint_on_compaction_start(
-    rocksdb_options_t* opt) {
-  return opt->rep.access_hint_on_compaction_start;
 }
 
 void rocksdb_options_set_use_adaptive_mutex(rocksdb_options_t* opt,
@@ -3994,6 +4007,16 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create_auto_tuned(
                                                 refill_period_us, fairness,
                                                 RateLimiter::Mode::kWritesOnly,
                                                 true));  // auto_tuned
+  return rate_limiter;
+}
+
+rocksdb_ratelimiter_t* rocksdb_ratelimiter_create_with_mode(
+    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
+    int mode, bool auto_tuned) {
+  rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
+  rate_limiter->rep.reset(
+      NewGenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
+                            static_cast<RateLimiter::Mode>(mode), auto_tuned));
   return rate_limiter;
 }
 
@@ -4593,7 +4616,7 @@ void rocksdb_readoptions_set_io_timeout(rocksdb_readoptions_t* opt,
   opt->rep.io_timeout = std::chrono::microseconds(microseconds);
 }
 
-extern ROCKSDB_LIBRARY_API uint64_t
+ROCKSDB_LIBRARY_API uint64_t
 rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t* opt) {
   return opt->rep.io_timeout.count();
 }
@@ -5042,7 +5065,9 @@ void rocksdb_env_lower_high_priority_thread_pool_cpu_priority(
 }
 
 void rocksdb_env_destroy(rocksdb_env_t* env) {
-  if (!env->is_default) delete env->rep;
+  if (!env->is_default) {
+    delete env->rep;
+  }
   delete env;
 }
 
@@ -5426,9 +5451,7 @@ uint64_t rocksdb_livefiles_deletions(const rocksdb_livefiles_t* lf, int index) {
   return lf->rep[index].num_deletions;
 }
 
-extern void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) {
-  delete lf;
-}
+void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) { delete lf; }
 
 void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
                                      const char* opts_str,
@@ -5508,7 +5531,7 @@ size_t rocksdb_column_family_metadata_get_level_count(
 rocksdb_level_metadata_t* rocksdb_column_family_metadata_get_level_metadata(
     rocksdb_column_family_metadata_t* cf_meta, size_t i) {
   if (i >= cf_meta->rep.levels.size()) {
-    return NULL;
+    return nullptr;
   }
   rocksdb_level_metadata_t* level_meta =
       (rocksdb_level_metadata_t*)malloc(sizeof(rocksdb_level_metadata_t));
@@ -5723,9 +5746,9 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   TransactionDB* txn_db;
@@ -6517,9 +6540,9 @@ rocksdb_optimistictransactiondb_open_column_families(
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
-    column_families.push_back(ColumnFamilyDescriptor(
+    column_families.emplace_back(
         std::string(column_family_names[i]),
-        ColumnFamilyOptions(column_family_options[i]->rep)));
+        ColumnFamilyOptions(column_family_options[i]->rep));
   }
 
   OptimisticTransactionDB* otxn_db;

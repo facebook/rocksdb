@@ -43,7 +43,7 @@ struct IngestedFileInfo {
   uint64_t num_entries;
   // total number of range deletions in external file
   uint64_t num_range_deletions;
-  // Id of column family this file shoule be ingested into
+  // Id of column family this file should be ingested into
   uint32_t cf_id;
   // TableProperties read from external file
   TableProperties table_properties;
@@ -73,6 +73,14 @@ struct IngestedFileInfo {
   Temperature file_temperature = Temperature::kUnknown;
   // Unique id of the file to be ingested
   UniqueId64x2 unique_id{};
+  // Whether the external file should be treated as if it has user-defined
+  // timestamps or not. If this flag is false, and the column family enables
+  // UDT feature, the file will have min-timestamp artificially padded to its
+  // user keys when it's read. Since it will affect how `TableReader` reads a
+  // table file, it's defaulted to optimize for the majority of the case where
+  // the user key's format in the external file matches the column family's
+  // setting.
+  bool user_defined_timestamps_persisted = true;
 };
 
 class ExternalSstFileIngestionJob {
@@ -102,16 +110,7 @@ class ExternalSstFileIngestionJob {
     assert(directories != nullptr);
   }
 
-  ~ExternalSstFileIngestionJob() {
-    for (const auto& c : file_ingesting_compactions_) {
-      cfd_->compaction_picker()->UnregisterCompaction(c);
-      delete c;
-    }
-
-    for (const auto& f : compaction_input_metdatas_) {
-      delete f;
-    }
-  }
+  ~ExternalSstFileIngestionJob() { UnregisterRange(); }
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
@@ -156,10 +155,27 @@ class ExternalSstFileIngestionJob {
     return files_to_ingest_;
   }
 
-  // How many sequence numbers did we consume as part of the ingest job?
+  // How many sequence numbers did we consume as part of the ingestion job?
   int ConsumedSequenceNumbersCount() const { return consumed_seqno_count_; }
 
  private:
+  Status ResetTableReader(const std::string& external_file,
+                          uint64_t new_file_number,
+                          bool user_defined_timestamps_persisted,
+                          SuperVersion* sv, IngestedFileInfo* file_to_ingest,
+                          std::unique_ptr<TableReader>* table_reader);
+
+  // Read the external file's table properties to do various sanity checks and
+  // populates certain fields in `IngestedFileInfo` according to some table
+  // properties.
+  // In some cases when sanity check passes, `table_reader` could be reset with
+  // different options. For example: when external file does not contain
+  // timestamps while column family enables UDT in Memtables only feature.
+  Status SanityCheckTableProperties(const std::string& external_file,
+                                    uint64_t new_file_number, SuperVersion* sv,
+                                    IngestedFileInfo* file_to_ingest,
+                                    std::unique_ptr<TableReader>* table_reader);
+
   // Open the external file and populate `file_to_ingest` with all the
   // external information we need to ingest this file.
   Status GetIngestedFileInfo(const std::string& external_file,
@@ -202,6 +218,9 @@ class ExternalSstFileIngestionJob {
   // , which will be used to check range conflict with other ongoing
   // compactions.
   void CreateEquivalentFileIngestingCompactions();
+
+  // Remove all the internal files created, called when ingestion job fails.
+  void DeleteInternalFiles();
 
   SystemClock* clock_;
   FileSystemPtr fs_;

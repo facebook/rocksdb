@@ -46,7 +46,7 @@ Status WritePreparedTxnDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
-  for (auto rtxn : rtxns) {
+  for (const auto& rtxn : rtxns) {
     // There should only one batch for WritePrepared policy.
     assert(rtxn.second->batches_.size() == 1);
     const auto& seq = rtxn.second->batches_.begin()->first;
@@ -249,12 +249,17 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
 
 Status WritePreparedTxnDB::Get(const ReadOptions& _read_options,
                                ColumnFamilyHandle* column_family,
-                               const Slice& key, PinnableSlice* value) {
+                               const Slice& key, PinnableSlice* value,
+                               std::string* timestamp) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not implemented");
   }
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
@@ -325,24 +330,34 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   handle_map_.reset(handle_map);
 }
 
-std::vector<Status> WritePreparedTxnDB::MultiGet(
-    const ReadOptions& _read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+void WritePreparedTxnDB::MultiGet(const ReadOptions& _read_options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle** column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  std::string* timestamps, Status* statuses,
+                                  const bool /*sorted_input*/) {
   assert(values);
-  size_t num_keys = keys.size();
-  std::vector<Status> stat_list(num_keys);
 
+  Status s;
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGet) {
-    Status s = Status::InvalidArgument(
+    s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+  }
 
-    for (size_t i = 0; i < num_keys; ++i) {
-      stat_list[i] = s;
+  if (s.ok()) {
+    if (timestamps) {
+      s = Status::NotSupported(
+          "MultiGet() returning timestamps not implemented.");
     }
-    return stat_list;
+  }
+
+  if (!s.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
   }
 
   ReadOptions read_options(_read_options);
@@ -350,13 +365,10 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 
-  values->resize(num_keys);
-
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] =
-        this->GetImpl(read_options, column_family[i], keys[i], &(*values)[i]);
+    statuses[i] =
+        this->GetImpl(read_options, column_families[i], keys[i], &values[i]);
   }
-  return stat_list;
 }
 
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
@@ -373,7 +385,7 @@ struct WritePreparedTxnDB::IteratorState {
 
 namespace {
 static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
-  delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
+  delete static_cast<WritePreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
 
@@ -409,12 +421,12 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& _read_options,
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
   assert(snapshot_seq != kMaxSequenceNumber);
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto* cfd = cfh->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
-  auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfd, super_version,
+  auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfh, super_version,
                                             snapshot_seq, &state->callback,
                                             expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
@@ -458,12 +470,12 @@ Status WritePreparedTxnDB::NewIterators(
   iterators->clear();
   iterators->reserve(column_families.size());
   for (auto* column_family : column_families) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+    auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    auto* cfd = cfh->cfd();
     auto* state =
         new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
-    auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfd, super_version,
+    auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfh, super_version,
                                               snapshot_seq, &state->callback,
                                               expose_blob_index, allow_refresh);
     db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
@@ -636,7 +648,7 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
                                         const size_t batch_cnt) {
   TEST_SYNC_POINT_CALLBACK(
       "RemovePrepared:Start",
-      const_cast<void*>(reinterpret_cast<const void*>(&prepare_seq)));
+      const_cast<void*>(static_cast<const void*>(&prepare_seq)));
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:pause");
   TEST_SYNC_POINT("WritePreparedTxnDB::RemovePrepared:resume");
   ROCKS_LOG_DETAILS(info_log_,
@@ -813,6 +825,7 @@ void WritePreparedTxnDB::AdvanceSeqByOne() {
   // Inserting an empty value will i) let the max evicted entry to be
   // published, i.e., max == last_published, increase the last published to
   // be one beyond max, i.e., max < last_published.
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   WriteOptions woptions;
   TransactionOptions txn_options;
   Transaction* txn0 = BeginTransaction(woptions, txn_options, nullptr);

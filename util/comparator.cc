@@ -9,9 +9,8 @@
 
 #include "rocksdb/comparator.h"
 
-#include <stdint.h>
-
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -30,7 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 class BytewiseComparatorImpl : public Comparator {
  public:
-  BytewiseComparatorImpl() {}
+  BytewiseComparatorImpl() = default;
   static const char* kClassName() { return "leveldb.BytewiseComparator"; }
   const char* Name() const override { return kClassName(); }
 
@@ -112,7 +111,9 @@ class BytewiseComparatorImpl : public Comparator {
     }
     size_t diff_ind = s.difference_offset(t);
     // same slice
-    if (diff_ind >= s.size()) return false;
+    if (diff_ind >= s.size()) {
+      return false;
+    }
     uint8_t byte_s = static_cast<uint8_t>(s[diff_ind]);
     uint8_t byte_t = static_cast<uint8_t>(t[diff_ind]);
     // first different byte must be consecutive, and remaining bytes must be
@@ -148,7 +149,7 @@ class BytewiseComparatorImpl : public Comparator {
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
-  ReverseBytewiseComparatorImpl() {}
+  ReverseBytewiseComparatorImpl() = default;
 
   static const char* kClassName() {
     return "rocksdb.ReverseBytewiseComparator";

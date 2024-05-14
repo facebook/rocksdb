@@ -22,7 +22,6 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/types.h"
 #include "table/internal_iterator.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/table_builder.h"
 #include "util/heap.h"
 #include "util/kv_map.h"

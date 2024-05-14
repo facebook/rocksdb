@@ -126,7 +126,6 @@ most processors made since roughly 2013.
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
-            * run `brew tap homebrew/versions; brew install gcc7 --use-llvm` to install gcc 7 (or higher).
     * run `brew install rocksdb`
 
 * **FreeBSD** (11.01):
@@ -169,21 +168,26 @@ most processors made since roughly 2013.
 
     * Install the dependencies for RocksDB:
 
-        pkg_add gmake gflags snappy bzip2 lz4 zstd git jdk bash findutils gnuwatch
+      `pkg_add gmake gflags snappy bzip2 lz4 zstd git bash findutils gnuwatch`
 
     * Build RocksDB from source:
 
+        ```bash
         cd ~
         git clone https://github.com/facebook/rocksdb.git
         cd rocksdb
         gmake static_lib
+        ```
 
     * Build RocksJava from source (optional):
-
+        * In OpenBSD, JDK depends on XWindows system, so please check that you installed OpenBSD with `xbase` package.
+        * Install dependencies : `pkg_add -v jdk%1.8`
+        ```bash
         cd rocksdb
         export JAVA_HOME=/usr/local/jdk-1.8.0
         export PATH=$PATH:/usr/local/jdk-1.8.0/bin
-        gmake rocksdbjava
+        gmake rocksdbjava SHA256_CMD='sha256 -q'
+        ```
 
 * **iOS**:
   * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define an important pre-processing macros: `IOS_CROSS_COMPILE`.

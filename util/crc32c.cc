@@ -11,9 +11,8 @@
 // four bytes at a time.
 #include "util/crc32c.h"
 
-#include <stdint.h>
-
 #include <array>
+#include <cstdint>
 #include <utility>
 
 #include "port/lang.h"
@@ -57,8 +56,7 @@ ASSERT_FEATURE_COMPAT_HEADER();
 bool pmull_runtime_flag = false;
 #endif
 
-namespace ROCKSDB_NAMESPACE {
-namespace crc32c {
+namespace ROCKSDB_NAMESPACE::crc32c {
 
 #if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
 #ifdef __powerpc64__
@@ -1294,5 +1292,4 @@ uint32_t Crc32cCombine(uint32_t crc1, uint32_t crc2, size_t crc2len) {
       pure_crc2_with_init);
 }
 
-}  // namespace crc32c
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::crc32c

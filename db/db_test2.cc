@@ -80,9 +80,8 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
-  column_families.push_back(ColumnFamilyDescriptor("goku", cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
+  column_families.emplace_back("goku", cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   // OpenForReadOnly should fail but will create <dbname> in the file system
   ASSERT_NOK(
@@ -748,7 +747,7 @@ TEST_F(DBTest2, WalFilterTest) {
         // we expect all records to be processed
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
-            keys_must_exist.push_back(Slice(batch_keys[i][j]));
+            keys_must_exist.emplace_back(batch_keys[i][j]);
           }
         }
         break;
@@ -762,9 +761,9 @@ TEST_F(DBTest2, WalFilterTest) {
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
             if (i == apply_option_for_record_index) {
-              keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_not_exist.emplace_back(batch_keys[i][j]);
             } else {
-              keys_must_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_exist.emplace_back(batch_keys[i][j]);
             }
           }
         }
@@ -780,9 +779,9 @@ TEST_F(DBTest2, WalFilterTest) {
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
             if (i >= apply_option_for_record_index) {
-              keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_not_exist.emplace_back(batch_keys[i][j]);
             } else {
-              keys_must_exist.push_back(Slice(batch_keys[i][j]));
+              keys_must_exist.emplace_back(batch_keys[i][j]);
             }
           }
         }
@@ -922,9 +921,9 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
   for (size_t i = 0; i < batch_keys.size(); i++) {
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
       if (i >= change_records_from_index && j >= num_keys_to_add_in_new_batch) {
-        keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
+        keys_must_not_exist.emplace_back(batch_keys[i][j]);
       } else {
-        keys_must_exist.push_back(Slice(batch_keys[i][j]));
+        keys_must_exist.emplace_back(batch_keys[i][j]);
       }
     }
   }
@@ -1012,7 +1011,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatchExtraKeys) {
 
   for (size_t i = 0; i < batch_keys.size(); i++) {
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      keys_must_exist.push_back(Slice(batch_keys[i][j]));
+      keys_must_exist.emplace_back(batch_keys[i][j]);
     }
   }
 
@@ -2331,7 +2330,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
 }
 
 static void UniqueIdCallback(void* arg) {
-  int* result = reinterpret_cast<int*>(arg);
+  int* result = static_cast<int*>(arg);
   if (*result == -1) {
     *result = 0;
   }
@@ -2350,7 +2349,7 @@ class MockPersistentCache : public PersistentCache {
         "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
   }
 
-  ~MockPersistentCache() override {}
+  ~MockPersistentCache() override = default;
 
   PersistentCache::StatsType Stats() override {
     return PersistentCache::StatsType();
@@ -3036,7 +3035,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   // Remember file name before compaction is triggered
   std::vector<LiveFileMetaData> files_meta;
   dbfull()->GetLiveFilesMetaData(&files_meta);
-  for (auto file : files_meta) {
+  for (const auto& file : files_meta) {
     files_before_compact.push_back(file.name);
   }
 
@@ -3051,7 +3050,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   // Get file names after compaction is stopped
   files_meta.clear();
   dbfull()->GetLiveFilesMetaData(&files_meta);
-  for (auto file : files_meta) {
+  for (const auto& file : files_meta) {
     files_after_compact.push_back(file.name);
   }
 
@@ -3071,7 +3070,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   files_meta.clear();
   files_after_compact.clear();
   dbfull()->GetLiveFilesMetaData(&files_meta);
-  for (auto file : files_meta) {
+  for (const auto& file : files_meta) {
     files_after_compact.push_back(file.name);
   }
 
@@ -3861,6 +3860,17 @@ TEST_F(DBTest2, LowPriWrite) {
         int64_t* rate_bytes_per_sec = static_cast<int64_t*>(arg);
         ASSERT_EQ(1024 * 1024, *rate_bytes_per_sec);
       });
+
+  // Make a trivial L5 for L0 to compact into. L6 will be large so debt ratio
+  // will not cause compaction pressure.
+  Random rnd(301);
+  ASSERT_OK(Put("", rnd.RandomString(102400)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  ASSERT_OK(Put("", ""));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
   // Block compaction
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBTest.LowPriWrite:0", "DBImpl::BGWorkCompaction"},
@@ -3937,6 +3947,15 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
       options.table_factory.reset(NewBlockBasedTableFactory(bbto));
       DestroyAndReopen(options);
 
+      // To precisely control when to start bg compaction for excluding previous
+      // rate-limited bytes of flush read for table verification
+      std::shared_ptr<test::SleepingBackgroundTask> sleeping_task(
+          new test::SleepingBackgroundTask());
+      env_->SetBackgroundThreads(1, Env::LOW);
+      env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                     sleeping_task.get(), Env::Priority::LOW);
+      sleeping_task->WaitUntilSleeping();
+
       for (int i = 0; i < kNumL0Files; ++i) {
         for (int j = 0; j <= kNumKeysPerFile; ++j) {
           ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
@@ -3946,13 +3965,20 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
           ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
         }
       }
+
+      size_t rate_limited_bytes_start_bytes =
+          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL);
+
+      sleeping_task->WakeUp();
+      sleeping_task->WaitUntilDone();
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
       ASSERT_EQ(0, NumTableFilesAtLevel(0));
-
       // should be slightly above 512KB due to non-data blocks read. Arbitrarily
       // chose 1MB as the upper bound on the total bytes read.
-      size_t rate_limited_bytes = static_cast<size_t>(
-          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL));
+      size_t rate_limited_bytes =
+          static_cast<size_t>(
+              options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL)) -
+          rate_limited_bytes_start_bytes;
       // The charges can exist for `IO_LOW` and `IO_USER` priorities.
       size_t rate_limited_bytes_by_pri =
           options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW) +
@@ -4135,7 +4161,7 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
     ASSERT_OK(env_->FileExists(LogFileName(dbname_, log_file->LogNumber())));
   }
 
-  ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
+  ASSERT_OK(db_->EnableFileDeletions());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -4213,10 +4239,10 @@ TEST_F(DBTest2, TestNumPread) {
 
 class TraceExecutionResultHandler : public TraceRecordResult::Handler {
  public:
-  TraceExecutionResultHandler() {}
-  ~TraceExecutionResultHandler() override {}
+  TraceExecutionResultHandler() = default;
+  ~TraceExecutionResultHandler() override = default;
 
-  virtual Status Handle(const StatusOnlyTraceExecutionResult& result) override {
+  Status Handle(const StatusOnlyTraceExecutionResult& result) override {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
       return Status::InvalidArgument("Invalid timestamps.");
     }
@@ -4234,8 +4260,7 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
     return Status::OK();
   }
 
-  virtual Status Handle(
-      const SingleValueTraceExecutionResult& result) override {
+  Status Handle(const SingleValueTraceExecutionResult& result) override {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
       return Status::InvalidArgument("Invalid timestamps.");
     }
@@ -4253,8 +4278,7 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
     return Status::OK();
   }
 
-  virtual Status Handle(
-      const MultiValuesTraceExecutionResult& result) override {
+  Status Handle(const MultiValuesTraceExecutionResult& result) override {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
       return Status::InvalidArgument("Invalid timestamps.");
     }
@@ -4274,7 +4298,7 @@ class TraceExecutionResultHandler : public TraceRecordResult::Handler {
     return Status::OK();
   }
 
-  virtual Status Handle(const IteratorTraceExecutionResult& result) override {
+  Status Handle(const IteratorTraceExecutionResult& result) override {
     if (result.GetStartTimestamp() > result.GetEndTimestamp()) {
       return Status::InvalidArgument("Invalid timestamps.");
     }
@@ -4399,9 +4423,8 @@ TEST_F(DBTest2, TraceAndReplay) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -4591,9 +4614,8 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -4868,9 +4890,8 @@ TEST_F(DBTest2, TraceWithLimit) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -4942,9 +4963,8 @@ TEST_F(DBTest2, TraceWithSampling) {
   DB* db2 = nullptr;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -5048,9 +5068,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   DBOptions db_opts;
   db_opts.env = env_;
@@ -5098,9 +5117,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   delete db3_init;
 
   column_families.clear();
-  column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
-  column_families.push_back(
-      ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
+  column_families.emplace_back("default", cf_options);
+  column_families.emplace_back("pikachu", ColumnFamilyOptions());
   handles.clear();
 
   DB* db3 = nullptr;
@@ -5691,7 +5709,7 @@ TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
         ASSERT_OK(ReadFileToString(env_, fname, &file_content));
         file_content[400] = 'h';
         file_content[401] = 'a';
-        ASSERT_OK(WriteStringToFile(env_, file_content, fname));
+        ASSERT_OK(WriteStringToFile(env_, file_content, fname, false));
         break;
       }
     }
@@ -6441,7 +6459,7 @@ class RenameCurrentTest : public DBTestBase,
       : DBTestBase("rename_current_test", /*env_do_fsync=*/true),
         sync_point_(GetParam()) {}
 
-  ~RenameCurrentTest() override {}
+  ~RenameCurrentTest() override = default;
 
   void SetUp() override {
     env_->no_file_overwrite_.store(true, std::memory_order_release);
@@ -6454,7 +6472,7 @@ class RenameCurrentTest : public DBTestBase,
   void SetupSyncPoints() {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->SetCallBack(sync_point_, [&](void* arg) {
-      Status* s = reinterpret_cast<Status*>(arg);
+      Status* s = static_cast<Status*>(arg);
       assert(s);
       *s = Status::IOError("Injected IO error.");
     });
@@ -6586,7 +6604,7 @@ TEST_F(DBTest2, LastLevelTemperature) {
   auto* listener = new TestListener();
 
   Options options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kWarm;
+  options.last_level_temperature = Temperature::kWarm;
   options.level0_file_num_compaction_trigger = 2;
   options.level_compaction_dynamic_level_bytes = true;
   options.num_levels = kNumLevels;
@@ -6798,8 +6816,8 @@ TEST_F(DBTest2, LastLevelTemperatureUniversal) {
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_EQ(size, 0);
 
-  // Update bottommost temperature
-  options.bottommost_temperature = Temperature::kWarm;
+  // Update last level temperature
+  options.last_level_temperature = Temperature::kWarm;
   Reopen(options);
   db_->GetColumnFamilyMetaData(&metadata);
   // Should not impact existing ones
@@ -6851,10 +6869,10 @@ TEST_F(DBTest2, LastLevelTemperatureUniversal) {
       &prop));
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
 
-  // Update bottommost temperature dynamically with SetOptions
+  // Update last level temperature dynamically with SetOptions
   auto s = db_->SetOptions({{"last_level_temperature", "kCold"}});
   ASSERT_OK(s);
-  ASSERT_EQ(db_->GetOptions().bottommost_temperature, Temperature::kCold);
+  ASSERT_EQ(db_->GetOptions().last_level_temperature, Temperature::kCold);
   db_->GetColumnFamilyMetaData(&metadata);
   // Should not impact the existing files
   ASSERT_EQ(Temperature::kWarm,
@@ -6880,94 +6898,133 @@ TEST_F(DBTest2, LastLevelTemperatureUniversal) {
   ASSERT_GT(size, 0);
 
   // kLastTemperature is an invalid temperature
-  options.bottommost_temperature = Temperature::kLastTemperature;
+  options.last_level_temperature = Temperature::kLastTemperature;
   s = TryReopen(options);
   ASSERT_TRUE(s.IsIOError());
 }
 
 TEST_F(DBTest2, LastLevelStatistics) {
-  Options options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kWarm;
-  options.default_temperature = Temperature::kHot;
-  options.level0_file_num_compaction_trigger = 2;
-  options.level_compaction_dynamic_level_bytes = true;
-  options.statistics = CreateDBStatistics();
-  Reopen(options);
+  for (bool write_time_default : {false, true}) {
+    SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
+    Options options = CurrentOptions();
+    options.last_level_temperature = Temperature::kWarm;
+    if (write_time_default) {
+      options.default_write_temperature = Temperature::kHot;
+      ASSERT_EQ(options.default_temperature, Temperature::kUnknown);
+    } else {
+      options.default_temperature = Temperature::kHot;
+      ASSERT_EQ(options.default_write_temperature, Temperature::kUnknown);
+    }
+    options.level0_file_num_compaction_trigger = 2;
+    options.level_compaction_dynamic_level_bytes = true;
+    options.statistics = CreateDBStatistics();
+    BlockBasedTableOptions bbto;
+    bbto.no_block_cache = true;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
-  // generate 1 sst on level 0
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("bar", Get("bar"));
+    DestroyAndReopen(options);
 
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES), 0);
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT), 0);
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES), 0);
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT), 0);
+    // generate 1 sst on level 0
+    ASSERT_OK(Put("foo1", "bar"));
+    ASSERT_OK(Put("bar", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ("bar", Get("bar"));
 
-  // 2nd flush to trigger compaction
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ("bar", Get("bar"));
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES), 0);
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT), 0);
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES), 0);
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT), 0);
 
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // 2nd flush to trigger compaction
+    ASSERT_OK(Put("foo2", "bar"));
+    ASSERT_OK(Put("bar", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ("bar", Get("bar"));
 
-  auto pre_bytes =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES);
-  auto pre_count =
-      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
 
-  // 3rd flush to generate 1 sst on level 0
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("bar", Get("bar"));
+    auto pre_bytes =
+        options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES);
+    auto pre_count =
+        options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
 
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            pre_bytes);
-  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            pre_count);
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // 3rd flush to generate 1 sst on level 0
+    ASSERT_OK(Put("foo3", "bar"));
+    ASSERT_OK(Put("bar", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ("bar", Get("foo1"));
+    ASSERT_EQ("bar", Get("foo2"));
+    ASSERT_EQ("bar", Get("foo3"));
+    ASSERT_EQ("bar", Get("bar"));
 
-  // Not a realistic setting to make last level kWarm and default temp kCold.
-  // This is just for testing default temp can be reset on reopen while the
-  // last level temp is consistent across DB reopen because those file's temp
-  // are persisted in manifest.
-  options.default_temperature = Temperature::kCold;
-  ASSERT_OK(options.statistics->Reset());
-  Reopen(options);
-  ASSERT_EQ("bar", Get("bar"));
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              pre_bytes);
+    ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              pre_count);
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // Control
+    ASSERT_NE(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
 
-  ASSERT_EQ(0, options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+    // Not a realistic setting to make last level kWarm and default temp kCold.
+    // This is just for testing default temp can be reset on reopen while the
+    // last level temp is consistent across DB reopen because those file's temp
+    // are persisted in manifest.
+    options.default_temperature = Temperature::kCold;
+    ASSERT_OK(options.statistics->Reset());
+    Reopen(options);
+    ASSERT_EQ("bar", Get("foo1"));
+    ASSERT_EQ("bar", Get("foo2"));
+    ASSERT_EQ("bar", Get("foo3"));
+    ASSERT_EQ("bar", Get("bar"));
 
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(COLD_FILE_READ_COUNT));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
-            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
-  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
-            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    if (write_time_default) {
+      // Unchanged
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+                options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+                options.statistics->getTickerCount(HOT_FILE_READ_COUNT));
+
+      ASSERT_LT(0, options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+      ASSERT_EQ(0, options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
+    } else {
+      // Changed (in how we map kUnknown)
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+                options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
+      ASSERT_EQ(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+                options.statistics->getTickerCount(COLD_FILE_READ_COUNT));
+
+      ASSERT_EQ(0, options.statistics->getTickerCount(HOT_FILE_READ_BYTES));
+      ASSERT_LT(0, options.statistics->getTickerCount(COLD_FILE_READ_BYTES));
+    }
+
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+              options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+    ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+    // Control
+    ASSERT_NE(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+              options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT));
+  }
 }
 
 TEST_F(DBTest2, CheckpointFileTemperature) {
@@ -6984,7 +7041,7 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
   auto test_fs = std::make_shared<NoLinkTestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kWarm;
+  options.last_level_temperature = Temperature::kWarm;
   // set dynamic_level to true so the compaction would compact the data to the
   // last level directly which will have the last_level_temperature
   options.level_compaction_dynamic_level_bytes = true;
@@ -7010,7 +7067,7 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
   std::vector<LiveFileStorageInfo> infos;
   ASSERT_OK(
       dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
-  for (auto info : infos) {
+  for (const auto& info : infos) {
     temperatures.emplace(info.file_number, info.temperature);
   }
 
@@ -7043,7 +7100,7 @@ TEST_F(DBTest2, FileTemperatureManifestFixup) {
   auto test_fs = std::make_shared<FileTemperatureTestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kWarm;
+  options.last_level_temperature = Temperature::kWarm;
   // set dynamic_level to true so the compaction would compact the data to the
   // last level directly which will have the last_level_temperature
   options.level_compaction_dynamic_level_bytes = true;
@@ -7156,7 +7213,7 @@ TEST_F(DBTest2, PointInTimeRecoveryWithIOErrorWhileReadingWal) {
       "LogReader::ReadMore:AfterReadFile", [&](void* arg) {
         if (should_inject_error) {
           ASSERT_NE(nullptr, arg);
-          *reinterpret_cast<Status*>(arg) = Status::IOError("Injected IOError");
+          *static_cast<Status*>(arg) = Status::IOError("Injected IOError");
         }
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -7750,6 +7807,27 @@ TEST_F(DBTest2, ZSTDChecksum) {
   ASSERT_TRUE(s.IsCorruption());
 }
 #endif
+
+TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Give table cache zero capacity to prevent preloading tables. That way,
+  // `kBlockCacheTier` reads will fail due to table cache misses.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  uint64_t orig_num_file_opens = TestGetTickerCount(options, NO_FILE_OPENS);
+
+  ReadOptions non_blocking_opts;
+  non_blocking_opts.read_tier = kBlockCacheTier;
+  std::string value;
+  ASSERT_TRUE(db_->Get(non_blocking_opts, "foo", &value).IsIncomplete());
+
+  ASSERT_EQ(orig_num_file_opens, TestGetTickerCount(options, NO_FILE_OPENS));
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

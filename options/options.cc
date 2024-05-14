@@ -71,8 +71,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
       max_compaction_bytes(options.max_compaction_bytes),
-      ignore_max_compaction_bytes_for_input(
-          options.ignore_max_compaction_bytes_for_input),
       soft_pending_compaction_bytes_limit(
           options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
@@ -87,6 +85,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       table_properties_collector_factories(
           options.table_properties_collector_factories),
       max_successive_merges(options.max_successive_merges),
+      strict_max_successive_merges(options.strict_max_successive_merges),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
       force_consistency_checks(options.force_consistency_checks),
@@ -94,6 +93,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
       sample_for_compression(options.sample_for_compression),
+      last_level_temperature(options.last_level_temperature),
+      default_write_temperature(options.default_write_temperature),
       default_temperature(options.default_temperature),
       preclude_last_level_data_seconds(
           options.preclude_last_level_data_seconds),
@@ -127,7 +128,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
-DBOptions::DBOptions() {}
+DBOptions::DBOptions() = default;
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
 
@@ -290,8 +291,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                   Options.max_compaction_bytes: %" PRIu64,
         max_compaction_bytes);
-    ROCKS_LOG_HEADER(log, "  Options.ignore_max_compaction_bytes_for_input: %s",
-                     ignore_max_compaction_bytes_for_input ? "true" : "false");
     ROCKS_LOG_HEADER(
         log,
         "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
@@ -399,6 +398,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         log,
         "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
         max_successive_merges);
+    ROCKS_LOG_HEADER(log,
+                     "            Options.strict_max_successive_merges: %d",
+                     strict_max_successive_merges);
     ROCKS_LOG_HEADER(log,
                      "               Options.optimize_filters_for_hits: %d",
                      optimize_filters_for_hits);
@@ -537,7 +539,6 @@ Options* Options::DisableExtraChecks() {
   // See https://github.com/facebook/rocksdb/issues/9354
   force_consistency_checks = false;
   // Considered but no clear performance impact seen:
-  // * check_flush_compaction_key_order
   // * paranoid_checks
   // * flush_verify_memtable_count
   // By current API contract, not including
@@ -707,4 +708,11 @@ ReadOptions::ReadOptions(bool _verify_checksums, bool _fill_cache)
 ReadOptions::ReadOptions(Env::IOActivity _io_activity)
     : io_activity(_io_activity) {}
 
+WriteOptions::WriteOptions(Env::IOActivity _io_activity)
+    : io_activity(_io_activity) {}
+
+WriteOptions::WriteOptions(Env::IOPriority _rate_limiter_priority,
+                           Env::IOActivity _io_activity)
+    : rate_limiter_priority(_rate_limiter_priority),
+      io_activity(_io_activity) {}
 }  // namespace ROCKSDB_NAMESPACE

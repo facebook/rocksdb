@@ -263,8 +263,11 @@ public class CompactionJobStats extends RocksObject {
   }
 
   private static native long newCompactionJobStats();
-  @Override protected native void disposeInternal(final long handle);
-
+  @Override
+  protected void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   private static native void reset(final long handle);
   private static native void add(final long handle,
