@@ -1192,7 +1192,8 @@ void rocksdb_put_entity_cf(rocksdb_t* db, const rocksdb_writeoptions_t* options,
                            const size_t* names_list_sizes,
                            const char* const* values_list,
                            const size_t* values_list_sizes, char** errptr) {
-  WideColumns columns(num_columns);
+  WideColumns columns;
+  columns.reserve(num_columns);
   for (size_t i = 0; i < num_columns; i++) {
     WideColumn column(Slice(names_list[i], names_list_sizes[i]),
                       Slice(values_list[i], values_list_sizes[i]));
