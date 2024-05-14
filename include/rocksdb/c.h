@@ -125,6 +125,7 @@ typedef struct rocksdb_ratelimiter_t rocksdb_ratelimiter_t;
 typedef struct rocksdb_perfcontext_t rocksdb_perfcontext_t;
 typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
 typedef struct rocksdb_pinnablewidecolumns_t rocksdb_pinnablewidecolumns_t;
+typedef struct rocksdb_widecolumns_t rocksdb_widecolumns_t;
 typedef struct rocksdb_transactiondb_options_t rocksdb_transactiondb_options_t;
 typedef struct rocksdb_transactiondb_t rocksdb_transactiondb_t;
 typedef struct rocksdb_transaction_options_t rocksdb_transaction_options_t;
@@ -736,6 +737,8 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_key(
     const rocksdb_iterator_t*, size_t* klen);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_value(
     const rocksdb_iterator_t*, size_t* vlen);
+extern ROCKSDB_LIBRARY_API const rocksdb_widecolumns_t* rocksdb_iter_columns(
+    const rocksdb_iterator_t* iter);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_timestamp(
     const rocksdb_iterator_t*, size_t* tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_get_error(
@@ -2973,6 +2976,16 @@ extern ROCKSDB_LIBRARY_API void rocksdb_pinnablewidecolumns_name(
     size_t* name_len);
 extern ROCKSDB_LIBRARY_API void rocksdb_pinnablewidecolumns_value(
     const rocksdb_pinnablewidecolumns_t* v, const size_t n, const char** value,
+    size_t* value_len);
+extern ROCKSDB_LIBRARY_API void rocksdb_widecolumns_destroy(
+    rocksdb_widecolumns_t* v);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_widecolumns_len(const rocksdb_widecolumns_t* v);
+extern ROCKSDB_LIBRARY_API void rocksdb_widecolumns_name(
+    const rocksdb_widecolumns_t* v, const size_t n, const char** name,
+    size_t* name_len);
+extern ROCKSDB_LIBRARY_API void rocksdb_widecolumns_value(
+    const rocksdb_widecolumns_t* v, const size_t n, const char** value,
     size_t* value_len);
 
 extern ROCKSDB_LIBRARY_API rocksdb_memory_consumers_t*

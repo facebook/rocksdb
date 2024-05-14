@@ -266,6 +266,9 @@ struct rocksdb_pinnableslice_t {
 struct rocksdb_pinnablewidecolumns_t {
   PinnableWideColumns rep;
 };
+struct rocksdb_widecolumns_t {
+  WideColumns rep;
+};
 struct rocksdb_transactiondb_options_t {
   TransactionDBOptions rep;
 };
@@ -1968,6 +1971,13 @@ const char* rocksdb_iter_value(const rocksdb_iterator_t* iter, size_t* vlen) {
   Slice s = iter->rep->value();
   *vlen = s.size();
   return s.data();
+}
+
+const rocksdb_widecolumns_t* rocksdb_iter_columns(
+    const rocksdb_iterator_t* iter) {
+  rocksdb_widecolumns_t* cols = new (rocksdb_widecolumns_t);
+  cols->rep = std::move(iter->rep->columns());
+  return cols;
 }
 
 const char* rocksdb_iter_timestamp(const rocksdb_iterator_t* iter,
@@ -6762,6 +6772,37 @@ void rocksdb_pinnablewidecolumns_value(const rocksdb_pinnablewidecolumns_t* v,
     return;
   }
   Slice column_name = v->rep.columns()[n].value();
+  *value = column_name.data();
+  *value_len = column_name.size();
+}
+
+void rocksdb_widecolumns_destroy(rocksdb_widecolumns_t* v) { delete v; }
+
+size_t rocksdb_widecolumns_len(const rocksdb_widecolumns_t* v) {
+  if (!v) {
+    return 0;
+  }
+  return v->rep.size();
+}
+
+void rocksdb_widecolumns_name(const rocksdb_widecolumns_t* v, const size_t n,
+                              const char** name, size_t* name_len) {
+  if (!v) {
+    *name_len = 0;
+    return;
+  }
+  Slice column_name = v->rep[n].name();
+  *name = column_name.data();
+  *name_len = column_name.size();
+}
+
+void rocksdb_widecolumns_value(const rocksdb_widecolumns_t* v, const size_t n,
+                               const char** value, size_t* value_len) {
+  if (!v) {
+    *value_len = 0;
+    return;
+  }
+  Slice column_name = v->rep[n].value();
   *value = column_name.data();
   *value_len = column_name.size();
 }
