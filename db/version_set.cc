@@ -4617,25 +4617,27 @@ uint64_t VersionStorageInfo::GetMaxEpochNumberOfFiles() const {
   return max_epoch_number;
 }
 
-void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd) {
-  cfd->ResetNextEpochNumber();
+void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
+                                             bool restart_epoch, bool force) {
+  if (restart_epoch) {
+    cfd->ResetNextEpochNumber();
 
-  bool reserve_epoch_num_for_file_ingested_behind =
-      cfd->ioptions()->allow_ingest_behind;
-  if (reserve_epoch_num_for_file_ingested_behind) {
-    uint64_t reserved_epoch_number = cfd->NewEpochNumber();
-    assert(reserved_epoch_number == kReservedEpochNumberForFileIngestedBehind);
-    ROCKS_LOG_INFO(cfd->ioptions()->info_log.get(),
-                   "[%s]CF has reserved epoch number %" PRIu64
-                   " for files ingested "
-                   "behind since `Options::allow_ingest_behind` is true",
-                   cfd->GetName().c_str(), reserved_epoch_number);
+    bool reserve_epoch_num_for_file_ingested_behind =
+        cfd->ioptions()->allow_ingest_behind;
+    if (reserve_epoch_num_for_file_ingested_behind) {
+      uint64_t reserved_epoch_number = cfd->NewEpochNumber();
+      assert(reserved_epoch_number ==
+             kReservedEpochNumberForFileIngestedBehind);
+      ROCKS_LOG_INFO(cfd->ioptions()->info_log.get(),
+                     "[%s]CF has reserved epoch number %" PRIu64
+                     " for files ingested "
+                     "behind since `Options::allow_ingest_behind` is true",
+                     cfd->GetName().c_str(), reserved_epoch_number);
+    }
   }
 
-  if (HasMissingEpochNumber()) {
-    assert(epoch_number_requirement_ == EpochNumberRequirement::kMightMissing);
-    assert(num_levels_ >= 1);
-
+  bool missing_epoch_number = HasMissingEpochNumber();
+  if (missing_epoch_number || force) {
     for (int level = num_levels_ - 1; level >= 1; --level) {
       auto& files_at_level = files_[level];
       if (files_at_level.empty()) {
@@ -4646,17 +4648,19 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd) {
         f->epoch_number = next_epoch_number;
       }
     }
-
     for (auto file_meta_iter = files_[0].rbegin();
          file_meta_iter != files_[0].rend(); file_meta_iter++) {
       FileMetaData* f = *file_meta_iter;
       f->epoch_number = cfd->NewEpochNumber();
     }
-
-    ROCKS_LOG_WARN(cfd->ioptions()->info_log.get(),
-                   "[%s]CF's epoch numbers are inferred based on seqno",
-                   cfd->GetName().c_str());
-    epoch_number_requirement_ = EpochNumberRequirement::kMustPresent;
+    if (missing_epoch_number) {
+      assert(epoch_number_requirement_ ==
+             EpochNumberRequirement::kMightMissing);
+      ROCKS_LOG_WARN(cfd->ioptions()->info_log.get(),
+                     "[%s]CF's epoch numbers are inferred based on seqno",
+                     cfd->GetName().c_str());
+      epoch_number_requirement_ = EpochNumberRequirement::kMustPresent;
+    }
   } else {
     assert(epoch_number_requirement_ == EpochNumberRequirement::kMustPresent);
     cfd->SetNextEpochNumber(

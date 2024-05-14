@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include <cinttypes>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -512,15 +512,15 @@ Transaction* PessimisticTransactionDB::BeginInternalTransaction(
   return txn;
 }
 
-// All user Put, Merge, Delete, and Write requests must be intercepted to make
-// sure that they lock all keys that they are writing to avoid causing conflicts
-// with any concurrent transactions. The easiest way to do this is to wrap all
-// write operations in a transaction.
+// All user Put, PutEntity, Merge, Delete, and Write requests must be
+// intercepted to make sure that they lock all keys that they are writing to
+// avoid causing conflicts with any concurrent transactions. The easiest way to
+// do this is to wrap all write operations in a transaction.
 //
-// Put(), Merge(), and Delete() only lock a single key per call.  Write() will
-// sort its keys before locking them.  This guarantees that TransactionDB write
-// methods cannot deadlock with each other (but still could deadlock with a
-// Transaction).
+// Put(), PutEntity(), Merge(), and Delete() only lock a single key per call.
+// Write() will sort its keys before locking them.  This guarantees that
+// TransactionDB write methods cannot deadlock with each other (but still could
+// deadlock with a Transaction).
 Status PessimisticTransactionDB::Put(const WriteOptions& options,
                                      ColumnFamilyHandle* column_family,
                                      const Slice& key, const Slice& val) {
@@ -543,6 +543,42 @@ Status PessimisticTransactionDB::Put(const WriteOptions& options,
   delete txn;
 
   return s;
+}
+
+Status PessimisticTransactionDB::PutEntity(const WriteOptions& options,
+                                           ColumnFamilyHandle* column_family,
+                                           const Slice& key,
+                                           const WideColumns& columns) {
+  {
+    const Status s = FailIfCfEnablesTs(this, column_family);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  {
+    std::unique_ptr<Transaction> txn(BeginInternalTransaction(options));
+    txn->DisableIndexing();
+
+    // Since the client didn't create a transaction, they don't care about
+    // conflict checking for this write.  So we just need to do
+    // PutEntityUntracked().
+    {
+      const Status s = txn->PutEntityUntracked(column_family, key, columns);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    {
+      const Status s = txn->Commit();
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+
+  return Status::OK();
 }
 
 Status PessimisticTransactionDB::Delete(const WriteOptions& wopts,

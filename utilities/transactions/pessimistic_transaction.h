@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <algorithm>
 #include <atomic>
 #include <mutex>
@@ -249,6 +248,25 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status PutUntracked(ColumnFamilyHandle* column_family, const SliceParts& key,
                       const SliceParts& value) override;
 
+  // `key` does NOT include timestamp even when it's enabled.
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns,
+                   bool assume_tracked = false) override {
+    const bool do_validate = !assume_tracked;
+
+    return PutEntityImpl(column_family, key, columns, do_validate,
+                         assume_tracked);
+  }
+
+  Status PutEntityUntracked(ColumnFamilyHandle* column_family, const Slice& key,
+                            const WideColumns& columns) override {
+    constexpr bool do_validate = false;
+    constexpr bool assume_tracked = false;
+
+    return PutEntityImpl(column_family, key, columns, do_validate,
+                         assume_tracked);
+  }
+
   using TransactionBaseImpl::Delete;
   // `key` does NOT include timestamp even when it's enabled.
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
@@ -287,6 +305,10 @@ class WriteCommittedTxn : public PessimisticTransaction {
                           ColumnFamilyHandle* column_family, const Slice& key,
                           TValue* value, bool exclusive,
                           const bool do_validate);
+
+  Status PutEntityImpl(ColumnFamilyHandle* column_family, const Slice& key,
+                       const WideColumns& columns, bool do_validate,
+                       bool assume_tracked);
 
   template <typename TKey, typename TOperation>
   Status Operate(ColumnFamilyHandle* column_family, const TKey& key,

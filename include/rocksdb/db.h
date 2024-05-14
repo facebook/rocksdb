@@ -1475,6 +1475,9 @@ class DB {
   // move the files back to the minimum level capable of holding the data set
   // or a given level (specified by non-negative options.target_level).
   //
+  // For FIFO compaction, this will trigger a compaction (if available)
+  // based on CompactionOptionsFIFO.
+  //
   // In case of user-defined timestamp, if enabled, `begin` and `end` should
   // not contain timestamp.
   virtual Status CompactRange(const CompactRangeOptions& options,
@@ -1858,6 +1861,7 @@ class DB {
   // supported. 4) When an ingested file contains point data and range deletion
   // for the same key, the point data currently overrides the range deletion
   // regardless which one has the higher user-defined timestamps.
+  // For FIFO compaction, SST files will always be ingested into L0.
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level
@@ -2005,6 +2009,8 @@ class DB {
     return Status::NotSupported("SuggestCompactRange() is not implemented.");
   }
 
+  // Trivially move L0 files to target level. Should not be called with another
+  // PromoteL0() concurrently
   virtual Status PromoteL0(ColumnFamilyHandle* /*column_family*/,
                            int /*target_level*/) {
     return Status::NotSupported("PromoteL0() is not implemented.");

@@ -67,7 +67,11 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in":  lambda: random.choice([1000, 1000000]),
     "compact_range_one_in":  lambda: random.choice([1000, 1000000]),
+    # Disabled because of various likely related failures with
+    # "Cannot delete table file #N from level 0 since it is on level X"
+    "promote_l0_one_in": 0,
     "compaction_pri": random.randint(0, 4),
+    "key_may_exist_one_in":  lambda: random.choice([100, 100000]),
     "data_block_index_type": lambda: random.choice([0, 1]),
     "delpercent": 4,
     "delrangepercent": 1,
@@ -116,6 +120,7 @@ default_params = {
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
+    "reset_stats_one_in": lambda: random.choice([10000, 1000000]),
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
     "disable_manual_compaction_one_in": lambda: random.choice([10000, 1000000]),
@@ -147,6 +152,7 @@ default_params = {
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
+    "use_attribute_group": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
     "value_size_mult": 32,
@@ -834,9 +840,10 @@ def finalize_and_sanitize(src_params):
         # verification.
         dest_params["acquire_snapshot_one_in"] = 0
         dest_params["compact_range_one_in"] = 0
-        # Give the iterator ops away to reads.
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        # Redistribute to maintain 100% total
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10) + dest_params.get("prefixpercent", 20)
         dest_params["iterpercent"] = 0
+        dest_params["prefixpercent"] = 0
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("disable_wal") == 1:

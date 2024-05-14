@@ -89,6 +89,10 @@ class StressTest {
     return {rand_key};
   }
 
+  virtual void TestKeyMayExist(ThreadState*, const ReadOptions&,
+                               const std::vector<int>&,
+                               const std::vector<int64_t>&) {}
+
   virtual Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                          const std::vector<int>& rand_column_families,
                          const std::vector<int64_t>& rand_keys) = 0;
@@ -135,6 +139,9 @@ class StressTest {
   virtual void TestCompactRange(ThreadState* thread, int64_t rand_key,
                                 const Slice& start_key,
                                 ColumnFamilyHandle* column_family);
+
+  virtual void TestPromoteL0(ThreadState* thread,
+                             ColumnFamilyHandle* column_family);
 
   // Calculate a hash value for all keys in range [start_key, end_key]
   // at a certain snapshot.
@@ -203,6 +210,8 @@ class StressTest {
   void TestCompactFiles(ThreadState* thread, ColumnFamilyHandle* column_family);
 
   Status TestFlush(const std::vector<int>& rand_column_families);
+
+  Status TestResetStats();
 
   Status TestPauseBackground(ThreadState* thread);
 

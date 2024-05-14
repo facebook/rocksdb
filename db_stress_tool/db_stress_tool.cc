@@ -251,13 +251,14 @@ int db_stress_tool(int argc, char** argv) {
   }
   if ((FLAGS_enable_compaction_filter || FLAGS_inplace_update_support) &&
       (FLAGS_acquire_snapshot_one_in > 0 || FLAGS_compact_range_one_in > 0 ||
-       FLAGS_iterpercent > 0 || FLAGS_test_batches_snapshots ||
-       FLAGS_test_cf_consistency || FLAGS_check_multiget_consistency ||
+       FLAGS_iterpercent > 0 || FLAGS_prefixpercent > 0 ||
+       FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency ||
+       FLAGS_check_multiget_consistency ||
        FLAGS_check_multiget_entity_consistency)) {
     fprintf(
         stderr,
         "Error: acquire_snapshot_one_in, compact_range_one_in, iterpercent, "
-        "test_batches_snapshots, test_cf_consistency, "
+        "prefixpercent, test_batches_snapshots, test_cf_consistency, "
         "check_multiget_consistency, check_multiget_entity_consistency must "
         "all be 0 when using compaction filter or inplace update support\n");
     exit(1);

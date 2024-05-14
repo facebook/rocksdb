@@ -3844,6 +3844,9 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
     } else {
       CompactRangeOptions cro;
       cro.exclusive_manual_compaction = exclusive_manual_compaction_;
+      cro.change_level = true;
+      ASSERT_TRUE(db_->CompactRange(cro, nullptr, nullptr).IsNotSupported());
+      cro.change_level = false;
       ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
     }
     // only 5 files should survive

@@ -928,20 +928,9 @@ struct Saver {
 }  // anonymous namespace
 
 static bool SaveValue(void* arg, const char* entry) {
-  TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
   Saver* s = static_cast<Saver*>(arg);
   assert(s != nullptr);
   assert(!s->value || !s->columns);
-
-  if (s->protection_bytes_per_key > 0) {
-    *(s->status) = MemTable::VerifyEntryChecksum(
-        entry, s->protection_bytes_per_key, s->allow_data_in_errors);
-    if (!s->status->ok()) {
-      ROCKS_LOG_ERROR(s->logger, "In SaveValue: %s", s->status->getState());
-      // Memtable entry corrupted
-      return false;
-    }
-  }
 
   MergeContext* merge_context = s->merge_context;
   SequenceNumber max_covering_tombstone_seq = s->max_covering_tombstone_seq;
@@ -965,6 +954,22 @@ static bool SaveValue(void* arg, const char* entry) {
   if (user_comparator->EqualWithoutTimestamp(user_key_slice,
                                              s->key->user_key())) {
     // Correct user key
+    TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Found:entry", &entry);
+    std::unique_ptr<ReadLock> read_lock;
+    if (s->inplace_update_support) {
+      read_lock.reset(new ReadLock(s->mem->GetLock(s->key->user_key())));
+    }
+
+    if (s->protection_bytes_per_key > 0) {
+      *(s->status) = MemTable::VerifyEntryChecksum(
+          entry, s->protection_bytes_per_key, s->allow_data_in_errors);
+      if (!s->status->ok()) {
+        ROCKS_LOG_ERROR(s->logger, "In SaveValue: %s", s->status->getState());
+        // Memtable entry corrupted
+        return false;
+      }
+    }
+
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
     SequenceNumber seq;
@@ -1035,10 +1040,6 @@ static bool SaveValue(void* arg, const char* entry) {
           return false;
         }
 
-        if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadLock();
-        }
-
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
 
         *(s->status) = Status::OK();
@@ -1049,10 +1050,6 @@ static bool SaveValue(void* arg, const char* entry) {
           s->columns->SetPlainValue(v);
         }
 
-        if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadUnlock();
-        }
-
         *(s->found_final_value) = true;
         *(s->is_blob_index) = true;
 
@@ -1060,10 +1057,6 @@ static bool SaveValue(void* arg, const char* entry) {
       }
       case kTypeValue:
       case kTypeValuePreferredSeqno: {
-        if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadLock();
-        }
-
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
 
         if (type == kTypeValuePreferredSeqno) {
@@ -1100,10 +1093,6 @@ static bool SaveValue(void* arg, const char* entry) {
           s->columns->SetPlainValue(v);
         }
 
-        if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadUnlock();
-        }
-
         *(s->found_final_value) = true;
 
         if (s->is_blob_index != nullptr) {
@@ -1113,10 +1102,6 @@ static bool SaveValue(void* arg, const char* entry) {
         return false;
       }
       case kTypeWideColumnEntity: {
-        if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadLock();
-        }
-
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
 
         *(s->status) = Status::OK();
@@ -1156,10 +1141,6 @@ static bool SaveValue(void* arg, const char* entry) {
           }
         } else if (s->columns) {
           *(s->status) = s->columns->SetWideColumnValue(v);
-        }
-
-        if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
 
         *(s->found_final_value) = true;
@@ -1499,9 +1480,9 @@ Status MemTable::Update(SequenceNumber seq, ValueType value_type,
 
         // Update value, if new value size  <= previous value size
         if (new_size <= prev_size) {
+          WriteLock wl(GetLock(lkey.user_key()));
           char* p =
               EncodeVarint32(const_cast<char*>(key_ptr) + key_length, new_size);
-          WriteLock wl(GetLock(lkey.user_key()));
           memcpy(p, value.data(), value.size());
           assert((unsigned)((p + value.size()) - entry) ==
                  (unsigned)(VarintLength(key_length) + key_length +

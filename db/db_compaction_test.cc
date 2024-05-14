@@ -16,6 +16,7 @@
 #include "env/mock_env.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/sst_file_writer.h"
@@ -7120,7 +7121,8 @@ class DBCompactionTestWithOngoingFileIngestionParam
       SyncPoint::GetInstance()->SetCallBack(
           "ExternalSstFileIngestionJob::Run", [&](void*) {
             SyncPoint::GetInstance()->LoadDependency(
-                {{"DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles",
+                {{"DBImpl::CompactFilesImpl::"
+                  "PostSanitizeAndConvertCompactionInputFiles",
                   "VersionSet::LogAndApply:WriteManifest"}});
           });
     } else {
@@ -7601,6 +7603,72 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
   std::atomic<bool> compaction_path_sync_point_called_;
   std::shared_ptr<test::SleepingBackgroundTask> sleeping_task_;
 };
+
+TEST_F(DBCompactionTest, CompactFilesSupportKeyPlacementRangeConflict) {
+  Options options;
+  options.create_if_missing = true;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  // To create LSM of below shape:
+  // L0: [k2]
+  // L1: [k3],[k4]
+  // L2: [k1,  k5]
+  ASSERT_OK(Put("k1", "v"));
+  ASSERT_OK(Put("k5", "v"));
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,1", FilesPerLevel());
+
+  ASSERT_OK(Put("k3", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("k4", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(experimental::PromoteL0(db_, db_->DefaultColumnFamily(), 1));
+  ASSERT_EQ("0,2,1", FilesPerLevel());
+
+  ASSERT_OK(Put("k2", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1,2,1", FilesPerLevel());
+
+  Close();
+
+  // To force below two CompactFiles() in order to coerce range conflict on L1
+  // upon (2)
+  // (1): Compact [k2] at L0 and [k3] at L1 with output to L1
+  // (2): Compact [k4] at L1 and [k1, k5] at L2 and output to L1 and L2
+  options.preclude_last_level_data_seconds = 1;
+  Reopen(options);
+
+  ColumnFamilyMetaData cf_meta_data;
+  db_->GetColumnFamilyMetaData(&cf_meta_data);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactFilesImpl:0", [&](void* /*arg*/) {
+        std::vector<std::string> c2_input_files;
+        c2_input_files.push_back(cf_meta_data.levels[1].files[1].name);
+        c2_input_files.push_back(cf_meta_data.levels[2].files[0].name);
+        // To verify CompactFiles() is aborted upon range conflict instead
+        // of crashing upon internal assertion
+        Status s = db_->CompactFiles(CompactionOptions(), c2_input_files,
+                                     2 /* output_level */);
+        ASSERT_TRUE(s.IsAborted());
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> c1_input_files;
+  c1_input_files.push_back(cf_meta_data.levels[0].files[0].name);
+  c1_input_files.push_back(cf_meta_data.levels[1].files[0].name);
+  Status s = db_->CompactFiles(CompactionOptions(), c1_input_files,
+                               1 /* output_level */);
+  ASSERT_OK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
 
 TEST_F(DBCompactionTestL0FilesMisorderCorruption,
        FlushAfterIntraL0LevelCompactionWithIngestedFile) {

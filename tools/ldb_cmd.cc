@@ -107,6 +107,7 @@ const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
+const std::string LDBCommand::ARG_READ_TIMESTAMP = "read_timestamp";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -722,6 +723,46 @@ bool LDBCommand::ParseCompressionTypeOption(
   return false;
 }
 
+Status LDBCommand::MaybePopulateReadTimestamp(ColumnFamilyHandle* cfh,
+                                              ReadOptions& ropts,
+                                              Slice* read_timestamp) {
+  const size_t ts_sz = cfh->GetComparator()->timestamp_size();
+
+  auto iter = option_map_.find(ARG_READ_TIMESTAMP);
+  if (iter == option_map_.end()) {
+    if (ts_sz == 0) {
+      return Status::OK();
+    }
+    return Status::InvalidArgument(
+        "column family enables user-defined timestamp while --read_timestamp "
+        "is not provided.");
+  }
+  if (iter->second.empty()) {
+    if (ts_sz == 0) {
+      return Status::OK();
+    }
+    return Status::InvalidArgument(
+        "column family enables user-defined timestamp while --read_timestamp "
+        "is empty.");
+  }
+  if (ts_sz == 0) {
+    return Status::InvalidArgument(
+        "column family does not enable user-defined timestamps while "
+        "--read_timestamp is provided.");
+  }
+  uint64_t int_timestamp;
+  std::istringstream iss(iter->second);
+  if (!(iss >> int_timestamp)) {
+    return Status::InvalidArgument(
+        "column family enables user-defined timestamp while --read_timestamp "
+        "is not a valid uint64 value.");
+  }
+  EncodeU64Ts(int_timestamp, &read_timestamp_);
+  *read_timestamp = read_timestamp_;
+  ropts.timestamp = read_timestamp;
+  return Status::OK();
+}
+
 void LDBCommand::OverrideBaseOptions() {
   options_.create_if_missing = false;
 
@@ -769,7 +810,10 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     }
   }
 
-  if (options_.comparator != nullptr) {
+  // Default comparator is BytewiseComparator, so only when it's not, it
+  // means user has a command line override.
+  if (options_.comparator != nullptr &&
+      options_.comparator != BytewiseComparator()) {
     cf_opts->comparator = options_.comparator;
   }
 
@@ -2846,9 +2890,9 @@ void WALDumperCommand::DoCommand() {
 GetCommand::GetCommand(const std::vector<std::string>& params,
                        const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, true,
-          BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
+                                      ARG_VALUE_HEX, ARG_READ_TIMESTAMP})) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "<key> must be specified for the get command");
@@ -2865,6 +2909,7 @@ void GetCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(GetCommand::Name());
   ret.append(" <key>");
+  ret.append(" [--" + ARG_READ_TIMESTAMP + "=<uint64_ts>] ");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
@@ -2874,8 +2919,18 @@ void GetCommand::DoCommand() {
     assert(GetExecuteState().IsFailed());
     return;
   }
+  ReadOptions ropts;
+  Slice read_timestamp;
+  ColumnFamilyHandle* cfh = GetCfHandle();
+  Status st = MaybePopulateReadTimestamp(cfh, ropts, &read_timestamp);
+  if (!st.ok()) {
+    std::stringstream oss;
+    oss << "Get failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+    return;
+  }
   std::string value;
-  Status st = db_->Get(ReadOptions(), GetCfHandle(), key_, &value);
+  st = db_->Get(ropts, cfh, key_, &value);
   if (st.ok()) {
     fprintf(stdout, "%s\n",
             (is_value_hex_ ? StringToHex(value) : value).c_str());
@@ -2895,7 +2950,8 @@ MultiGetCommand::MultiGetCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
+                                      ARG_READ_TIMESTAMP})) {
   if (params.size() < 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "At least one <key> must be specified for multi_get.");
@@ -2911,12 +2967,23 @@ void MultiGetCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(MultiGetCommand::Name());
   ret.append(" <key_1> <key_2> <key_3> ...");
+  ret.append(" [--" + ARG_READ_TIMESTAMP + "=<uint64_ts>] ");
   ret.append("\n");
 }
 
 void MultiGetCommand::DoCommand() {
   if (!db_) {
     assert(GetExecuteState().IsFailed());
+    return;
+  }
+  ReadOptions ropts;
+  Slice read_timestamp;
+  ColumnFamilyHandle* cfh = GetCfHandle();
+  Status st = MaybePopulateReadTimestamp(cfh, ropts, &read_timestamp);
+  if (!st.ok()) {
+    std::stringstream oss;
+    oss << "MultiGet failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
     return;
   }
   size_t num_keys = keys_.size();
@@ -2926,8 +2993,8 @@ void MultiGetCommand::DoCommand() {
   for (const std::string& key : keys_) {
     key_slices.emplace_back(key);
   }
-  db_->MultiGet(ReadOptions(), GetCfHandle(), num_keys, key_slices.data(),
-                values.data(), statuses.data());
+  db_->MultiGet(ropts, cfh, num_keys, key_slices.data(), values.data(),
+                statuses.data());
 
   bool failed = false;
   for (size_t i = 0; i < num_keys; ++i) {
@@ -2957,9 +3024,9 @@ GetEntityCommand::GetEntityCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, true,
-          BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
+                                      ARG_VALUE_HEX, ARG_READ_TIMESTAMP})) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "<key> must be specified for the get_entity command");
@@ -2976,6 +3043,7 @@ void GetEntityCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(GetEntityCommand::Name());
   ret.append(" <key>");
+  ret.append(" [--" + ARG_READ_TIMESTAMP + "=<uint64_ts>] ");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
@@ -2985,9 +3053,18 @@ void GetEntityCommand::DoCommand() {
     assert(GetExecuteState().IsFailed());
     return;
   }
+  ReadOptions ropt;
+  Slice read_timestamp;
+  ColumnFamilyHandle* cfh = GetCfHandle();
+  Status st = MaybePopulateReadTimestamp(cfh, ropt, &read_timestamp);
+  if (!st.ok()) {
+    std::stringstream oss;
+    oss << "GetEntity failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+    return;
+  }
   PinnableWideColumns pinnable_wide_columns;
-  Status st = db_->GetEntity(ReadOptions(), GetCfHandle(), key_,
-                             &pinnable_wide_columns);
+  st = db_->GetEntity(ropt, cfh, key_, &pinnable_wide_columns);
   if (st.ok()) {
     std::ostringstream oss;
     WideColumnsHelper::DumpWideColumns(pinnable_wide_columns.columns(), oss,
@@ -3007,7 +3084,8 @@ MultiGetEntityCommand::MultiGetEntityCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true /* is_read_only */,
-                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
+                                      ARG_READ_TIMESTAMP})) {
   if (params.size() < 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "At least one <key> must be specified for the multi_get_entity "
@@ -3024,6 +3102,7 @@ void MultiGetEntityCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(MultiGetEntityCommand::Name());
   ret.append(" <key_1> <key_2> <key_3> ...");
+  ret.append(" [--" + ARG_READ_TIMESTAMP + "=<uint64_ts>] ");
   ret.append("\n");
 }
 
@@ -3033,6 +3112,16 @@ void MultiGetEntityCommand::DoCommand() {
     return;
   }
 
+  ReadOptions ropt;
+  Slice read_timestamp;
+  ColumnFamilyHandle* cfh = GetCfHandle();
+  Status st = MaybePopulateReadTimestamp(cfh, ropt, &read_timestamp);
+  if (!st.ok()) {
+    std::stringstream oss;
+    oss << "MultiGetEntity failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+    return;
+  }
   size_t num_keys = keys_.size();
   std::vector<Slice> key_slices;
   std::vector<PinnableWideColumns> results(num_keys);
@@ -3041,8 +3130,8 @@ void MultiGetEntityCommand::DoCommand() {
     key_slices.emplace_back(key);
   }
 
-  db_->MultiGetEntity(ReadOptions(), GetCfHandle(), num_keys, key_slices.data(),
-                      results.data(), statuses.data());
+  db_->MultiGetEntity(ropt, cfh, num_keys, key_slices.data(), results.data(),
+                      statuses.data());
 
   bool failed = false;
   for (size_t i = 0; i < num_keys; ++i) {
@@ -3200,11 +3289,11 @@ void BatchPutCommand::OverrideBaseOptions() {
 ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
                          const std::map<std::string, std::string>& options,
                          const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, true,
-          BuildCmdLineOptions({ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX,
-                               ARG_TO, ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP,
-                               ARG_MAX_KEYS, ARG_TTL_START, ARG_TTL_END})),
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions(
+                     {ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX, ARG_TO,
+                      ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP, ARG_MAX_KEYS,
+                      ARG_TTL_START, ARG_TTL_END, ARG_READ_TIMESTAMP})),
       start_key_specified_(false),
       end_key_specified_(false),
       max_keys_scanned_(-1),
@@ -3260,6 +3349,7 @@ void ScanCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_NO_VALUE + "]");
+  ret.append(" [--" + ARG_READ_TIMESTAMP + "=<uint64_ts>] ");
   ret.append("\n");
 }
 
@@ -3271,8 +3361,17 @@ void ScanCommand::DoCommand() {
 
   int num_keys_scanned = 0;
   ReadOptions scan_read_opts;
+  ColumnFamilyHandle* cfh = GetCfHandle();
+  Slice read_timestamp;
+  Status st = MaybePopulateReadTimestamp(cfh, scan_read_opts, &read_timestamp);
+  if (!st.ok()) {
+    std::stringstream oss;
+    oss << "Scan failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+    return;
+  }
   scan_read_opts.total_order_seek = true;
-  Iterator* it = db_->NewIterator(scan_read_opts, GetCfHandle());
+  Iterator* it = db_->NewIterator(scan_read_opts, cfh);
   if (start_key_specified_) {
     it->Seek(start_key_);
   } else {

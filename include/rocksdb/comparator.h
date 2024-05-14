@@ -142,6 +142,11 @@ class Comparator : public Customizable, public CompareInterface {
     return Slice();
   }
 
+  // Return a human readable user-defined timestamp for debugging.
+  virtual std::string TimestampToString(const Slice& /*timestamp*/) const {
+    return "";
+  }
+
   int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
     return CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
   }

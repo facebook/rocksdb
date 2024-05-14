@@ -462,6 +462,44 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool IsStateTracked() const override { return true; }
 
+  void TestKeyMayExist(ThreadState* thread, const ReadOptions& read_opts,
+                       const std::vector<int>& rand_column_families,
+                       const std::vector<int64_t>& rand_keys) override {
+    auto cfh = column_families_[rand_column_families[0]];
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    std::string ignore;
+    ReadOptions read_opts_copy = read_opts;
+
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
+
+    const ExpectedValue pre_read_expected_value =
+        thread->shared->Get(rand_column_families[0], rand_keys[0]);
+    bool key_may_exist = db_->KeyMayExist(read_opts_copy, cfh, key, &ignore);
+    const ExpectedValue post_read_expected_value =
+        thread->shared->Get(rand_column_families[0], rand_keys[0]);
+
+    if (!key_may_exist && !FLAGS_skip_verifydb && !read_older_ts) {
+      if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                               post_read_expected_value)) {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr,
+                "error : inconsistent values for key %s: expected state has "
+                "the key, TestKeyMayExist() returns false indicating the key "
+                "must not exist.\n",
+                key.ToString(true).c_str());
+      }
+    }
+  }
+
   Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys) override {
@@ -916,7 +954,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     const std::string key = Key(rand_keys[0]);
 
-    PinnableWideColumns from_db;
+    PinnableWideColumns columns_from_db;
+    PinnableAttributeGroups attribute_groups_from_db;
 
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
@@ -929,7 +968,16 @@ class NonBatchedOpsStressTest : public StressTest {
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
-    const Status s = db_->GetEntity(read_opts_copy, cfh, key, &from_db);
+    Status s;
+    if (FLAGS_use_attribute_group) {
+      attribute_groups_from_db.emplace_back(cfh);
+      s = db_->GetEntity(read_opts_copy, key, &attribute_groups_from_db);
+      if (s.ok()) {
+        s = attribute_groups_from_db.back().status();
+      }
+    } else {
+      s = db_->GetEntity(read_opts_copy, cfh, key, &columns_from_db);
+    }
 
     int error_count = 0;
 
@@ -953,7 +1001,13 @@ class NonBatchedOpsStressTest : public StressTest {
       thread->stats.AddGets(1, 1);
 
       if (!FLAGS_skip_verifydb && !read_older_ts) {
-        const WideColumns& columns = from_db.columns();
+        if (FLAGS_use_attribute_group) {
+          assert(!attribute_groups_from_db.empty());
+        }
+        const WideColumns& columns =
+            FLAGS_use_attribute_group
+                ? attribute_groups_from_db.back().columns()
+                : columns_from_db.columns();
         ExpectedValue expected =
             shared->Get(rand_column_families[0], rand_keys[0]);
         if (!VerifyWideColumns(columns)) {
@@ -1302,8 +1356,13 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_use_put_entity_one_in > 0 &&
         (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      s = db_->PutEntity(write_opts, cfh, k,
-                         GenerateWideColumns(value_base, v));
+      if (FLAGS_use_attribute_group) {
+        s = db_->PutEntity(write_opts, k,
+                           GenerateAttributeGroups({cfh}, value_base, v));
+      } else {
+        s = db_->PutEntity(write_opts, cfh, k,
+                           GenerateWideColumns(value_base, v));
+      }
     } else if (FLAGS_use_timed_put_one_in > 0 &&
                ((value_base + kLargePrimeForCommonFactorSkew) %
                 FLAGS_use_timed_put_one_in) == 0) {
@@ -2079,7 +2138,7 @@ class NonBatchedOpsStressTest : public StressTest {
     return Status::OK();
   }
 
-  bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
+  bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& opts,
                          SharedState* shared, const std::string& value_from_db,
                          std::string msg_prefix, const Status& s) const {
     if (shared->HasVerificationFailedYet()) {
@@ -2105,27 +2164,43 @@ class NonBatchedOpsStressTest : public StressTest {
         GenerateValue(expected_value.GetValueBase(), expected_value_data,
                       sizeof(expected_value_data));
 
+    std::ostringstream read_u64ts;
+    if (opts.timestamp) {
+      read_u64ts << " while read with timestamp: ";
+      uint64_t read_ts;
+      if (DecodeU64Ts(*opts.timestamp, &read_ts).ok()) {
+        read_u64ts << std::to_string(read_ts) << ", ";
+      } else {
+        read_u64ts << s.ToString()
+                   << " Encoded read timestamp: " << opts.timestamp->ToString()
+                   << ", ";
+      }
+    }
+
     // compare value_from_db with the value in the shared state
     if (s.ok()) {
       const Slice slice(value_from_db);
       const uint32_t value_base_from_db = GetValueBase(slice);
       if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
                                                   expected_value)) {
-        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
-                          key, value_from_db, "");
+        VerificationAbort(
+            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
+            cf, key, value_from_db, "");
         return false;
       }
       if (!ExpectedValueHelper::InExpectedValueBaseRange(
               value_base_from_db, expected_value, expected_value)) {
-        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
-                          key, value_from_db,
-                          Slice(expected_value_data, expected_value_data_size));
+        VerificationAbort(
+            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
+            cf, key, value_from_db,
+            Slice(expected_value_data, expected_value_data_size));
         return false;
       }
       // TODO: are the length/memcmp() checks repetitive?
       if (value_from_db.length() != expected_value_data_size) {
         VerificationAbort(shared,
-                          msg_prefix + ": Length of value read is not equal",
+                          msg_prefix + ": Length of value read is not equal" +
+                              read_u64ts.str(),
                           cf, key, value_from_db,
                           Slice(expected_value_data, expected_value_data_size));
         return false;
@@ -2133,7 +2208,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (memcmp(value_from_db.data(), expected_value_data,
                  expected_value_data_size) != 0) {
         VerificationAbort(shared,
-                          msg_prefix + ": Contents of value read don't match",
+                          msg_prefix + ": Contents of value read don't match" +
+                              read_u64ts.str(),
                           cf, key, value_from_db,
                           Slice(expected_value_data, expected_value_data_size));
         return false;
@@ -2142,14 +2218,16 @@ class NonBatchedOpsStressTest : public StressTest {
       if (ExpectedValueHelper::MustHaveExisted(expected_value,
                                                expected_value)) {
         VerificationAbort(
-            shared, msg_prefix + ": Value not found: " + s.ToString(), cf, key,
-            "", Slice(expected_value_data, expected_value_data_size));
+            shared,
+            msg_prefix + ": Value not found " + read_u64ts.str() + s.ToString(),
+            cf, key, "", Slice(expected_value_data, expected_value_data_size));
         return false;
       }
     } else {
-      VerificationAbort(shared, msg_prefix + "Non-OK status: " + s.ToString(),
-                        cf, key, "",
-                        Slice(expected_value_data, expected_value_data_size));
+      VerificationAbort(
+          shared,
+          msg_prefix + "Non-OK status " + read_u64ts.str() + s.ToString(), cf,
+          key, "", Slice(expected_value_data, expected_value_data_size));
       return false;
     }
     return true;

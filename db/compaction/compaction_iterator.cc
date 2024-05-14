@@ -1280,6 +1280,21 @@ void CompactionIterator::DecideOutputLevel() {
   }
 #endif  // NDEBUG
 
+  // saved_seq_for_penul_check_ is populated in `NextFromInput` when the
+  // entry's sequence number is non zero and validity context for output this
+  // entry is kSwapPreferredSeqno for use in `DecideOutputLevel`. It should be
+  // cleared out here unconditionally. Otherwise, it may end up getting consumed
+  // incorrectly by a different entry.
+  SequenceNumber seq_for_range_check =
+      (saved_seq_for_penul_check_.has_value() &&
+       saved_seq_for_penul_check_.value() != kMaxSequenceNumber)
+          ? saved_seq_for_penul_check_.value()
+          : ikey_.sequence;
+  saved_seq_for_penul_check_ = std::nullopt;
+  ParsedInternalKey ikey_for_range_check = ikey_;
+  if (seq_for_range_check != ikey_.sequence) {
+    ikey_for_range_check.sequence = seq_for_range_check;
+  }
   if (output_to_penultimate_level_) {
     // If it's decided to output to the penultimate level, but unsafe to do so,
     // still output to the last level. For example, moving the data from a lower
@@ -1287,16 +1302,6 @@ void CompactionIterator::DecideOutputLevel() {
     // considered unsafe, because the key may conflict with higher-level SSTs
     // not from this compaction.
     // TODO: add statistic for declined output_to_penultimate_level
-    SequenceNumber seq_for_range_check =
-        (saved_seq_for_penul_check_.has_value() &&
-         saved_seq_for_penul_check_.value() != kMaxSequenceNumber)
-            ? saved_seq_for_penul_check_.value()
-            : ikey_.sequence;
-    ParsedInternalKey ikey_for_range_check = ikey_;
-    if (seq_for_range_check != ikey_.sequence) {
-      ikey_for_range_check.sequence = seq_for_range_check;
-      saved_seq_for_penul_check_ = std::nullopt;
-    }
     bool safe_to_penultimate_level =
         compaction_->WithinPenultimateLevelOutputRange(ikey_for_range_check);
     if (!safe_to_penultimate_level) {
@@ -1310,7 +1315,7 @@ void CompactionIterator::DecideOutputLevel() {
       // snapshot is released before enabling `last_level_temperature` feature
       // We will migrate the feature to `last_level_temperature` and maybe make
       // it not dynamically changeable.
-      if (ikey_.sequence > earliest_snapshot_) {
+      if (seq_for_range_check > earliest_snapshot_) {
         status_ = Status::Corruption(
             "Unsafe to store Seq later than snapshot in the last level if "
             "per_key_placement is enabled");

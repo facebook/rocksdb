@@ -823,11 +823,41 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
 }
 
 Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
-    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableWideColumns* columns, ReadCallback* callback) {
-  assert(db);
-  assert(column_family);
-  assert(columns);
+  if (!db) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a DB object");
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntityFromBatchAndDB with `ReadOptions::io_activity` "
+        "set to `Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a column family handle");
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0 && !read_options.timestamp) {
+    return Status::InvalidArgument("Must specify timestamp");
+  }
+
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a PinnableWideColumns "
+        "object");
+  }
 
   columns->Reset();
 
@@ -872,46 +902,78 @@ Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
   return s;
 }
 
-Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
-    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-    const Slice& key, PinnableWideColumns* columns) {
+void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    size_t num_keys, const Slice* keys, PinnableWideColumns* results,
+    Status* statuses, bool sorted_input, ReadCallback* callback) {
+  assert(statuses);
+
   if (!db) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntityFromBatchAndDB without a DB object");
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a DB object");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    const Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntityFromBatchAndDB with "
+        "`ReadOptions::io_activity` set to `Env::IOActivity::kUnknown` or "
+        "`Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
 
   if (!column_family) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntityFromBatchAndDB without a column family handle");
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a column family "
+        "handle");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
   }
 
   const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
-  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
   if (ts_sz > 0 && !read_options.timestamp) {
-    return Status::InvalidArgument("Must specify timestamp");
+    const Status s = Status::InvalidArgument("Must specify timestamp");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
   }
 
-  if (!columns) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntityFromBatchAndDB without a PinnableWideColumns "
-        "object");
+  if (!keys) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without keys");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
   }
 
-  constexpr ReadCallback* callback = nullptr;
-
-  return GetEntityFromBatchAndDB(db, read_options, column_family, key, columns,
-                                 callback);
-}
-
-void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
-    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-    size_t num_keys, const Slice* keys, PinnableWideColumns* results,
-    Status* statuses, bool sorted_input, ReadCallback* callback) {
-  assert(db);
-  assert(column_family);
-  assert(keys);
-  assert(results);
-  assert(statuses);
+  if (!results) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without "
+        "PinnableWideColumns objects");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
 
   struct MergeTuple {
     MergeTuple(const Slice& _key, Status* _s, MergeContext&& _merge_context,
@@ -990,8 +1052,8 @@ void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
   static_cast_with_check<DBImpl>(db->GetRootDB())
       ->PrepareMultiGetKeys(sorted_keys.size(), sorted_input, &sorted_keys);
   static_cast_with_check<DBImpl>(db->GetRootDB())
-      ->MultiGetWithCallback(read_options, column_family, callback,
-                             &sorted_keys);
+      ->MultiGetEntityWithCallback(read_options, column_family, callback,
+                                   &sorted_keys);
 
   for (const auto& merge : merges) {
     if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
@@ -999,57 +1061,6 @@ void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
                             merge.merge_context, merge.columns, merge.s);
     }
   }
-}
-
-void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
-    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-    size_t num_keys, const Slice* keys, PinnableWideColumns* results,
-    Status* statuses, bool sorted_input) {
-  assert(statuses);
-
-  if (!db) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::InvalidArgument(
-          "Cannot call MultiGetEntityFromBatchAndDB without a DB object");
-    }
-  }
-
-  if (!column_family) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::InvalidArgument(
-          "Cannot call MultiGetEntityFromBatchAndDB without a column family "
-          "handle");
-    }
-  }
-
-  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
-  const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
-  if (ts_sz > 0 && !read_options.timestamp) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::InvalidArgument("Must specify timestamp");
-    }
-    return;
-  }
-
-  if (!keys) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::InvalidArgument(
-          "Cannot call MultiGetEntityFromBatchAndDB without keys");
-    }
-  }
-
-  if (!results) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::InvalidArgument(
-          "Cannot call MultiGetEntityFromBatchAndDB without "
-          "PinnableWideColumns objects");
-    }
-  }
-
-  constexpr ReadCallback* callback = nullptr;
-
-  MultiGetEntityFromBatchAndDB(db, read_options, column_family, num_keys, keys,
-                               results, statuses, sorted_input, callback);
 }
 
 void WriteBatchWithIndex::SetSavePoint() { rep->write_batch.SetSavePoint(); }

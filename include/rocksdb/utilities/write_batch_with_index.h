@@ -130,7 +130,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
           "Cannot call this method without attribute groups");
     }
     return Status::NotSupported(
-        "PutEntity not supported by WriteBatchWithIndex");
+        "PutEntity with AttributeGroups not supported by WriteBatchWithIndex");
   }
 
   using WriteBatchBase::Merge;
@@ -284,7 +284,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status GetEntityFromBatchAndDB(DB* db, const ReadOptions& read_options,
                                  ColumnFamilyHandle* column_family,
                                  const Slice& key,
-                                 PinnableWideColumns* columns);
+                                 PinnableWideColumns* columns) {
+    constexpr ReadCallback* callback = nullptr;
+
+    return GetEntityFromBatchAndDB(db, read_options, column_family, key,
+                                   columns, callback);
+  }
 
   void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family,
@@ -310,7 +315,13 @@ class WriteBatchWithIndex : public WriteBatchBase {
                                     ColumnFamilyHandle* column_family,
                                     size_t num_keys, const Slice* keys,
                                     PinnableWideColumns* results,
-                                    Status* statuses, bool sorted_input);
+                                    Status* statuses, bool sorted_input) {
+    constexpr ReadCallback* callback = nullptr;
+
+    MultiGetEntityFromBatchAndDB(db, read_options, column_family, num_keys,
+                                 keys, results, statuses, sorted_input,
+                                 callback);
+  }
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.

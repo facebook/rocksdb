@@ -155,10 +155,23 @@ void ReplaceInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
   result->append(key.data() + key_sz - kNumInternalBytes, kNumInternalBytes);
 }
 
-std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
+std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex,
+                                           const Comparator* ucmp) const {
   std::string result = "'";
+  size_t ts_sz_for_debug = ucmp == nullptr ? 0 : ucmp->timestamp_size();
   if (log_err_key) {
-    result += user_key.ToString(hex);
+    if (ts_sz_for_debug == 0) {
+      result += user_key.ToString(hex);
+    } else {
+      assert(user_key.size() >= ts_sz_for_debug);
+      Slice user_key_without_ts = user_key;
+      user_key_without_ts.remove_suffix(ts_sz_for_debug);
+      result += user_key_without_ts.ToString(hex);
+      Slice ts = Slice(user_key.data() + user_key.size() - ts_sz_for_debug,
+                       ts_sz_for_debug);
+      result += "|timestamp:";
+      result += ucmp->TimestampToString(ts);
+    }
   } else {
     result += "<redacted>";
   }
@@ -171,11 +184,11 @@ std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   return result;
 }
 
-std::string InternalKey::DebugString(bool hex) const {
+std::string InternalKey::DebugString(bool hex, const Comparator* ucmp) const {
   std::string result;
   ParsedInternalKey parsed;
   if (ParseInternalKey(rep_, &parsed, false /* log_err_key */).ok()) {
-    result = parsed.DebugString(true /* log_err_key */, hex);  // TODO
+    result = parsed.DebugString(true /* log_err_key */, hex, ucmp);  // TODO
   } else {
     result = "(bad)";
     result.append(EscapeString(rep_));

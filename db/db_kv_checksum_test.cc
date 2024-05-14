@@ -732,7 +732,7 @@ TEST_P(DbMemtableKVChecksumTest, GetWithCorruptAfterMemtableInsert) {
       });
 
   SyncPoint::GetInstance()->SetCallBack(
-      "Memtable::SaveValue:Begin:entry", [&](void* entry) {
+      "Memtable::SaveValue:Found:entry", [&](void* entry) {
         char* buf = *static_cast<char**>(entry);
         buf[corrupt_byte_offset_] += corrupt_byte_addend_;
         ++corrupt_byte_offset_;
@@ -769,7 +769,7 @@ TEST_P(DbMemtableKVChecksumTest,
       });
 
   SyncPoint::GetInstance()->SetCallBack(
-      "Memtable::SaveValue:Begin:entry", [&](void* entry) {
+      "Memtable::SaveValue:Found:entry", [&](void* entry) {
         char* buf = *static_cast<char**>(entry);
         buf[corrupt_byte_offset_] += corrupt_byte_addend_;
         ++corrupt_byte_offset_;

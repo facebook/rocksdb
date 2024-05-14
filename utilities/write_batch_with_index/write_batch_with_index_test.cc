@@ -2973,6 +2973,128 @@ TEST_P(WriteBatchWithIndexTest, GetEntityFromBatch) {
   }
 }
 
+TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
+  ASSERT_OK(OpenDB());
+
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr size_t num_keys = 2;
+
+  {
+    constexpr DB* db = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db, ReadOptions(),
+                                              db_->DefaultColumnFamily(), foo,
+                                              &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, ReadOptions(), column_family,
+                                              foo, &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr PinnableWideColumns* columns = nullptr;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, ReadOptions(),
+                                              db_->DefaultColumnFamily(), foo,
+                                              columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kGet;
+
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, read_options,
+                                              db_->DefaultColumnFamily(), foo,
+                                              &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr DB* db = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(db_, ReadOptions(), column_family,
+                                         num_keys, keys.data(), results.data(),
+                                         statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr Slice* keys = nullptr;
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys,
+        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    constexpr PinnableWideColumns* results = nullptr;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results, statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, read_options, db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
 }  // namespace ROCKSDB_NAMESPACE
 
