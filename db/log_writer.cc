@@ -27,6 +27,8 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       block_offset_(0),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
+      // Header size varies depending on whether we are recycling or not.
+      header_size_(recycle_log_files ? kRecyclableHeaderSize : kHeaderSize),
       manual_flush_(manual_flush),
       compression_type_(compression_type),
       compress_(nullptr) {
@@ -80,10 +82,6 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
   const char* ptr = slice.data();
   size_t left = slice.size();
 
-  // Header size varies depending on whether we are recycling or not.
-  const int header_size =
-      recycle_log_files_ ? kRecyclableHeaderSize : kHeaderSize;
-
   // Fragment the record if necessary and emit it.  Note that if slice
   // is empty, we still want to iterate once to emit a single
   // zero-length record
@@ -102,12 +100,12 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
     do {
       const int64_t leftover = kBlockSize - block_offset_;
       assert(leftover >= 0);
-      if (leftover < header_size) {
+      if (leftover < header_size_) {
         // Switch to a new block
         if (leftover > 0) {
           // Fill the trailer (literal below relies on kHeaderSize and
           // kRecyclableHeaderSize being <= 11)
-          assert(header_size <= 11);
+          assert(header_size_ <= 11);
           s = dest_->Append(opts,
                             Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
                                   static_cast<size_t>(leftover)),
@@ -120,9 +118,9 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
       }
 
       // Invariant: we never leave < header_size bytes in a block.
-      assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size);
+      assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size_);
 
-      const size_t avail = kBlockSize - block_offset_ - header_size;
+      const size_t avail = kBlockSize - block_offset_ - header_size_;
 
       // Compress the record if compression is enabled.
       // Compress() is called at least once (compress_start=true) and after the
@@ -203,8 +201,7 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
       }
     }
     // Initialize fields required for compression
-    const size_t max_output_buffer_len =
-        kBlockSize - (recycle_log_files_ ? kRecyclableHeaderSize : kHeaderSize);
+    const size_t max_output_buffer_len = kBlockSize - header_size_;
     CompressionOptions opts;
     constexpr uint32_t compression_format_version = 2;
     compress_ = StreamingCompress::Create(compression_type_, opts,
@@ -244,6 +241,25 @@ IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
   record.EncodeTo(&encoded);
   RecordType type = recycle_log_files_ ? kRecyclableUserDefinedTimestampSizeType
                                        : kUserDefinedTimestampSizeType;
+
+  // If there's not enough space for this record, switch to a new block.
+  const int64_t leftover = kBlockSize - block_offset_;
+  if (leftover < header_size_ + (int)encoded.size()) {
+    IOOptions opts;
+    IOStatus s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<char> trailer(leftover, '\x00');
+    s = dest_->Append(opts, Slice(trailer.data(), trailer.size()));
+    if (!s.ok()) {
+      return s;
+    }
+
+    block_offset_ = 0;
+  }
+
   return EmitPhysicalRecord(write_options, type, encoded.data(),
                             encoded.size());
 }
