@@ -2970,23 +2970,19 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnableslice_value(
 extern ROCKSDB_LIBRARY_API void rocksdb_pinnablewidecolumns_destroy(
     rocksdb_pinnablewidecolumns_t* v);
 extern ROCKSDB_LIBRARY_API size_t
-rocksdb_pinnablewidecolumns_len(const rocksdb_pinnablewidecolumns_t* v);
-extern ROCKSDB_LIBRARY_API void rocksdb_pinnablewidecolumns_name(
-    const rocksdb_pinnablewidecolumns_t* v, const size_t n, const char** name,
-    size_t* name_len);
-extern ROCKSDB_LIBRARY_API void rocksdb_pinnablewidecolumns_value(
-    const rocksdb_pinnablewidecolumns_t* v, const size_t n, const char** value,
-    size_t* value_len);
+rocksdb_pinnablewidecolumns_size(const rocksdb_pinnablewidecolumns_t* v);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnablewidecolumns_name(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* name_len);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnablewidecolumns_value(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* value_len);
 extern ROCKSDB_LIBRARY_API void rocksdb_widecolumns_destroy(
     rocksdb_widecolumns_t* v);
 extern ROCKSDB_LIBRARY_API size_t
-rocksdb_widecolumns_len(const rocksdb_widecolumns_t* v);
-extern ROCKSDB_LIBRARY_API void rocksdb_widecolumns_name(
-    const rocksdb_widecolumns_t* v, const size_t n, const char** name,
-    size_t* name_len);
-extern ROCKSDB_LIBRARY_API void rocksdb_widecolumns_value(
-    const rocksdb_widecolumns_t* v, const size_t n, const char** value,
-    size_t* value_len);
+rocksdb_widecolumns_size(const rocksdb_widecolumns_t* v);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_name(
+    const rocksdb_widecolumns_t* v, const size_t n, size_t* name_len);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_value(
+    const rocksdb_widecolumns_t* v, const size_t n, size_t* value_len);
 
 extern ROCKSDB_LIBRARY_API rocksdb_memory_consumers_t*
 rocksdb_memory_consumers_create(void);

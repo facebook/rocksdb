@@ -6746,66 +6746,65 @@ void rocksdb_pinnablewidecolumns_destroy(rocksdb_pinnablewidecolumns_t* v) {
   delete v;
 }
 
-size_t rocksdb_pinnablewidecolumns_len(const rocksdb_pinnablewidecolumns_t* v) {
+size_t rocksdb_pinnablewidecolumns_size(
+    const rocksdb_pinnablewidecolumns_t* v) {
   if (!v) {
     return 0;
   }
   return v->rep.columns().size();
 }
 
-void rocksdb_pinnablewidecolumns_name(const rocksdb_pinnablewidecolumns_t* v,
-                                      const size_t n, const char** name,
-                                      size_t* name_len) {
+const char* rocksdb_pinnablewidecolumns_name(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* name_len) {
   if (!v) {
     *name_len = 0;
-    return;
+    return nullptr;
   }
-  Slice column_name = v->rep.columns()[n].name();
-  *name = column_name.data();
-  *name_len = column_name.size();
+  Slice column = v->rep.columns()[n].name();
+  *name_len = column.size();
+  return column.data();
 }
 
-void rocksdb_pinnablewidecolumns_value(const rocksdb_pinnablewidecolumns_t* v,
-                                       const size_t n, const char** value,
-                                       size_t* value_len) {
+const char* rocksdb_pinnablewidecolumns_value(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* value_len) {
   if (!v) {
     *value_len = 0;
-    return;
+    return nullptr;
   }
-  Slice column_name = v->rep.columns()[n].value();
-  *value = column_name.data();
-  *value_len = column_name.size();
+  Slice column = v->rep.columns()[n].value();
+  *value_len = column.size();
+  return column.data();
 }
 
 void rocksdb_widecolumns_destroy(rocksdb_widecolumns_t* v) { delete v; }
 
-size_t rocksdb_widecolumns_len(const rocksdb_widecolumns_t* v) {
+size_t rocksdb_widecolumns_size(const rocksdb_widecolumns_t* v) {
   if (!v) {
     return 0;
   }
   return v->rep.size();
 }
 
-void rocksdb_widecolumns_name(const rocksdb_widecolumns_t* v, const size_t n,
-                              const char** name, size_t* name_len) {
+const char* rocksdb_widecolumns_name(const rocksdb_widecolumns_t* v,
+                                     const size_t n, size_t* name_len) {
   if (!v) {
     *name_len = 0;
-    return;
+    return nullptr;
   }
-  Slice column_name = v->rep[n].name();
-  *name = column_name.data();
-  *name_len = column_name.size();
+  Slice column = v->rep[n].name();
+  *name_len = column.size();
+  return column.data();
 }
 
-void rocksdb_widecolumns_value(const rocksdb_widecolumns_t* v, const size_t n,
-                               const char** value, size_t* value_len) {
+const char* rocksdb_widecolumns_value(const rocksdb_widecolumns_t* v,
+                                      const size_t n, size_t* value_len) {
   if (!v) {
     *value_len = 0;
-    return;
+    return nullptr;
   }
-  Slice column_name = v->rep[n].value();
-  *value = column_name.data();
-  *value_len = column_name.size();
+  Slice column = v->rep[n].value();
+  *value_len = column.size();
+  return column.data();
 }
 
 // container to keep databases and caches in order to use
