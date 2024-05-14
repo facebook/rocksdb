@@ -511,12 +511,14 @@ class CfConsistencyStressTest : public StressTest {
 
       std::vector<PinnableAttributeGroups> results;
       std::vector<Slice> key_slices;
+      std::vector<std::string> key_strs;
       results.reserve(num_keys);
       key_slices.reserve(num_keys);
+      key_strs.reserve(num_keys);
 
       for (size_t i = 0; i < num_keys; ++i) {
-        const std::string key = Key(rand_keys[i]);
-        key_slices.emplace_back(key);
+        key_strs.emplace_back(Key(rand_keys[i]));
+        key_slices.emplace_back(key_strs.back());
         PinnableAttributeGroups attribute_groups;
         for (auto* cfh : cfhs) {
           attribute_groups.emplace_back(cfh);

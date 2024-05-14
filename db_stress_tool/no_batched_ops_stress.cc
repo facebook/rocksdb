@@ -1089,8 +1089,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     int error_count = 0;
 
-    auto handle_result = [&](ThreadState* _thread, const Status& s,
-                             bool is_consistent, int err_count) {
+    auto handle_result = [](ThreadState* _thread, const Status& s,
+                            bool is_consistent, int err_count) {
       if (!is_consistent) {
         fprintf(stderr,
                 "TestMultiGetEntity%s error: results are not consistent\n",
