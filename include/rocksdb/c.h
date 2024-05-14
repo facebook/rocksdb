@@ -737,7 +737,7 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_key(
     const rocksdb_iterator_t*, size_t* klen);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_value(
     const rocksdb_iterator_t*, size_t* vlen);
-extern ROCKSDB_LIBRARY_API const rocksdb_widecolumns_t* rocksdb_iter_columns(
+extern ROCKSDB_LIBRARY_API rocksdb_widecolumns_t* rocksdb_iter_columns(
     const rocksdb_iterator_t* iter);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_timestamp(
     const rocksdb_iterator_t*, size_t* tslen);

@@ -1974,8 +1974,7 @@ const char* rocksdb_iter_value(const rocksdb_iterator_t* iter, size_t* vlen) {
   return s.data();
 }
 
-const rocksdb_widecolumns_t* rocksdb_iter_columns(
-    const rocksdb_iterator_t* iter) {
+rocksdb_widecolumns_t* rocksdb_iter_columns(const rocksdb_iterator_t* iter) {
   rocksdb_widecolumns_t* cols = new (rocksdb_widecolumns_t);
   cols->rep = std::move(iter->rep->columns());
   return cols;
