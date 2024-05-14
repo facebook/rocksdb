@@ -1001,10 +1001,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
-      if (thread->rand.OneInOpt(FLAGS_promote_l0_one_in)) {
-        TestPromoteL0(thread, column_family);
-      }
-
       std::vector<int> rand_column_families =
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
 
@@ -2437,29 +2433,6 @@ void StressTest::TestCompactFiles(ThreadState* thread,
         thread->stats.AddNumCompactFilesSucceed(1);
       }
       break;
-    }
-  }
-}
-
-void StressTest::TestPromoteL0(ThreadState* thread,
-                               ColumnFamilyHandle* column_family) {
-  int target_level = thread->rand.Next() % options_.num_levels;
-  Status s = db_->PromoteL0(column_family, target_level);
-  if (!s.ok()) {
-    // The second error occurs when another concurrent PromoteL0() moving the
-    // same files finishes first which is an allowed behavior
-    bool non_ok_status_allowed =
-        s.IsInvalidArgument() ||
-        (s.IsCorruption() &&
-         s.ToString().find("VersionBuilder: Cannot delete table file") !=
-             std::string::npos &&
-         s.ToString().find("since it is on level") != std::string::npos);
-    fprintf(non_ok_status_allowed ? stdout : stderr,
-            "Unable to perform PromoteL0(): %s under specified "
-            "target_level: %d.\n",
-            s.ToString().c_str(), target_level);
-    if (!non_ok_status_allowed) {
-      thread->shared->SafeTerminate();
     }
   }
 }

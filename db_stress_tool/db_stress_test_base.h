@@ -140,9 +140,6 @@ class StressTest {
                                 const Slice& start_key,
                                 ColumnFamilyHandle* column_family);
 
-  virtual void TestPromoteL0(ThreadState* thread,
-                             ColumnFamilyHandle* column_family);
-
   // Calculate a hash value for all keys in range [start_key, end_key]
   // at a certain snapshot.
   uint32_t GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
