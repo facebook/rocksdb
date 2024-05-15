@@ -1168,17 +1168,20 @@ TEST_P(CompressionLogTest, ChecksumMismatch) {
   ASSERT_OK(SetupTestEnv());
 
   Write("foooooo");
+  int header_len;
+  if (kRecyclableLog) {
+    header_len = kRecyclableHeaderSize;
+  } else {
+    header_len = kHeaderSize;
+  }
   int compression_record_len;
   if (kCompressionEnabled) {
-    if (kRecyclableLog) {
-      compression_record_len = kRecyclableHeaderSize + 4;
-    } else {
-      compression_record_len = kHeaderSize + 4;
-    }
+    compression_record_len = header_len + 4;
   } else {
     compression_record_len = 0;
   }
-  IncrementByte(compression_record_len /* offset */, 14 /* delta */);
+  IncrementByte(compression_record_len + header_len /* offset */,
+                14 /* delta */);
 
   ASSERT_EQ("EOF", Read());
   if (!kRecyclableLog) {
