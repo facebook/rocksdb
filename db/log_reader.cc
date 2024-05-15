@@ -869,9 +869,12 @@ bool FragmentBufferedReader::TryReadFragment(
   int header_size = kHeaderSize;
   if ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
       type == kRecyclableUserDefinedTimestampSizeType) {
-    if (end_of_buffer_offset_ - buffer_.size() == 0) {
-      recycled_ = true;
+    if (first_record_read_ && !recycled_) {
+      // A recycled log should have started with a recycled record
+      *fragment_type_or_err = kBadRecord;
+      return true;
     }
+    recycled_ = true;
     header_size = kRecyclableHeaderSize;
     while (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
       size_t old_size = buffer_.size();
