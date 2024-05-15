@@ -1157,6 +1157,39 @@ TEST_P(CompressionLogTest, AlignedFragmentation) {
   ASSERT_EQ("EOF", Read());
 }
 
+TEST_P(CompressionLogTest, ChecksumMismatch) {
+  const CompressionType kCompressionType = std::get<2>(GetParam());
+  const bool kCompressionEnabled = kCompressionType != kNoCompression;
+  const bool kRecyclableLog = (std::get<0>(GetParam()) != 0);
+  if (!StreamingCompressionTypeSupported(kCompressionType)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+
+  Write("foooooo");
+  int compression_record_len;
+  if (kCompressionEnabled) {
+    if (kRecyclableLog) {
+      compression_record_len = kRecyclableHeaderSize + 4;
+    } else {
+      compression_record_len = kHeaderSize + 4;
+    }
+  } else {
+    compression_record_len = 0;
+  }
+  IncrementByte(compression_record_len /* offset */, 14 /* delta */);
+
+  ASSERT_EQ("EOF", Read());
+  if (!kRecyclableLog) {
+    ASSERT_GT(DroppedBytes(), 0U);
+    ASSERT_EQ("OK", MatchError("checksum mismatch"));
+  } else {
+    ASSERT_EQ(0U, DroppedBytes());
+    ASSERT_EQ("", ReportMessage());
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
     Compression, CompressionLogTest,
     ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
