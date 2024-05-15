@@ -19,7 +19,6 @@
 #include "util/defer.h"
 #include "util/string_util.h"
 #include "utilities/transactions/lock/point/point_lock_tracker.h"
-#include "utilities/transactions/optimistic_transaction.h"
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -50,7 +49,7 @@ void OptimisticTransaction::Reinitialize(
   Initialize(txn_options);
 }
 
-OptimisticTransaction::~OptimisticTransaction() {}
+OptimisticTransaction::~OptimisticTransaction() = default;
 
 void OptimisticTransaction::Clear() { TransactionBaseImpl::Clear(); }
 

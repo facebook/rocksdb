@@ -106,7 +106,7 @@ class CacheTest : public testing::Test,
     type_ = GetParam();
   }
 
-  ~CacheTest() override {}
+  ~CacheTest() override = default;
 
   // These functions encode/decode keys in tests cases that use
   // int keys.
@@ -766,7 +766,9 @@ TEST_P(CacheTest, OverCapacity) {
     std::string key = EncodeKey(i + 1);
     auto h = cache.Lookup(key);
     ASSERT_TRUE(h != nullptr);
-    if (h) cache.Release(h);
+    if (h) {
+      cache.Release(h);
+    }
   }
 
   // the cache is over capacity since nothing could be evicted
@@ -777,7 +779,7 @@ TEST_P(CacheTest, OverCapacity) {
 
   if (IsHyperClock()) {
     // Make sure eviction is triggered.
-    ASSERT_OK(cache.Insert(EncodeKey(-1), nullptr, 1, &handles[0]));
+    ASSERT_OK(cache.Insert(EncodeKey(-1), nullptr, 1, handles.data()));
 
     // cache is under capacity now since elements were released
     ASSERT_GE(n, cache.get()->GetUsage());

@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -45,6 +46,8 @@ public class OptimisticTransactionDB extends RocksDB
     // the currently-created RocksDB.
     otdb.storeOptionsInstance(options);
 
+    otdb.storeDefaultColumnFamilyHandle(otdb.makeDefaultColumnFamilyHandle());
+
     return otdb;
   }
 
@@ -67,7 +70,7 @@ public class OptimisticTransactionDB extends RocksDB
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-
+    int defaultColumnFamilyIndex = -1;
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
@@ -75,6 +78,13 @@ public class OptimisticTransactionDB extends RocksDB
           .get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      throw new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final long[] handles = open(dbOptions.nativeHandle_, path, cfNames,
@@ -90,6 +100,9 @@ public class OptimisticTransactionDB extends RocksDB
     for (int i = 1; i < handles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(otdb, handles[i]));
     }
+
+    otdb.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
+    otdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return otdb;
   }
@@ -132,6 +145,12 @@ public class OptimisticTransactionDB extends RocksDB
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
+    for (final ColumnFamilyHandle columnFamilyHandle : // NOPMD - CloseResource
+        ownedColumnFamilyHandles) {
+      columnFamilyHandle.close();
+    }
+    ownedColumnFamilyHandles.clear();
+
     if (owningHandle_.compareAndSet(true, false)) {
       try {
         closeDatabase(nativeHandle_);
@@ -204,23 +223,24 @@ public class OptimisticTransactionDB extends RocksDB
     return db;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
   protected static native long open(final long optionsHandle,
       final String path) throws RocksDBException;
   protected static native long[] open(final long handle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
   private static native void closeDatabase(final long handle) throws RocksDBException;
-  private native long beginTransaction(final long handle,
-      final long writeOptionsHandle);
-  private native long beginTransaction(final long handle,
-      final long writeOptionsHandle,
+  private static native long beginTransaction(final long handle, final long writeOptionsHandle);
+  private static native long beginTransaction(final long handle, final long writeOptionsHandle,
       final long optimisticTransactionOptionsHandle);
-  private native long beginTransaction_withOld(final long handle,
-      final long writeOptionsHandle, final long oldTransactionHandle);
-  private native long beginTransaction_withOld(final long handle,
-      final long writeOptionsHandle,
-      final long optimisticTransactionOptionsHandle,
+  private static native long beginTransaction_withOld(
+      final long handle, final long writeOptionsHandle, final long oldTransactionHandle);
+  private static native long beginTransaction_withOld(final long handle,
+      final long writeOptionsHandle, final long optimisticTransactionOptionsHandle,
       final long oldTransactionHandle);
-  private native long getBaseDB(final long handle);
+  private static native long getBaseDB(final long handle);
 }

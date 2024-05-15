@@ -30,8 +30,8 @@ jlong Java_org_rocksdb_CompactionJobStats_newCompactionJobStats(JNIEnv*,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_CompactionJobStats_disposeInternal(JNIEnv*, jobject,
-                                                         jlong jhandle) {
+void Java_org_rocksdb_CompactionJobStats_disposeInternalJni(JNIEnv*, jclass,
+                                                            jlong jhandle) {
   auto* compact_job_stats =
       reinterpret_cast<ROCKSDB_NAMESPACE::CompactionJobStats*>(jhandle);
   delete compact_job_stats;

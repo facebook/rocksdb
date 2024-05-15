@@ -86,12 +86,12 @@ class StatusOnlyTraceExecutionResult : public TraceExecutionResult {
   StatusOnlyTraceExecutionResult(Status status, uint64_t start_timestamp,
                                  uint64_t end_timestamp, TraceType trace_type);
 
-  virtual ~StatusOnlyTraceExecutionResult() override = default;
+  ~StatusOnlyTraceExecutionResult() override = default;
 
   // Return value of DB::Write(), etc.
   virtual const Status& GetStatus() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler) override;
 
  private:
   Status status_;
@@ -109,7 +109,7 @@ class SingleValueTraceExecutionResult : public TraceExecutionResult {
                                   uint64_t start_timestamp,
                                   uint64_t end_timestamp, TraceType trace_type);
 
-  virtual ~SingleValueTraceExecutionResult() override;
+  ~SingleValueTraceExecutionResult() override;
 
   // Return status of DB::Get().
   virtual const Status& GetStatus() const;
@@ -117,7 +117,7 @@ class SingleValueTraceExecutionResult : public TraceExecutionResult {
   // Value for the searched key.
   virtual const std::string& GetValue() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler) override;
 
  private:
   Status status_;
@@ -133,7 +133,7 @@ class MultiValuesTraceExecutionResult : public TraceExecutionResult {
                                   uint64_t start_timestamp,
                                   uint64_t end_timestamp, TraceType trace_type);
 
-  virtual ~MultiValuesTraceExecutionResult() override;
+  ~MultiValuesTraceExecutionResult() override;
 
   // Returned Status(es) of DB::MultiGet().
   virtual const std::vector<Status>& GetMultiStatus() const;
@@ -141,7 +141,7 @@ class MultiValuesTraceExecutionResult : public TraceExecutionResult {
   // Returned values for the searched keys.
   virtual const std::vector<std::string>& GetValues() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler) override;
 
  private:
   std::vector<Status> multi_status_;
@@ -161,7 +161,7 @@ class IteratorTraceExecutionResult : public TraceExecutionResult {
                                uint64_t start_timestamp, uint64_t end_timestamp,
                                TraceType trace_type);
 
-  virtual ~IteratorTraceExecutionResult() override;
+  ~IteratorTraceExecutionResult() override;
 
   // Return if the Iterator is valid.
   virtual bool GetValid() const;
@@ -175,7 +175,7 @@ class IteratorTraceExecutionResult : public TraceExecutionResult {
   // Value of the current iterating entry, empty if GetValid() is false.
   virtual Slice GetValue() const;
 
-  virtual Status Accept(Handler* handler) override;
+  Status Accept(Handler* handler) override;
 
  private:
   bool valid_;

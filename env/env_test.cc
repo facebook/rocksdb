@@ -26,13 +26,14 @@
 #ifdef OS_LINUX
 #include <fcntl.h>
 #include <linux/fs.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <cstdlib>
 #endif
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-#include <errno.h>
+#include <cerrno>
 #endif
 
 #include "db/db_impl/db_impl.h"
@@ -238,13 +239,11 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
   std::atomic<CpuPriority> from_priority(CpuPriority::kNormal);
   std::atomic<CpuPriority> to_priority(CpuPriority::kNormal);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "ThreadPoolImpl::BGThread::BeforeSetCpuPriority", [&](void* pri) {
-        from_priority.store(*reinterpret_cast<CpuPriority*>(pri));
-      });
+      "ThreadPoolImpl::BGThread::BeforeSetCpuPriority",
+      [&](void* pri) { from_priority.store(*static_cast<CpuPriority*>(pri)); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "ThreadPoolImpl::BGThread::AfterSetCpuPriority", [&](void* pri) {
-        to_priority.store(*reinterpret_cast<CpuPriority*>(pri));
-      });
+      "ThreadPoolImpl::BGThread::AfterSetCpuPriority",
+      [&](void* pri) { to_priority.store(*static_cast<CpuPriority*>(pri)); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   env_->SetBackgroundThreads(1, Env::BOTTOM);
@@ -446,7 +445,7 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
     CB(std::atomic<int>* p, int i) : last_id_ptr(p), id(i) {}
 
     static void Run(void* v) {
-      CB* cb = reinterpret_cast<CB*>(v);
+      CB* cb = static_cast<CB*>(v);
       int cur = cb->last_id_ptr->load();
       ASSERT_EQ(cb->id - 1, cur);
       cb->last_id_ptr->store(cb->id);
@@ -483,7 +482,7 @@ struct State {
 };
 
 static void ThreadBody(void* arg) {
-  State* s = reinterpret_cast<State*>(arg);
+  State* s = static_cast<State*>(arg);
   s->mu.Lock();
   s->val += 1;
   s->num_running -= 1;
@@ -530,7 +529,7 @@ TEST_P(EnvPosixTestWithParam, TwoPools) {
           should_start_(_should_start) {}
 
     static void Run(void* v) {
-      CB* cb = reinterpret_cast<CB*>(v);
+      CB* cb = static_cast<CB*>(v);
       cb->Run();
     }
 
@@ -2609,7 +2608,7 @@ TEST_F(EnvTest, IsDirectory) {
                                          FileOptions(),
                                          SystemClock::Default().get()));
     constexpr char buf[] = "test";
-    s = fwriter->Append(buf);
+    s = fwriter->Append(IOOptions(), buf);
     ASSERT_OK(s);
   }
   ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));
@@ -2955,7 +2954,7 @@ struct NoDuplicateMiniStressTest {
 
   NoDuplicateMiniStressTest() { env = Env::Default(); }
 
-  virtual ~NoDuplicateMiniStressTest() {}
+  virtual ~NoDuplicateMiniStressTest() = default;
 
   void Run() {
     std::array<std::thread, kThreads> threads;
@@ -3448,7 +3447,7 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
 class ReadAsyncFS;
 
 struct MockIOHandle {
-  std::function<void(const FSReadRequest&, void*)> cb;
+  std::function<void(FSReadRequest&, void*)> cb;
   void* cb_arg;
   bool create_io_error;
 };
@@ -3463,7 +3462,7 @@ class ReadAsyncRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
       : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
+                     std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override;
 
@@ -3515,7 +3514,7 @@ class ReadAsyncFS : public FileSystemWrapper {
 
 IOStatus ReadAsyncRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
   IOHandleDeleter deletefn = [](void* args) -> void {
     delete (static_cast<MockIOHandle*>(args));
@@ -3603,8 +3602,8 @@ TEST_F(TestAsyncRead, ReadAsync) {
     }
 
     // callback function passed to async read.
-    std::function<void(const FSReadRequest&, void*)> callback =
-        [&](const FSReadRequest& req, void* cb_arg) {
+    std::function<void(FSReadRequest&, void*)> callback =
+        [&](FSReadRequest& req, void* cb_arg) {
           assert(cb_arg != nullptr);
           size_t i = *(reinterpret_cast<size_t*>(cb_arg));
           reqs[i].offset = req.offset;

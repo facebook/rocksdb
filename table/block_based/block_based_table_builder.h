@@ -106,9 +106,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
-  void SetSeqnoTimeTableProperties(
-      const std::string& encoded_seqno_to_time_mapping,
-      uint64_t oldest_ancestor_time) override;
+  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
+                                   uint64_t oldest_ancestor_time) override;
 
  private:
   bool ok() const { return status().ok(); }

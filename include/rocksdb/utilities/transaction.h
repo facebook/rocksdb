@@ -417,6 +417,23 @@ class Transaction {
                               std::string* value, bool exclusive = true,
                               const bool do_validate = true) = 0;
 
+  // An overload of the above method that receives a PinnableSlice
+  // For backward compatibility a default implementation is provided
+  virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
+                              PinnableSlice* pinnable_val,
+                              bool exclusive = true,
+                              const bool do_validate = true) {
+    if (pinnable_val == nullptr) {
+      std::string* null_str = nullptr;
+      return GetForUpdate(options, key, null_str, exclusive, do_validate);
+    } else {
+      auto s = GetForUpdate(options, key, pinnable_val->GetSelf(), exclusive,
+                            do_validate);
+      pinnable_val->PinSelf();
+      return s;
+    }
+  }
+
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,

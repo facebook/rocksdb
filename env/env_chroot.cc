@@ -7,9 +7,10 @@
 
 #include "env/env_chroot.h"
 
-#include <errno.h>   // errno
-#include <stdlib.h>  // realpath, free
 #include <unistd.h>  // geteuid
+
+#include <cerrno>   // errno
+#include <cstdlib>  // realpath, free
 
 #include "env/composite_env_wrapper.h"
 #include "env/fs_remap.h"

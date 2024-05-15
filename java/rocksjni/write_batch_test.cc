@@ -22,7 +22,6 @@
 #include "rocksdb/status.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/portal.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 
@@ -59,8 +58,9 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
                                                         nullptr, nullptr);
   unsigned int count = 0;
   ROCKSDB_NAMESPACE::Arena arena;
-  ROCKSDB_NAMESPACE::ScopedArenaIterator iter(
-      mem->NewIterator(ROCKSDB_NAMESPACE::ReadOptions(), &arena));
+  ROCKSDB_NAMESPACE::ScopedArenaPtr<ROCKSDB_NAMESPACE::InternalIterator> iter(
+      mem->NewIterator(ROCKSDB_NAMESPACE::ReadOptions(),
+                       /*seqno_to_time_mapping=*/nullptr, &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ROCKSDB_NAMESPACE::ParsedInternalKey ikey;
     ikey.clear();

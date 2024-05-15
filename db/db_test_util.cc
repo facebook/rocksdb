@@ -73,7 +73,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
     std::string provider_id = getenv("ENCRYPTED_ENV");
-    if (provider_id.find("=") == std::string::npos &&
+    if (provider_id.find('=') == std::string::npos &&
         !EndsWith(provider_id, "://test")) {
       provider_id = provider_id + "://test";
     }
@@ -588,7 +588,7 @@ void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
   ColumnFamilyOptions cf_opts(options);
   size_t cfi = handles_.size();
   handles_.resize(cfi + cfs.size());
-  for (auto cf : cfs) {
+  for (const auto& cf : cfs) {
     Status s = db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]);
     ASSERT_OK(s);
   }
@@ -651,7 +651,7 @@ Status DBTestBase::TryReopenWithColumnFamilies(
   EXPECT_EQ(cfs.size(), options.size());
   std::vector<ColumnFamilyDescriptor> column_families;
   for (size_t i = 0; i < cfs.size(); ++i) {
-    column_families.push_back(ColumnFamilyDescriptor(cfs[i], options[i]));
+    column_families.emplace_back(cfs[i], options[i]);
   }
   DBOptions db_opts = DBOptions(options[0]);
   last_options_ = options[0];
@@ -759,6 +759,24 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   }
 }
 
+Status DBTestBase::TimedPut(const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  return TimedPut(0, k, v, write_unix_time, wo);
+}
+
+Status DBTestBase::TimedPut(int cf, const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  WriteBatch wb;
+  ColumnFamilyHandle* cfh;
+  if (cf != 0) {
+    cfh = handles_[cf];
+  } else {
+    cfh = db_->DefaultColumnFamily();
+  }
+  EXPECT_OK(wb.TimedPut(cfh, k, v, write_unix_time));
+  return db_->Write(wo, &wb);
+}
+
 Status DBTestBase::Merge(const Slice& k, const Slice& v, WriteOptions wo) {
   return db_->Merge(wo, k, v);
 }
@@ -828,7 +846,7 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
 
   for (unsigned int i = 0; i < cfs.size(); ++i) {
     handles.push_back(handles_[cfs[i]]);
-    keys.push_back(k[i]);
+    keys.emplace_back(k[i]);
   }
   std::vector<Status> s;
   if (!batched) {
@@ -875,7 +893,7 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
   std::vector<PinnableSlice> pin_values(k.size());
 
   for (size_t i = 0; i < k.size(); ++i) {
-    keys.push_back(k[i]);
+    keys.emplace_back(k[i]);
   }
   db_->MultiGet(options, dbfull()->DefaultColumnFamily(), keys.size(),
                 keys.data(), pin_values.data(), statuses.data());
@@ -974,13 +992,13 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
+  ScopedArenaPtr<InternalIterator> iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber, handles_[cf]));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
   iter->Seek(target.Encode());
@@ -1152,7 +1170,7 @@ int DBTestBase::TotalTableFiles(int cf, int levels) {
 // Return spread of files per level
 std::string DBTestBase::FilesPerLevel(int cf) {
   int num_levels =
-      (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[1]);
+      (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[cf]);
   std::string result;
   size_t last_non_zero_offset = 0;
   for (int level = 0; level < num_levels; level++) {
@@ -1453,13 +1471,13 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
+  ScopedArenaPtr<InternalIterator> iter;
   if (cf != 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber, handles_[cf]));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber));
   }
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
@@ -1614,7 +1632,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
         << iter_cnt << " / " << true_data.size();
 
     // Verify Iterator::Seek()
-    for (auto kv : true_data) {
+    for (const auto& kv : true_data) {
       iter->Seek(kv.first);
       ASSERT_EQ(kv.first, iter->key().ToString());
       ASSERT_EQ(kv.second, iter->value().ToString());
@@ -1644,7 +1662,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
         << iter_cnt << " / " << true_data.size();
 
     // Verify ForwardIterator::Seek()
-    for (auto kv : true_data) {
+    for (const auto& kv : true_data) {
       iter->Seek(kv.first);
       ASSERT_EQ(kv.first, iter->key().ToString());
       ASSERT_EQ(kv.second, iter->value().ToString());
@@ -1667,7 +1685,7 @@ void DBTestBase::VerifyDBInternal(
   auto iter =
       dbfull()->NewInternalIterator(read_options, &arena, kMaxSequenceNumber);
   iter->SeekToFirst();
-  for (auto p : true_data) {
+  for (const auto& p : true_data) {
     ASSERT_TRUE(iter->Valid());
     ParsedInternalKey ikey;
     ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));

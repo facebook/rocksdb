@@ -27,5 +27,9 @@ public class RocksMemEnv extends Env {
   }
 
   private static native long createMemEnv(final long baseEnvHandle);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

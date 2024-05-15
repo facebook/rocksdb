@@ -215,13 +215,16 @@ public class RateLimiter extends RocksObject {
   private static native long newRateLimiterHandle(final long rateBytesPerSecond,
       final long refillPeriodMicros, final int fairness,
       final byte rateLimiterMode, final boolean autoTune);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native void setBytesPerSecond(final long handle,
-      final long bytesPerSecond);
-  private native long getBytesPerSecond(final long handle);
-  private native void request(final long handle, final long bytes);
-  private native long getSingleBurstBytes(final long handle);
-  private native long getTotalBytesThrough(final long handle);
-  private native long getTotalRequests(final long handle);
+  private static native void setBytesPerSecond(final long handle, final long bytesPerSecond);
+  private static native long getBytesPerSecond(final long handle);
+  private static native void request(final long handle, final long bytes);
+  private static native long getSingleBurstBytes(final long handle);
+  private static native long getTotalBytesThrough(final long handle);
+  private static native long getTotalRequests(final long handle);
 }

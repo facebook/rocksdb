@@ -543,7 +543,9 @@ BENCHMARK(ManualFlush)->Iterations(1)->Apply(ManualFlushArguments);
 static Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
-  if (raw < 1) raw = 1;
+  if (raw < 1) {
+    raw = 1;
+  }
   std::string raw_data = rnd->RandomBinaryString(raw);
 
   // Duplicate the random data until we have filled "len" bytes

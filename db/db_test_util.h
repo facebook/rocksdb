@@ -24,6 +24,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "file/filename.h"
+#include "options/options_helper.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -40,7 +41,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "table/mock_table.h"
-#include "table/scoped_arena_iterator.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -438,15 +438,15 @@ class SpecialEnv : public EnvWrapper {
           : target_(std::move(target)),
             counter_(counter),
             bytes_read_(bytes_read) {}
-      virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const override {
+      Status Read(uint64_t offset, size_t n, Slice* result,
+                  char* scratch) const override {
         counter_->Increment();
         Status s = target_->Read(offset, n, result, scratch);
         *bytes_read_ += result->size();
         return s;
       }
 
-      virtual Status Prefetch(uint64_t offset, size_t n) override {
+      Status Prefetch(uint64_t offset, size_t n) override {
         Status s = target_->Prefetch(offset, n);
         *bytes_read_ += n;
         return s;
@@ -465,8 +465,8 @@ class SpecialEnv : public EnvWrapper {
           : target_(std::move(target)),
             fail_cnt_(failure_cnt),
             fail_odd_(fail_odd) {}
-      virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const override {
+      Status Read(uint64_t offset, size_t n, Slice* result,
+                  char* scratch) const override {
         if (Random::GetTLSInstance()->OneIn(fail_odd_)) {
           fail_cnt_->fetch_add(1);
           return Status::IOError("random error");
@@ -474,7 +474,7 @@ class SpecialEnv : public EnvWrapper {
         return target_->Read(offset, n, result, scratch);
       }
 
-      virtual Status Prefetch(uint64_t offset, size_t n) override {
+      Status Prefetch(uint64_t offset, size_t n) override {
         return target_->Prefetch(offset, n);
       }
 
@@ -502,19 +502,19 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status NewSequentialFile(const std::string& f,
-                                   std::unique_ptr<SequentialFile>* r,
-                                   const EnvOptions& soptions) override {
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
+                           const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      public:
       CountingFile(std::unique_ptr<SequentialFile>&& target,
                    anon::AtomicCounter* counter)
           : target_(std::move(target)), counter_(counter) {}
-      virtual Status Read(size_t n, Slice* result, char* scratch) override {
+      Status Read(size_t n, Slice* result, char* scratch) override {
         counter_->Increment();
         return target_->Read(n, result, scratch);
       }
-      virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
+      Status Skip(uint64_t n) override { return target_->Skip(n); }
 
      private:
       std::unique_ptr<SequentialFile> target_;
@@ -528,7 +528,7 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual void SleepForMicroseconds(int micros) override {
+  void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
     if (no_slowdown_ || time_elapse_only_sleep_) {
       addon_microseconds_.fetch_add(micros);
@@ -550,7 +550,7 @@ class SpecialEnv : public EnvWrapper {
     addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
-  virtual Status GetCurrentTime(int64_t* unix_time) override {
+  Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
     if (time_elapse_only_sleep_) {
       *unix_time = maybe_starting_time_;
@@ -564,22 +564,22 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual uint64_t NowCPUNanos() override {
+  uint64_t NowCPUNanos() override {
     now_cpu_count_.fetch_add(1);
     return target()->NowCPUNanos();
   }
 
-  virtual uint64_t NowNanos() override {
+  uint64_t NowNanos() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
            addon_microseconds_.load() * 1000;
   }
 
-  virtual uint64_t NowMicros() override {
+  uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
            addon_microseconds_.load();
   }
 
-  virtual Status DeleteFile(const std::string& fname) override {
+  Status DeleteFile(const std::string& fname) override {
     delete_count_.fetch_add(1);
     return target()->DeleteFile(fname);
   }
@@ -729,7 +729,11 @@ class FileTemperatureTestFS : public FileSystemWrapper {
           if (e != current_sst_file_temperatures_.end() &&
               e->second != opts.temperature) {
             result->reset();
-            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+            return IOStatus::PathNotFound(
+                "Read requested temperature " +
+                temperature_to_string[opts.temperature] +
+                " but stored with temperature " +
+                temperature_to_string[e->second] + " for " + fname);
           }
         }
         *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
@@ -758,7 +762,11 @@ class FileTemperatureTestFS : public FileSystemWrapper {
           if (e != current_sst_file_temperatures_.end() &&
               e->second != opts.temperature) {
             result->reset();
-            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+            return IOStatus::PathNotFound(
+                "Read requested temperature " +
+                temperature_to_string[opts.temperature] +
+                " but stored with temperature " +
+                temperature_to_string[e->second] + " for " + fname);
           }
         }
         *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
@@ -792,9 +800,35 @@ class FileTemperatureTestFS : public FileSystemWrapper {
     return target()->NewWritableFile(fname, opts, result, dbg);
   }
 
+  IOStatus DeleteFile(const std::string& fname, const IOOptions& options,
+                      IODebugContext* dbg) override {
+    IOStatus ios = target()->DeleteFile(fname, options, dbg);
+    if (ios.ok()) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(GetFileName(fname), &number, &type) &&
+          type == kTableFile) {
+        MutexLock lock(&mu_);
+        current_sst_file_temperatures_.erase(number);
+      }
+    }
+    return ios;
+  }
+
   void CopyCurrentSstFileTemperatures(std::map<uint64_t, Temperature>* out) {
     MutexLock lock(&mu_);
     *out = current_sst_file_temperatures_;
+  }
+
+  size_t CountCurrentSstFilesWithTemperature(Temperature temp) {
+    MutexLock lock(&mu_);
+    size_t count = 0;
+    for (const auto& e : current_sst_file_temperatures_) {
+      if (e.second == temp) {
+        ++count;
+      }
+    }
+    return count;
   }
 
   void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
@@ -882,8 +916,8 @@ class FlushCounterListener : public EventListener {
 // "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
 class TestPutOperator : public MergeOperator {
  public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     static const std::map<std::string, MergeOperator::OpFailureScope>
         bad_operand_to_op_failure_scope = {
             {"corrupted", MergeOperator::OpFailureScope::kDefault},
@@ -914,7 +948,7 @@ class TestPutOperator : public MergeOperator {
     return true;
   }
 
-  virtual const char* Name() const override { return "TestPutOperator"; }
+  const char* Name() const override { return "TestPutOperator"; }
 };
 
 /*
@@ -1140,6 +1174,12 @@ class DBTestBase : public testing::Test {
 
   Status Put(int cf, const Slice& k, const Slice& v,
              WriteOptions wo = WriteOptions());
+
+  Status TimedPut(const Slice& k, const Slice& v, uint64_t write_unix_time,
+                  WriteOptions wo = WriteOptions());
+
+  Status TimedPut(int cf, const Slice& k, const Slice& v,
+                  uint64_t write_unix_time, WriteOptions wo = WriteOptions());
 
   Status Merge(const Slice& k, const Slice& v,
                WriteOptions wo = WriteOptions());

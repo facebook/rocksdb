@@ -61,6 +61,10 @@ class KinesisWritableFile : public CloudLogWritableFile {
                   IODebugContext* dbg) override;
   IOStatus Close(const IOOptions& io_opts, IODebugContext* dbg) override;
   IOStatus LogDelete() override;
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return 0;
+  }
 
  private:
   std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;

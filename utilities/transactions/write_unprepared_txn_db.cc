@@ -37,6 +37,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   // MemTableInserter during recovery to actually do writes into the DB
   // instead of just dropping the in-memory write batch.
   //
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   WriteOptions w_options;
 
   class InvalidSnapshotReadCallback : public ReadCallback {
@@ -249,7 +250,7 @@ Status WriteUnpreparedTxnDB::Initialize(
   // create 'real' transactions from recovered shell transactions
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
-  for (auto rtxn : rtxns) {
+  for (const auto& rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
     assert(recovered_trx);
     assert(recovered_trx->batches_.size() >= 1);
@@ -262,6 +263,7 @@ Status WriteUnpreparedTxnDB::Initialize(
       continue;
     }
 
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     WriteOptions w_options;
     w_options.sync = true;
     TransactionOptions t_options;
@@ -332,7 +334,7 @@ Status WriteUnpreparedTxnDB::Initialize(
 
   Status s;
   // Rollback unprepared transactions.
-  for (auto rtxn : rtxns) {
+  for (const auto& rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
     if (recovered_trx->unprepared_) {
       s = RollbackRecoveredTransaction(recovered_trx);
@@ -381,7 +383,7 @@ struct WriteUnpreparedTxnDB::IteratorState {
 
 namespace {
 static void CleanupWriteUnpreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
-  delete reinterpret_cast<WriteUnpreparedTxnDB::IteratorState*>(arg1);
+  delete static_cast<WriteUnpreparedTxnDB::IteratorState*>(arg1);
 }
 }  // anonymous namespace
 
@@ -468,13 +470,13 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& _read_options,
   min_uncommitted =
       static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
 
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto* cfd = cfh->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
   auto* db_iter = db_impl_->NewIteratorImpl(
-      read_options, cfd, super_version, state->MaxVisibleSeq(),
+      read_options, cfh, super_version, state->MaxVisibleSeq(),
       &state->callback, expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;

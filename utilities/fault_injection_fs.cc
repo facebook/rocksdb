@@ -33,7 +33,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::string kNewFileNoOverwrite = "";
+const std::string kNewFileNoOverwrite;
 
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
@@ -47,7 +47,7 @@ std::string TestFSGetDirName(const std::string filename) {
 
 // Trim the tailing "/" in the end of `str`
 std::string TestFSTrimDirname(const std::string& str) {
-  size_t found = str.find_last_not_of("/");
+  size_t found = str.find_last_not_of('/');
   if (found == std::string::npos) {
     return str;
   }
@@ -74,7 +74,6 @@ void CalculateTypedChecksum(const ChecksumType& checksum_type, const char* data,
     uint32_t v = XXH32(data, size, 0);
     PutFixed32(checksum, v);
   }
-  return;
 }
 
 IOStatus FSFileState::DropUnsyncedData() {
@@ -196,9 +195,10 @@ IOStatus TestFSWritableFile::Append(
                          data.size(), &checksum);
   if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
       checksum != verification_info.checksum.ToString()) {
-    std::string msg = "Data is corrupted! Origin data checksum: " +
-                      verification_info.checksum.ToString() +
-                      "current data checksum: " + checksum;
+    std::string msg =
+        "Data is corrupted! Origin data checksum: " +
+        verification_info.checksum.ToString(true) +
+        "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
   if (target_->use_direct_io()) {
@@ -229,9 +229,10 @@ IOStatus TestFSWritableFile::PositionedAppend(
                          data.size(), &checksum);
   if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
       checksum != verification_info.checksum.ToString()) {
-    std::string msg = "Data is corrupted! Origin data checksum: " +
-                      verification_info.checksum.ToString() +
-                      "current data checksum: " + checksum;
+    std::string msg =
+        "Data is corrupted! Origin data checksum: " +
+        verification_info.checksum.ToString(true) +
+        "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
   target_->PositionedAppend(data, offset, options, dbg);
@@ -398,6 +399,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
                                       const IOOptions& options, Slice* result,
                                       char* scratch,
                                       IODebugContext* dbg) const {
+  TEST_SYNC_POINT("FaultInjectionTestFS::RandomRead");
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -415,7 +417,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
 
 IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
   IOStatus ret;
   IOStatus s;
@@ -457,8 +459,8 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     bool this_injected_error;
     reqs[i].status = fs_->InjectThreadSpecificReadError(
-        FaultInjectionTestFS::ErrorOperation::kMultiReadSingleReq,
-        &(reqs[i].result), use_direct_io(), reqs[i].scratch,
+        FaultInjectionTestFS::ErrorOperation::kRead, &(reqs[i].result),
+        use_direct_io(), reqs[i].scratch,
         /*need_count_increase=*/true,
         /*fault_injected=*/&this_injected_error);
     injected_error |= this_injected_error;
@@ -917,9 +919,10 @@ IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
           return io_s;
         }
       } else {
+        IOOptions opts;
         IOStatus io_s =
             WriteStringToFile(target(), file_pair.second,
-                              pair.first + "/" + file_pair.first, true);
+                              pair.first + "/" + file_pair.first, true, opts);
         if (!io_s.ok()) {
           return io_s;
         }
@@ -1012,7 +1015,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
                                             uint64_t* number, FileType* type) {
-  std::size_t found = file_name.find_last_of("/");
+  std::size_t found = file_name.find_last_of('/');
   std::string file = file_name.substr(found);
   return ParseFileName(file, number, type);
 }

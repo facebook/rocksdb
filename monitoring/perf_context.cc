@@ -62,6 +62,10 @@ struct PerfContextByLevelInt {
   defCmd(block_cache_filter_hit_count)             \
   defCmd(filter_block_read_count)                  \
   defCmd(compression_dict_block_read_count)        \
+  defCmd(block_cache_index_read_byte)              \
+  defCmd(block_cache_filter_read_byte)             \
+  defCmd(block_cache_compression_dict_read_byte)   \
+  defCmd(block_cache_read_byte)                    \
   defCmd(multiget_sst_file_read_count)             \
   defCmd(multiget_sst_serialized_file_read_count)  \
   defCmd(secondary_cache_hit_count)                \

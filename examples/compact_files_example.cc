@@ -117,8 +117,7 @@ class FullCompactor : public Compactor {
   }
 
   static void CompactFiles(void* arg) {
-    std::unique_ptr<CompactionTask> task(
-        reinterpret_cast<CompactionTask*>(arg));
+    std::unique_ptr<CompactionTask> task(static_cast<CompactionTask*>(arg));
     assert(task);
     assert(task->db);
     Status s = task->db->CompactFiles(

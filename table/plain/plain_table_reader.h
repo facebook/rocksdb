@@ -106,7 +106,7 @@ class PlainTableReader : public TableReader {
     return table_properties_;
   }
 
-  virtual size_t ApproximateMemoryUsage() const override {
+  size_t ApproximateMemoryUsage() const override {
     return arena_.MemoryAllocatedBytes();
   }
 

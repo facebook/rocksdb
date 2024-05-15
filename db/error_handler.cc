@@ -234,7 +234,7 @@ void ErrorHandler::CancelErrorRecovery() {
   // recovery gets scheduled at that point
   auto_recovery_ = false;
   SstFileManagerImpl* sfm =
-      reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm) {
     // This may or may not cancel a pending recovery
     db_mutex_->Unlock();
@@ -277,10 +277,6 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
     return kOkStatus;
   }
 
-  if (bg_error_stats_ != nullptr) {
-    RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
-    RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED);
-  }
   ROCKS_LOG_INFO(db_options_.info_log,
                  "ErrorHandler: Set regular background error\n");
 
@@ -365,25 +361,28 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
 
 // This is the main function for looking at IO related error during the
 // background operations. The main logic is:
-// 1) File scope IO error is treated as retryable IO error in the write
-//    path. In RocksDB, If a file has write IO error and it is at file scope,
-//    RocksDB never write to the same file again. RocksDB will create a new
-//    file and rewrite the whole content. Thus, it is retryable.
+// File scope IO error is treated as retryable IO error in the write path. In
+// RocksDB, If a file has write IO error and it is at file scope, RocksDB never
+// write to the same file again. RocksDB will create a new file and rewrite the
+// whole content. Thus, it is retryable.
+// There are three main categories of error handling:
 // 1) if the error is caused by data loss, the error is mapped to
 //    unrecoverable error. Application/user must take action to handle
 //    this situation (File scope case is excluded).
 // 2) if the error is a Retryable IO error (i.e., it is a file scope IO error,
-//     or its retryable flag is set and not a data loss error), auto resume
-//     will be called and the auto resume can be controlled by resume count
-//     and resume interval options. There are three sub-cases:
+//     or its retryable flag is set and not a data loss error), auto resume (
+//     DBImpl::ResumeImpl) may be called and the auto resume can be controlled
+//     by resume count and resume interval options. There are three sub-cases:
 //    a) if the error happens during compaction, it is mapped to a soft error.
-//       the compaction thread will reschedule a new compaction.
+//       the compaction thread will reschedule a new compaction. This doesn't
+//       call auto resume.
 //    b) if the error happens during flush and also WAL is empty, it is mapped
 //       to a soft error. Note that, it includes the case that IO error happens
-//       in SST or manifest write during flush.
-//    c) all other errors are mapped to hard error.
-// 3) for other cases, SetBGError(const Status& bg_err, BackgroundErrorReason
-//    reason) will be called to handle other error cases.
+//       in SST or manifest write during flush. Auto resume will be called.
+//    c) all other errors are mapped to hard error. Auto resume will be called.
+// 3) for other cases, HandleKnownErrors(const Status& bg_err,
+//    BackgroundErrorReason reason) will be called to handle other error cases
+//    such as delegating to SstFileManager to handle no space error.
 const Status& ErrorHandler::SetBGError(const Status& bg_status,
                                        BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
@@ -396,6 +395,9 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
 
+  RecordStats({ERROR_HANDLER_BG_ERROR_COUNT, ERROR_HANDLER_BG_IO_ERROR_COUNT},
+              {} /* int_histograms */);
+
   Status new_bg_io_err = bg_io_err;
   DBRecoverContext context;
   if (bg_io_err.GetScope() != IOStatus::IOErrorScope::kIOErrorScopeFile &&
@@ -405,14 +407,6 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
     CheckAndSetRecoveryAndBGError(bg_err);
-    if (bg_error_stats_ != nullptr) {
-      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED);
-      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED);
-    }
     ROCKS_LOG_INFO(
         db_options_.info_log,
         "ErrorHandler: Set background IO error as unrecoverable error\n");
@@ -436,18 +430,9 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &new_bg_io_err, db_mutex_,
                                           &auto_recovery);
-    if (bg_error_stats_ != nullptr) {
-      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED);
-      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED);
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT);
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED);
-    }
+
+    RecordStats({ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT},
+                {} /* int_histograms */);
     ROCKS_LOG_INFO(db_options_.info_log,
                    "ErrorHandler: Set background retryable IO error\n");
     if (BackgroundErrorReason::kCompaction == reason) {
@@ -456,17 +441,18 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
       // this case
       // TODO:  a better way to set or clean the retryable IO error which
       // happens during compaction SST file write.
-      if (bg_error_stats_ != nullptr) {
-        RecordTick(bg_error_stats_.get(), ERROR_HANDLER_AUTORESUME_COUNT);
-      }
+      RecordStats({ERROR_HANDLER_AUTORESUME_COUNT}, {} /* int_histograms */);
       ROCKS_LOG_INFO(
           db_options_.info_log,
           "ErrorHandler: Compaction will schedule by itself to resume\n");
       // Not used in this code path.
       new_bg_io_err.PermitUncheckedError();
       return bg_error_;
-    } else if (BackgroundErrorReason::kFlushNoWAL == reason ||
-               BackgroundErrorReason::kManifestWriteNoWAL == reason) {
+    }
+
+    Status::Severity severity;
+    if (BackgroundErrorReason::kFlushNoWAL == reason ||
+        BackgroundErrorReason::kManifestWriteNoWAL == reason) {
       // When the BG Retryable IO error reason is flush without WAL,
       // We map it to a soft error. At the same time, all the background work
       // should be stopped except the BG work from recovery. Therefore, we
@@ -474,24 +460,17 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
       // continues to receive writes when BG error is soft error, to avoid
       // to many small memtable being generated during auto resume, the flush
       // reason is set to kErrorRecoveryRetryFlush.
-      Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
-      CheckAndSetRecoveryAndBGError(bg_err);
+      severity = Status::Severity::kSoftError;
       soft_error_no_bg_work_ = true;
       context.flush_reason = FlushReason::kErrorRecoveryRetryFlush;
-      recover_context_ = context;
-      return StartRecoverFromRetryableBGIOError(bg_io_err);
     } else {
-      Status bg_err(new_bg_io_err, Status::Severity::kHardError);
-      CheckAndSetRecoveryAndBGError(bg_err);
-      recover_context_ = context;
-      return StartRecoverFromRetryableBGIOError(bg_io_err);
+      severity = Status::Severity::kHardError;
     }
+    Status bg_err(new_bg_io_err, severity);
+    CheckAndSetRecoveryAndBGError(bg_err);
+    recover_context_ = context;
+    return StartRecoverFromRetryableBGIOError(bg_io_err);
   } else {
-    if (bg_error_stats_ != nullptr) {
-      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED);
-    }
     return HandleKnownErrors(new_bg_io_err, reason);
   }
 }
@@ -555,7 +534,7 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
 
 void ErrorHandler::RecoverFromNoSpace() {
   SstFileManagerImpl* sfm =
-      reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
 
   // Inform SFM of the error, so it can kick-off the recovery
   if (sfm) {
@@ -593,7 +572,7 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
     // If its a manual recovery and there's a background recovery in progress
     // return busy status
     if (recovery_in_prog_) {
-      return Status::Busy();
+      return Status::Busy("Recovery already in progress");
     }
     recovery_in_prog_ = true;
 
@@ -659,9 +638,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
     db_mutex_->AssertHeld();
     return bg_error_;
   }
-  if (bg_error_stats_ != nullptr) {
-    RecordTick(bg_error_stats_.get(), ERROR_HANDLER_AUTORESUME_COUNT);
-  }
+  RecordStats({ERROR_HANDLER_AUTORESUME_COUNT}, {} /* int_histograms */);
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "ErrorHandler: Call StartRecoverFromRetryableBGIOError to resume\n");
@@ -729,19 +706,15 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     recovery_error_ = IOStatus::OK();
     retry_count++;
     Status s = db_->ResumeImpl(context);
-    if (bg_error_stats_ != nullptr) {
-      RecordTick(bg_error_stats_.get(),
-                 ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT);
-    }
+    RecordStats({ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT},
+                {} /* int_histograms */);
     if (s.IsShutdownInProgress() ||
         bg_error_.severity() >= Status::Severity::kFatalError) {
       // If DB shutdown in progress or the error severity is higher than
       // Hard Error, stop auto resume and returns.
       recovery_in_prog_ = false;
-      if (bg_error_stats_ != nullptr) {
-        RecordInHistogram(bg_error_stats_.get(),
-                          ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
-      }
+      RecordStats({} /* ticker_types */,
+                  {{ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count}});
       EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
                                              bg_error_, db_mutex_);
       return;
@@ -764,21 +737,15 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         // recover from the retryable IO error and no other BG errors. Clean
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
-        if (bg_error_stats_ != nullptr) {
-          RecordTick(bg_error_stats_.get(),
-                     ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT);
-          RecordInHistogram(bg_error_stats_.get(),
-                            ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
-        }
+        RecordStats({ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT},
+                    {{ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count}});
         return;
       } else {
         // In this case: 1) recovery_error_ is more serious or not retryable
         // 2) other error happens. The auto recovery stops.
         recovery_in_prog_ = false;
-        if (bg_error_stats_ != nullptr) {
-          RecordInHistogram(bg_error_stats_.get(),
-                            ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
-        }
+        RecordStats({} /* ticker_types */,
+                    {{ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count}});
         EventHelpers::NotifyOnErrorRecoveryEnd(
             db_options_.listeners, bg_error_,
             !recovery_error_.ok() ? recovery_error_ : s, db_mutex_);
@@ -792,11 +759,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       db_options_.listeners, bg_error_,
       Status::Aborted("Exceeded resume retry count"), db_mutex_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
-  if (bg_error_stats_ != nullptr) {
-    RecordInHistogram(bg_error_stats_.get(),
-                      ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
-  }
-  return;
+  RecordStats({} /* ticker_types */,
+              {{ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count}});
 }
 
 void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
@@ -809,7 +773,6 @@ void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
   if (bg_error_.severity() >= Status::Severity::kHardError) {
     is_db_stopped_.store(true, std::memory_order_release);
   }
-  return;
 }
 
 void ErrorHandler::EndAutoRecovery() {
@@ -827,7 +790,22 @@ void ErrorHandler::EndAutoRecovery() {
     db_mutex_->Lock();
   }
   TEST_SYNC_POINT("PostEndAutoRecovery");
-  return;
+}
+
+void ErrorHandler::RecordStats(
+    const std::vector<Tickers>& ticker_types,
+    const std::vector<std::tuple<Histograms, uint64_t>>& int_histograms) {
+  if (bg_error_stats_ == nullptr) {
+    return;
+  }
+  for (const auto& ticker_type : ticker_types) {
+    RecordTick(bg_error_stats_.get(), ticker_type);
+  }
+
+  for (const auto& hist : int_histograms) {
+    RecordInHistogram(bg_error_stats_.get(), std::get<0>(hist),
+                      std::get<1>(hist));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

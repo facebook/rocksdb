@@ -62,8 +62,7 @@ class OptimisticTransactionTest
     ColumnFamilyOptions cf_options(options);
     std::vector<ColumnFamilyDescriptor> column_families;
     std::vector<ColumnFamilyHandle*> handles;
-    column_families.push_back(
-        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+    column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
     OptimisticTransactionDB* raw_txn_db = nullptr;
     Status s = OptimisticTransactionDB::Open(
         options, occ_opts, dbname, column_families, &handles, &raw_txn_db);
@@ -654,13 +653,10 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
   // have to open default column family
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  column_families.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
   // open the new column families
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
-  column_families.push_back(
-      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+  column_families.emplace_back("CFA", ColumnFamilyOptions());
+  column_families.emplace_back("CFB", ColumnFamilyOptions());
   std::vector<ColumnFamilyHandle*> handles;
   OptimisticTransactionDB* raw_txn_db = nullptr;
   ASSERT_OK(OptimisticTransactionDB::Open(
@@ -723,7 +719,6 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   ASSERT_TRUE(s.IsBusy());
   s = txn_db->Get(read_options, handles[1], "AAAZZZ", &value);
   ASSERT_TRUE(s.IsNotFound());
-  ASSERT_EQ(value, "barbar");
 
   delete txn;
   delete txn2;
@@ -1221,7 +1216,8 @@ TEST_P(OptimisticTransactionTest, IteratorTest) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(results[i], iter->value().ToString());
 
-    ASSERT_OK(txn->GetForUpdate(read_options, iter->key(), nullptr));
+    ASSERT_OK(
+        txn->GetForUpdate(read_options, iter->key(), (std::string*)nullptr));
 
     iter->Next();
   }

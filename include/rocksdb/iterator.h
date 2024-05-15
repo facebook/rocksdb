@@ -112,6 +112,9 @@ class Iterator : public Cleanable {
   // Regardless of whether the iterator was created/refreshed previously
   // with or without a snapshot, the iterator will be reading the
   // latest DB state after this call.
+  // Note that you will need to call a Seek*() function to get the iterator
+  // back into a valid state before calling a function that assumes the
+  // state is already valid, like Next().
   virtual Status Refresh() { return Refresh(nullptr); }
 
   // Similar to Refresh() but the iterator will be reading the latest DB state
@@ -134,15 +137,18 @@ class Iterator : public Cleanable {
   //   Get the user-key portion of the internal key at which the iteration
   //   stopped.
   // Property "rocksdb.iterator.write-time":
-  //   DO NOT USE, UNDER CONSTRUCTION
   //   Get the unix time of the best estimate of the write time of the entry.
   //   Returned as 64-bit raw value (8 bytes). It can be converted to uint64_t
   //   with util method `DecodeU64Ts`. The accuracy of the write time depends on
-  //   settings like preserve_internal_time_seconds. If this feature is
-  //   disabled, this property will always be empty. The actual write time of
+  //   settings like preserve_internal_time_seconds. The actual write time of
   //   the entry should be the same or newer than the returned write time. So
   //   this property can be interpreted as the possible oldest write time for
   //   the entry.
+  //   If the seqno to time mapping recording is not enabled,
+  //   std::numeric_limits<uint64_t>::max() will be returned to indicate the
+  //   write time is unknown. For data entry whose sequence number has
+  //   been zeroed out (possible when they reach the last level), 0 is returned
+  //   no matter whether the seqno to time recording feature is enabled or not.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
   virtual Slice timestamp() const {
@@ -152,9 +158,9 @@ class Iterator : public Cleanable {
 };
 
 // Return an empty iterator (yields nothing).
-extern Iterator* NewEmptyIterator();
+Iterator* NewEmptyIterator();
 
 // Return an empty iterator with the specified status.
-extern Iterator* NewErrorIterator(const Status& status);
+Iterator* NewErrorIterator(const Status& status);
 
 }  // namespace ROCKSDB_NAMESPACE

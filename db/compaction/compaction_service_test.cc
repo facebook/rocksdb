@@ -31,40 +31,44 @@ class MyTestCompactionService : public CompactionService {
 
   const char* Name() const override { return kClassName(); }
 
-  CompactionServiceJobStatus StartV2(
+  CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& info,
       const std::string& compaction_service_input) override {
     InstrumentedMutexLock l(&mutex_);
     start_info_ = info;
     assert(info.db_name == db_path_);
-    jobs_.emplace(info.job_id, compaction_service_input);
-    CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
-    if (is_override_start_status_) {
-      return override_start_status_;
-    }
-    return s;
+    std::string unique_id = Env::Default()->GenerateUniqueId();
+    jobs_.emplace(unique_id, compaction_service_input);
+    infos_.emplace(unique_id, info);
+    CompactionServiceScheduleResponse response(
+        unique_id, is_override_start_status_
+                       ? override_start_status_
+                       : CompactionServiceJobStatus::kSuccess);
+    return response;
   }
 
-  CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) override {
+  CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
+                                  std::string* result) override {
     std::string compaction_input;
-    assert(info.db_name == db_path_);
     {
       InstrumentedMutexLock l(&mutex_);
-      wait_info_ = info;
-      auto i = jobs_.find(info.job_id);
-      if (i == jobs_.end()) {
+      auto job_index = jobs_.find(scheduled_job_id);
+      if (job_index == jobs_.end()) {
         return CompactionServiceJobStatus::kFailure;
       }
-      compaction_input = std::move(i->second);
-      jobs_.erase(i);
-    }
+      compaction_input = std::move(job_index->second);
+      jobs_.erase(job_index);
 
+      auto info_index = infos_.find(scheduled_job_id);
+      if (info_index == infos_.end()) {
+        return CompactionServiceJobStatus::kFailure;
+      }
+      wait_info_ = std::move(info_index->second);
+      infos_.erase(info_index);
+    }
     if (is_override_wait_status_) {
       return override_wait_status_;
     }
-
     CompactionServiceOptionsOverride options_override;
     options_override.env = options_.env;
     options_override.file_checksum_gen_factory =
@@ -90,11 +94,11 @@ class MyTestCompactionService : public CompactionService {
     OpenAndCompactOptions options;
     options.canceled = &canceled_;
 
-    Status s = DB::OpenAndCompact(
-        options, db_path_, db_path_ + "/" + std::to_string(info.job_id),
-        compaction_input, compaction_service_result, options_override);
+    Status s =
+        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+                           compaction_input, result, options_override);
     if (is_override_wait_result_) {
-      *compaction_service_result = override_wait_result_;
+      *result = override_wait_result_;
     }
     compaction_num_.fetch_add(1);
     if (s.ok()) {
@@ -135,7 +139,8 @@ class MyTestCompactionService : public CompactionService {
  private:
   InstrumentedMutex mutex_;
   std::atomic_int compaction_num_{0};
-  std::map<uint64_t, std::string> jobs_;
+  std::map<std::string, std::string> jobs_;
+  std::map<std::string, CompactionServiceJobInfo> infos_;
   const std::string db_path_;
   Options options_;
   std::shared_ptr<Statistics> statistics_;
@@ -172,6 +177,7 @@ class CompactionServiceTest : public DBTestBase {
         remote_table_properties_collector_factories);
     options->compaction_service = compaction_service_;
     DestroyAndReopen(*options);
+    CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, *options);
   }
 
   Statistics* GetCompactorStatistics() { return compactor_statistics_.get(); }
@@ -183,36 +189,45 @@ class CompactionServiceTest : public DBTestBase {
     return static_cast_with_check<MyTestCompactionService>(cs);
   }
 
-  void GenerateTestData() {
-    // Generate 20 files @ L2
-    for (int i = 0; i < 20; i++) {
-      for (int j = 0; j < 10; j++) {
-        int key_id = i * 10 + j;
-        ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
+  void GenerateTestData(bool move_files_manually = false) {
+    // Generate 20 files @ L2 Per CF
+    for (int cf_id = 0; cf_id < static_cast<int>(handles_.size()); cf_id++) {
+      for (int i = 0; i < 20; i++) {
+        for (int j = 0; j < 10; j++) {
+          int key_id = i * 10 + j;
+          ASSERT_OK(Put(cf_id, Key(key_id), "value" + std::to_string(key_id)));
+        }
+        ASSERT_OK(Flush(cf_id));
       }
-      ASSERT_OK(Flush());
-    }
-    MoveFilesToLevel(2);
+      if (move_files_manually) {
+        MoveFilesToLevel(2, cf_id);
+      }
 
-    // Generate 10 files @ L1 overlap with all 20 files @ L2
-    for (int i = 0; i < 10; i++) {
-      for (int j = 0; j < 10; j++) {
-        int key_id = i * 20 + j * 2;
-        ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
+      // Generate 10 files @ L1 overlap with all 20 files @ L2
+      for (int i = 0; i < 10; i++) {
+        for (int j = 0; j < 10; j++) {
+          int key_id = i * 20 + j * 2;
+          ASSERT_OK(
+              Put(cf_id, Key(key_id), "value_new" + std::to_string(key_id)));
+        }
+        ASSERT_OK(Flush(cf_id));
       }
-      ASSERT_OK(Flush());
+      if (move_files_manually) {
+        MoveFilesToLevel(1, cf_id);
+        ASSERT_EQ(FilesPerLevel(cf_id), "0,10,20");
+      }
     }
-    MoveFilesToLevel(1);
-    ASSERT_EQ(FilesPerLevel(), "0,10,20");
   }
 
   void VerifyTestData() {
-    for (int i = 0; i < 200; i++) {
-      auto result = Get(Key(i));
-      if (i % 2) {
-        ASSERT_EQ(result, "value" + std::to_string(i));
-      } else {
-        ASSERT_EQ(result, "value_new" + std::to_string(i));
+    for (int cf_id = 0; cf_id < static_cast<int>(handles_.size()); cf_id++) {
+      for (int i = 0; i < 200; i++) {
+        auto result = Get(cf_id, Key(i));
+        if (i % 2) {
+          ASSERT_EQ(result, "value" + std::to_string(i));
+        } else {
+          ASSERT_EQ(result, "value_new" + std::to_string(i));
+        }
       }
     }
   }
@@ -234,32 +249,10 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   Statistics* primary_statistics = GetPrimaryStatistics();
   Statistics* compactor_statistics = GetCompactorStatistics();
 
-  for (int i = 0; i < 20; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
-
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
+  GenerateTestData();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  VerifyTestData();
 
-  // verify result
-  for (int i = 0; i < 200; i++) {
-    auto result = Get(Key(i));
-    if (i % 2) {
-      ASSERT_EQ(result, "value" + std::to_string(i));
-    } else {
-      ASSERT_EQ(result, "value_new" + std::to_string(i));
-    }
-  }
   auto my_cs = GetCompactionService();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
 
@@ -322,7 +315,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
         assert(*id != kNullUniqueId64x2);
         verify_passed++;
       });
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
+                           options);
   ASSERT_GT(verify_passed, 0);
   Close();
 }
@@ -490,26 +484,9 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
       new PartialDeleteCompactionFilter());
   options.compaction_filter = delete_comp_filter.get();
   ReopenWithCompactionService(&options);
-
-  for (int i = 0; i < 20; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
-
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
+  GenerateTestData();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
   // verify result
   for (int i = 0; i < 200; i++) {
     auto result = Get(Key(i));
@@ -551,17 +528,17 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
   options.level0_file_num_compaction_trigger = 100;
   options.max_background_jobs = 20;
   ReopenWithCompactionService(&options);
-  GenerateTestData();
+  GenerateTestData(true);
 
   ColumnFamilyMetaData meta;
   db_->GetColumnFamilyMetaData(&meta);
 
   std::vector<std::thread> threads;
   for (const auto& file : meta.levels[1].files) {
-    threads.emplace_back(std::thread([&]() {
+    threads.emplace_back([&]() {
       std::string fname = file.db_path + "/" + file.name;
       ASSERT_OK(db_->CompactFiles(CompactionOptions(), {fname}, 2));
-    }));
+    });
   }
 
   for (auto& thread : threads) {
@@ -570,14 +547,7 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // verify result
-  for (int i = 0; i < 200; i++) {
-    auto result = Get(Key(i));
-    if (i % 2) {
-      ASSERT_EQ(result, "value" + std::to_string(i));
-    } else {
-      ASSERT_EQ(result, "value_new" + std::to_string(i));
-    }
-  }
+  VerifyTestData();
   auto my_cs = GetCompactionService();
   ASSERT_EQ(my_cs->GetCompactionNum(), 10);
   ASSERT_EQ(FilesPerLevel(), "0,0,10");
@@ -587,21 +557,7 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   Options options = CurrentOptions();
   ReopenWithCompactionService(&options);
 
-  for (int i = 0; i < 20; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
-
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
+  GenerateTestData();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   auto my_cs =
       static_cast_with_check<MyTestCompactionService>(GetCompactionService());
@@ -676,32 +632,9 @@ TEST_F(CompactionServiceTest, FallbackLocalAuto) {
 
   my_cs->OverrideStartStatus(CompactionServiceJobStatus::kUseLocal);
 
-  for (int i = 0; i < 20; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
-
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < 10; j++) {
-      int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
-    }
-    ASSERT_OK(Flush());
-  }
+  GenerateTestData();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-  // verify result
-  for (int i = 0; i < 200; i++) {
-    auto result = Get(Key(i));
-    if (i % 2) {
-      ASSERT_EQ(result, "value" + std::to_string(i));
-    } else {
-      ASSERT_EQ(result, "value_new" + std::to_string(i));
-    }
-  }
+  VerifyTestData();
 
   ASSERT_EQ(my_cs->GetCompactionNum(), 0);
 

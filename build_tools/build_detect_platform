@@ -163,24 +163,6 @@ case "$TARGET_OS" in
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
-        if test -z "$ROCKSDB_USE_IO_URING"; then
-            ROCKSDB_USE_IO_URING=1
-        fi
-        if test "$ROCKSDB_USE_IO_URING" -ne 0; then
-            # check for liburing
-            $CXX $PLATFORM_CXXFLAGS -x c++ - -luring -o test.o 2>/dev/null  <<EOF
-              #include <liburing.h>
-              int main() {
-                struct io_uring ring;
-                io_uring_queue_init(1, &ring, 0);
-                return 0;
-              }
-EOF
-            if [ "$?" = 0 ]; then
-                PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
-                COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
-            fi
-        fi
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
@@ -614,11 +596,29 @@ EOF
         fi
     fi
 
+    if test -z "$ROCKSDB_USE_IO_URING"; then
+        ROCKSDB_USE_IO_URING=1
+    fi
+    if [ "$ROCKSDB_USE_IO_URING" -ne 0 -a "$PLATFORM" = OS_LINUX ]; then
+        # check for liburing
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -luring -o test.o 2>/dev/null  <<EOF
+          #include <liburing.h>
+          int main() {
+            struct io_uring ring;
+            io_uring_queue_init(1, &ring, 0);
+            return 0;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
+        fi
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
 # -Wshorten-64-to-32 breaks compilation on FreeBSD aarch64 and i386
-if ! { [ "$TARGET_OS" = FreeBSD ] && [ "$TARGET_ARCHITECTURE" = arm64 -o "$TARGET_ARCHITECTURE" = i386 ]; }; then
+if ! { [ "$TARGET_OS" = FreeBSD -o "$TARGET_OS" = OpenBSD ] && [ "$TARGET_ARCHITECTURE" = arm64 -o "$TARGET_ARCHITECTURE" = i386 ]; }; then
   # Test whether -Wshorten-64-to-32 is available
   $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o -Wshorten-64-to-32 2>/dev/null  <<EOF
     int main() {}
@@ -670,8 +670,10 @@ if [ "$PORTABLE" == "" ] || [ "$PORTABLE" == 0 ]; then
     fi
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
-    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
-    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+    RISC_ISA=$(cat /proc/cpuinfo | grep -E '^isa\s*:' | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    if [ -n "${RISCV_ISA}" ]; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+    fi
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
   else
@@ -683,8 +685,7 @@ else
     if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
       COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
     elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
-      RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
-      COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+      COMMON_FLAGS="$COMMON_FLAGS -march=rv64gc"
     elif test "$USE_SSE"; then
       # USE_SSE is DEPRECATED
       # This is a rough approximation of the old USE_SSE behavior

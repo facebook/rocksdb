@@ -50,12 +50,13 @@ static void StartPhase(const char* name) {
 #endif
 static const char* GetTempDir(void) {
   const char* ret = getenv("TEST_TMPDIR");
-  if (ret == NULL || ret[0] == '\0')
+  if (ret == NULL || ret[0] == '\0') {
 #ifdef OS_WIN
     ret = getenv("TEMP");
 #else
     ret = "/tmp";
 #endif
+  }
   return ret;
 }
 #ifdef _MSC_VER
@@ -206,10 +207,11 @@ static int CmpCompare(void* arg, const char* a, size_t alen, const char* b,
   size_t n = (alen < blen) ? alen : blen;
   int r = memcmp(a, b, n);
   if (r == 0) {
-    if (alen < blen)
+    if (alen < blen) {
       r = -1;
-    else if (alen > blen)
+    } else if (alen > blen) {
       r = +1;
+    }
   }
   return r;
 }
@@ -718,6 +720,11 @@ int main(int argc, char** argv) {
   rocksdb_options_set_ratelimiter(options, rate_limiter);
   rocksdb_ratelimiter_destroy(rate_limiter);
 
+  rate_limiter = rocksdb_ratelimiter_create_with_mode(1000 * 1024 * 1024,
+                                                      100 * 1000, 10, 0, true);
+  rocksdb_options_set_ratelimiter(options, rate_limiter);
+  rocksdb_ratelimiter_destroy(rate_limiter);
+
   roptions = rocksdb_readoptions_create();
   rocksdb_readoptions_set_verify_checksums(roptions, 1);
   rocksdb_readoptions_set_fill_cache(roptions, 1);
@@ -878,9 +885,8 @@ int main(int argc, char** argv) {
   StartPhase("addfile");
   {
     rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
-    rocksdb_options_t* io_options = rocksdb_options_create();
     rocksdb_sstfilewriter_t* writer =
-        rocksdb_sstfilewriter_create(env_opt, io_options);
+        rocksdb_sstfilewriter_create(env_opt, options);
 
     remove(sstfilename);
     rocksdb_sstfilewriter_open(writer, sstfilename, &err);
@@ -939,7 +945,6 @@ int main(int argc, char** argv) {
 
     rocksdb_ingestexternalfileoptions_destroy(ing_opt);
     rocksdb_sstfilewriter_destroy(writer);
-    rocksdb_options_destroy(io_options);
     rocksdb_envoptions_destroy(env_opt);
 
     // Delete all keys we just ingested
@@ -1925,6 +1930,9 @@ int main(int argc, char** argv) {
     CheckCondition(100000 ==
                    rocksdb_options_get_periodic_compaction_seconds(o));
 
+    rocksdb_options_set_ttl(o, 5000);
+    CheckCondition(5000 == rocksdb_options_get_ttl(o));
+
     rocksdb_options_set_skip_stats_update_on_db_open(o, 1);
     CheckCondition(1 == rocksdb_options_get_skip_stats_update_on_db_open(o));
 
@@ -2031,8 +2039,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_advise_random_on_open(o, 1);
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(o));
 
-    rocksdb_options_set_access_hint_on_compaction_start(o, 3);
-    CheckCondition(3 == rocksdb_options_get_access_hint_on_compaction_start(o));
 
     rocksdb_options_set_use_adaptive_mutex(o, 1);
     CheckCondition(1 == rocksdb_options_get_use_adaptive_mutex(o));
@@ -2228,8 +2234,6 @@ int main(int argc, char** argv) {
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(copy));
     CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(copy));
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(copy));
-    CheckCondition(3 ==
-                   rocksdb_options_get_access_hint_on_compaction_start(copy));
     CheckCondition(1 == rocksdb_options_get_use_adaptive_mutex(copy));
     CheckCondition(19 == rocksdb_options_get_bytes_per_sync(copy));
     CheckCondition(20 == rocksdb_options_get_wal_bytes_per_sync(copy));
@@ -2360,6 +2364,10 @@ int main(int argc, char** argv) {
                    rocksdb_options_get_periodic_compaction_seconds(copy));
     CheckCondition(100000 ==
                    rocksdb_options_get_periodic_compaction_seconds(o));
+
+    rocksdb_options_set_ttl(copy, 8000);
+    CheckCondition(8000 == rocksdb_options_get_ttl(copy));
+    CheckCondition(5000 == rocksdb_options_get_ttl(o));
 
     rocksdb_options_set_skip_stats_update_on_db_open(copy, 0);
     CheckCondition(0 == rocksdb_options_get_skip_stats_update_on_db_open(copy));
@@ -2507,11 +2515,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_advise_random_on_open(copy, 0);
     CheckCondition(0 == rocksdb_options_get_advise_random_on_open(copy));
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(o));
-
-    rocksdb_options_set_access_hint_on_compaction_start(copy, 2);
-    CheckCondition(2 ==
-                   rocksdb_options_get_access_hint_on_compaction_start(copy));
-    CheckCondition(3 == rocksdb_options_get_access_hint_on_compaction_start(o));
 
     rocksdb_options_set_use_adaptive_mutex(copy, 0);
     CheckCondition(0 == rocksdb_options_get_use_adaptive_mutex(copy));
@@ -2779,6 +2782,30 @@ int main(int argc, char** argv) {
       rocksdb_lru_cache_options_destroy(copts);
     }
     rocksdb_memory_allocator_destroy(allocator);
+  }
+
+  StartPhase("stderr_logger");
+  {
+    rocksdb_options_t* o_no_prefix = rocksdb_options_create();
+    rocksdb_logger_t* no_prefix_logger =
+        rocksdb_logger_create_stderr_logger(3, NULL);
+    rocksdb_options_set_info_log(o_no_prefix, no_prefix_logger);
+    rocksdb_logger_t* no_prefix_info_log =
+        rocksdb_options_get_info_log(o_no_prefix);
+    CheckCondition(no_prefix_info_log != NULL);
+    rocksdb_logger_destroy(no_prefix_logger);
+    rocksdb_logger_destroy(no_prefix_info_log);
+    rocksdb_options_destroy(o_no_prefix);
+
+    rocksdb_options_t* o_prefix = rocksdb_options_create();
+    rocksdb_logger_t* prefix_logger =
+        rocksdb_logger_create_stderr_logger(3, "some prefix");
+    rocksdb_options_set_info_log(o_prefix, prefix_logger);
+    rocksdb_logger_t* prefix_info_log = rocksdb_options_get_info_log(o_prefix);
+    CheckCondition(prefix_info_log != NULL);
+    rocksdb_logger_destroy(prefix_logger);
+    rocksdb_logger_destroy(prefix_info_log);
+    rocksdb_options_destroy(o_prefix);
   }
 
   StartPhase("env");
@@ -3687,7 +3714,7 @@ int main(int argc, char** argv) {
 
   StartPhase("statistics");
   {
-    const uint32_t BYTES_WRITTEN_TICKER = 40;
+    const uint32_t BYTES_WRITTEN_TICKER = 60;
     const uint32_t DB_WRITE_HIST = 1;
 
     rocksdb_statistics_histogram_data_t* hist =

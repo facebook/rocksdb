@@ -49,8 +49,8 @@ extern const std::set<uint32_t> kFooterFormatVersionsToTest;
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
 enum RandomKeyType : char { RANDOM, LARGEST, SMALLEST, MIDDLE };
-extern std::string RandomKey(Random* rnd, int len,
-                             RandomKeyType type = RandomKeyType::RANDOM);
+std::string RandomKey(Random* rnd, int len,
+                      RandomKeyType type = RandomKeyType::RANDOM);
 
 enum class UserDefinedTimestampTestMode {
   // Test does not enable user-defined timestamp feature.
@@ -62,17 +62,17 @@ enum class UserDefinedTimestampTestMode {
   kStripUserDefinedTimestamp,
 };
 
-extern const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes();
+const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes();
 
-extern bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode);
+bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode);
 
-extern bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
+bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
 
 // Store in *dst a string of length "len" that will compress to
 // "N*compressed_fraction" bytes and return a Slice that references
 // the generated data.
-extern Slice CompressibleString(Random* rnd, double compressed_fraction,
-                                int len, std::string* dst);
+Slice CompressibleString(Random* rnd, double compressed_fraction, int len,
+                         std::string* dst);
 
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
@@ -86,7 +86,7 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
 
   virtual ~PlainInternalKeyComparator() {}
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     return user_comparator()->Compare(a, b);
   }
 };
@@ -102,9 +102,9 @@ class SimpleSuffixReverseComparator : public Comparator {
  public:
   SimpleSuffixReverseComparator() {}
   static const char* kClassName() { return "SimpleSuffixReverseComparator"; }
-  virtual const char* Name() const override { return kClassName(); }
+  const char* Name() const override { return kClassName(); }
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     Slice prefix_a = Slice(a.data(), 8);
     Slice prefix_b = Slice(b.data(), 8);
     int prefix_comp = prefix_a.compare(prefix_b);
@@ -116,10 +116,10 @@ class SimpleSuffixReverseComparator : public Comparator {
       return -(suffix_a.compare(suffix_b));
     }
   }
-  virtual void FindShortestSeparator(std::string* /*start*/,
-                                     const Slice& /*limit*/) const override {}
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
 
-  virtual void FindShortSuccessor(std::string* /*key*/) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
 // Returns a user key comparator that can be used for comparing two uint64_t
@@ -127,13 +127,13 @@ class SimpleSuffixReverseComparator : public Comparator {
 // at once. Assumes same endian-ness is used though the database's lifetime.
 // Symantics of comparison would differ from Bytewise comparator in little
 // endian machines.
-extern const Comparator* Uint64Comparator();
+const Comparator* Uint64Comparator();
 
 // A wrapper api for getting the ComparatorWithU64Ts<BytewiseComparator>
-extern const Comparator* BytewiseComparatorWithU64TsWrapper();
+const Comparator* BytewiseComparatorWithU64TsWrapper();
 
 // A wrapper api for getting the ComparatorWithU64Ts<ReverseBytewiseComparator>
-extern const Comparator* ReverseBytewiseComparatorWithU64TsWrapper();
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper();
 
 class StringSink : public FSWritableFile {
  public:
@@ -187,6 +187,11 @@ class StringSink : public FSWritableFile {
           Slice(reader_contents_->data(), reader_contents_->size() - bytes);
       last_flush_ = contents_.size();
     }
+  }
+
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return contents_.size();
   }
 
  private:
@@ -285,6 +290,11 @@ class OverwritingStringSink : public FSWritableFile {
     if (last_flush_ > contents_.size()) last_flush_ = contents_.size();
   }
 
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return contents_.size();
+  }
+
  private:
   std::string contents_;
   Slice* reader_contents_;
@@ -359,20 +369,19 @@ class StringSource : public FSRandomAccessFile {
 class NullLogger : public Logger {
  public:
   using Logger::Logv;
-  virtual void Logv(const char* /*format*/, va_list /*ap*/) override {}
-  virtual size_t GetLogFileSize() const override { return 0; }
+  void Logv(const char* /*format*/, va_list /*ap*/) override {}
+  size_t GetLogFileSize() const override { return 0; }
 };
 
 // Corrupts key by changing the type
-extern void CorruptKeyType(InternalKey* ikey);
+void CorruptKeyType(InternalKey* ikey);
 
-extern std::string KeyStr(const std::string& user_key,
-                          const SequenceNumber& seq, const ValueType& t,
-                          bool corrupt = false);
+std::string KeyStr(const std::string& user_key, const SequenceNumber& seq,
+                   const ValueType& t, bool corrupt = false);
 
-extern std::string KeyStr(uint64_t ts, const std::string& user_key,
-                          const SequenceNumber& seq, const ValueType& t,
-                          bool corrupt = false);
+std::string KeyStr(uint64_t ts, const std::string& user_key,
+                   const SequenceNumber& seq, const ValueType& t,
+                   bool corrupt = false);
 
 class SleepingBackgroundTask {
  public:
@@ -446,7 +455,7 @@ class SleepingBackgroundTask {
   }
 
   static void DoSleepTask(void* arg) {
-    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+    static_cast<SleepingBackgroundTask*>(arg)->DoSleep();
   }
 
  private:
@@ -561,6 +570,14 @@ class StringFS : public FileSystemWrapper {
                     IODebugContext* /*dbg*/) override {
       contents_->append(slice.data(), slice.size());
       return IOStatus::OK();
+    }
+
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      if (contents_ != nullptr) {
+        return contents_->size();
+      }
+      return 0;
     }
 
    private:
@@ -731,14 +748,14 @@ class ChanglingMergeOperator : public MergeOperator {
 
   void SetName(const std::string& name) { name_ = name; }
 
-  virtual bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
-                           MergeOperationOutput* /*merge_out*/) const override {
+  bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                   MergeOperationOutput* /*merge_out*/) const override {
     return false;
   }
-  virtual bool PartialMergeMulti(const Slice& /*key*/,
-                                 const std::deque<Slice>& /*operand_list*/,
-                                 std::string* /*new_value*/,
-                                 Logger* /*logger*/) const override {
+  bool PartialMergeMulti(const Slice& /*key*/,
+                         const std::deque<Slice>& /*operand_list*/,
+                         std::string* /*new_value*/,
+                         Logger* /*logger*/) const override {
     return false;
   }
   static const char* kClassName() { return "ChanglingMergeOperator"; }
@@ -752,7 +769,7 @@ class ChanglingMergeOperator : public MergeOperator {
     }
   }
 
-  virtual const char* Name() const override { return name_.c_str(); }
+  const char* Name() const override { return name_.c_str(); }
 
  protected:
   std::string name_;
@@ -831,7 +848,7 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 
 // The factory for the hacky skip list mem table that triggers flush after
 // number of entries exceeds a threshold.
-extern MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
+MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
 
 CompressionType RandomCompressionType(Random* rnd);
 

@@ -26,6 +26,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/cast_util.h"
 #include "util/hash_containers.h"
 #include "util/thread_local.h"
 
@@ -168,11 +169,12 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
+  virtual DBImpl* db() const { return db_; }
 
-  virtual uint32_t GetID() const override;
-  virtual const std::string& GetName() const override;
-  virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
-  virtual const Comparator* GetComparator() const override;
+  uint32_t GetID() const override;
+  const std::string& GetName() const override;
+  Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
+  const Comparator* GetComparator() const override;
 
  private:
   ColumnFamilyData* cfd_;
@@ -193,7 +195,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
         internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
-  virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
+  ColumnFamilyData* cfd() const override { return internal_cfd_; }
 
  private:
   ColumnFamilyData* internal_cfd_;
@@ -218,6 +220,9 @@ struct SuperVersion {
   // enable UDT feature, this is an empty string.
   std::string full_history_ts_low;
 
+  // A shared copy of the DB's seqno to time mapping.
+  std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping{nullptr};
+
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
@@ -231,8 +236,23 @@ struct SuperVersion {
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
   void Cleanup();
-  void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
-            MemTableListVersion* new_imm, Version* new_current);
+  void Init(
+      ColumnFamilyData* new_cfd, MemTable* new_mem,
+      MemTableListVersion* new_imm, Version* new_current,
+      std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping);
+
+  // Share the ownership of the seqno to time mapping object referred to in this
+  // SuperVersion. To be used by the new SuperVersion to be installed after this
+  // one if seqno to time mapping does not change in between these two
+  // SuperVersions. Or to share the ownership of the mapping with a FlushJob.
+  std::shared_ptr<const SeqnoToTimeMapping> ShareSeqnoToTimeMapping() {
+    return seqno_to_time_mapping;
+  }
+
+  // Access the seqno to time mapping object in this SuperVersion.
+  UnownedPtr<const SeqnoToTimeMapping> GetSeqnoToTimeMapping() const {
+    return seqno_to_time_mapping.get();
+  }
 
   // The value of dummy is not actually used. kSVInUse takes its address as a
   // mark in the thread local storage to indicate the SuperVersion is in use
@@ -251,22 +271,21 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
 };
 
-extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
+Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 
-extern Status CheckConcurrentWritesSupported(
-    const ColumnFamilyOptions& cf_options);
+Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options);
 
-extern Status CheckCFPathsSupported(const DBOptions& db_options,
-                                    const ColumnFamilyOptions& cf_options);
+Status CheckCFPathsSupported(const DBOptions& db_options,
+                             const ColumnFamilyOptions& cf_options);
 
-extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                           const ColumnFamilyOptions& src);
+ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
+                                    const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
-// into internal ones in int_tbl_prop_collector_factories. Add a system internal
+// into internal ones in internal_tbl_prop_coll_factories. Add a system internal
 // one too.
-extern void GetIntTblPropCollectorFactory(
+void GetInternalTblPropCollFactory(
     const ImmutableCFOptions& ioptions,
-    IntTblPropCollectorFactories* int_tbl_prop_collector_factories);
+    InternalTblPropCollFactories* internal_tbl_prop_coll_factories);
 
 class ColumnFamilySet;
 
@@ -402,7 +421,7 @@ class ColumnFamilyData {
   //    duration of this function.
   //
   // Thread-safe
-  Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
+  Status RangesOverlapWithMemtables(const autovector<UserKeyRange>& ranges,
                                     SuperVersion* super_version,
                                     bool allow_data_in_errors, bool* overlap);
 
@@ -431,8 +450,8 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
-  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories() const {
-    return &int_tbl_prop_collector_factories_;
+  const InternalTblPropCollFactories* internal_tbl_prop_coll_factories() const {
+    return &internal_tbl_prop_coll_factories_;
   }
 
   SuperVersion* GetSuperVersion() { return super_version_; }
@@ -575,7 +594,7 @@ class ColumnFamilyData {
   std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
-  IntTblPropCollectorFactories int_tbl_prop_collector_factories_;
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories_;
 
   const ColumnFamilyOptions initial_cf_options_;
   const ImmutableOptions ioptions_;
@@ -855,17 +874,17 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   // REQUIRES: Seek() called first
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual MemTable* GetMemTable() const override;
+  MemTable* GetMemTable() const override;
 
   // Returns column family handle for the selected column family
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual ColumnFamilyHandle* GetColumnFamilyHandle() override;
+  ColumnFamilyHandle* GetColumnFamilyHandle() override;
 
   // Cannot be called while another thread is calling Seek().
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual ColumnFamilyData* current() override { return current_; }
+  ColumnFamilyData* current() override { return current_; }
 
  private:
   ColumnFamilySet* column_family_set_;
@@ -873,12 +892,11 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   ColumnFamilyHandleInternal handle_;
 };
 
-extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
+uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 
-extern const Comparator* GetColumnFamilyUserComparator(
+const Comparator* GetColumnFamilyUserComparator(
     ColumnFamilyHandle* column_family);
 
-extern const ImmutableOptions& GetImmutableOptions(
-    ColumnFamilyHandle* column_family);
+const ImmutableOptions& GetImmutableOptions(ColumnFamilyHandle* column_family);
 
 }  // namespace ROCKSDB_NAMESPACE

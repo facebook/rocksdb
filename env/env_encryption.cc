@@ -117,7 +117,7 @@ IOStatus EncryptedRandomAccessFile::Prefetch(uint64_t offset, size_t n,
 
 size_t EncryptedRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return file_->GetUniqueId(id, max_size);
-};
+}
 
 void EncryptedRandomAccessFile::Hint(AccessPattern pattern) {
   file_->Hint(pattern);
@@ -827,7 +827,7 @@ Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char* data,
   AllocateScratch(scratch);
 
   // Encrypt individual blocks.
-  while (1) {
+  while (true) {
     char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {
@@ -871,7 +871,7 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char* data,
   AllocateScratch(scratch);
 
   // Decrypt individual blocks.
-  while (1) {
+  while (true) {
     char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {

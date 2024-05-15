@@ -18,7 +18,6 @@
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "table/merging_iterator.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
@@ -126,9 +125,10 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         }
       }
       if (!hardlink_files) {
-        status =
-            CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                     db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
+        // FIXME: temperature handling (like ExternalSstFileIngestionJob)
+        status = CopyFile(fs_.get(), path_outside_db, Temperature::kUnknown,
+                          path_inside_db, Temperature::kUnknown, 0,
+                          db_options_.use_fsync, io_tracer_);
       }
       if (!status.ok()) {
         break;
@@ -355,7 +355,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // in file_meta.
   if (file_meta.smallest.empty()) {
     assert(file_meta.largest.empty());
-    // TODO: plumb Env::IOActivity
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     ReadOptions ro;
     std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
         ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,

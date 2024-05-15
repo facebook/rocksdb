@@ -118,7 +118,7 @@ public abstract class AbstractComparator
     return usingDirectBuffers(nativeHandle_);
   }
 
-  private native boolean usingDirectBuffers(final long nativeHandle);
+  private static native boolean usingDirectBuffers(final long nativeHandle);
 
   private native long createNewComparator(final long comparatorOptionsHandle);
 }

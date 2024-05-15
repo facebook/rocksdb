@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/dbformat.h"
 #include "logging/logging.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/sst_partitioner.h"
@@ -20,9 +21,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-const uint64_t kRangeTombstoneSentinel =
-    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
 
 int sstableKeyCompare(const Comparator* uc, const Slice& a, const Slice& b) {
   auto c = uc->CompareWithoutTimestamp(ExtractUserKey(a), ExtractUserKey(b));
@@ -162,7 +160,9 @@ std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
     AtomicCompactionUnitBoundary cur_boundary;
     size_t first_atomic_idx = 0;
     auto add_unit_boundary = [&](size_t to) {
-      if (first_atomic_idx == to) return;
+      if (first_atomic_idx == to) {
+        return;
+      }
       for (size_t k = first_atomic_idx; k < to; k++) {
         inputs[i].atomic_compaction_unit_boundaries.push_back(cur_boundary);
       }
@@ -352,11 +352,9 @@ Compaction::Compaction(
 
   // for the non-bottommost levels, it tries to build files match the target
   // file size, but not guaranteed. It could be 2x the size of the target size.
-  max_output_file_size_ =
-      bottommost_level_ || grandparents_.empty() ||
-              !_immutable_options.level_compaction_dynamic_file_size
-          ? target_output_file_size_
-          : 2 * target_output_file_size_;
+  max_output_file_size_ = bottommost_level_ || grandparents_.empty()
+                              ? target_output_file_size_
+                              : 2 * target_output_file_size_;
 
 #ifndef NDEBUG
   for (size_t i = 1; i < inputs_.size(); ++i) {
@@ -757,7 +755,9 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
     AppendHumanBytes(files.at(i)->fd.GetFileSize(), sztxt, 16);
     ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
                    files.at(i)->fd.GetNumber(), sztxt);
-    if (ret < 0 || ret >= sz) break;
+    if (ret < 0 || ret >= sz) {
+      break;
+    }
     write += ret;
   }
   // if files.size() is non-zero, overwrite the last space

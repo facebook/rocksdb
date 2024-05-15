@@ -64,8 +64,6 @@ struct ImmutableCFOptions {
 
   bool level_compaction_dynamic_level_bytes;
 
-  bool level_compaction_dynamic_file_size;
-
   int num_levels;
 
   bool optimize_filters_for_hits;
@@ -120,6 +118,7 @@ struct MutableCFOptions {
         memtable_whole_key_filtering(options.memtable_whole_key_filtering),
         memtable_huge_page_size(options.memtable_huge_page_size),
         max_successive_merges(options.max_successive_merges),
+        strict_max_successive_merges(options.strict_max_successive_merges),
         inplace_update_num_locks(options.inplace_update_num_locks),
         prefix_extractor(options.prefix_extractor),
         experimental_mempurge_threshold(
@@ -134,8 +133,6 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
         max_compaction_bytes(options.max_compaction_bytes),
-        ignore_max_compaction_bytes_for_input(
-            options.ignore_max_compaction_bytes_for_input),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -160,18 +157,14 @@ struct MutableCFOptions {
         prepopulate_blob_cache(options.prepopulate_blob_cache),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
-        check_flush_compaction_key_order(
-            options.check_flush_compaction_key_order),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
-        last_level_temperature(options.last_level_temperature ==
-                                       Temperature::kUnknown
-                                   ? options.bottommost_temperature
-                                   : options.last_level_temperature),
+        last_level_temperature(options.last_level_temperature),
+        default_write_temperature(options.default_write_temperature),
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
@@ -194,6 +187,7 @@ struct MutableCFOptions {
         memtable_whole_key_filtering(false),
         memtable_huge_page_size(0),
         max_successive_merges(0),
+        strict_max_successive_merges(false),
         inplace_update_num_locks(0),
         prefix_extractor(nullptr),
         experimental_mempurge_threshold(0.0),
@@ -204,7 +198,6 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
         max_compaction_bytes(0),
-        ignore_max_compaction_bytes_for_input(true),
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
@@ -223,12 +216,12 @@ struct MutableCFOptions {
         blob_file_starting_level(0),
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
         max_sequential_skip_in_iterations(0),
-        check_flush_compaction_key_order(true),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
         bottommost_compression(kDisableCompressionOption),
         last_level_temperature(Temperature::kUnknown),
+        default_write_temperature(Temperature::kUnknown),
         memtable_protection_bytes_per_key(0),
         block_protection_bytes_per_key(0),
         sample_for_compression(0),
@@ -263,6 +256,7 @@ struct MutableCFOptions {
   bool memtable_whole_key_filtering;
   size_t memtable_huge_page_size;
   size_t max_successive_merges;
+  bool strict_max_successive_merges;
   size_t inplace_update_num_locks;
   std::shared_ptr<const SliceTransform> prefix_extractor;
   // [experimental]
@@ -290,7 +284,6 @@ struct MutableCFOptions {
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
   uint64_t max_compaction_bytes;
-  bool ignore_max_compaction_bytes_for_input;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
@@ -315,7 +308,6 @@ struct MutableCFOptions {
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
-  bool check_flush_compaction_key_order;
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;
@@ -323,6 +315,7 @@ struct MutableCFOptions {
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
   Temperature last_level_temperature;
+  Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;
   uint8_t block_protection_bytes_per_key;
 

@@ -1146,7 +1146,7 @@ TEST_F(ReplicationTest, NoMemSwitchRecordIfEmpty) {
 
 TEST_F(ReplicationTest, EvictObsoleteFiles) {
   auto leader = openLeader();
-  leader->EnableFileDeletions(true);
+  leader->EnableFileDeletions();
   auto followerOptions = leaderOptions();
   followerOptions.disable_delete_obsolete_files_on_open = true;
   auto follower = openFollower(followerOptions);

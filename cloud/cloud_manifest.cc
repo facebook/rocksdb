@@ -148,7 +148,7 @@ IOStatus CloudManifest::WriteToLog(
   // 1. write header
   PutVarint32(&record, kCurrentFormatVersion);
   PutVarint32(&record, static_cast<uint32_t>(pastEpochs_.size() + 1));
-  auto status = writer.AddRecord(record);
+  auto status = writer.AddRecord({}, record);
   if (!status.ok()) {
     return status;
   }
@@ -159,7 +159,7 @@ IOStatus CloudManifest::WriteToLog(
     PutVarint32(&record, static_cast<uint32_t>(RecordTags::kPastEpoch));
     PutLengthPrefixedSlice(&record, pe.second);
     PutVarint64(&record, pe.first);
-    status = writer.AddRecord(record);
+    status = writer.AddRecord({}, record);
     if (!status.ok()) {
       return status;
     }
@@ -170,11 +170,11 @@ IOStatus CloudManifest::WriteToLog(
   PutVarint32(&record, static_cast<uint32_t>(RecordTags::kCurrentEpoch));
   PutLengthPrefixedSlice(&record, currentEpoch_);
 
-  status = writer.AddRecord(record);
+  status = writer.AddRecord({}, record);
   if (!status.ok()) {
     return status;
   }
-  return writer.file()->Sync(true);
+  return writer.file()->Sync({}, true);
 }
 
 bool CloudManifest::AddEpoch(uint64_t startFileNumber, std::string epochId) {

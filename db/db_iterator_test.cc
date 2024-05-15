@@ -86,15 +86,15 @@ TEST_F(DBIteratorBaseTest, APICallsWithPerfContext) {
 class DBIteratorTest : public DBIteratorBaseTest,
                        public testing::WithParamInterface<bool> {
  public:
-  DBIteratorTest() {}
+  DBIteratorTest() = default;
 
   Iterator* NewIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family = nullptr) {
     if (column_family == nullptr) {
       column_family = db_->DefaultColumnFamily();
     }
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+    auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    auto* cfd = cfh->cfd();
     SequenceNumber seq = read_options.snapshot != nullptr
                              ? read_options.snapshot->GetSequenceNumber()
                              : db_->GetLatestSequenceNumber();
@@ -109,7 +109,7 @@ class DBIteratorTest : public DBIteratorBaseTest,
     }
     DBImpl* db_impl = dbfull();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl);
-    return db_impl->NewIteratorImpl(read_options, cfd, super_version, seq,
+    return db_impl->NewIteratorImpl(read_options, cfh, super_version, seq,
                                     read_callback);
   }
 
@@ -142,6 +142,13 @@ TEST_P(DBIteratorTest, IteratorProperty) {
     // Get internal key at which the iteration stopped (tombstone in this case).
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
     ASSERT_EQ("2", prop_value);
+
+    prop_value.clear();
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.write-time", &prop_value));
+    uint64_t write_time;
+    Slice prop_slice = prop_value;
+    ASSERT_TRUE(GetFixed64(&prop_slice, &write_time));
+    ASSERT_EQ(std::numeric_limits<uint64_t>::max(), write_time);
   }
   Close();
 }
@@ -2544,7 +2551,7 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
 TEST_P(DBIteratorTest, CreationFailure) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::NewInternalIterator:StatusCallback", [](void* arg) {
-        *(reinterpret_cast<Status*>(arg)) = Status::Corruption("test status");
+        *(static_cast<Status*>(arg)) = Status::Corruption("test status");
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3225,13 +3232,13 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   ASSERT_OK(Put("bar", "v7"));
 
   SequenceNumber seq2 = db_->GetLatestSequenceNumber();
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* cfd = cfh->cfd();
   // The iterator are suppose to see data before seq1.
   DBImpl* db_impl = dbfull();
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl);
-  Iterator* iter = db_impl->NewIteratorImpl(ReadOptions(), cfd, super_version,
+  Iterator* iter = db_impl->NewIteratorImpl(ReadOptions(), cfh, super_version,
                                             seq2, &callback1);
 
   // Seek
@@ -3311,7 +3318,7 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
 
   // The iterator is suppose to see data before seq3.
   super_version = cfd->GetReferencedSuperVersion(db_impl);
-  iter = db_impl->NewIteratorImpl(ReadOptions(), cfd, super_version, seq4,
+  iter = db_impl->NewIteratorImpl(ReadOptions(), cfh, super_version, seq4,
                                   &callback2);
   // Seek to "z", which is visible.
   iter->Seek("z");
@@ -3467,8 +3474,7 @@ TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::Read::BeforeReturn",
       [&error_file](void* io_s_ptr) {
-        auto p =
-            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(io_s_ptr);
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(io_s_ptr);
         if (p->first->find(error_file) != std::string::npos) {
           *p->second = IOStatus::IOError();
           p->second->SetRetryable(true);
@@ -3548,8 +3554,7 @@ TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::Read::AnyOffset", [&f1](void* pair_ptr) {
-        auto p =
-            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
         if (p->first->find(f1) != std::string::npos) {
           *p->second = IOStatus::IOError();
           p->second->SetRetryable(true);

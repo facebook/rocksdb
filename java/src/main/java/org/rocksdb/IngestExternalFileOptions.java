@@ -205,23 +205,25 @@ public class IngestExternalFileOptions extends RocksObject {
   private static native long newIngestExternalFileOptions(final boolean moveFiles,
       final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
       final boolean allowBlockingFlush);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
 
-  private native boolean moveFiles(final long handle);
-  private native void setMoveFiles(final long handle, final boolean move_files);
-  private native boolean snapshotConsistency(final long handle);
-  private native void setSnapshotConsistency(final long handle,
-      final boolean snapshotConsistency);
-  private native boolean allowGlobalSeqNo(final long handle);
-  private native void setAllowGlobalSeqNo(final long handle,
-      final boolean allowGloablSeqNo);
-  private native boolean allowBlockingFlush(final long handle);
-  private native void setAllowBlockingFlush(final long handle,
-      final boolean allowBlockingFlush);
-  private native boolean ingestBehind(final long handle);
-  private native void setIngestBehind(final long handle,
-      final boolean ingestBehind);
-  private native boolean writeGlobalSeqno(final long handle);
-  private native void setWriteGlobalSeqno(final long handle,
-      final boolean writeGlobalSeqNo);
+  private static native void disposeInternalJni(final long handle);
+
+  private static native boolean moveFiles(final long handle);
+  private static native void setMoveFiles(final long handle, final boolean move_files);
+  private static native boolean snapshotConsistency(final long handle);
+  private static native void setSnapshotConsistency(
+      final long handle, final boolean snapshotConsistency);
+  private static native boolean allowGlobalSeqNo(final long handle);
+  private static native void setAllowGlobalSeqNo(final long handle, final boolean allowGloablSeqNo);
+  private static native boolean allowBlockingFlush(final long handle);
+  private static native void setAllowBlockingFlush(
+      final long handle, final boolean allowBlockingFlush);
+  private static native boolean ingestBehind(final long handle);
+  private static native void setIngestBehind(final long handle, final boolean ingestBehind);
+  private static native boolean writeGlobalSeqno(final long handle);
+  private static native void setWriteGlobalSeqno(final long handle, final boolean writeGlobalSeqNo);
 }

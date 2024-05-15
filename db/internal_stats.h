@@ -58,7 +58,7 @@ struct DBPropertyInfo {
   bool (DBImpl::*handle_string_dbimpl)(std::string* value);
 };
 
-extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
+const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #undef SCORE
 enum class LevelStatType {
@@ -432,7 +432,7 @@ class InternalStats {
     explicit CompactionStatsFull() : stats(), penultimate_level_stats() {}
 
     explicit CompactionStatsFull(CompactionReason reason, int c)
-        : stats(reason, c), penultimate_level_stats(reason, c){};
+        : stats(reason, c), penultimate_level_stats(reason, c){}
 
     uint64_t TotalBytesWritten() const {
       uint64_t bytes_written = stats.bytes_written + stats.bytes_written_blob;

@@ -56,7 +56,7 @@ class TraceAnalyzerTest : public testing::Test {
     dbname_ = test_path_ + "/db";
   }
 
-  ~TraceAnalyzerTest() override {}
+  ~TraceAnalyzerTest() override = default;
 
   void GenerateTrace(std::string trace_path) {
     Options options;
@@ -87,11 +87,11 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(batch.DeleteRange("e", "f"));
     ASSERT_OK(db_->Write(wo, &batch));
     std::vector<Slice> keys;
-    keys.push_back("a");
-    keys.push_back("b");
-    keys.push_back("df");
-    keys.push_back("gege");
-    keys.push_back("hjhjhj");
+    keys.emplace_back("a");
+    keys.emplace_back("b");
+    keys.emplace_back("df");
+    keys.emplace_back("gege");
+    keys.emplace_back("hjhjhj");
     std::vector<std::string> values;
     std::vector<Status> ss = db_->MultiGet(ro, keys, &values);
     ASSERT_GE(ss.size(), 0);
@@ -176,8 +176,6 @@ class TraceAnalyzerTest : public testing::Test {
         ASSERT_EQ(result[i][0], cnt[i][0]);
       }
     }
-
-    return;
   }
 
   void AnalyzeTrace(std::vector<std::string>& paras_diff,

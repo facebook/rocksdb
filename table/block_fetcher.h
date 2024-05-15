@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include "file/file_util.h"
 #include "memory/memory_allocator_impl.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_type.h"
@@ -68,6 +69,13 @@ class BlockFetcher {
         memory_allocator_compressed_(memory_allocator_compressed),
         for_compaction_(for_compaction) {
     io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
+    if (CheckFSFeatureSupport(ioptions_.fs.get(), FSSupportedOps::kFSBuffer)) {
+      use_fs_scratch_ = true;
+    }
+    if (CheckFSFeatureSupport(ioptions_.fs.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      retry_corrupt_read_ = true;
+    }
   }
 
   IOStatus ReadBlockContents();
@@ -127,6 +135,8 @@ class BlockFetcher {
   bool got_from_prefetch_buffer_ = false;
   CompressionType compression_type_;
   bool for_compaction_ = false;
+  bool use_fs_scratch_ = false;
+  bool retry_corrupt_read_ = false;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();
@@ -142,5 +152,16 @@ class BlockFetcher {
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void ProcessTrailerIfPresent();
+  void ReadBlock(bool retry, FSAllocationPtr& fs_buf);
+
+  void ReleaseFileSystemProvidedBuffer(FSReadRequest* read_req) {
+    if (use_fs_scratch_) {
+      // Free the scratch buffer allocated by FileSystem.
+      if (read_req->fs_scratch != nullptr) {
+        read_req->fs_scratch.reset();
+        read_req->fs_scratch = nullptr;
+      }
+    }
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE

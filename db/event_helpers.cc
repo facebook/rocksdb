@@ -145,7 +145,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
         jwriter << "N/A";
       } else {
         SeqnoToTimeMapping tmp;
-        Status status = tmp.Add(table_properties.seqno_to_time_mapping);
+        Status status = tmp.DecodeFrom(table_properties.seqno_to_time_mapping);
         if (status.ok()) {
           jwriter << tmp.ToHumanString();
         } else {

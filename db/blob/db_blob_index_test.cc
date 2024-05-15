@@ -45,10 +45,10 @@ class DBBlobIndexTest : public DBTestBase {
   DBBlobIndexTest() : DBTestBase("db_blob_index_test", /*env_do_fsync=*/true) {}
 
   ColumnFamilyHandle* cfh() { return dbfull()->DefaultColumnFamily(); }
-
-  ColumnFamilyData* cfd() {
-    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh())->cfd();
+  ColumnFamilyHandleImpl* cfh_impl() {
+    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh());
   }
+  ColumnFamilyData* cfd() { return cfh_impl()->cfd(); }
 
   Status PutBlobIndex(WriteBatch* batch, const Slice& key,
                       const Slice& blob_index) {
@@ -96,11 +96,9 @@ class DBBlobIndexTest : public DBTestBase {
   }
 
   ArenaWrappedDBIter* GetBlobIterator() {
-    ColumnFamilyData* column_family = cfd();
     DBImpl* db_impl = dbfull();
     return db_impl->NewIteratorImpl(
-        ReadOptions(), column_family,
-        column_family->GetReferencedSuperVersion(db_impl),
+        ReadOptions(), cfh_impl(), cfd()->GetReferencedSuperVersion(db_impl),
         db_impl->GetLatestSequenceNumber(), nullptr /*read_callback*/,
         true /*expose_blob_index*/);
   }
@@ -325,8 +323,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
   auto check_is_blob = [&](bool is_blob) {
     return [is_blob](Iterator* iterator) {
-      ASSERT_EQ(is_blob,
-                reinterpret_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
+      ASSERT_EQ(is_blob, static_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
     };
   };
 

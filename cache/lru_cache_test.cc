@@ -32,7 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class LRUCacheTest : public testing::Test {
  public:
-  LRUCacheTest() {}
+  LRUCacheTest() = default;
   ~LRUCacheTest() override { DeleteCache(); }
 
   void DeleteCache() {
@@ -47,7 +47,7 @@ class LRUCacheTest : public testing::Test {
                 double low_pri_pool_ratio = 1.0,
                 bool use_adaptive_mutex = kDefaultToAdaptiveMutex) {
     DeleteCache();
-    cache_ = reinterpret_cast<LRUCacheShard*>(
+    cache_ = static_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
     new (cache_) LRUCacheShard(capacity, /*strict_capacity_limit=*/false,
                                high_pri_pool_ratio, low_pri_pool_ratio,
@@ -57,10 +57,11 @@ class LRUCacheTest : public testing::Test {
   }
 
   void Insert(const std::string& key,
-              Cache::Priority priority = Cache::Priority::LOW) {
+              Cache::Priority priority = Cache::Priority::LOW,
+              size_t charge = 1) {
     EXPECT_OK(cache_->Insert(key, 0 /*hash*/, nullptr /*value*/,
-                             &kNoopCacheItemHelper, 1 /*charge*/,
-                             nullptr /*handle*/, priority));
+                             &kNoopCacheItemHelper, charge, nullptr /*handle*/,
+                             priority));
   }
 
   void Insert(char key, Cache::Priority priority = Cache::Priority::LOW) {
@@ -144,8 +145,10 @@ class LRUCacheTest : public testing::Test {
     ASSERT_EQ(num_bottom_pri_pool_keys, bottom_pri_pool_keys);
   }
 
- private:
+ protected:
   LRUCacheShard* cache_ = nullptr;
+
+ private:
   Cache::EvictionCallback eviction_callback_;
 };
 
@@ -378,7 +381,7 @@ class ClockCacheTest : public testing::Test {
   using Table = typename Shard::Table;
   using TableOpts = typename Table::Opts;
 
-  ClockCacheTest() {}
+  ClockCacheTest() = default;
   ~ClockCacheTest() override { DeleteShard(); }
 
   void DeleteShard() {
@@ -389,12 +392,12 @@ class ClockCacheTest : public testing::Test {
     }
   }
 
-  void NewShard(size_t capacity, bool strict_capacity_limit = true) {
+  void NewShard(size_t capacity, bool strict_capacity_limit = true,
+                int eviction_effort_cap = 30) {
     DeleteShard();
-    shard_ =
-        reinterpret_cast<Shard*>(port::cacheline_aligned_alloc(sizeof(Shard)));
+    shard_ = static_cast<Shard*>(port::cacheline_aligned_alloc(sizeof(Shard)));
 
-    TableOpts opts{1 /*value_size*/};
+    TableOpts opts{1 /*value_size*/, eviction_effort_cap};
     new (shard_)
         Shard(capacity, strict_capacity_limit, kDontChargeCacheMetadata,
               /*allocator*/ nullptr, &eviction_callback_, &hash_seed_, opts);
@@ -445,10 +448,18 @@ class ClockCacheTest : public testing::Test {
     return Slice(reinterpret_cast<const char*>(&hashed_key), 16U);
   }
 
+  // A bad hash function for testing / stressing collision handling
   static inline UniqueId64x2 TestHashedKey(char key) {
     // For testing hash near-collision behavior, put the variance in
     // hashed_key in bits that are unlikely to be used as hash bits.
     return {(static_cast<uint64_t>(key) << 56) + 1234U, 5678U};
+  }
+
+  // A reasonable hash function, for testing "typical behavior" etc.
+  template <typename T>
+  static inline UniqueId64x2 CheapHash(T i) {
+    return {static_cast<uint64_t>(i) * uint64_t{0x85EBCA77C2B2AE63},
+            static_cast<uint64_t>(i) * uint64_t{0xC2B2AE3D27D4EB4F}};
   }
 
   Shard* shard_ = nullptr;
@@ -680,6 +691,53 @@ TYPED_TEST(ClockCacheTest, ClockEvictionTest) {
     EXPECT_TRUE(this->Lookup('r', /*use*/ false));
     EXPECT_TRUE(this->Lookup('s', /*use*/ false));
     EXPECT_TRUE(this->Lookup('t', /*use*/ false));
+  }
+}
+
+TYPED_TEST(ClockCacheTest, ClockEvictionEffortCapTest) {
+  using HandleImpl = typename ClockCacheTest<TypeParam>::Shard::HandleImpl;
+  for (bool strict_capacity_limit : {true, false}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+    for (int eec : {-42, 0, 1, 10, 100, 1000}) {
+      SCOPED_TRACE("eviction_effort_cap = " + std::to_string(eec));
+      constexpr size_t kCapacity = 1000;
+      // Start with much larger capacity to ensure that we can go way over
+      // capacity without reaching table occupancy limit.
+      this->NewShard(3 * kCapacity, strict_capacity_limit, eec);
+      auto& shard = *this->shard_;
+      shard.SetCapacity(kCapacity);
+
+      // Nearly fill the cache with pinned entries, then add a bunch of
+      // non-pinned entries. eviction_effort_cap should affect how many
+      // evictable entries are present beyond the cache capacity, despite
+      // being evictable.
+      constexpr size_t kCount = kCapacity - 1;
+      std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [kCount] {} };
+      for (size_t i = 0; i < 2 * kCount; ++i) {
+        UniqueId64x2 hkey = this->CheapHash(i);
+        ASSERT_OK(shard.Insert(
+            this->TestKey(hkey), hkey, nullptr /*value*/, &kNoopCacheItemHelper,
+            1 /*charge*/, i < kCount ? &ha[i] : nullptr, Cache::Priority::LOW));
+      }
+
+      if (strict_capacity_limit) {
+        // If strict_capacity_limit is enabled, the cache will never exceed its
+        // capacity
+        EXPECT_EQ(shard.GetOccupancyCount(), kCapacity);
+      } else {
+        // Rough inverse relationship between cap and possible memory
+        // explosion, which shows up as increased table occupancy count.
+        int effective_eec = std::max(int{1}, eec) + 1;
+        EXPECT_NEAR(shard.GetOccupancyCount() * 1.0,
+                    kCount * (1 + 1.4 / effective_eec),
+                    kCount * (0.6 / effective_eec) + 1.0);
+      }
+
+      for (size_t i = 0; i < kCount; ++i) {
+        shard.Release(ha[i]);
+      }
+    }
   }
 }
 
@@ -1035,7 +1093,8 @@ class TestSecondaryCache : public SecondaryCache {
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool /*wait*/,
-      bool /*advise_erase*/, bool& kept_in_sec_cache) override {
+      bool /*advise_erase*/, Statistics* /*stats*/,
+      bool& kept_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
@@ -1920,7 +1979,7 @@ TEST_P(BasicSecondaryCacheTest, BasicWaitAllTest) {
     ah.priority = Cache::Priority::LOW;
     cache->StartAsyncLookup(ah);
   }
-  cache->WaitAll(&async_handles[0], async_handles.size());
+  cache->WaitAll(async_handles.data(), async_handles.size());
   for (size_t i = 0; i < async_handles.size(); ++i) {
     SCOPED_TRACE("i = " + std::to_string(i));
     Cache::Handle* result = async_handles[i].Result();
@@ -2645,6 +2704,23 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   delete db2;
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+TEST_F(LRUCacheTest, InsertAfterReducingCapacity) {
+  // Fix a bug in LRU cache where it may try to remove a low pri entry's
+  // charge from high pri pool. It causes
+  // Assertion failed: (high_pri_pool_usage_ >= lru_low_pri_->total_charge),
+  // function MaintainPoolSize, file lru_cache.cc
+  NewCache(/*capacity=*/10, /*high_pri_pool_ratio=*/0.2,
+           /*low_pri_pool_ratio=*/0.8);
+  // high pri pool size and usage are both 2
+  Insert("x", Cache::Priority::HIGH);
+  Insert("y", Cache::Priority::HIGH);
+  cache_->SetCapacity(5);
+  // high_pri_pool_size is 1, the next time we try to maintain pool size,
+  // we will move entries from high pri pool to low pri pool
+  // The bug was deducting this entry's charge from high pri pool usage.
+  Insert("aaa", Cache::Priority::LOW, /*charge=*/3);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

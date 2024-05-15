@@ -248,26 +248,26 @@ public class CompactionOptionsUniversal extends RocksObject {
   }
 
   private static native long newCompactionOptionsUniversal();
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native void setSizeRatio(final long handle, final int sizeRatio);
-  private native int sizeRatio(final long handle);
-  private native void setMinMergeWidth(
-      final long handle, final int minMergeWidth);
-  private native int minMergeWidth(final long handle);
-  private native void setMaxMergeWidth(
-      final long handle, final int maxMergeWidth);
-  private native int maxMergeWidth(final long handle);
-  private native void setMaxSizeAmplificationPercent(
+  private static native void setSizeRatio(final long handle, final int sizeRatio);
+  private static native int sizeRatio(final long handle);
+  private static native void setMinMergeWidth(final long handle, final int minMergeWidth);
+  private static native int minMergeWidth(final long handle);
+  private static native void setMaxMergeWidth(final long handle, final int maxMergeWidth);
+  private static native int maxMergeWidth(final long handle);
+  private static native void setMaxSizeAmplificationPercent(
       final long handle, final int maxSizeAmplificationPercent);
-  private native int maxSizeAmplificationPercent(final long handle);
-  private native void setCompressionSizePercent(
+  private static native int maxSizeAmplificationPercent(final long handle);
+  private static native void setCompressionSizePercent(
       final long handle, final int compressionSizePercent);
-  private native int compressionSizePercent(final long handle);
-  private native void setStopStyle(
-      final long handle, final byte stopStyle);
-  private native byte stopStyle(final long handle);
-  private native void setAllowTrivialMove(
-      final long handle, final boolean allowTrivialMove);
-  private native boolean allowTrivialMove(final long handle);
+  private static native int compressionSizePercent(final long handle);
+  private static native void setStopStyle(final long handle, final byte stopStyle);
+  private static native byte stopStyle(final long handle);
+  private static native void setAllowTrivialMove(final long handle, final boolean allowTrivialMove);
+  private static native boolean allowTrivialMove(final long handle);
 }

@@ -266,8 +266,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
         {"check_flush_compaction_key_order",
-         {offsetof(struct MutableCFOptions, check_flush_compaction_key_order),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
         {"paranoid_file_checks",
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
@@ -297,9 +296,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"ignore_max_compaction_bytes_for_input",
-         {offsetof(struct MutableCFOptions,
-                   ignore_max_compaction_bytes_for_input),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
         {"expanded_compaction_factor",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
@@ -341,6 +338,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"max_successive_merges",
          {offsetof(struct MutableCFOptions, max_successive_merges),
           OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"strict_max_successive_merges",
+         {offsetof(struct MutableCFOptions, strict_max_successive_merges),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"memtable_huge_page_size",
          {offsetof(struct MutableCFOptions, memtable_huge_page_size),
@@ -417,7 +418,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // value, say, like "23", which would be assigned to
                // max_table_files_size.
                if (name == "compaction_options_fifo" &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  // Old format. Parse just a single uint64_t value.
                  auto options = static_cast<CompactionOptionsFIFO*>(addr);
                  options->max_table_files_size = ParseUint64(value);
@@ -446,6 +447,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"last_level_temperature",
          {offsetof(struct MutableCFOptions, last_level_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"default_write_temperature",
+         {offsetof(struct MutableCFOptions, default_write_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"enable_blob_files",
@@ -529,7 +534,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameCompOpts &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
@@ -549,7 +554,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameBMCompOpts &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
@@ -603,9 +608,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"level_compaction_dynamic_file_size",
-         {offsetof(struct ImmutableCFOptions,
-                   level_compaction_dynamic_file_size),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"optimize_filters_for_hits",
          {offsetof(struct ImmutableCFOptions, optimize_filters_for_hits),
@@ -635,7 +638,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_number_to_maintain),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kNone, nullptr}},
         {"max_write_buffer_size_to_maintain",
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_size_to_maintain),
@@ -644,7 +647,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"min_write_buffer_number_to_merge",
          {offsetof(struct ImmutableCFOptions, min_write_buffer_number_to_merge),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kNone, nullptr}},
         {"num_levels",
          {offsetof(struct ImmutableCFOptions, num_levels), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -863,7 +866,7 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
     return s;
   }
 
-  virtual const void* GetOptionsPtr(const std::string& name) const override {
+  const void* GetOptionsPtr(const std::string& name) const override {
     if (name == OptionsHelper::kCFOptionsName) {
       return &cf_options_;
     } else {
@@ -953,8 +956,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       bloom_locality(cf_options.bloom_locality),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
-      level_compaction_dynamic_file_size(
-          cf_options.level_compaction_dynamic_file_size),
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
@@ -1068,6 +1069,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                    max_successive_merges: %" ROCKSDB_PRIszt,
                  max_successive_merges);
+  ROCKS_LOG_INFO(log, "             strict_max_successive_merges: %d",
+                 strict_max_successive_merges);
   ROCKS_LOG_INFO(log,
                  "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
                  inplace_update_num_locks);
@@ -1089,8 +1092,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  level0_stop_writes_trigger);
   ROCKS_LOG_INFO(log, "                     max_compaction_bytes: %" PRIu64,
                  max_compaction_bytes);
-  ROCKS_LOG_INFO(log, "    ignore_max_compaction_bytes_for_input: %s",
-                 ignore_max_compaction_bytes_for_input ? "true" : "false");
   ROCKS_LOG_INFO(log, "                    target_file_size_base: %" PRIu64,
                  target_file_size_base);
   ROCKS_LOG_INFO(log, "              target_file_size_multiplier: %d",
@@ -1119,8 +1120,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  result.c_str());
   ROCKS_LOG_INFO(log, "        max_sequential_skip_in_iterations: %" PRIu64,
                  max_sequential_skip_in_iterations);
-  ROCKS_LOG_INFO(log, "         check_flush_compaction_key_order: %d",
-                 check_flush_compaction_key_order);
   ROCKS_LOG_INFO(log, "                     paranoid_file_checks: %d",
                  paranoid_file_checks);
   ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",

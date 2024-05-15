@@ -443,6 +443,17 @@ struct CompactionServiceJobInfo {
         priority(priority_) {}
 };
 
+struct CompactionServiceScheduleResponse {
+  std::string scheduled_job_id;  // Generated outside of primary host, unique
+                                 // across different DBs and sessions
+  CompactionServiceJobStatus status;
+  CompactionServiceScheduleResponse(std::string scheduled_job_id_,
+                                    CompactionServiceJobStatus status_)
+      : scheduled_job_id(scheduled_job_id_), status(status_) {}
+  explicit CompactionServiceScheduleResponse(CompactionServiceJobStatus status_)
+      : status(status_) {}
+};
+
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
@@ -452,6 +463,24 @@ class CompactionService : public Customizable {
 
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
+
+  // Schedule compaction to be processed remotely.
+  virtual CompactionServiceScheduleResponse Schedule(
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
+    CompactionServiceScheduleResponse response(
+        CompactionServiceJobStatus::kUseLocal);
+    return response;
+  }
+
+  // Wait for the scheduled compaction to finish from the remote worker
+  virtual CompactionServiceJobStatus Wait(
+      const std::string& /*scheduled_job_id*/, std::string* /*result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  // Deprecated. Please implement Schedule() and Wait() API to handle remote
+  // compaction
 
   // Start the remote compaction with `compaction_service_input`, which can be
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
@@ -577,6 +606,8 @@ struct DBOptions {
   // Default: true
   bool paranoid_checks = true;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If true, during memtable flush, RocksDB will validate total entries
   // read in flush, and compare with counter inserted into it.
   //
@@ -587,6 +618,8 @@ struct DBOptions {
   // Default: true
   bool flush_verify_memtable_count = true;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If true, during compaction, RocksDB will count the number of entries
   // read and compare it against the number of entries in the compaction
   // input files. This is intended to add protection against corruption
@@ -1025,15 +1058,6 @@ struct DBOptions {
   // Default: null
   std::shared_ptr<WriteBufferManager> write_buffer_manager = nullptr;
 
-  // DEPRECATED
-  // This flag has no effect on the behavior of compaction and we plan to delete
-  // it in the future.
-  // Specify the file access pattern once a compaction is started.
-  // It will be applied to all input files of a compaction.
-  // Default: NORMAL
-  enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
-  AccessHint access_hint_on_compaction_start = NORMAL;
-
   // If non-zero, we perform bigger reads when doing compaction. If you're
   // running RocksDB on spinning disks, you should set this to at least 2MB.
   // That way RocksDB's compaction is doing sequential instead of random reads.
@@ -1281,6 +1305,8 @@ struct DBOptions {
   // currently.
   WalFilter* wal_filter = nullptr;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If true, then DB::Open, CreateColumnFamily, DropColumnFamily, and
   // SetOptions will fail if options file is not properly persisted.
   //
@@ -1341,10 +1367,11 @@ struct DBOptions {
   // file.
   bool manual_wal_flush = false;
 
-  // This feature is WORK IN PROGRESS
-  // If enabled WAL records will be compressed before they are written.
-  // Only zstd is supported. Compressed WAL records will be read in supported
-  // versions regardless of the wal_compression settings.
+  // If enabled WAL records will be compressed before they are written. Only
+  // ZSTD (= kZSTD) is supported (until streaming support is adapted for other
+  // compression types). Compressed WAL records will be read in supported
+  // versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
+  // the WAL is read.
   CompressionType wal_compression = kNoCompression;
 
   // If true, RocksDB supports flushing multiple column families and committing
@@ -1408,6 +1435,13 @@ struct DBOptions {
   // is like applying WALRecoveryMode::kPointInTimeRecovery to each column
   // family rather than just the WAL.
   //
+  // The behavior changes in the presence of "AtomicGroup"s in the MANIFEST,
+  // which is currently only the case when `atomic_flush == true`. In that
+  // case, all pre-existing CFs must recover the atomic group in order for
+  // that group to be applied in an all-or-nothing manner. This means that
+  // unused/inactive CF(s) with invalid filesystem state can block recovery of
+  // all other CFs at an atomic group.
+  //
   // Best-efforts recovery (BER) is specifically designed to recover a DB with
   // files that are missing or truncated to some smaller size, such as the
   // result of an incomplete DB "physical" (FileSystem) copy. BER can also
@@ -1424,8 +1458,6 @@ struct DBOptions {
   // either ignored or replaced with BER, or quietly fixed regardless of BER
   // setting. BER does require at least one valid MANIFEST to recover to a
   // non-trivial DB state, unlike `ldb repair`.
-  //
-  // Currently, best_efforts_recovery=true is not compatible with atomic flush.
   //
   // Default: false
   bool best_efforts_recovery = false;
@@ -1515,6 +1547,8 @@ struct DBOptions {
   // Status: Experimental.
   std::shared_ptr<ReplicationEpochExtractor> replication_epoch_extractor = nullptr;
 
+  // DEPRECATED: This option might be removed in a future release.
+  //
   // If set to false, when compaction or flush sees a SingleDelete followed by
   // a Delete for the same user key, compaction job will not fail.
   // Otherwise, compaction job will fail.
@@ -1863,23 +1897,17 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
-  // Experimental
-  //
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
   // during scans internally.
   // For this feature to enabled, iterate_upper_bound must also be specified.
   //
   // NOTE: - Recommended for forward Scans only.
-  //       - In case of backward scans like Prev or SeekForPrev, the
-  //          cost of these backward operations might increase and affect the
-  //          performace. So this option should not be enabled if workload
-  //          contains backward scans.
   //       - If there is a backward scans, this option will be
-  //          disabled internally and won't be reset if forward scan is done
-  //          again.
+  //          disabled internally and won't be enabled again if the forward scan
+  //          is issued again.
   //
-  // Default: false
-  bool auto_readahead_size = false;
+  // Default: true
+  bool auto_readahead_size = true;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -1913,7 +1941,7 @@ struct WriteOptions {
   // system call followed by "fdatasync()".
   //
   // Default: false
-  bool sync;
+  bool sync = false;
 
   // If true, writes will not first go to the write ahead log,
   // and the write may get lost after a crash. The backup engine
@@ -1921,18 +1949,18 @@ struct WriteOptions {
   // you disable write-ahead logs, you must create backups with
   // flush_before_backup=true to avoid losing unflushed memtable data.
   // Default: false
-  bool disableWAL;
+  bool disableWAL = false;
 
   // If true and if user is trying to write to column families that don't exist
   // (they were dropped),  ignore the write (don't return an error). If there
   // are multiple writes in a WriteBatch, other writes will succeed.
   // Default: false
-  bool ignore_missing_column_families;
+  bool ignore_missing_column_families = false;
 
   // If true and we need to wait or sleep for the write request, fails
   // immediately with Status::Incomplete().
   // Default: false
-  bool no_slowdown;
+  bool no_slowdown = false;
 
   // If true, this write request is of lower priority if compaction is
   // behind. In this case, no_slowdown = true, the request will be canceled
@@ -1941,10 +1969,10 @@ struct WriteOptions {
   // it introduces minimum impacts to high priority writes.
   //
   // Default: false
-  bool low_pri;
+  bool low_pri = false;
 
   // See comments for PreReleaseCallback
-  PreReleaseCallback* pre_release_callback;
+  PreReleaseCallback* pre_release_callback = nullptr;
 
   // If true, this writebatch will maintain the last insert positions of each
   // memtable as hints in concurrent write. It can improve write performance
@@ -1953,7 +1981,7 @@ struct WriteOptions {
   // option will be ignored.
   //
   // Default: false
-  bool memtable_insert_hint_per_batch;
+  bool memtable_insert_hint_per_batch = false;
 
   // For writes associated with this option, charge the internal rate
   // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
@@ -1968,25 +1996,25 @@ struct WriteOptions {
   // due to implementation constraints.
   //
   // Default: `Env::IO_TOTAL`
-  Env::IOPriority rate_limiter_priority;
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
   //
   // Default: zero (disabled).
-  size_t protection_bytes_per_key;
+  size_t protection_bytes_per_key = 0;
 
-  WriteOptions()
-      : sync(false),
-        disableWAL(false),
-        ignore_missing_column_families(false),
-        no_slowdown(false),
-        low_pri(false),
-        pre_release_callback(nullptr),
-        memtable_insert_hint_per_batch(false),
-        rate_limiter_priority(Env::IO_TOTAL),
-        protection_bytes_per_key(0) {}
+  // For RocksDB internal use only
+  //
+  // Default: Env::IOActivity::kUnknown.
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  WriteOptions() {}
+  explicit WriteOptions(Env::IOActivity _io_activity);
+  explicit WriteOptions(
+      Env::IOPriority _rate_limiter_priority,
+      Env::IOActivity _io_activity = Env::IOActivity::kUnknown);
 };
 
 // Options that control flush operations
@@ -2004,9 +2032,9 @@ struct FlushOptions {
 };
 
 // Create a Logger from provided DBOptions
-extern Status CreateLoggerFromOptions(const std::string& dbname,
-                                      const DBOptions& options,
-                                      std::shared_ptr<Logger>* logger);
+Status CreateLoggerFromOptions(const std::string& dbname,
+                               const DBOptions& options,
+                               std::shared_ptr<Logger>* logger);
 
 // CompactionOptions are used in CompactFiles() call.
 struct CompactionOptions {
@@ -2185,13 +2213,15 @@ struct IngestExternalFileOptions {
   // external file.
   bool unsafe_disable_sync = false;
 
-  // Set to TRUE if user wants file to be ingested to the bottommost level. An
+  // Set to TRUE if user wants file to be ingested to the last level. An
   // error of Status::TryAgain() will be returned if a file cannot fit in the
-  // bottommost level when calling
+  // last level when calling
   // DB::IngestExternalFile()/DB::IngestExternalFiles(). The user should clear
-  // the bottommost level in the overlapping range before re-attempt.
+  // the last level in the overlapping range before re-attempt.
   //
   // ingest_behind takes precedence over fail_if_not_bottommost_level.
+  //
+  // XXX: "bottommost" is obsolete/confusing terminology to refer to last level
   bool fail_if_not_bottommost_level = false;
 };
 

@@ -40,7 +40,7 @@ enum CacheDumpUnitType : unsigned char {
   kBlockTypeMax,
 };
 
-// The metadata of a dump unit. After it is serilized, its size is fixed 16
+// The metadata of a dump unit. After it is serialized, its size is fixed 16
 // bytes.
 struct DumpUnitMeta {
   // sequence number is a monotonically increasing number to indicate the order
@@ -48,7 +48,7 @@ struct DumpUnitMeta {
   uint32_t sequence_num;
   // The Crc32c checksum of its dump unit.
   uint32_t dump_unit_checksum;
-  // The dump unit size after the dump unit is serilized to a string.
+  // The dump unit size after the dump unit is serialized to a string.
   uint64_t dump_unit_size;
 
   void reset() {
@@ -158,33 +158,35 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
   ~ToFileCacheDumpWriter() { Close().PermitUncheckedError(); }
 
   // Write the serialized metadata to the file
-  virtual IOStatus WriteMetadata(const Slice& metadata) override {
+  IOStatus WriteMetadata(const Slice& metadata) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(metadata.size()));
-    IOStatus io_s = file_writer_->Append(Slice(prefix));
+    const IOOptions opts;
+    IOStatus io_s = file_writer_->Append(opts, Slice(prefix));
     if (!io_s.ok()) {
       return io_s;
     }
-    io_s = file_writer_->Append(metadata);
+    io_s = file_writer_->Append(opts, metadata);
     return io_s;
   }
 
   // Write the serialized data to the file
-  virtual IOStatus WritePacket(const Slice& data) override {
+  IOStatus WritePacket(const Slice& data) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(data.size()));
-    IOStatus io_s = file_writer_->Append(Slice(prefix));
+    const IOOptions opts;
+    IOStatus io_s = file_writer_->Append(opts, Slice(prefix));
     if (!io_s.ok()) {
       return io_s;
     }
-    io_s = file_writer_->Append(data);
+    io_s = file_writer_->Append(opts, data);
     return io_s;
   }
 
   // Reset the writer
-  virtual IOStatus Close() override {
+  IOStatus Close() override {
     file_writer_.reset();
     return IOStatus::OK();
   }
@@ -206,7 +208,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 
   ~FromFileCacheDumpReader() { delete[] buffer_; }
 
-  virtual IOStatus ReadMetadata(std::string* metadata) override {
+  IOStatus ReadMetadata(std::string* metadata) override {
     uint32_t metadata_len = 0;
     IOStatus io_s = ReadSizePrefix(&metadata_len);
     if (!io_s.ok()) {
@@ -215,7 +217,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
     return Read(metadata_len, metadata);
   }
 
-  virtual IOStatus ReadPacket(std::string* data) override {
+  IOStatus ReadPacket(std::string* data) override {
     uint32_t data_len = 0;
     IOStatus io_s = ReadSizePrefix(&data_len);
     if (!io_s.ok()) {

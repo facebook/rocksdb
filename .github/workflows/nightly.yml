@@ -1,0 +1,98 @@
+name: facebook/rocksdb/nightly
+on:
+  schedule:
+  - cron: 0 9 * * *
+  workflow_dispatch:
+jobs:
+  build-format-compatible:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+      with:
+        fetch-depth: 0 # Need full repo history
+        fetch-tags: true
+    - uses: "./.github/actions/setup-upstream"
+    - uses: "./.github/actions/pre-steps"
+    - name: test
+      run: |-
+        export TEST_TMPDIR=/dev/shm/rocksdb
+        rm -rf /dev/shm/rocksdb
+        mkdir /dev/shm/rocksdb
+        git config --global --add safe.directory /__w/rocksdb/rocksdb
+        tools/check_format_compatible.sh
+    - uses: "./.github/actions/post-steps"
+  build-linux-run-microbench:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: DEBUG_LEVEL=0 make -j32 run_microbench
+    - uses: "./.github/actions/post-steps"
+  build-linux-non-shm:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    env:
+      TEST_TMPDIR: "/tmp/rocksdb_test_tmp"
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: make V=1 -j32 check
+    - uses: "./.github/actions/post-steps"
+  build-linux-clang-13-asan-ubsan-with-folly:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - uses: "./.github/actions/build-folly"
+    - run: CC=clang-13 CXX=clang++-13 LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
+    - uses: "./.github/actions/post-steps"
+  build-linux-valgrind:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: PORTABLE=1 make V=1 -j32 valgrind_test
+    - uses: "./.github/actions/post-steps"
+  build-windows-vs2022-avx2:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on: windows-2022
+    env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: AVX2
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/windows-build-steps"
+  build-windows-vs2022:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on: windows-2022
+    env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: 1
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/windows-build-steps"

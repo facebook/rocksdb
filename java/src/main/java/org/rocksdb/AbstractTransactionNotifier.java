@@ -50,5 +50,9 @@ public abstract class AbstractTransactionNotifier
   protected void disposeInternal() {
     disposeInternal(nativeHandle_);
   }
-  protected final native void disposeInternal(final long handle);
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+
+  private static native void disposeInternalJni(final long handle);
 }

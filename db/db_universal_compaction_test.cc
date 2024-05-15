@@ -558,7 +558,7 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   ColumnFamilyMetaData cf_meta;
   dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   std::vector<std::string> compaction_input_file_names;
-  for (auto file : cf_meta.levels[0].files) {
+  for (const auto& file : cf_meta.levels[0].files) {
     if (rnd.OneIn(2)) {
       compaction_input_file_names.push_back(file.name);
     }
@@ -2187,7 +2187,7 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "UniversalCompactionPicker::PickPeriodicCompaction:Return",
       [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(arg != nullptr);
         ASSERT_TRUE(compaction->compaction_reason() ==
                     CompactionReason::kPeriodicCompaction);
@@ -2258,7 +2258,7 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompactionOffpeak) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "UniversalCompactionPicker::PickPeriodicCompaction:Return",
       [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        Compaction* compaction = static_cast<Compaction*>(arg);
         ASSERT_TRUE(arg != nullptr);
         ASSERT_TRUE(compaction->compaction_reason() ==
                     CompactionReason::kPeriodicCompaction);

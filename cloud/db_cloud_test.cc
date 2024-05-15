@@ -2551,7 +2551,7 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
   // obsolete files are not deleted
   EXPECT_EQ(GetAllLocalFiles().size(), 10);
   // obsolete files are deleted!
-  db_->EnableFileDeletions(false /* force */);
+  db_->EnableFileDeletions();
   EXPECT_EQ(GetAllLocalFiles().size(), 8);
   CloseDB();
 }

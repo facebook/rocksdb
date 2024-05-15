@@ -82,6 +82,12 @@ class IteratorWrapperBase {
     assert(Valid());
     return result_.key;
   }
+
+  uint64_t write_unix_time() const {
+    assert(Valid());
+    return iter_->write_unix_time();
+  }
+
   TValue value() const {
     assert(Valid());
     return iter_->value();
@@ -101,6 +107,7 @@ class IteratorWrapperBase {
     }
     if (iter_->PrepareValue()) {
       result_.value_prepared = true;
+      result_.key = iter_->key();
       return true;
     }
 
@@ -213,6 +220,6 @@ using IteratorWrapper = IteratorWrapperBase<Slice>;
 class Arena;
 // Return an empty iterator (yields nothing) allocated from arena.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena);
+InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena);
 
 }  // namespace ROCKSDB_NAMESPACE

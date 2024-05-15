@@ -17,8 +17,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 void ForceReleaseCachedEntry(void* arg, void* h) {
-  Cache* cache = reinterpret_cast<Cache*>(arg);
-  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  Cache* cache = static_cast<Cache*>(arg);
+  Cache::Handle* handle = static_cast<Cache::Handle*>(h);
   cache->Release(handle, true /* erase_if_last_ref */);
 }
 

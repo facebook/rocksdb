@@ -102,8 +102,9 @@ struct TableReaderOptions {
 struct TableBuilderOptions {
   TableBuilderOptions(
       const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
+      const ReadOptions& _read_options, const WriteOptions& _write_options,
       const InternalKeyComparator& _internal_comparator,
-      const IntTblPropCollectorFactories* _int_tbl_prop_collector_factories,
+      const InternalTblPropCollFactories* _internal_tbl_prop_coll_factories,
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, uint32_t _column_family_id,
       const std::string& _column_family_name, int _level,
@@ -115,8 +116,10 @@ struct TableBuilderOptions {
       const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
       : ioptions(_ioptions),
         moptions(_moptions),
+        read_options(_read_options),
+        write_options(_write_options),
         internal_comparator(_internal_comparator),
-        int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
+        internal_tbl_prop_coll_factories(_internal_tbl_prop_coll_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         column_family_id(_column_family_id),
@@ -133,8 +136,10 @@ struct TableBuilderOptions {
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
+  const ReadOptions& read_options;
+  const WriteOptions& write_options;
   const InternalKeyComparator& internal_comparator;
-  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories;
+  const InternalTblPropCollFactories* internal_tbl_prop_coll_factories;
   const CompressionType compression_type;
   const CompressionOptions& compression_opts;
   const uint32_t column_family_id;
@@ -223,10 +228,11 @@ class TableBuilder {
   // Return file checksum function name
   virtual const char* GetFileChecksumFuncName() const = 0;
 
-  // Set the sequence number to time mapping
+  // Set the sequence number to time mapping. `relevant_mapping` must be in
+  // enforced state (ready to encode to string).
   virtual void SetSeqnoTimeTableProperties(
-      const std::string& /*encoded_seqno_to_time_mapping*/,
-      uint64_t /*oldest_ancestor_time*/){};
+      const SeqnoToTimeMapping& /*relevant_mapping*/,
+      uint64_t /*oldest_ancestor_time*/){}
 };
 
 }  // namespace ROCKSDB_NAMESPACE

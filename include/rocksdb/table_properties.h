@@ -16,6 +16,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class InternalTblPropColl;
+
 // -- Table Properties
 // Other than basic table properties, each table may also have the user
 // collected properties.
@@ -138,10 +140,12 @@ class TablePropertiesCollector {
 
   // EXPERIMENTAL Return whether the output file should be further compacted
   virtual bool NeedCompact() const { return false; }
+
+  // For internal use only.
+  virtual InternalTblPropColl* AsInternal() { return nullptr; }
 };
 
-// Constructs TablePropertiesCollector. Internals create a new
-// TablePropertiesCollector for each new table
+// Constructs TablePropertiesCollector instances for each table file creation.
 //
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
@@ -163,7 +167,12 @@ class TablePropertiesCollectorFactory : public Customizable {
       const ConfigOptions& options, const std::string& value,
       std::shared_ptr<TablePropertiesCollectorFactory>* result);
 
-  // has to be thread-safe
+  // To collect properties of a table with the given context, returns
+  // a new object inheriting from TablePropertiesCollector. The caller
+  // is responsible for deleting the object returned. Alternatively,
+  // nullptr may be returned to decline collecting properties for the
+  // file (and reduce callback overheads).
+  // MUST be thread-safe.
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) = 0;
 
@@ -345,8 +354,8 @@ struct TableProperties {
 // DEPRECATED: these properties now belong as TableProperties members. Please
 // use TableProperties::num_deletions and TableProperties::num_merge_operands,
 // respectively.
-extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
-extern uint64_t GetMergeOperands(const UserCollectedProperties& props,
-                                 bool* property_present);
+uint64_t GetDeletedKeys(const UserCollectedProperties& props);
+uint64_t GetMergeOperands(const UserCollectedProperties& props,
+                          bool* property_present);
 
 }  // namespace ROCKSDB_NAMESPACE

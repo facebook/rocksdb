@@ -87,6 +87,10 @@ class WriteBatchInternal {
   static Status Put(WriteBatch* batch, uint32_t column_family_id,
                     const SliceParts& key, const SliceParts& value);
 
+  static Status TimedPut(WriteBatch* batch, uint32_t column_family_id,
+                         const Slice& key, const Slice& value,
+                         uint64_t unix_write_time);
+
   static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
                           const Slice& key, const WideColumns& columns);
 

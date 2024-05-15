@@ -368,7 +368,7 @@ class CompactionFilterFactory : public Customizable {
       const CompactionFilter::Context& context) = 0;
 
   // Returns a name that identifies this `CompactionFilter` factory.
-  virtual const char* Name() const override = 0;
+  const char* Name() const override = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

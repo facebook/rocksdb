@@ -378,8 +378,7 @@ TEST_P(RepairTestWithTimestamp, UnflushedSst) {
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
 
   ASSERT_OK(DB::Open(options, dbname_, column_families, &handles_, &db_));
 

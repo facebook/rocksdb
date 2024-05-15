@@ -25,6 +25,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -118,7 +119,7 @@ class WalManager {
   port::Mutex read_first_record_cache_mutex_;
 
   // last time when PurgeObsoleteWALFiles ran.
-  uint64_t purge_wal_files_last_run_;
+  RelaxedAtomic<uint64_t> purge_wal_files_last_run_;
 
   bool seq_per_batch_;
 
