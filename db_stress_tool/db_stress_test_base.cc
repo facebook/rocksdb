@@ -505,7 +505,8 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
 }
 
 void StressTest::ProcessStatus(SharedState* shared, std::string opname,
-                               Status s, bool ignore_injected_error) const {
+                               const Status& s,
+                               bool ignore_injected_error) const {
   if (s.ok()) {
     return;
   }
