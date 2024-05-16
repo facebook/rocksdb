@@ -1676,15 +1676,13 @@ class DB {
   // sync is done.
   virtual Status SyncWAL() = 0;
 
-  // Freezes the logical state of the DB (by stopping writes), and if WAL is
-  // enabled, ensures that state has been flushed to DB files (as in
-  // FlushWAL()). This can be used for taking a Checkpoint at a known DB
-  // state, though the user must use options to insure no DB flush is invoked
-  // in this frozen state. Other operations allowed on a "read only" DB should
-  // work while frozen. Each LockWAL() call that returns OK must eventually be
-  // followed by a corresponding call to UnlockWAL(). Where supported, non-OK
-  // status is generally only possible with some kind of corruption or I/O
-  // error.
+  // Blocks writes to the WAL (and some other writes not requiring the WAL)
+  // and ensures the current WAL state has been flushed (as in FlushWAL()).
+  // Some changes to the DB logical (and physical) state may still progress,
+  // such as file ingestion and compaction. Each LockWAL() call that returns
+  // OK must eventually be followed by a corresponding call to UnlockWAL().
+  // Where supported, non-OK status is generally only possible with some kind
+  // of corruption or I/O error.
   virtual Status LockWAL() {
     return Status::NotSupported("LockWAL not implemented");
   }

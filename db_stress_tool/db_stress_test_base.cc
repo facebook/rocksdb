@@ -956,19 +956,52 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (!s.ok()) {
           fprintf(stderr, "LockWAL() failed: %s\n", s.ToString().c_str());
         } else {
-          auto old_seqno = db_->GetLatestSequenceNumber();
-          // Yield for a while
-          do {
-            std::this_thread::yield();
-          } while (thread->rand.OneIn(2));
-          // Latest seqno should not have changed
-          auto new_seqno = db_->GetLatestSequenceNumber();
-          if (old_seqno != new_seqno) {
-            fprintf(
-                stderr,
-                "Failure: latest seqno changed from %u to %u with WAL locked\n",
-                (unsigned)old_seqno, (unsigned)new_seqno);
+          // Verify that WAL is not changed during LockWAL()
+          std::unique_ptr<LogFile> old_wal;
+          s = db_->GetCurrentWalFile(&old_wal);
+          if (!s.ok()) {
+            fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
+                    s.ToString().c_str());
+          } else {
+            // Yield for a while
+            do {
+              std::this_thread::yield();
+            } while (thread->rand.OneIn(2));
+            // Current WAL and size should not have changed
+            std::unique_ptr<LogFile> new_wal;
+            s = db_->GetCurrentWalFile(&new_wal);
+            if (!s.ok()) {
+              fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
+                      s.ToString().c_str());
+            } else if (!fault_fs_guard) {
+              // FIXME: FaultInjectionTestFS does not report file sizes that
+              // reflect what has been flushed. Either that needs to be fixed
+              // or GetSortedWals/GetLiveWalFile need to stop relying on
+              // asking the FS for sizes.
+              // But even with that fixed, some other issue can cause a change
+              // to which WAL file is current. This isn't necessarily a
+              // production bug because the old WAL should still be relevant
+              // and essentially "current" even if we open a new one. And it's
+              // only showing up under fault conditions.
+              if (old_wal->LogNumber() != new_wal->LogNumber()) {
+                fprintf(stderr,
+                        "Failed: WAL number changed during LockWAL(): %" PRIu64
+                        " to %" PRIu64 "\n",
+                        old_wal->LogNumber(), new_wal->LogNumber());
+                break;
+              }
+              if (old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
+                fprintf(stderr,
+                        "Failed: WAL %" PRIu64
+                        " size changed during LockWAL(): %" PRIu64
+                        " to %" PRIu64 "\n",
+                        old_wal->LogNumber(), old_wal->SizeFileBytes(),
+                        new_wal->SizeFileBytes());
+                break;
+              }
+            }
           }
+          // Verification done. Now unlock WAL
           s = db_->UnlockWAL();
           if (!s.ok()) {
             fprintf(stderr, "UnlockWAL() failed: %s\n", s.ToString().c_str());
