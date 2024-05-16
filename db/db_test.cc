@@ -4873,7 +4873,7 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
     if (options.enable_thread_tracking) {
       // expecting one single L0 to L1 compaction
       // This test is flaky and fails here.
-      bool match = VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 2);
+      bool match = VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 1);
       if (!match) {
         ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
                                         &num_running_compactions));
