@@ -858,11 +858,11 @@ Status BlockBasedTable::PrefetchTail(
       // properties, at which point we don't yet know the index type.
       tail_prefetch_size = prefetch_all || preload_all ? 512 * 1024 : 4 * 1024;
 
-      ROCKS_LOG_WARN(logger,
+      ROCKS_LOG_INFO(logger,
                      "Tail prefetch size %zu is calculated based on heuristics",
                      tail_prefetch_size);
     } else {
-      ROCKS_LOG_WARN(
+      ROCKS_LOG_INFO(
           logger,
           "Tail prefetch size %zu is calculated based on TailPrefetchStats",
           tail_prefetch_size);
