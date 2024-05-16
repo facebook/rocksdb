@@ -78,6 +78,12 @@ class Iterator : public IteratorBase {
   //      - Iterator created with ReadOptions::pin_data = true
   //      - DB tables were created with
   //        BlockBasedTableOptions::use_delta_encoding = false.
+  // Property "rocksdb.iterator.is-value-pinned":
+  //   If returning "1", this means that the Slice returned by value() is valid
+  //   as long as the iterator is not deleted.
+  //   It is guaranteed to always return "1" if
+  //      - Iterator created with ReadOptions::pin_data = true
+  //      - The value is found in a `kTypeValue` record
   // Property "rocksdb.iterator.super-version-number":
   //   LSM version used by the iterator. The same format as DB Property
   //   kCurrentSuperVersionNumber. See its comment for more information.
