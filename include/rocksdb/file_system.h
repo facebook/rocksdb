@@ -680,14 +680,14 @@ class FileSystem : public Customizable {
 
   virtual IOStatus IsDirectory(const std::string& /*path*/,
                                const IOOptions& options, bool* is_dir,
-                               IODebugContext* /*dgb*/) = 0;
+                               IODebugContext* /*dbg*/) = 0;
 
   // Poll for completion of read IO requests. The Poll() method should call the
   // callback functions to indicate completion of read requests.
   // Underlying FS is required to support Poll API. Poll implementation should
   // ensure that the callback gets called at IO completion, and return only
   // after the callback has been called.
-  // If Poll returns partial results for any reads, its caller reponsibility to
+  // If Poll returns partial results for any reads, its caller responsibility to
   // call Read or ReadAsync in order to get the remaining bytes.
   virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
                         size_t /*min_completions*/) {
