@@ -831,7 +831,7 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
         versions_.erase(v_iter);
         // Let's clear found_files, since any files in that are part of the
         // installed Version. Any files that got obsoleted would have already
-        // been moved to files_to_delete_
+        // been moved to intermediate_files_
         auto found_files_iter = cf_to_found_files_.find(cfd->GetID());
         assert(found_files_iter != cf_to_found_files_.end());
         found_files_iter->second.clear();
@@ -914,7 +914,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       // be added to the VersionStorageInfo's obsolete files when the old
       // version is dereferenced.
       if (fiter != found_files.end()) {
-        files_to_delete_.emplace_back(
+        intermediate_files_.emplace_back(
             MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num));
         found_files.erase(fiter);
       }
@@ -933,11 +933,15 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     s = VerifyFile(cfd, fpath, level, meta);
     if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
+      if (s.IsCorruption()) {
+        found_files.insert(file_num);
+      }
       s = Status::OK();
     } else if (!s.ok()) {
       break;
+    } else {
+      found_files.insert(file_num);
     }
-    found_files.insert(file_num);
   }
 
   uint64_t missing_blob_file_num = prev_missing_blob_file_high;

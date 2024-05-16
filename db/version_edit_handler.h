@@ -275,7 +275,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
   bool in_atomic_group_ = false;
 
-  std::vector<std::string> files_to_delete_;
+  std::vector<std::string> intermediate_files_;
 
  private:
   bool AtomicUpdateVersionsCompleted();
@@ -314,7 +314,9 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
     return cfds_changed_;
   }
 
-  std::vector<std::string>& GetFilesToDelete() { return files_to_delete_; }
+  std::vector<std::string>& GetIntermediateFiles() {
+    return intermediate_files_;
+  }
 
  protected:
   Status Initialize() override;

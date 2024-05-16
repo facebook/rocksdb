@@ -7458,7 +7458,7 @@ Status ReactiveVersionSet::ReadAndApply(
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());
   }
   if (files_to_delete) {
-    *files_to_delete = std::move(manifest_tailer_->GetFilesToDelete());
+    *files_to_delete = std::move(manifest_tailer_->GetIntermediateFiles());
   }
 
   return s;
