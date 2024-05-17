@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
-#include "file/filename.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
 
@@ -59,7 +58,7 @@ class DBFollowerTest : public DBTestBase {
               file_(std::move(file)) {}
 
         IOStatus Read(size_t n, const IOOptions& options, Slice* result,
-                      char* scratch, IODebugContext* dbg) {
+                      char* scratch, IODebugContext* dbg) override {
           fs_->BarrierWait();
           return target()->Read(n, options, result, scratch, dbg);
         }
@@ -136,7 +135,7 @@ class DBFollowerTest : public DBTestBase {
 
   class DBFollowerTestSstPartitioner : public SstPartitioner {
    public:
-    DBFollowerTestSstPartitioner(uint64_t max_keys)
+    explicit DBFollowerTestSstPartitioner(uint64_t max_keys)
         : max_keys_(max_keys), num_keys_(0) {}
 
     const char* Name() const override { return "DBFollowerTestSstPartitioner"; }
@@ -163,7 +162,7 @@ class DBFollowerTest : public DBTestBase {
 
   class DBFollowerTestSstPartitionerFactory : public SstPartitionerFactory {
    public:
-    DBFollowerTestSstPartitionerFactory(uint64_t max_keys)
+    explicit DBFollowerTestSstPartitionerFactory(uint64_t max_keys)
         : max_keys_(max_keys) {}
 
     std::unique_ptr<SstPartitioner> CreatePartitioner(
@@ -251,6 +250,7 @@ TEST_F(DBFollowerTest, Basic) {
   std::string val;
   ASSERT_OK(follower()->Get(ReadOptions(), "k1", &val));
   ASSERT_EQ(val, "v1");
+  CheckDirs();
 }
 
 TEST_F(DBFollowerTest, Flush) {
@@ -271,6 +271,7 @@ TEST_F(DBFollowerTest, Flush) {
   std::string val;
   ASSERT_OK(follower()->Get(ReadOptions(), "k1", &val));
   ASSERT_EQ(val, "v1");
+  CheckDirs();
 
   SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -309,6 +310,7 @@ TEST_F(DBFollowerTest, RetryCatchup) {
 
   TEST_SYNC_POINT("Follower::WaitForCatchup");
   ASSERT_EQ(FollowerGet("k1"), "v4");
+  CheckDirs();
 
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -345,14 +347,8 @@ TEST_F(DBFollowerTest, RetryCatchupManifestRollover) {
   ASSERT_OK(Put("k1", "v4"));
   ASSERT_OK(Flush());
 
-  // FlushOptions fo;
-  // fo.wait = false;
-  // ASSERT_OK(dbfull()->Flush(fo, dbfull()->DefaultColumnFamily()));
   TEST_SYNC_POINT("Leader::Flushed");
   TEST_SYNC_POINT("Leader::Done");
-  // This should trigger a compaction
-  // WaitForCompactOptions wfco;
-  // ASSERT_OK(dbfull()->WaitForCompact(wfco));
   Reopen(opts);
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
 
@@ -373,6 +369,13 @@ TEST_F(DBFollowerTest, RetryCatchupManifestRollover) {
 // donesn't install them yet), followed by deleting those 4 and adding a new
 // file from compaction. The test verifies that the 4 L0 files are deleted
 // correctly by the follower.
+// We use teh Barrier* functions to ensure that the follower first sees the 4
+// L0 files and is able to link them, and then sees the compaction that
+// obsoletes those L0 files (so those L0 files are intermediates that it has
+// to explicitly delete). Suppose we don't have any barriers, its possible
+// the follower reads the L0 records and compaction records from the MANIFEST
+// in one read, which means those L0 files would have already been deleted
+// by the leader and the follower cannot link to them.
 TEST_F(DBFollowerTest, IntermediateObsoleteFiles) {
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;

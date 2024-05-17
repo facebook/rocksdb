@@ -174,8 +174,8 @@ Status DBImplFollower::TryCatchUpWithLeader() {
   JobContext purge_files_job_context(0);
   {
     InstrumentedMutexLock lock_guard(&mutex_);
-    // Currently, secondary instance does not own the database files, thus it
-    // is unnecessary for the secondary to force full scan.
+    // Currently, follower instance does not create any database files, thus
+    // is unnecessary for the follower to force full scan.
     FindObsoleteFiles(&purge_files_job_context, /*force=*/false);
   }
   if (purge_files_job_context.HaveSomethingToDelete()) {
