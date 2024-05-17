@@ -701,11 +701,6 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
-    if dest_params["inplace_update_support"] == 1:
-       dest_params["delpercent"] += dest_params["delrangepercent"]
-       dest_params["delrangepercent"] = 0
-       dest_params["readpercent"] += dest_params["prefixpercent"]
-       dest_params["prefixpercent"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
@@ -728,6 +723,15 @@ def finalize_and_sanitize(src_params):
         # with potential data loss in mind like start of each `./db_stress` run.
         # Therefore it always expects no data loss.
         dest_params["reopen"] = 0
+        # inplace_update_support can cause memtable update to swallow newer
+        # sequence numbers. Our trace-and-replay logic replies on accurate
+        # tracking of the latest sequence number so they don't work together.
+        dest_params["inplace_update_support"] = 0
+    if dest_params["inplace_update_support"] == 1:
+       dest_params["delpercent"] += dest_params["delrangepercent"]
+       dest_params["delrangepercent"] = 0
+       dest_params["readpercent"] += dest_params["prefixpercent"]
+       dest_params["prefixpercent"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
