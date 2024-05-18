@@ -27,7 +27,7 @@ class DBImplFollower : public DBImplSecondary {
   bool OwnTablesAndLogs() const override {
     // TODO: Change this to true once we've properly implemented file
     // deletion for the read scaling case
-    return false;
+    return true;
   }
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
@@ -49,5 +49,6 @@ class DBImplFollower : public DBImplSecondary {
   std::string src_path_;
   port::Mutex mu_;
   port::CondVar cv_;
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem_;
 };
 }  // namespace ROCKSDB_NAMESPACE
