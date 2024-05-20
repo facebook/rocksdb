@@ -119,8 +119,8 @@ PlainTableBuilder::PlainTableBuilder(
     assert(factory);
 
     std::unique_ptr<InternalTblPropColl> collector{
-        factory->CreateInternalTblPropColl(column_family_id,
-                                           level_at_creation)};
+        factory->CreateInternalTblPropColl(column_family_id, level_at_creation,
+                                           ioptions.num_levels)};
     if (collector) {
       table_properties_collectors_.emplace_back(std::move(collector));
     }

@@ -27,6 +27,16 @@ TEST(StringUtilTest, NumberToHumanString) {
   ASSERT_EQ("-10G", NumberToHumanString(-10000000000));
 }
 
+TEST(StringUtilTest, Uint32MapToSizeT) {
+  std::map<uint32_t, size_t> mappings = {{1, 2}, {3, 4}, {5, 6}};
+
+  std::string serialization;
+  SerializeUint32MapToSizeT(mappings, &serialization);
+  ASSERT_EQ("1:2,3:4,5:6", serialization);
+  std::map<uint32_t, size_t> parsed = ParseUint32MapToSizeT(serialization);
+  ASSERT_EQ(mappings, parsed);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

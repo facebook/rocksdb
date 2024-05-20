@@ -113,7 +113,9 @@ struct TableBuilderOptions {
       const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
       const std::string& _db_session_id = "",
-      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
+      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0,
+      const SequenceNumber _last_level_inclusive_max_seqno_threshold =
+          kMaxSequenceNumber)
       : ioptions(_ioptions),
         moptions(_moptions),
         read_options(_read_options),
@@ -132,7 +134,9 @@ struct TableBuilderOptions {
         level_at_creation(_level),
         is_bottommost(_is_bottommost),
         reason(_reason),
-        cur_file_num(_cur_file_num) {}
+        cur_file_num(_cur_file_num),
+        last_level_inclusive_max_seqno_threshold(
+            _last_level_inclusive_max_seqno_threshold) {}
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
@@ -160,6 +164,12 @@ struct TableBuilderOptions {
   // in the table options of the ioptions.table_factory
   bool skip_filters = false;
   const uint64_t cur_file_num;
+
+  // When tiering is enabled, this is the current maximum seqno threshold below
+  // which data is considered old enough to be placed on the last level. The
+  // default value with maximum sequence number indicate tiering is disabled.
+  const SequenceNumber last_level_inclusive_max_seqno_threshold =
+      kMaxSequenceNumber;
 };
 
 // TableBuilder provides the interface used to build a Table

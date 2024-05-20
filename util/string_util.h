@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -165,6 +166,11 @@ size_t ParseSizeT(const std::string& value);
 std::vector<int> ParseVectorInt(const std::string& value);
 
 bool SerializeIntVector(const std::vector<int>& vec, std::string* value);
+
+std::map<uint32_t, size_t> ParseUint32MapToSizeT(const std::string& value);
+
+bool SerializeUint32MapToSizeT(const std::map<uint32_t, size_t>& mapping,
+                               std::string* value);
 
 // Expects HH:mm format for the input value
 // Returns -1 if invalid input. Otherwise returns seconds since midnight

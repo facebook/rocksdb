@@ -314,6 +314,8 @@ class CompactionJob {
   // deleted because that version is not visible in any snapshot.
   std::vector<SequenceNumber> existing_snapshots_;
 
+  SequenceNumber earliest_snapshot_;
+
   // This is the earliest snapshot that could be used for write-conflict
   // checking by a transaction.  For any user-key newer than this snapshot, we
   // should make sure not to remove evidence that a write occurred.
