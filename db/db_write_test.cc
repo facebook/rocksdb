@@ -744,7 +744,7 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
   AcqRelAtomic<bool> parallel_ingest_completed{false};
   port::Thread parallel_ingest{[&]() {
     IngestExternalFileOptions ingest_opts;
-    ingest_opts.move_files = true; // faster than copy
+    ingest_opts.move_files = true;  // faster than copy
     // Shouldn't finish until WAL unlocked
     ASSERT_OK(db_->IngestExternalFile({ingest_file}, ingest_opts));
     parallel_ingest_completed.Store(true);

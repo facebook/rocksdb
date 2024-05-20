@@ -988,7 +988,8 @@ void StressTest::OperateDb(ThreadState* thread) {
               // reflect what has been flushed. Either that needs to be fixed
               // or GetSortedWals/GetLiveWalFile need to stop relying on
               // asking the FS for sizes.
-              if (!fault_fs_guard && old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
+              if (!fault_fs_guard &&
+                  old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
                 fprintf(stderr,
                         "Failed: WAL %" PRIu64
                         " size changed during LockWAL(): %" PRIu64
