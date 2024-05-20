@@ -193,6 +193,10 @@ def generate_targets(repo_path, deps_map):
         + src_mk.get("STRESS_LIB_SOURCES", [])
         + ["test_util/testutil.cc"],
     )
+    # ldb binary
+    TARGETS.add_binary(
+        "ldb", ["tools/ldb.cc"], [":rocksdb_tools_lib"]
+    )
     # db_stress binary
     TARGETS.add_binary(
         "db_stress", ["db_stress_tool/db_stress.cc"], [":rocksdb_stress_lib"]
