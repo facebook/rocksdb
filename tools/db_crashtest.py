@@ -67,7 +67,9 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in":  lambda: random.choice([1000, 1000000]),
     "compact_range_one_in":  lambda: random.choice([1000, 1000000]),
-    "promote_l0_one_in":  lambda: random.choice([1000, 1000000]),
+    # Disabled because of various likely related failures with
+    # "Cannot delete table file #N from level 0 since it is on level X"
+    "promote_l0_one_in": 0,
     "compaction_pri": random.randint(0, 4),
     "key_may_exist_one_in":  lambda: random.choice([100, 100000]),
     "data_block_index_type": lambda: random.choice([0, 1]),
@@ -685,6 +687,11 @@ def finalize_and_sanitize(src_params):
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
 
+    # BER disables WAL and tests unsynced data loss which
+    # does not work with inplace_update_support.
+    if dest_params.get("best_efforts_recovery") == 1:
+        dest_params["inplace_update_support"] = 0
+
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
     if (
@@ -699,11 +706,22 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    # Since the value of inplace_update_support needs to be fixed across runs,
+    # we disable other incompatible options here instead of disabling
+    # inplace_update_support based on other option values, which may change
+    # across runs.
     if dest_params["inplace_update_support"] == 1:
        dest_params["delpercent"] += dest_params["delrangepercent"]
        dest_params["delrangepercent"] = 0
        dest_params["readpercent"] += dest_params["prefixpercent"]
        dest_params["prefixpercent"] = 0
+       dest_params["allow_concurrent_memtable_write"] = 0
+       # inplace_update_support does not update sequence number. Our stress test recovery
+       # logic for unsynced data loss relies on max sequence number stored
+       # in MANIFEST, so they don't work together.
+       dest_params["disable_wal"] = 0
+       dest_params["sync_fault_injection"] = 0
+       dest_params["manual_wal_flush_one_in"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
@@ -727,6 +745,8 @@ def finalize_and_sanitize(src_params):
         # Therefore it always expects no data loss.
         dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
+    # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
+    # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
         dest_params["allow_concurrent_memtable_write"] = 1
@@ -830,7 +850,6 @@ def finalize_and_sanitize(src_params):
           dest_params["disable_wal"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
-        dest_params["inplace_update_support"] = 0
     if (dest_params.get("enable_compaction_filter", 0) == 1
         or dest_params.get("inplace_update_support", 0) == 1):
         # Compaction filter, inplace update support are incompatible with snapshots. Need to avoid taking
@@ -862,8 +881,13 @@ def finalize_and_sanitize(src_params):
     elif (dest_params.get("use_put_entity_one_in") > 1 and
         dest_params.get("use_timed_put_one_in") == 1):
         dest_params["use_timed_put_one_in"] = 3
+    # TODO: re-enable this combination.
+    if dest_params.get("lock_wal_one_in") != 0 and dest_params["ingest_external_file_one_in"] != 0:
+        if random.choice([0, 1]) == 0:
+            dest_params["ingest_external_file_one_in"] = 0
+        else:
+            dest_params["lock_wal_one_in"] = 0
     return dest_params
-
 
 def gen_cmd_params(args):
     params = {}

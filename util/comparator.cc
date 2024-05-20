@@ -276,6 +276,13 @@ class ComparatorWithU64TsImpl : public Comparator {
 
   Slice GetMinTimestamp() const override { return MinU64Ts(); }
 
+  std::string TimestampToString(const Slice& timestamp) const override {
+    assert(timestamp.size() == sizeof(uint64_t));
+    uint64_t ts = 0;
+    DecodeU64Ts(timestamp, &ts).PermitUncheckedError();
+    return std::to_string(ts);
+  }
+
   using Comparator::CompareWithoutTimestamp;
   int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
                               bool b_has_ts) const override {

@@ -109,6 +109,16 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
       *prop = "Iterator is not valid.";
     }
     return Status::OK();
+  } else if (prop_name == "rocksdb.iterator.is-value-pinned") {
+    if (valid_) {
+      *prop = (pin_thru_lifetime_ && iter_.Valid() &&
+               iter_.value().data() == value_.data())
+                  ? "1"
+                  : "0";
+    } else {
+      *prop = "Iterator is not valid.";
+    }
+    return Status::OK();
   } else if (prop_name == "rocksdb.iterator.internal-key") {
     *prop = saved_key_.GetUserKey().ToString();
     return Status::OK();

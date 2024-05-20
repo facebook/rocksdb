@@ -72,6 +72,7 @@ class LDBCommand {
   static const std::string ARG_PREPOPULATE_BLOB_CACHE;
   static const std::string ARG_DECODE_BLOB_INDEX;
   static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
+  static const std::string ARG_READ_TIMESTAMP;
 
   struct ParsedParams {
     std::string cmd;
@@ -190,6 +191,9 @@ class LDBCommand {
 
   bool create_if_missing_;
 
+  /** Encoded user provided uint64_t read timestamp. */
+  std::string read_timestamp_;
+
   /**
    * Map of options passed on the command-line.
    */
@@ -274,6 +278,10 @@ class LDBCommand {
    */
   bool ParseBooleanOption(const std::map<std::string, std::string>& options,
                           const std::string& option, bool default_val);
+
+  /* Populate `ropts.timestamp` from command line flag --read_timestamp */
+  Status MaybePopulateReadTimestamp(ColumnFamilyHandle* cfh, ReadOptions& ropts,
+                                    Slice* read_timestamp);
 
   Options options_;
   std::vector<ColumnFamilyDescriptor> column_families_;

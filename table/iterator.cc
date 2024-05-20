@@ -23,6 +23,10 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
     *prop = "0";
     return Status::OK();
   }
+  if (prop_name == "rocksdb.iterator.is-value-pinned") {
+    *prop = "0";
+    return Status::OK();
+  }
   return Status::InvalidArgument("Unidentified property.");
 }
 

@@ -505,11 +505,13 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
 }
 
 void StressTest::ProcessStatus(SharedState* shared, std::string opname,
-                               Status s) const {
+                               const Status& s,
+                               bool ignore_injected_error) const {
   if (s.ok()) {
     return;
   }
-  if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+  if (!s.IsIOError() || !std::strstr(s.getState(), "injected") ||
+      !ignore_injected_error) {
     std::ostringstream oss;
     oss << opname << " failed: " << s.ToString();
     VerificationAbort(shared, oss.str());

@@ -104,7 +104,7 @@ using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;
 // To use this class and its subclasses,
 // 1. Create an object of VersionEditHandler or its subclasses.
 //    VersionEditHandler handler(read_only, column_families, version_set,
-//                               track_missing_files,
+//                               track_found_and_missing_files,
 //                               no_error_if_files_missing);
 // 2. Status s = handler.Iterate(reader, &db_id);
 // 3. Check s and handle possible errors.
@@ -116,16 +116,17 @@ class VersionEditHandler : public VersionEditHandlerBase {
   explicit VersionEditHandler(
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      VersionSet* version_set, bool track_missing_files,
+      VersionSet* version_set, bool track_found_and_missing_files,
       bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent)
-      : VersionEditHandler(
-            read_only, column_families, version_set, track_missing_files,
-            no_error_if_files_missing, io_tracer, read_options,
-            /*skip_load_table_files=*/false, epoch_number_requirement) {}
+      : VersionEditHandler(read_only, column_families, version_set,
+                           track_found_and_missing_files,
+                           no_error_if_files_missing, io_tracer, read_options,
+                           /*skip_load_table_files=*/false,
+                           epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 
@@ -144,7 +145,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
  protected:
   explicit VersionEditHandler(
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
-      VersionSet* version_set, bool track_missing_files,
+      VersionSet* version_set, bool track_found_and_missing_files,
       bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options, bool skip_load_table_files,
@@ -195,7 +196,8 @@ class VersionEditHandler : public VersionEditHandlerBase {
   // by subsequent manifest records, Recover() will return failure status.
   std::unordered_map<uint32_t, std::string> column_families_not_found_;
   VersionEditParams version_edit_params_;
-  const bool track_missing_files_;
+  const bool track_found_and_missing_files_;
+  std::unordered_map<uint32_t, std::unordered_set<uint64_t>> cf_to_found_files_;
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files_;
   std::unordered_map<uint32_t, uint64_t> cf_to_missing_blob_files_high_;
@@ -273,6 +275,8 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
   bool in_atomic_group_ = false;
 
+  std::vector<std::string> intermediate_files_;
+
  private:
   bool AtomicUpdateVersionsCompleted();
   bool AtomicUpdateVersionsContains(uint32_t cfid);
@@ -310,6 +314,10 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
     return cfds_changed_;
   }
 
+  std::vector<std::string>& GetIntermediateFiles() {
+    return intermediate_files_;
+  }
+
  protected:
   Status Initialize() override;
 
@@ -342,7 +350,7 @@ class DumpManifestHandler : public VersionEditHandler {
                       bool json)
       : VersionEditHandler(
             /*read_only=*/true, column_families, version_set,
-            /*track_missing_files=*/false,
+            /*track_found_and_missing_files=*/false,
             /*no_error_if_files_missing=*/false, io_tracer, read_options,
             /*skip_load_table_files=*/true),
         verbose_(verbose),

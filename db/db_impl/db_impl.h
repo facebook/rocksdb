@@ -1648,6 +1648,7 @@ class DBImpl : public DB {
   friend class ForwardIterator;
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+  friend class DBImplFollower;
 #ifndef NDEBUG
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
@@ -2992,9 +2993,9 @@ inline Status DBImpl::FailIfReadCollapsedHistory(const ColumnFamilyData* cfd,
   if (!full_history_ts_low.empty() &&
       ucmp->CompareTimestamp(ts, full_history_ts_low) < 0) {
     std::stringstream oss;
-    oss << "Read timestamp: " << ts.ToString(true)
+    oss << "Read timestamp: " << ucmp->TimestampToString(ts)
         << " is smaller than full_history_ts_low: "
-        << Slice(full_history_ts_low).ToString(true) << std::endl;
+        << ucmp->TimestampToString(full_history_ts_low) << std::endl;
     return Status::InvalidArgument(oss.str());
   }
   return Status::OK();

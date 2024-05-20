@@ -351,6 +351,24 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
   return s;
 }
 
+Status TransactionBaseImpl::GetEntityForUpdate(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns, bool exclusive,
+    bool do_validate) {
+  if (!do_validate && read_options.snapshot != nullptr) {
+    return Status::InvalidArgument(
+        "Snapshot must not be set if validation is disabled");
+  }
+
+  const Status s =
+      TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return GetEntityImpl(read_options, column_family, key, columns);
+}
+
 std::vector<Status> TransactionBaseImpl::MultiGet(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
