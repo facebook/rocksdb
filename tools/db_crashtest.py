@@ -883,12 +883,6 @@ def finalize_and_sanitize(src_params):
     elif (dest_params.get("use_put_entity_one_in") > 1 and
         dest_params.get("use_timed_put_one_in") == 1):
         dest_params["use_timed_put_one_in"] = 3
-    # TODO: re-enable this combination.
-    if dest_params.get("lock_wal_one_in") != 0 and dest_params["ingest_external_file_one_in"] != 0:
-        if random.choice([0, 1]) == 0:
-            dest_params["ingest_external_file_one_in"] = 0
-        else:
-            dest_params["lock_wal_one_in"] = 0
     return dest_params
 
 def gen_cmd_params(args):
