@@ -234,6 +234,11 @@ class WriteCommittedTxn : public PessimisticTransaction {
                       PinnableSlice* pinnable_val, bool exclusive,
                       const bool do_validate) override;
 
+  Status GetEntityForUpdate(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableWideColumns* columns, bool exclusive,
+                            bool do_validate) override;
+
   using TransactionBaseImpl::Put;
   // `key` does NOT include timestamp even when it's enabled.
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,

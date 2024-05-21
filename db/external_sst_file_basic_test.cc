@@ -674,6 +674,10 @@ TEST_F(ExternalSSTFileBasicTest, NoCopy) {
   ASSERT_EQ(file3_info.smallest_key, Key(110));
   ASSERT_EQ(file3_info.largest_key, Key(124));
 
+  ASSERT_OK(dbfull()->LockWAL());
+  // TODO(FIXME): should not allow file ingestion.
+  // With below line, ingestion will block, without it, ingestion can go
+  // through. ASSERT_OK(dbfull()->Put(WriteOptions(), "vo", "vo"));
   s = DeprecatedAddFile({file1}, true /* move file */);
   ASSERT_OK(s) << s.ToString();
   ASSERT_EQ(Status::NotFound(), env_->FileExists(file1));

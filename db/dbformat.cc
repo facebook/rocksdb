@@ -47,6 +47,8 @@ EntryType GetEntryType(ValueType value_type) {
       return kEntryBlobIndex;
     case kTypeWideColumnEntity:
       return kEntryWideColumnEntity;
+    case kTypeValuePreferredSeqno:
+      return kEntryTimedPut;
     default:
       return kEntryOther;
   }

@@ -976,6 +976,10 @@ DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");
 
+DEFINE_bool(avoid_sync_during_shutdown,
+            ROCKSDB_NAMESPACE::Options().avoid_sync_during_shutdown,
+            "Options.avoid_sync_during_shutdown");
+
 DEFINE_uint64(max_write_batch_group_size_bytes,
               ROCKSDB_NAMESPACE::Options().max_write_batch_group_size_bytes,
               "Max write batch group size");

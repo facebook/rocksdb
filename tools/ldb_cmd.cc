@@ -2666,11 +2666,19 @@ class InMemoryHandler : public WriteBatch::Handler {
 
   Status PutEntityCF(uint32_t cf, const Slice& key,
                      const Slice& value) override {
-    row_ << "PUT_ENTITY(" << cf << ") : ";
-    std::string k = LDBCommand::StringToHex(key.ToString());
+    row_ << "PUT_ENTITY(" << cf
+         << ") : " << LDBCommand::StringToHex(key.ToString());
+
     if (print_values_) {
-      return WideColumnsHelper::DumpSliceAsWideColumns(value, row_, true);
+      row_ << " : ";
+      const Status s =
+          WideColumnsHelper::DumpSliceAsWideColumns(value, row_, true);
+      if (!s.ok()) {
+        return s;
+      }
     }
+
+    row_ << ' ';
     return Status::OK();
   }
 
