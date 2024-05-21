@@ -114,7 +114,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
   s = db_->GetEnv()->CreateDir(full_private_path);
   uint64_t sequence_number = 0;
   if (s.ok()) {
-    // enable file deletions
+    // Disable file deletions
     s = db_->DisableFileDeletions();
     const bool disabled_file_deletions = s.ok();
 
