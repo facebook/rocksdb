@@ -2777,7 +2777,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     }
   }
 
-  if (s.ok() && !blob_ctxs.empty()) {
+  if (!blob_ctxs.empty()) {
     MultiGetBlob(read_options, keys_with_blobs_range, blob_ctxs);
   }
 
@@ -3130,6 +3130,10 @@ bool Version::MaybeInitializeFileMetaData(const ReadOptions& read_options,
   file_meta->raw_value_size = tp->raw_value_size;
   file_meta->raw_key_size = tp->raw_key_size;
   file_meta->num_range_deletions = tp->num_range_deletions;
+  // Ensure new invariants on old files
+  file_meta->num_deletions =
+      std::max(tp->num_deletions, tp->num_range_deletions);
+  file_meta->num_entries = std::max(tp->num_entries, tp->num_deletions);
   return true;
 }
 
@@ -3141,6 +3145,7 @@ void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
   accumulated_file_size_ += file_meta->fd.GetFileSize();
   accumulated_raw_key_size_ += file_meta->raw_key_size;
   accumulated_raw_value_size_ += file_meta->raw_value_size;
+  assert(file_meta->num_entries >= file_meta->num_deletions);
   accumulated_num_non_deletions_ +=
       file_meta->num_entries - file_meta->num_deletions;
   accumulated_num_deletions_ += file_meta->num_deletions;
@@ -4612,25 +4617,27 @@ uint64_t VersionStorageInfo::GetMaxEpochNumberOfFiles() const {
   return max_epoch_number;
 }
 
-void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd) {
-  cfd->ResetNextEpochNumber();
+void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd,
+                                             bool restart_epoch, bool force) {
+  if (restart_epoch) {
+    cfd->ResetNextEpochNumber();
 
-  bool reserve_epoch_num_for_file_ingested_behind =
-      cfd->ioptions()->allow_ingest_behind;
-  if (reserve_epoch_num_for_file_ingested_behind) {
-    uint64_t reserved_epoch_number = cfd->NewEpochNumber();
-    assert(reserved_epoch_number == kReservedEpochNumberForFileIngestedBehind);
-    ROCKS_LOG_INFO(cfd->ioptions()->info_log.get(),
-                   "[%s]CF has reserved epoch number %" PRIu64
-                   " for files ingested "
-                   "behind since `Options::allow_ingest_behind` is true",
-                   cfd->GetName().c_str(), reserved_epoch_number);
+    bool reserve_epoch_num_for_file_ingested_behind =
+        cfd->ioptions()->allow_ingest_behind;
+    if (reserve_epoch_num_for_file_ingested_behind) {
+      uint64_t reserved_epoch_number = cfd->NewEpochNumber();
+      assert(reserved_epoch_number ==
+             kReservedEpochNumberForFileIngestedBehind);
+      ROCKS_LOG_INFO(cfd->ioptions()->info_log.get(),
+                     "[%s]CF has reserved epoch number %" PRIu64
+                     " for files ingested "
+                     "behind since `Options::allow_ingest_behind` is true",
+                     cfd->GetName().c_str(), reserved_epoch_number);
+    }
   }
 
-  if (HasMissingEpochNumber()) {
-    assert(epoch_number_requirement_ == EpochNumberRequirement::kMightMissing);
-    assert(num_levels_ >= 1);
-
+  bool missing_epoch_number = HasMissingEpochNumber();
+  if (missing_epoch_number || force) {
     for (int level = num_levels_ - 1; level >= 1; --level) {
       auto& files_at_level = files_[level];
       if (files_at_level.empty()) {
@@ -4641,17 +4648,19 @@ void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd) {
         f->epoch_number = next_epoch_number;
       }
     }
-
     for (auto file_meta_iter = files_[0].rbegin();
          file_meta_iter != files_[0].rend(); file_meta_iter++) {
       FileMetaData* f = *file_meta_iter;
       f->epoch_number = cfd->NewEpochNumber();
     }
-
-    ROCKS_LOG_WARN(cfd->ioptions()->info_log.get(),
-                   "[%s]CF's epoch numbers are inferred based on seqno",
-                   cfd->GetName().c_str());
-    epoch_number_requirement_ = EpochNumberRequirement::kMustPresent;
+    if (missing_epoch_number) {
+      assert(epoch_number_requirement_ ==
+             EpochNumberRequirement::kMightMissing);
+      ROCKS_LOG_WARN(cfd->ioptions()->info_log.get(),
+                     "[%s]CF's epoch numbers are inferred based on seqno",
+                     cfd->GetName().c_str());
+      epoch_number_requirement_ = EpochNumberRequirement::kMustPresent;
+    }
   } else {
     assert(epoch_number_requirement_ == EpochNumberRequirement::kMustPresent);
     cfd->SetNextEpochNumber(
@@ -6013,7 +6022,8 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
 
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    std::string* db_id, bool no_error_if_files_missing) {
+    std::string* db_id, bool no_error_if_files_missing, bool is_retry,
+    Status* log_status) {
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   // Read "CURRENT" file, which contains a pointer to the current manifest
   // file
@@ -6038,8 +6048,11 @@ Status VersionSet::Recover(
     }
     manifest_file_reader.reset(new SequentialFileReader(
         std::move(manifest_file), manifest_path,
-        db_options_->log_readahead_size, io_tracer_, db_options_->listeners));
+        db_options_->log_readahead_size, io_tracer_, db_options_->listeners,
+        /*rate_limiter=*/nullptr, is_retry));
   }
+  TEST_SYNC_POINT("VersionSet::Recover:StartManifestRead");
+
   uint64_t current_manifest_file_size = 0;
   uint64_t log_number = 0;
   {
@@ -6050,8 +6063,8 @@ Status VersionSet::Recover(
                        true /* checksum */, 0 /* log_number */);
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
-        /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_,
-        read_options, EpochNumberRequirement::kMightMissing);
+        /*track_found_and_missing_files=*/false, no_error_if_files_missing,
+        io_tracer_, read_options, EpochNumberRequirement::kMightMissing);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -6062,6 +6075,9 @@ Status VersionSet::Recover(
     }
     if (s.ok()) {
       RecoverEpochNumbers();
+    }
+    if (log_status) {
+      *log_status = log_read_status;
     }
   }
 
@@ -7137,6 +7153,20 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
 }
 
 void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
+  if (!metadata) {
+    return;
+  }
+  assert(metadata);
+  size_t count = 0;
+  for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    for (int level = 0; level < cfd->NumberLevels(); level++) {
+      count += cfd->current()->storage_info()->LevelFiles(level).size();
+    }
+  }
+  metadata->reserve(count);
   for (auto cfd : *column_family_set_) {
     if (cfd->IsDropped() || !cfd->initialized()) {
       continue;
@@ -7409,7 +7439,8 @@ Status ReactiveVersionSet::ReadAndApply(
     InstrumentedMutex* mu,
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
     Status* manifest_read_status,
-    std::unordered_set<ColumnFamilyData*>* cfds_changed) {
+    std::unordered_set<ColumnFamilyData*>* cfds_changed,
+    std::vector<std::string>* files_to_delete) {
   assert(manifest_reader != nullptr);
   assert(cfds_changed != nullptr);
   mu->AssertHeld();
@@ -7425,6 +7456,9 @@ Status ReactiveVersionSet::ReadAndApply(
   s = manifest_tailer_->status();
   if (s.ok()) {
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());
+  }
+  if (files_to_delete) {
+    *files_to_delete = std::move(manifest_tailer_->GetIntermediateFiles());
   }
 
   return s;

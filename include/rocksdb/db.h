@@ -298,6 +298,29 @@ class DB {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  // EXPERIMENTAL
+
+  // Open a database as a follower. The difference between this and opening
+  // as secondary is that the follower database has its own directory with
+  // links to the actual files, and can tolarate obsolete file deletions by
+  // the leader to its own database. Another difference is the follower
+  // tries to keep up with the leader by periodically tailing the leader's
+  // MANIFEST, and (in the future) memtable updates, rather than relying on
+  // the user to manually call TryCatchupWithPrimary().
+
+  // Open as a follower with the default column family
+  static Status OpenAsFollower(const Options& options, const std::string& name,
+                               const std::string& leader_path,
+                               std::unique_ptr<DB>* dbptr);
+
+  // Open as a follower with multiple column families
+  static Status OpenAsFollower(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& leader_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
+  // End EXPERIMENTAL
+
   // Open DB and run the compaction.
   // It's a read-only operation, the result won't be installed to the DB, it
   // will be output to the `output_directory`. The API should only be used with
@@ -518,6 +541,8 @@ class DB {
   // 2) Limiting the maximum number of open files in the presence of range
   // tombstones can degrade read performance. To avoid this problem, set
   // max_open_files to -1 whenever possible.
+  // 3) Incompatible with row_cache, will return Status::NotSupported() if
+  // row_cache is configured.
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
@@ -972,7 +997,7 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
-  // UNDER CONSTRUCTION - DO NOT USE
+  // EXPERIMENTAL
   // Return a cross-column-family iterator from a consistent database state.
   //
   // If a key exists in more than one column family, value() will be determined
@@ -990,7 +1015,7 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
-  // UNDER CONSTRUCTION - DO NOT USE
+  // EXPERIMENTAL
   // A cross-column-family iterator that collects and returns attribute groups
   // for each key in order provided by comparator
   virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
@@ -1450,6 +1475,9 @@ class DB {
   // move the files back to the minimum level capable of holding the data set
   // or a given level (specified by non-negative options.target_level).
   //
+  // For FIFO compaction, this will trigger a compaction (if available)
+  // based on CompactionOptionsFIFO.
+  //
   // In case of user-defined timestamp, if enabled, `begin` and `end` should
   // not contain timestamp.
   virtual Status CompactRange(const CompactRangeOptions& options,
@@ -1833,6 +1861,7 @@ class DB {
   // supported. 4) When an ingested file contains point data and range deletion
   // for the same key, the point data currently overrides the range deletion
   // regardless which one has the higher user-defined timestamps.
+  // For FIFO compaction, SST files will always be ingested into L0.
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level
@@ -1980,6 +2009,8 @@ class DB {
     return Status::NotSupported("SuggestCompactRange() is not implemented.");
   }
 
+  // Trivially move L0 files to target level. Should not be called with another
+  // PromoteL0() concurrently
   virtual Status PromoteL0(ColumnFamilyHandle* /*column_family*/,
                            int /*target_level*/) {
     return Status::NotSupported("PromoteL0() is not implemented.");

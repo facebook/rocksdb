@@ -704,6 +704,10 @@ int main(int argc, char** argv) {
   rocksdb_block_based_options_set_block_cache(table_options, cache);
   rocksdb_block_based_options_set_data_block_index_type(table_options, 1);
   rocksdb_block_based_options_set_data_block_hash_ratio(table_options, 0.75);
+  rocksdb_block_based_options_set_top_level_index_pinning_tier(table_options,
+                                                               1);
+  rocksdb_block_based_options_set_partition_pinning_tier(table_options, 2);
+  rocksdb_block_based_options_set_unpartitioned_pinning_tier(table_options, 3);
   rocksdb_options_set_block_based_table_factory(options, table_options);
 
   rocksdb_options_set_compression(options, rocksdb_no_compression);
@@ -1318,6 +1322,8 @@ int main(int argc, char** argv) {
       policy = rocksdb_filterpolicy_create_ribbon_hybrid(8.0, 1);
     }
     rocksdb_block_based_options_set_filter_policy(table_options, policy);
+    rocksdb_block_based_options_set_optimize_filters_for_memory(table_options,
+                                                                0);
 
     // Create new database
     rocksdb_close(db);
@@ -2039,7 +2045,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_advise_random_on_open(o, 1);
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(o));
 
-
     rocksdb_options_set_use_adaptive_mutex(o, 1);
     CheckCondition(1 == rocksdb_options_get_use_adaptive_mutex(o));
 
@@ -2109,6 +2114,9 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_compaction_style(o, 2);
     CheckCondition(2 == rocksdb_options_get_compaction_style(o));
+
+    rocksdb_options_set_compaction_pri(o, 4);
+    CheckCondition(4 == rocksdb_options_get_compaction_pri(o));
 
     rocksdb_options_set_atomic_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
@@ -2613,6 +2621,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_compaction_style(copy, 1);
     CheckCondition(1 == rocksdb_options_get_compaction_style(copy));
     CheckCondition(2 == rocksdb_options_get_compaction_style(o));
+
+    rocksdb_options_set_compaction_pri(copy, 1);
+    CheckCondition(1 == rocksdb_options_get_compaction_pri(copy));
+    CheckCondition(4 == rocksdb_options_get_compaction_pri(o));
 
     rocksdb_options_set_atomic_flush(copy, 0);
     CheckCondition(0 == rocksdb_options_get_atomic_flush(copy));

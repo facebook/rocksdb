@@ -1135,6 +1135,11 @@ DEFINE_int32(secondary_update_interval, 5,
              "Secondary instance attempts to catch up with the primary every "
              "secondary_update_interval seconds.");
 
+DEFINE_bool(open_as_follower, false,
+            "Open a RocksDB DB as a follower. The leader instance can be "
+            "running in another db_bench process.");
+
+DEFINE_string(leader_path, "", "Path to the directory of the leader DB");
 
 DEFINE_bool(report_bg_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
@@ -1294,6 +1299,8 @@ static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
     return ROCKSDB_NAMESPACE::kAdmPolicyAllowCacheHits;
   } else if (!strcasecmp(policy, "three_queue")) {
     return ROCKSDB_NAMESPACE::kAdmPolicyThreeQueue;
+  } else if (!strcasecmp(policy, "allow_all")) {
+    return ROCKSDB_NAMESPACE::kAdmPolicyAllowAll;
   } else {
     fprintf(stderr, "Cannot parse admission policy %s\n", policy);
     exit(1);
@@ -4978,6 +4985,12 @@ class Benchmark {
               }
             },
             FLAGS_secondary_update_interval, db));
+      }
+    } else if (FLAGS_open_as_follower) {
+      std::unique_ptr<DB> dbptr;
+      s = DB::OpenAsFollower(options, db_name, FLAGS_leader_path, &dbptr);
+      if (s.ok()) {
+        db->db = dbptr.release();
       }
     } else {
       s = DB::Open(options, db_name, &db->db);

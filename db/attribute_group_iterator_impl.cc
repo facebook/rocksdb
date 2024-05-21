@@ -8,10 +8,13 @@
 namespace ROCKSDB_NAMESPACE {
 
 const AttributeGroups kNoAttributeGroups;
+const IteratorAttributeGroups kNoIteratorAttributeGroups;
 
 void AttributeGroupIteratorImpl::AddToAttributeGroups(
-    ColumnFamilyHandle* /*cfh*/, const WideColumns& /*columns*/) {
-  // TODO - Implement AttributeGroup population
+    const autovector<MultiCfIteratorInfo>& items) {
+  for (const auto& item : items) {
+    attribute_groups_.emplace_back(item.cfh, &item.iterator->columns());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

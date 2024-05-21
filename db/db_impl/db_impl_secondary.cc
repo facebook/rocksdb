@@ -33,8 +33,8 @@ DBImplSecondary::~DBImplSecondary() = default;
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool /*readonly*/, bool /*error_if_wal_file_exists*/,
-    bool /*error_if_data_exists_in_wals*/, uint64_t*,
-    RecoveryContext* /*recovery_ctx*/) {
+    bool /*error_if_data_exists_in_wals*/, bool /*is_retry*/, uint64_t*,
+    RecoveryContext* /*recovery_ctx*/, bool* /*can_retry*/) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -680,7 +680,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
     InstrumentedMutexLock lock_guard(&mutex_);
     s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
             ->ReadAndApply(&mutex_, &manifest_reader_,
-                           manifest_reader_status_.get(), &cfds_changed);
+                           manifest_reader_status_.get(), &cfds_changed,
+                           /*files_to_delete=*/nullptr);
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                    static_cast<uint64_t>(versions_->LastSequence()));

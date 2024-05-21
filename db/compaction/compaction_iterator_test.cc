@@ -1261,6 +1261,28 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       TimedPut_ShouldBeCoverredByRangeDeletionBeforeSwap_NoOutput) {
+  InitIterators({test::KeyStr("morning", 5, kTypeValuePreferredSeqno),
+                 test::KeyStr("morning", 2, kTypeValuePreferredSeqno),
+                 test::KeyStr("night", 6, kTypeValue)},
+                {ValueWithPreferredSeqno("zao", 3),
+                 ValueWithPreferredSeqno("zao", 1), "wan"},
+                {test::KeyStr("ma", 6, kTypeRangeDeletion)}, {"mz"}, 6,
+                kMaxSequenceNumber /*last_committed_sequence*/,
+                nullptr /*merge_op*/, nullptr /*filter*/,
+                false /*bottommost_level*/,
+                kMaxSequenceNumber /*earliest_write_conflict_snapshot*/,
+                true /*key_not_exists_beyond_output_level*/);
+  c_iter_->SeekToFirst();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("night", 6, kTypeValue), c_iter_->key().ToString());
+  ASSERT_EQ("wan", c_iter_->value().ToString());
+  c_iter_->Next();
+  ASSERT_FALSE(c_iter_->Valid());
+  ASSERT_OK(c_iter_->status());
+}
+
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        TimedPut_WillBeHiddenByRangeDeletionAfterSwap_NoSwap) {
   InitIterators({test::KeyStr("morning", 5, kTypeValuePreferredSeqno),
                  test::KeyStr("night", 6, kTypeValue)},
@@ -1314,6 +1336,19 @@ TEST_F(
       nullptr /*compaction_filter*/, false /*bottommost_level*/,
       kMaxSequenceNumber /*earliest_write_conflict_snapshot*/,
       true /*key_not_exists_beyond_output_level*/);
+}
+
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       TimedPut_SequenceNumberAlreadyZeroedOut_ChangeType) {
+  RunTest(
+      {test::KeyStr("bar", 0, kTypeValuePreferredSeqno),
+       test::KeyStr("bar", 0, kTypeValuePreferredSeqno),
+       test::KeyStr("foo", 0, kTypeValue)},
+      {ValueWithPreferredSeqno("bv2", 2), ValueWithPreferredSeqno("bv1", 1),
+       "fv1"},
+      {test::KeyStr("bar", 0, kTypeValue), test::KeyStr("foo", 0, kTypeValue)},
+      {"bv2", "fv1"}, 6 /*last_committed_seq*/, nullptr /*merge_operator*/,
+      nullptr /*compaction_filter*/, true /*bottommost_level*/);
 }
 
 // Compaction filter should keep uncommitted key as-is, and

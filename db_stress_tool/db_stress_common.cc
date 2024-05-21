@@ -321,6 +321,17 @@ uint32_t GetValueBase(Slice s) {
   return res;
 }
 
+AttributeGroups GenerateAttributeGroups(
+    const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
+    const Slice& slice) {
+  WideColumns columns = GenerateWideColumns(value_base, slice);
+  AttributeGroups attribute_groups;
+  for (auto* cfh : cfhs) {
+    attribute_groups.emplace_back(cfh, columns);
+  }
+  return attribute_groups;
+}
+
 WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
   WideColumns columns;
 
@@ -389,6 +400,27 @@ std::string GetNowNanos() {
   std::string ret;
   PutFixed64(&ret, t);
   return ret;
+}
+
+uint64_t GetWriteUnixTime(ThreadState* thread) {
+  static uint64_t kPreserveSeconds =
+      std::max(FLAGS_preserve_internal_time_seconds,
+               FLAGS_preclude_last_level_data_seconds);
+  static uint64_t kFallbackTime = std::numeric_limits<uint64_t>::max();
+  int64_t write_time = 0;
+  Status s = db_stress_env->GetCurrentTime(&write_time);
+  uint32_t write_time_mode = thread->rand.Uniform(3);
+  if (write_time_mode == 0 || !s.ok()) {
+    return kFallbackTime;
+  } else if (write_time_mode == 1) {
+    uint64_t delta = kPreserveSeconds > 0
+                         ? static_cast<uint64_t>(thread->rand.Uniform(
+                               static_cast<int>(kPreserveSeconds)))
+                         : 0;
+    return static_cast<uint64_t>(write_time) - delta;
+  } else {
+    return static_cast<uint64_t>(write_time) - kPreserveSeconds;
+  }
 }
 
 namespace {

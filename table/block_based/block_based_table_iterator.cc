@@ -338,8 +338,8 @@ void BlockBasedTableIterator::InitDataBlock() {
   bool use_block_cache_for_lookup = true;
 
   if (DoesContainBlockHandles()) {
-    data_block_handle = block_handles_.front().handle_;
-    is_in_cache = block_handles_.front().is_cache_hit_;
+    data_block_handle = block_handles_->front().handle_;
+    is_in_cache = block_handles_->front().is_cache_hit_;
     use_block_cache_for_lookup = false;
   } else {
     data_block_handle = index_iter_->value().handle;
@@ -361,7 +361,7 @@ void BlockBasedTableIterator::InitDataBlock() {
       Status s;
       block_iter_.Invalidate(Status::OK());
       table_->NewDataBlockIterator<DataBlockIter>(
-          read_options_, (block_handles_.front().cachable_entry_).As<Block>(),
+          read_options_, (block_handles_->front().cachable_entry_).As<Block>(),
           &block_iter_, s);
     } else {
       auto* rep = table_->get_rep();
@@ -466,8 +466,8 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
     bool is_in_cache = false;
 
     if (DoesContainBlockHandles()) {
-      data_block_handle = block_handles_.front().handle_;
-      is_in_cache = block_handles_.front().is_cache_hit_;
+      data_block_handle = block_handles_->front().handle_;
+      is_in_cache = block_handles_->front().is_cache_hit_;
     } else {
       data_block_handle = index_iter_->value().handle;
     }
@@ -477,7 +477,7 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
     if (is_in_cache) {
       block_iter_.Invalidate(Status::OK());
       table_->NewDataBlockIterator<DataBlockIter>(
-          read_options_, (block_handles_.front().cachable_entry_).As<Block>(),
+          read_options_, (block_handles_->front().cachable_entry_).As<Block>(),
           &block_iter_, s);
     } else {
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -524,7 +524,7 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   // BlockCacheLookupForReadAheadSize is called.
   Slice first_internal_key;
   if (DoesContainBlockHandles()) {
-    first_internal_key = block_handles_.front().first_internal_key_;
+    first_internal_key = block_handles_->front().first_internal_key_;
   } else {
     first_internal_key = index_iter_->value().first_internal_key;
   }
@@ -580,7 +580,7 @@ void BlockBasedTableIterator::FindBlockForward() {
     if (DoesContainBlockHandles()) {
       // Advance and point to that next Block handle to make that block handle
       // current.
-      block_handles_.pop_front();
+      block_handles_->pop_front();
     }
 
     if (!DoesContainBlockHandles()) {
@@ -681,7 +681,8 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
     bool read_curr_block, bool& found_first_miss_block,
     uint64_t& start_updated_offset, uint64_t& end_updated_offset,
     size_t& prev_handles_size) {
-  prev_handles_size = block_handles_.size();
+  assert(block_handles_ != nullptr);
+  prev_handles_size = block_handles_->size();
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
 
   // It initialize start and end offset to begin which is covered by following
@@ -701,7 +702,7 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
 
       end_updated_offset = block_handle_info.handle_.offset() + footer +
                            block_handle_info.handle_.size();
-      block_handles_.emplace_back(std::move(block_handle_info));
+      block_handles_->emplace_back(std::move(block_handle_info));
 
       index_iter_->Next();
       is_index_at_curr_block_ = false;
@@ -717,17 +718,17 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
       // Initialize prev_handles_size to 0 as all those handles need to be read
       // again.
       prev_handles_size = 0;
-      start_updated_offset = block_handles_.front().handle_.offset();
-      end_updated_offset = block_handles_.back().handle_.offset() + footer +
-                           block_handles_.back().handle_.size();
+      start_updated_offset = block_handles_->front().handle_.offset();
+      end_updated_offset = block_handles_->back().handle_.offset() + footer +
+                           block_handles_->back().handle_.size();
     }
   } else {
     // Scenario 3 : read_curr_block is false (callback made to do additional
     //              prefetching in buffers) and the queue already has some
     //              handles from first buffer.
     if (DoesContainBlockHandles()) {
-      start_updated_offset = block_handles_.back().handle_.offset() + footer +
-                             block_handles_.back().handle_.size();
+      start_updated_offset = block_handles_->back().handle_.offset() + footer +
+                             block_handles_->back().handle_.size();
       end_updated_offset = start_updated_offset;
     } else {
       // Scenario 4 : read_curr_block is false (callback made to do additional
@@ -789,6 +790,9 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 
   // Initialize start and end offsets based on exisiting handles in the queue
   // and read_curr_block argument passed.
+  if (block_handles_ == nullptr) {
+    block_handles_.reset(new std::deque<BlockHandleInfo>());
+  }
   InitializeStartAndEndOffsets(read_curr_block, found_first_miss_block,
                                start_updated_offset, end_updated_offset,
                                prev_handles_size);
@@ -833,7 +837,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     }
 
     // Add the handle to the queue.
-    block_handles_.emplace_back(std::move(block_handle_info));
+    block_handles_->emplace_back(std::move(block_handle_info));
 
     // Can't figure out for current block if current block
     // is out of bound. But for next block we can find that.
@@ -851,9 +855,9 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   if (found_first_miss_block) {
     // Iterate cache hit block handles from the end till a Miss is there, to
     // truncate and update the end offset till that Miss.
-    auto it = block_handles_.rbegin();
+    auto it = block_handles_->rbegin();
     auto it_end =
-        block_handles_.rbegin() + (block_handles_.size() - prev_handles_size);
+        block_handles_->rbegin() + (block_handles_->size() - prev_handles_size);
 
     while (it != it_end && (*it).is_cache_hit_ &&
            start_updated_offset != (*it).handle_.offset()) {

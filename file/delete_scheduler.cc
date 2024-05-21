@@ -60,10 +60,10 @@ DeleteScheduler::~DeleteScheduler() {
 Status DeleteScheduler::DeleteFile(const std::string& file_path,
                                    const std::string& dir_to_sync,
                                    const bool force_bg) {
+  uint64_t total_size = sst_file_manager_->GetTotalSize();
   if (rate_bytes_per_sec_.load() <= 0 ||
       (!force_bg &&
-       total_trash_size_.load() >
-           sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load())) {
+       total_trash_size_.load() > total_size * max_trash_db_ratio_.load())) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
@@ -72,9 +72,11 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
       s = sst_file_manager_->OnDeleteFile(file_path);
       ROCKS_LOG_INFO(info_log_,
                      "Deleted file %s immediately, rate_bytes_per_sec %" PRIi64
-                     ", total_trash_size %" PRIu64 " max_trash_db_ratio %lf",
+                     ", total_trash_size %" PRIu64 ", total_size %" PRIi64
+                     ", max_trash_db_ratio %lf",
                      file_path.c_str(), rate_bytes_per_sec_.load(),
-                     total_trash_size_.load(), max_trash_db_ratio_.load());
+                     total_trash_size_.load(), total_size,
+                     max_trash_db_ratio_.load());
       InstrumentedMutexLock l(&mu_);
       RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
