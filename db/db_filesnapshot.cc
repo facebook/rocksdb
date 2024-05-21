@@ -21,6 +21,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/metadata.h"
+#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "test_util/sync_point.h"
 #include "util/file_checksum_helper.h"
@@ -217,6 +218,11 @@ Status DBImpl::GetLiveFilesStorageInfo(
       // We may be able to cover 2PC case too.
       uint64_t total_wal_size = 0;
       for (auto& wal : live_wal_files) {
+        // Don't take archived log size into account
+        // when calculating log size for flush
+        if (wal->Type() == kArchivedLogFile) {
+          continue;
+        }
         total_wal_size += wal->SizeFileBytes();
       }
       if (total_wal_size < opts.wal_size_for_flush) {
