@@ -958,12 +958,48 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (!s.ok()) {
           fprintf(stderr, "LockWAL() failed: %s\n", s.ToString().c_str());
         } else {
+          // Verify no writes during LockWAL
           auto old_seqno = db_->GetLatestSequenceNumber();
-          // Yield for a while
-          do {
-            std::this_thread::yield();
-          } while (thread->rand.OneIn(2));
-          // Latest seqno should not have changed
+          // And also that WAL is not changed during LockWAL()
+          std::unique_ptr<LogFile> old_wal;
+          s = db_->GetCurrentWalFile(&old_wal);
+          if (!s.ok()) {
+            fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
+                    s.ToString().c_str());
+          } else {
+            // Yield for a while
+            do {
+              std::this_thread::yield();
+            } while (thread->rand.OneIn(2));
+            // Current WAL and size should not have changed
+            std::unique_ptr<LogFile> new_wal;
+            s = db_->GetCurrentWalFile(&new_wal);
+            if (!s.ok()) {
+              fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
+                      s.ToString().c_str());
+            } else {
+              if (old_wal->LogNumber() != new_wal->LogNumber()) {
+                fprintf(stderr,
+                        "Failed: WAL number changed during LockWAL(): %" PRIu64
+                        " to %" PRIu64 "\n",
+                        old_wal->LogNumber(), new_wal->LogNumber());
+              }
+              // FIXME: FaultInjectionTestFS does not report file sizes that
+              // reflect what has been flushed. Either that needs to be fixed
+              // or GetSortedWals/GetLiveWalFile need to stop relying on
+              // asking the FS for sizes.
+              if (!fault_fs_guard &&
+                  old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
+                fprintf(stderr,
+                        "Failed: WAL %" PRIu64
+                        " size changed during LockWAL(): %" PRIu64
+                        " to %" PRIu64 "\n",
+                        old_wal->LogNumber(), old_wal->SizeFileBytes(),
+                        new_wal->SizeFileBytes());
+              }
+            }
+          }
+          // Verify no writes during LockWAL
           auto new_seqno = db_->GetLatestSequenceNumber();
           if (old_seqno != new_seqno) {
             fprintf(
@@ -971,6 +1007,7 @@ void StressTest::OperateDb(ThreadState* thread) {
                 "Failure: latest seqno changed from %u to %u with WAL locked\n",
                 (unsigned)old_seqno, (unsigned)new_seqno);
           }
+          // Verification done. Now unlock WAL
           s = db_->UnlockWAL();
           if (!s.ok()) {
             fprintf(stderr, "UnlockWAL() failed: %s\n", s.ToString().c_str());
@@ -2468,6 +2505,7 @@ void StressTest::TestPromoteL0(ThreadState* thread,
 
 Status StressTest::TestFlush(const std::vector<int>& rand_column_families) {
   FlushOptions flush_opts;
+  assert(flush_opts.wait);
   if (FLAGS_atomic_flush) {
     return db_->Flush(flush_opts, column_families_);
   }
