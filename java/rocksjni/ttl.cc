@@ -145,7 +145,7 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
     return jresults;
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-    return NULL;
+    return nullptr;
   }
 }
 
