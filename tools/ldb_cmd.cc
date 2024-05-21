@@ -3995,7 +3995,7 @@ void DBQuerierCommand::DoCommand() {
         iter->Next();
       }
       if (iter->status().ok()) {
-        fprintf(stdout, "%lu\n", count);
+        fprintf(stdout, "%" PRIu64 "\n", count);
       } else {
         oss << "scan from " << start_key << " to " << end_key
             << "failed: " << iter->status().ToString();
