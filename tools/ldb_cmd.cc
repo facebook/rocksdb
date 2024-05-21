@@ -60,6 +60,7 @@ const std::string LDBCommand::ARG_FS_URI = "fs_uri";
 const std::string LDBCommand::ARG_DB = "db";
 const std::string LDBCommand::ARG_PATH = "path";
 const std::string LDBCommand::ARG_SECONDARY_PATH = "secondary_path";
+const std::string LDBCommand::ARG_LEADER_PATH = "leader_path";
 const std::string LDBCommand::ARG_HEX = "hex";
 const std::string LDBCommand::ARG_KEY_HEX = "key_hex";
 const std::string LDBCommand::ARG_VALUE_HEX = "value_hex";
@@ -429,6 +430,12 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
     secondary_path_ = itr->second;
   }
 
+  itr = options.find(ARG_LEADER_PATH);
+  leader_path_ = "";
+  if (itr != options.end()) {
+    leader_path_ = itr->second;
+  }
+
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
@@ -461,9 +468,9 @@ void LDBCommand::OpenDB() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "ldb doesn't support TTL DB with multiple column families");
     }
-    if (!secondary_path_.empty()) {
+    if (!secondary_path_.empty() || !leader_path_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
-          "Open as secondary is not supported for TTL DB yet.");
+          "Open as secondary or follower is not supported for TTL DB yet.");
     }
     if (is_read_only_) {
       st = DBWithTTL::Open(options_, db_path_, &db_ttl_, 0, true);
@@ -472,7 +479,11 @@ void LDBCommand::OpenDB() {
     }
     db_ = db_ttl_;
   } else {
-    if (is_read_only_ && secondary_path_.empty()) {
+    if (!secondary_path_.empty() && !leader_path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Cannot provide both secondary and leader paths");
+    }
+    if (is_read_only_ && secondary_path_.empty() && leader_path_.empty()) {
       if (column_families_.empty()) {
         st = DB::OpenForReadOnly(options_, db_path_, &db_);
       } else {
@@ -481,18 +492,27 @@ void LDBCommand::OpenDB() {
       }
     } else {
       if (column_families_.empty()) {
-        if (secondary_path_.empty()) {
+        if (secondary_path_.empty() && leader_path_.empty()) {
           st = DB::Open(options_, db_path_, &db_);
-        } else {
+        } else if (!secondary_path_.empty()) {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_, &db_);
+        } else {
+          std::unique_ptr<DB> dbptr;
+          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &dbptr);
+          db_ = dbptr.release();
         }
       } else {
-        if (secondary_path_.empty()) {
+        if (secondary_path_.empty() && leader_path_.empty()) {
           st = DB::Open(options_, db_path_, column_families_, &handles_opened,
                         &db_);
-        } else {
+        } else if (!secondary_path_.empty()) {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_,
                                    column_families_, &handles_opened, &db_);
+        } else {
+          std::unique_ptr<DB> dbptr;
+          st = DB::OpenAsFollower(options_, db_path_, leader_path_,
+                                  column_families_, &handles_opened, &dbptr);
+          db_ = dbptr.release();
         }
       }
     }
@@ -561,6 +581,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FS_URI,
                                   ARG_DB,
                                   ARG_SECONDARY_PATH,
+                                  ARG_LEADER_PATH,
                                   ARG_BLOOM_BITS,
                                   ARG_BLOCK_SIZE,
                                   ARG_AUTO_COMPACTION,
@@ -3828,6 +3849,7 @@ const char* DBQuerierCommand::HELP_CMD = "help";
 const char* DBQuerierCommand::GET_CMD = "get";
 const char* DBQuerierCommand::PUT_CMD = "put";
 const char* DBQuerierCommand::DELETE_CMD = "delete";
+const char* DBQuerierCommand::COUNT_CMD = "count";
 
 DBQuerierCommand::DBQuerierCommand(
     const std::vector<std::string>& /*params*/,
@@ -3856,8 +3878,6 @@ void DBQuerierCommand::DoCommand() {
     return;
   }
 
-  ReadOptions read_options;
-  WriteOptions write_options;
 
   std::string line;
   std::string key;
@@ -3867,24 +3887,44 @@ void DBQuerierCommand::DoCommand() {
   while (s.ok() && getline(std::cin, line, '\n')) {
     // Parse line into std::vector<std::string>
     std::vector<std::string> tokens;
+    std::map<std::string, std::string> option_map;
     size_t pos = 0;
     while (true) {
       size_t pos2 = line.find(' ', pos);
+      std::string token =
+          line.substr(pos, (pos2 == std::string::npos) ? pos2 : (pos2 - pos));
+      const std::string OPTION_PREFIX = "--";
+      if (token.at(0) == '-' && token.at(1) == '-') {
+        std::vector<std::string> splits = StringSplit(token, '=');
+        if (splits.size() == 2) {
+          // --option_name=option_value
+          std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+          option_map[optionKey] = splits[1];
+        } else if (splits.size() > 2) {
+          // --option_name=option_value, option_value contains '='
+          std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+          option_map[optionKey] = token.substr(splits[0].length() + 1);
+        }
+      } else {
+        tokens.push_back(line.substr(
+            pos, (pos2 == std::string::npos) ? pos2 : (pos2 - pos)));
+      }
       if (pos2 == std::string::npos) {
         break;
       }
-      tokens.push_back(line.substr(pos, pos2 - pos));
       pos = pos2 + 1;
     }
-    tokens.push_back(line.substr(pos));
 
     const std::string& cmd = tokens[0];
+    ReadOptions read_options;
+    WriteOptions write_options;
 
     if (cmd == HELP_CMD) {
       fprintf(stdout,
               "get <key>\n"
               "put <key> <value>\n"
-              "delete <key>\n");
+              "delete <key>\n"
+              "count [--from=start_key] [--to=end_key]\n");
     } else if (cmd == DELETE_CMD && tokens.size() == 2) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       s = db_->Delete(write_options, GetCfHandle(), Slice(key));
@@ -3919,6 +3959,48 @@ void DBQuerierCommand::DoCommand() {
           oss << "get " << key << " error: " << s.ToString();
         }
       }
+    } else if (cmd == COUNT_CMD) {
+      std::string start_key;
+      std::string end_key;
+      bool bad_option = false;
+      for (auto& option : option_map) {
+        if (option.first == "from") {
+          start_key =
+              (is_key_hex_ ? HexToString(option.second) : option.second);
+        } else if (option.first == "to") {
+          end_key = (is_key_hex_ ? HexToString(option.second) : option.second);
+        } else {
+          fprintf(stdout, "Unknown option %s\n", option.first.c_str());
+          bad_option = true;
+          break;
+        }
+      }
+      if (bad_option) {
+        continue;
+      }
+
+      Slice end_key_slice(end_key);
+      uint64_t count = 0;
+      if (!end_key.empty()) {
+        read_options.iterate_upper_bound = &end_key_slice;
+      }
+      Iterator* iter = db_->NewIterator(read_options, GetCfHandle());
+      if (start_key.empty()) {
+        iter->SeekToFirst();
+      } else {
+        iter->Seek(start_key);
+      }
+      while (iter->status().ok() && iter->Valid()) {
+        count++;
+        iter->Next();
+      }
+      if (iter->status().ok()) {
+        fprintf(stdout, "%lu\n", count);
+      } else {
+        oss << "scan from " << start_key << " to " << end_key
+            << "failed: " << iter->status().ToString();
+      }
+      delete iter;
     } else {
       fprintf(stdout, "Unknown command %s\n", line.c_str());
     }
