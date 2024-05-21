@@ -217,8 +217,7 @@ class ReplicationTest : public testing::Test {
   // it will catch up until end of log
   //
   // Returns the number of log records applied
-  size_t catchUpFollower(std::optional<size_t> num_records = std::nullopt,
-                         bool allow_new_manifest_writes = true);
+  size_t catchUpFollower(std::optional<size_t> num_records = std::nullopt);
 
   WriteOptions wo() const {
     WriteOptions w;
@@ -429,11 +428,7 @@ DB* ReplicationTest::openLeader(Options options, uint64_t snapshot_replication_e
       s = db->ApplyReplicationLogRecord(
           log_records_[leaderSeq].first, log_records_[leaderSeq].second,
           [this](Slice) { return ColumnFamilyOptions(leaderOptions()); },
-          true /* allow_new_manifest_writes */,
-          snapshot_replication_epoch_,
-          &info,
-          DB::AR_EVICT_OBSOLETE_FILES |
-              DB::AR_EPOCH_BASED_DIVERGENCE_DETECTION);
+          snapshot_replication_epoch_, &info, DB::AR_EVICT_OBSOLETE_FILES);
       assert(s.ok());
       assert(!info.diverged_manifest_writes);
     }
@@ -480,8 +475,7 @@ DB* ReplicationTest::openFollower(Options options) {
   return db;
 }
 
-size_t ReplicationTest::catchUpFollower(std::optional<size_t> num_records,
-                                        bool allow_new_manifest_writes) {
+size_t ReplicationTest::catchUpFollower(std::optional<size_t> num_records) {
   MutexLock lock(&log_records_mutex_);
   DB::ApplyReplicationLogRecordInfo info;
   size_t ret = 0;
@@ -496,14 +490,10 @@ size_t ReplicationTest::catchUpFollower(std::optional<size_t> num_records,
         [this](Slice) {
           return ColumnFamilyOptions(follower_db_->GetOptions());
         },
-        allow_new_manifest_writes,
         snapshot_replication_epoch_,
         &info, flags);
     assert(s.ok());
     ++ret;
-  }
-  if (info.has_new_manifest_writes) {
-    assert(info.has_manifest_writes);
   }
   for (auto& cf : info.added_column_families) {
     auto inserted =
@@ -1110,20 +1100,6 @@ TEST_F(ReplicationTest, LogNumberDontGoBackwards) {
   logNum = followerFull->TEST_GetCurrentLogNumber();
   minLogNumberToKeep = followerFull->GetVersionSet()->min_log_number_to_keep();
   EXPECT_GE(logNum, minLogNumberToKeep);
-}
-
-TEST_F(ReplicationTest, AllowNewManifestWrite) {
-  auto leader = openLeader(), follower = openFollower();
-
-  ASSERT_OK(leader->Put(wo(), "k1", "v1"));
-  ASSERT_OK(leader->Flush({}));
-  catchUpFollower(2);
-  // The new manifest write won't be applied
-  catchUpFollower(1, false);
-  uint64_t followerMUS, leaderMUS;
-  ASSERT_OK(follower->GetManifestUpdateSequence(&followerMUS));
-  ASSERT_OK(leader->GetManifestUpdateSequence(&leaderMUS));
-  EXPECT_LT(followerMUS, leaderMUS);
 }
 
 // Memtable switch record won't be generated if all memtables are empty
