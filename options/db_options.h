@@ -125,6 +125,7 @@ struct MutableDBOptions {
   int max_background_compactions;
   uint32_t max_subcompactions;
   bool avoid_flush_during_shutdown;
+  bool avoid_sync_during_shutdown;
   size_t writable_file_max_buffer_size;
   uint64_t delayed_write_rate;
   uint64_t max_total_wal_size;
