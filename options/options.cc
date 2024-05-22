@@ -128,6 +128,10 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
+ImportColumnFamilyOptions::ImportColumnFamilyOptions() = default;
+ImportColumnFamilyOptions::ImportColumnFamilyOptions(const bool moveFiles) 
+    : move_files(moveFiles == true ? true : false) {}
+
 DBOptions::DBOptions() = default;
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}

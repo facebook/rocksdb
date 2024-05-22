@@ -2174,6 +2174,11 @@ struct TraceOptions {
 struct ImportColumnFamilyOptions {
   // Can be set to true to move the files instead of copying them.
   bool move_files = false;
+
+  // Create ColumnFamilyOptions with default values for all fields
+  ImportColumnFamilyOptions();
+  // Create ColumnFamilyOptions from Options
+  explicit ImportColumnFamilyOptions(const bool moveFiles);
 };
 
 // Options used with DB::GetApproximateSizes()

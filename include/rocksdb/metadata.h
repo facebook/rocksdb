@@ -250,9 +250,16 @@ struct ColumnFamilyMetaData {
 };
 
 // Metadata returned as output from ExportColumnFamily() and used as input to
-// CreateColumnFamiliesWithImport().
+// CreateColumnFamilyWithImport().
 struct ExportImportFilesMetaData {
   std::string db_comparator_name;       // Used to safety check at import.
   std::vector<LiveFileMetaData> files;  // Vector of file metadata.
+
+  // Create ColumnFamilyOptions with default values for all fields
+  ExportImportFilesMetaData()
+      : db_comparator_name(BytewiseComparator()->Name()) {}
+  // Create ColumnFamilyOptions from Options
+  explicit ExportImportFilesMetaData(const ExportImportFilesMetaData& metadata)
+      : db_comparator_name(metadata.db_comparator_name), files(metadata.files) {}
 };
 }  // namespace ROCKSDB_NAMESPACE
