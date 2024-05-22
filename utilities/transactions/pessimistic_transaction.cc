@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/pessimistic_transaction.h"
 
 #include <map>
@@ -216,6 +215,75 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
   }
   return TransactionBaseImpl::GetForUpdate(read_options, column_family, key,
                                            value, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::GetEntityForUpdate(const ReadOptions& read_options,
+                                             ColumnFamilyHandle* column_family,
+                                             const Slice& key,
+                                             PinnableWideColumns* columns,
+                                             bool exclusive, bool do_validate) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityForUpdate without a column family handle");
+  }
+
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+
+  if (ts_sz == 0) {
+    return TransactionBaseImpl::GetEntityForUpdate(
+        read_options, column_family, key, columns, exclusive, do_validate);
+  }
+
+  assert(ts_sz > 0);
+
+  if (!do_validate) {
+    if (read_timestamp_ != kMaxTxnTimestamp) {
+      return Status::InvalidArgument(
+          "Read timestamp must not be set if validation is disabled");
+    }
+  } else {
+    if (read_timestamp_ == kMaxTxnTimestamp) {
+      return Status::InvalidArgument(
+          "Read timestamp must be set for validation");
+    }
+  }
+
+  std::string ts_buf;
+  PutFixed64(&ts_buf, read_timestamp_);
+  Slice ts(ts_buf);
+
+  if (!read_options.timestamp) {
+    ReadOptions read_options_copy = read_options;
+    read_options_copy.timestamp = &ts;
+
+    return TransactionBaseImpl::GetEntityForUpdate(
+        read_options_copy, column_family, key, columns, exclusive, do_validate);
+  }
+
+  assert(read_options.timestamp);
+  if (*read_options.timestamp != ts) {
+    return Status::InvalidArgument("Must read from the same read timestamp");
+  }
+
+  return TransactionBaseImpl::GetEntityForUpdate(
+      read_options, column_family, key, columns, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::PutEntityImpl(ColumnFamilyHandle* column_family,
+                                        const Slice& key,
+                                        const WideColumns& columns,
+                                        bool do_validate, bool assume_tracked) {
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, &columns, this]() {
+                   Status s = GetBatchForWrite()->PutEntity(column_family, key,
+                                                            columns);
+                   if (s.ok()) {
+                     ++num_put_entities_;
+                   }
+                   return s;
+                 });
 }
 
 Status WriteCommittedTxn::Put(ColumnFamilyHandle* column_family,
@@ -893,6 +961,11 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& /* unused */) override {
+      RecordKey(column_family_id, key);
+      return Status::OK();
+    }
+    Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }

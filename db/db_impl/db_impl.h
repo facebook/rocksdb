@@ -291,6 +291,11 @@ class DBImpl : public DB {
                       const Slice* keys,
                       PinnableAttributeGroups* results) override;
 
+  void MultiGetEntityWithCallback(
+      const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+      ReadCallback* callback,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
+
   Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                             const std::string& column_family,
                             ColumnFamilyHandle** handle) override {
@@ -1643,6 +1648,7 @@ class DBImpl : public DB {
   friend class ForwardIterator;
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+  friend class DBImplFollower;
 #ifndef NDEBUG
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
@@ -2048,17 +2054,22 @@ class DBImpl : public DB {
       mutex_.Lock();
     }
 
-    if (!immutable_db_options_.unordered_write) {
-      // Then the writes are finished before the next write group starts
-      return;
+    if (immutable_db_options_.unordered_write) {
+      // Wait for the ones who already wrote to the WAL to finish their
+      // memtable write.
+      if (pending_memtable_writes_.load() != 0) {
+        // XXX: suspicious wait while holding DB mutex?
+        std::unique_lock<std::mutex> guard(switch_mutex_);
+        switch_cv_.wait(guard,
+                        [&] { return pending_memtable_writes_.load() == 0; });
+      }
+    } else {
+      // (Writes are finished before the next write group starts.)
     }
 
-    // Wait for the ones who already wrote to the WAL to finish their
-    // memtable write.
-    if (pending_memtable_writes_.load() != 0) {
-      std::unique_lock<std::mutex> guard(switch_mutex_);
-      switch_cv_.wait(guard,
-                      [&] { return pending_memtable_writes_.load() == 0; });
+    // Wait for any LockWAL to clear
+    while (lock_wal_count_ > 0) {
+      bg_cv_.Wait();
     }
   }
 
@@ -2987,9 +2998,9 @@ inline Status DBImpl::FailIfReadCollapsedHistory(const ColumnFamilyData* cfd,
   if (!full_history_ts_low.empty() &&
       ucmp->CompareTimestamp(ts, full_history_ts_low) < 0) {
     std::stringstream oss;
-    oss << "Read timestamp: " << ts.ToString(true)
+    oss << "Read timestamp: " << ucmp->TimestampToString(ts)
         << " is smaller than full_history_ts_low: "
-        << Slice(full_history_ts_low).ToString(true) << std::endl;
+        << ucmp->TimestampToString(full_history_ts_low) << std::endl;
     return Status::InvalidArgument(oss.str());
   }
   return Status::OK();

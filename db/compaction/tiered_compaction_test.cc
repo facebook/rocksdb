@@ -1651,6 +1651,31 @@ TEST_P(TimedPutPrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
   Close();
 }
 
+TEST_P(TimedPutPrecludeLastLevelTest, InterleavedTimedPutAndPut) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.preclude_last_level_data_seconds = 1 * 24 * 60 * 60;
+  options.env = mock_env_.get();
+  options.num_levels = 7;
+  options.last_level_temperature = Temperature::kCold;
+  options.default_write_temperature = Temperature::kHot;
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  // Start time: kMockStartTime = 10000000;
+  ASSERT_OK(TimedPut(0, Key(0), "v0", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(Put(Key(1), "v1", wo));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  Close();
+}
+
 TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;

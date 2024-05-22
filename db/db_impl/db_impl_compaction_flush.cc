@@ -224,9 +224,15 @@ Status DBImpl::FlushMemTableToOutputFile(
   // the host crashes after flushing and before WAL is persistent, the
   // flushed SST may contain data from write batches whose updates to
   // other (unflushed) column families are missing.
+  //
+  // When 2PC is enabled, non-recent WAL(s) may be needed for crash-recovery,
+  // even when there is only one CF in the DB, for prepared transactions that
+  // had not been committed yet. Make sure we sync them to keep the persisted
+  // WAL state at least as new as the persisted SST state.
   const bool needs_to_sync_closed_wals =
       logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1;
+      (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 ||
+       allow_2pc());
 
   // If needs_to_sync_closed_wals is true, we need to record the current
   // maximum memtable ID of this column family so that a later PickMemtables()
@@ -1088,7 +1094,12 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
-    return Status::InvalidArgument("Cannot decrease full_history_ts_low");
+    std::stringstream oss;
+    oss << "Current full_history_ts_low: "
+        << ucmp->TimestampToString(current_ts_low)
+        << " is higher than provided ts: " << ucmp->TimestampToString(ts_low)
+        << std::endl;
+    return Status::InvalidArgument(oss.str());
   }
 
   Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
@@ -1119,6 +1130,11 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
 
   if (options.target_path_id >= cfd->ioptions()->cf_paths.size()) {
     return Status::InvalidArgument("Invalid target path ID");
+  }
+  if (options.change_level &&
+      cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+    return Status::NotSupported(
+        "FIFO compaction does not support change_level.");
   }
 
   bool flush_needed = true;
@@ -1178,6 +1194,16 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
+                            false /* disable_trivial_move */,
+                            std::numeric_limits<uint64_t>::max(), trim_ts);
+  } else if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+    // FIFOCompactionPicker::CompactRange() will ignore the input key range
+    // [begin, end] and just try to pick compaction based on the configured
+    // option `compaction_options_fifo`. So we skip checking if [begin, end]
+    // overlaps with the DB here.
+    final_output_level = 0;
+    s = RunManualCompaction(cfd, /*input_level=*/0, final_output_level, options,
+                            begin, end, exclusive,
                             false /* disable_trivial_move */,
                             std::numeric_limits<uint64_t>::max(), trim_ts);
   } else {
@@ -1264,8 +1290,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       CleanupSuperVersion(super_version);
     }
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
-      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal) {
         assert(first_overlapped_level == 0);
         s = RunManualCompaction(
             cfd, first_overlapped_level, first_overlapped_level, options, begin,
@@ -1517,16 +1542,11 @@ Status DBImpl::CompactFilesImpl(
         std::to_string(cfd->ioptions()->num_levels - 1));
   }
 
-  Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
-      &input_set, cf_meta, output_level);
-  TEST_SYNC_POINT("DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles");
-  if (!s.ok()) {
-    return s;
-  }
-
   std::vector<CompactionInputFiles> input_files;
-  s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
-      &input_files, &input_set, version->storage_info(), compact_options);
+  Status s = cfd->compaction_picker()->SanitizeAndConvertCompactionInputFiles(
+      &input_set, cf_meta, output_level, version->storage_info(), &input_files);
+  TEST_SYNC_POINT(
+      "DBImpl::CompactFilesImpl::PostSanitizeAndConvertCompactionInputFiles");
   if (!s.ok()) {
     return s;
   }
@@ -3340,7 +3360,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
       mutex_.Unlock();
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                      "[JOB %d] Waiting after background flush error: %s"
+                      "[JOB %d] Waiting after background flush error: %s, "
                       "Accumulated background error counts: %" PRIu64,
                       job_context.job_id, s.ToString().c_str(), error_cnt);
       log_buffer.FlushBufferToLog();

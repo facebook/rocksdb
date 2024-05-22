@@ -209,8 +209,11 @@ DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
+DECLARE_int32(promote_l0_one_in);
 DECLARE_int32(mark_for_compaction_one_file_in);
 DECLARE_int32(flush_one_in);
+DECLARE_int32(key_may_exist_one_in);
+DECLARE_int32(reset_stats_one_in);
 DECLARE_int32(pause_background_one_in);
 DECLARE_int32(disable_file_deletions_one_in);
 DECLARE_int32(disable_manual_compaction_one_in);
@@ -250,6 +253,7 @@ DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_uint32(use_put_entity_one_in);
+DECLARE_bool(use_attribute_group);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
@@ -375,6 +379,7 @@ DECLARE_uint64(WAL_ttl_seconds);
 DECLARE_uint64(WAL_size_limit_MB);
 DECLARE_bool(strict_bytes_per_sync);
 DECLARE_bool(avoid_flush_during_shutdown);
+DECLARE_bool(avoid_sync_during_shutdown);
 DECLARE_bool(fill_cache);
 DECLARE_bool(optimize_multiget_for_io);
 DECLARE_bool(memtable_insert_hint_per_batch);
@@ -757,6 +762,10 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                         const Slice& slice);
 bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
 bool VerifyWideColumns(const WideColumns& columns);
+
+AttributeGroups GenerateAttributeGroups(
+    const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
+    const Slice& slice);
 
 StressTest* CreateCfConsistencyStressTest();
 StressTest* CreateBatchedOpsStressTest();

@@ -229,12 +229,18 @@ Status DBImpl::GetLiveFilesStorageInfo(
   // metadata.
   mutex_.Lock();
   if (flush_memtable) {
-    Status status = FlushForGetLiveFiles();
-    if (!status.ok()) {
-      mutex_.Unlock();
-      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
-                      status.ToString().c_str());
-      return status;
+    bool wal_locked = lock_wal_count_ > 0;
+    if (wal_locked) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Can't FlushForGetLiveFiles while WAL is locked");
+    } else {
+      Status status = FlushForGetLiveFiles();
+      if (!status.ok()) {
+        mutex_.Unlock();
+        ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                        "Cannot Flush data %s\n", status.ToString().c_str());
+        return status;
+      }
     }
   }
 

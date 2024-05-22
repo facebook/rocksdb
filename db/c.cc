@@ -2745,6 +2745,24 @@ void rocksdb_options_set_block_based_table_factory(
   }
 }
 
+void rocksdb_block_based_options_set_top_level_index_pinning_tier(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.top_level_index_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+}
+
+void rocksdb_block_based_options_set_partition_pinning_tier(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.partition_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+}
+
+void rocksdb_block_based_options_set_unpartitioned_pinning_tier(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.unpartitioned_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+}
+
 rocksdb_cuckoo_table_options_t* rocksdb_cuckoo_options_create() {
   return new rocksdb_cuckoo_table_options_t;
 }

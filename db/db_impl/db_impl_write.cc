@@ -221,7 +221,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::InvalidArgument(
         "`WriteOptions::protection_bytes_per_key` must be zero or eight");
   } else if (write_options.disableWAL &&
-             immutable_db_options_.recycle_log_file_num > 0) {
+             immutable_db_options_.recycle_log_file_num > 0 &&
+             !(two_write_queues_ && disable_memtable)) {
+    // Corruption detection in recycled WALs relies on sequential sequence
+    // numbers, but WritePreparedTxnDB uses disableWAL internally for split
+    // writes
     return Status::InvalidArgument(
         "WriteOptions::disableWAL option is not supported if "
         "DBOptions::recycle_log_file_num > 0");
@@ -2152,6 +2156,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // two_write_queues_ is true (This is to simplify the reasoning.)
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
+  assert(lock_wal_count_ == 0);
+
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   const WriteOptions write_options;
