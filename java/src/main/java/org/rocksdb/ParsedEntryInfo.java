@@ -58,6 +58,7 @@ public class ParsedEntryInfo extends RocksObject {
               internalKey.arrayOffset() + internalKey.position(),
               internalKey.remaining());
     }
+    internalKey.position(internalKey.limit());
   }
 
   private static native long newParseEntryInstance();

@@ -37,6 +37,7 @@ public class TypeUtil {
             internalKey.remaining(), options.getNativeHandle());
       }
     }
+    userKey.position(userKey.limit());
     internalKey.limit(Math.min(internalKey.position() + result, internalKey.limit()));
     return result;
   }
@@ -67,6 +68,7 @@ public class TypeUtil {
             internalKey.remaining(), options.getNativeHandle());
       }
     }
+    userKey.position(userKey.limit());
     internalKey.limit(Math.min(internalKey.position() + result, internalKey.limit()));
     return result;
   }

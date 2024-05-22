@@ -93,7 +93,7 @@ void JNICALL Java_org_rocksdb_ParsedEntryInfo_parseEntryByteArray(JNIEnv *env,
                                                                   jint len) {
   const std::unique_ptr<char[]> target(new char[len]);
   if (target == nullptr) {
-    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    jclass oom_class = env->FindClass("java/lang/OutOfMemoryError");
     env->ThrowNew(oom_class,
                   "Memory allocation failed in RocksDB JNI function");
     return;

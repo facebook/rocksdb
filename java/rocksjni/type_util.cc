@@ -51,7 +51,7 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyByteArray0(
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(options_handle);
   const std::unique_ptr<char[]> target(new char[user_key_len]);
   if (target == nullptr) {
-    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    jclass oom_class = env->FindClass("/java/lang/OutOfMemoryError");
     env->ThrowNew(oom_class,
                   "Memory allocation failed in RocksDB JNI function");
     return static_cast<jsize>(0);
@@ -109,7 +109,7 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyByteArray1(
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(options_handle);
   const std::unique_ptr<char[]> target(new char[user_key_len]);
   if (target == nullptr) {
-    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    jclass oom_class = env->FindClass("/java/lang/OutOfMemoryError");
     env->ThrowNew(oom_class,
                   "Memory allocation failed in RocksDB JNI function");
     return static_cast<jsize>(0);
@@ -199,7 +199,7 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyByteArrayForPrev0(
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(options_handle);
   const std::unique_ptr<char[]> target(new char[user_key_len]);
   if (target == nullptr) {
-    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    jclass oom_class = env->FindClass("/java/lang/OutOfMemoryError");
     env->ThrowNew(oom_class,
                   "Memory allocation failed in RocksDB JNI function");
     return static_cast<jsize>(0);
@@ -257,7 +257,7 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyByteArrayForPrev1(
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(options_handle);
   const std::unique_ptr<char[]> target(new char[user_key_len]);
   if (target == nullptr) {
-    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    jclass oom_class = env->FindClass("/java/lang/OutOfMemoryError");
     env->ThrowNew(oom_class,
                   "Memory allocation failed in RocksDB JNI function");
     return static_cast<jsize>(0);
