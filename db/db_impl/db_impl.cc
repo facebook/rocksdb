@@ -6054,7 +6054,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
       return Status::InvalidArgument("Comparator name mismatch");
     }
     for (auto& file : metadatas[i]->files) {
-      metadata_files[i].push_back((LiveFileMetaData*)&file);
+      metadata_files[i].push_back(const_cast<LiveFileMetaData*>(&file));
     }
     total_file_num += metadatas[i]->files.size();
   }

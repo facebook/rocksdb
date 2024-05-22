@@ -101,7 +101,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
       size_t uncompressed_size{0};
       CacheAllocationPtr uncompressed =
-          UncompressData(uncompression_info, (char*)data_ptr,
+          UncompressData(uncompression_info, data_ptr,
                          handle_value_charge, &uncompressed_size,
                          cache_options_.compress_format_version, allocator);
 

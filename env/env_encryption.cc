@@ -41,7 +41,7 @@ IOStatus EncryptedSequentialFile::Read(size_t n, const IOOptions& options,
   {
     PERF_TIMER_GUARD(decrypt_data_nanos);
     io_s = status_to_io_status(
-        stream_->Decrypt(offset_, (char*)result->data(), result->size()));
+        stream_->Decrypt(offset_, const_cast<char*>(result->data()), result->size()));
   }
   if (io_s.ok()) {
     offset_ += result->size();  // We've already read data from disk, so update
@@ -86,7 +86,7 @@ IOStatus EncryptedSequentialFile::PositionedRead(uint64_t offset, size_t n,
   {
     PERF_TIMER_GUARD(decrypt_data_nanos);
     io_s = status_to_io_status(
-        stream_->Decrypt(offset, (char*)result->data(), result->size()));
+        stream_->Decrypt(offset, const_cast<char*>(result->data()), result->size()));
   }
   return io_s;
 }
@@ -104,7 +104,7 @@ IOStatus EncryptedRandomAccessFile::Read(uint64_t offset, size_t n,
   {
     PERF_TIMER_GUARD(decrypt_data_nanos);
     io_s = status_to_io_status(
-        stream_->Decrypt(offset, (char*)result->data(), result->size()));
+        stream_->Decrypt(offset, const_cast<char*>(result->data()), result->size()));
   }
   return io_s;
 }
@@ -308,7 +308,7 @@ IOStatus EncryptedRandomRWFile::Read(uint64_t offset, size_t n,
   {
     PERF_TIMER_GUARD(decrypt_data_nanos);
     status = status_to_io_status(
-        stream_->Decrypt(offset, (char*)result->data(), result->size()));
+        stream_->Decrypt(offset, const_cast<char*>(result->data()), result->size()));
   }
   return status;
 }
@@ -1100,7 +1100,7 @@ Status CTREncryptionProvider::CreateCipherStream(
   Status status;
   {
     PERF_TIMER_GUARD(decrypt_data_nanos);
-    status = cipherStream.Decrypt(0, (char*)prefix.data() + (2 * blockSize),
+    status = cipherStream.Decrypt(0, const_cast<char*>(prefix.data()) + (2 * blockSize),
                                   prefix.size() - (2 * blockSize));
   }
   if (!status.ok()) {

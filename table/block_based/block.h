@@ -108,7 +108,7 @@ class BlockReadAmpBitmap {
 
   size_t ApproximateMemoryUsage() const {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    return malloc_usable_size((void*)this);
+    return malloc_usable_size(static_cast<void*>(const_cast<rocksdb::BlockReadAmpBitmap*>(this)));
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     return sizeof(*this);
   }
@@ -612,7 +612,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
       key_pinned_ = false;
     }
     TEST_SYNC_POINT_CALLBACK("BlockIter::UpdateKey::value",
-                             (void*)value_.data());
+                             static_cast<void*>(const_cast<char*>(value_.data())));
     TEST_SYNC_POINT_CALLBACK("Block::VerifyChecksum::checksum_len",
                              &protection_bytes_per_key_);
     if (protection_bytes_per_key_ > 0) {
