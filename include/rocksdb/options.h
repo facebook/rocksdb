@@ -1265,9 +1265,10 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
 
-  // By default RocksDB will not sync WAL on DB close even if there are
-  // unpersisted data (i.e. unsynced WAL data). This can speedup
-  // DB close. Unpersisted data WILL BE LOST.
+  // By default RocksDB will not flush (if `manual_wal_flush` = true) and sync
+  // WAL on DB close even if there are unpersisted data (i.e. unflushed or
+  // unsynced WAL data). This can speed up DB close. Unpersisted data WILL BE
+  // LOST.
   //
   // DEFAULT: true
   //
