@@ -67,6 +67,7 @@ enum EntryType {
   kEntryBlobIndex,
   kEntryDeleteWithTimestamp,
   kEntryWideColumnEntity,
+  kEntryTimedPut,  // That hasn't yet converted to a standard Put entry
   kEntryOther,
 };
 

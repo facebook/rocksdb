@@ -12,6 +12,7 @@
 // file data (or entire files) not protected by a "sync".
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
 #include "env/mock_env.h"
@@ -629,6 +630,34 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, kSyncWal, kEnd),
                       std::make_tuple(true, kSyncWal, kEnd)));
 
+class FaultInjectionFSTest : public DBTestBase {
+ public:
+  FaultInjectionFSTest()
+      : DBTestBase("fault_injection_fs_test", /*env_do_fsync=*/false) {}
+};
+
+TEST_F(FaultInjectionFSTest, SyncWALDuringDBClose) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs =
+      std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fault_fs));
+  Options options = CurrentOptions();
+  options.avoid_sync_during_shutdown = true;
+  options.env = env.get();
+  Reopen(options);
+  ASSERT_OK(Put("k1", "v1"));
+  Close();
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("k1"));
+  Destroy(options);
+
+  options.avoid_sync_during_shutdown = false;
+  Reopen(options);
+  ASSERT_OK(Put("k1", "v1"));
+  Close();
+  Reopen(options);
+  ASSERT_EQ("v1", Get("k1"));
+  Destroy(options);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

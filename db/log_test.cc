@@ -774,6 +774,32 @@ TEST_P(LogTest, RecycleWithTimestampSize) {
   ASSERT_EQ("EOF", Read());
 }
 
+// Validates that `MaybeAddUserDefinedTimestampSizeRecord`` adds padding to the
+// tail of a block and switches to a new block, if there's not enough space for
+// the record.
+TEST_P(LogTest, TimestampSizeRecordPadding) {
+  bool recyclable_log = (std::get<0>(GetParam()) != 0);
+  const size_t header_size =
+      recyclable_log ? kRecyclableHeaderSize : kHeaderSize;
+  const size_t data_len = kBlockSize - 2 * header_size;
+
+  const auto first_str = BigString("foo", data_len);
+  Write(first_str);
+
+  UnorderedMap<uint32_t, size_t> ts_sz = {
+      {2, sizeof(uint64_t)},
+  };
+  ASSERT_OK(
+      writer_->MaybeAddUserDefinedTimestampSizeRecord(WriteOptions(), ts_sz));
+  ASSERT_LT(writer_->TEST_block_offset(), kBlockSize);
+
+  const auto second_str = BigString("bar", 1000);
+  Write(second_str);
+
+  ASSERT_EQ(first_str, Read());
+  CheckRecordAndTimestampSize(second_str, ts_sz);
+}
+
 // Do NOT enable compression for this instantiation.
 INSTANTIATE_TEST_CASE_P(
     Log, LogTest,

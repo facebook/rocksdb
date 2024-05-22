@@ -4677,24 +4677,27 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 namespace {
-void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
+bool VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
                           int expected_count) {
   int op_count = 0;
   std::vector<ThreadStatus> thread_list;
-  ASSERT_OK(env->GetThreadList(&thread_list));
+  EXPECT_OK(env->GetThreadList(&thread_list));
   for (const auto& thread : thread_list) {
     if (thread.operation_type == op_type) {
       op_count++;
     }
   }
   if (op_count != expected_count) {
+    fprintf(stderr, "op_count: %d, expected_count %d\n", op_count,
+            expected_count);
     for (const auto& thread : thread_list) {
-      fprintf(stderr, "thread id: %" PRIu64 ", thread status: %s\n",
+      fprintf(stderr, "thread id: %" PRIu64 ", thread status: %s, cf_name %s\n",
               thread.thread_id,
-              thread.GetOperationName(thread.operation_type).c_str());
+              thread.GetOperationName(thread.operation_type).c_str(),
+              thread.cf_name.c_str());
     }
   }
-  ASSERT_EQ(op_count, expected_count);
+  return op_count == expected_count;
 }
 }  // anonymous namespace
 
@@ -4794,11 +4797,11 @@ TEST_F(DBTest, ThreadStatusFlush) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
-  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
+  ASSERT_TRUE(VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0));
 
   ASSERT_OK(Put(1, "foo", "v1"));
   ASSERT_EQ("v1", Get(1, "foo"));
-  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
+  ASSERT_TRUE(VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0));
 
   uint64_t num_running_flushes = 0;
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningFlushes,
@@ -4811,7 +4814,7 @@ TEST_F(DBTest, ThreadStatusFlush) {
   // The first sync point is to make sure there's one flush job
   // running when we perform VerifyOperationCount().
   TEST_SYNC_POINT("DBTest::ThreadStatusFlush:1");
-  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 1);
+  ASSERT_TRUE(VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 1));
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningFlushes,
                                   &num_running_flushes));
   ASSERT_EQ(num_running_flushes, 1);
@@ -4822,17 +4825,11 @@ TEST_F(DBTest, ThreadStatusFlush) {
 }
 
 TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
-  const int kTestKeySize = 16;
   const int kTestValueSize = 984;
-  const int kEntrySize = kTestKeySize + kTestValueSize;
   const int kEntriesPerBuffer = 100;
   Options options;
   options.create_if_missing = true;
-  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
   options.compaction_style = kCompactionStyleLevel;
-  options.target_file_size_base = options.write_buffer_size;
-  options.max_bytes_for_level_base = options.target_file_size_base * 2;
-  options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
   options = CurrentOptions(options);
   options.env = env_;
@@ -4867,7 +4864,7 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
                                     &num_running_compactions));
     ASSERT_EQ(num_running_compactions, 0);
     TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:0");
-    ASSERT_GE(NumTableFilesAtLevel(0),
+    ASSERT_EQ(NumTableFilesAtLevel(0),
               options.level0_file_num_compaction_trigger);
 
     // This makes sure at least one compaction is running.
@@ -4875,10 +4872,18 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
 
     if (options.enable_thread_tracking) {
       // expecting one single L0 to L1 compaction
-      VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 1);
+      // This test is flaky and fails here.
+      bool match = VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 1);
+      if (!match) {
+        ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                        &num_running_compactions));
+        fprintf(stderr, "running compaction: %" PRIu64 " lsm state: %s\n",
+                num_running_compactions, FilesPerLevel().c_str());
+      }
+      ASSERT_TRUE(match);
     } else {
       // If thread tracking is not enabled, compaction count should be 0.
-      VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 0);
+      ASSERT_TRUE(VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 0));
     }
     ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
                                     &num_running_compactions));

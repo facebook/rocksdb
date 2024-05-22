@@ -4406,9 +4406,9 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   delete db;
   db = nullptr;
 
-  for (auto be_pair :
-       {std::make_pair(backup_engine_.get(), alt_backup_engine),
-        std::make_pair(alt_backup_engine, backup_engine_.get())}) {
+  auto backup_engine = backup_engine_.get();
+  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                       std::make_pair(alt_backup_engine, backup_engine)}) {
     ASSERT_OK(DestroyDB(dbname_, options_));
     RestoreOptions ro;
     // Fails without alternate dir
@@ -4430,9 +4430,9 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   CloseBackupEngine();
   OpenBackupEngine();
 
-  for (auto be_pair :
-       {std::make_pair(backup_engine_.get(), alt_backup_engine),
-        std::make_pair(alt_backup_engine, backup_engine_.get())}) {
+  backup_engine = backup_engine_.get();
+  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                       std::make_pair(alt_backup_engine, backup_engine)}) {
     ASSERT_OK(DestroyDB(dbname_, options_));
     RestoreOptions ro;
     ro.alternate_dirs.push_front(be_pair.second);
@@ -4459,9 +4459,9 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   AssertBackupInfoConsistency(/*allow excluded*/ true);
 
   // Excluded file(s) deleted, unable to restore
-  for (auto be_pair :
-       {std::make_pair(backup_engine_.get(), alt_backup_engine),
-        std::make_pair(alt_backup_engine, backup_engine_.get())}) {
+  backup_engine = backup_engine_.get();
+  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                       std::make_pair(alt_backup_engine, backup_engine)}) {
     RestoreOptions ro;
     ro.alternate_dirs.push_front(be_pair.second);
     ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
@@ -4475,9 +4475,9 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   AssertBackupInfoConsistency(/*allow excluded*/ true);
 
   // Excluded file(s) deleted, unable to restore
-  for (auto be_pair :
-       {std::make_pair(backup_engine_.get(), alt_backup_engine),
-        std::make_pair(alt_backup_engine, backup_engine_.get())}) {
+  backup_engine = backup_engine_.get();
+  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                       std::make_pair(alt_backup_engine, backup_engine)}) {
     RestoreOptions ro;
     ro.alternate_dirs.push_front(be_pair.second);
     ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)

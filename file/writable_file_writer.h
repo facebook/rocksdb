@@ -149,13 +149,6 @@ class WritableFileWriter {
   uint64_t next_write_offset_;
   bool pending_sync_;
   std::atomic<bool> seen_error_;
-#ifndef NDEBUG
-  // SyncWithoutFlush() is the function that is allowed to be called
-  // concurrently with other function. One of the concurrent call
-  // could set seen_error_, and the other one would hit assertion
-  // in debug mode.
-  std::atomic<bool> sync_without_flush_called_ = false;
-#endif  // NDEBUG
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
@@ -304,9 +297,7 @@ class WritableFileWriter {
   }
   void set_seen_error() { seen_error_.store(true, std::memory_order_relaxed); }
 
-  IOStatus AssertFalseAndGetStatusForPrevError() {
-    // This should only happen if SyncWithoutFlush() was called.
-    assert(sync_without_flush_called_);
+  IOStatus GetWriterHasPreviousErrorStatus() {
     return IOStatus::IOError("Writer has previous error.");
   }
 

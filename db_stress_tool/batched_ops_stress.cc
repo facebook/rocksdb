@@ -308,6 +308,10 @@ class BatchedOpsStressTest : public StressTest {
     std::array<PinnableWideColumns, num_keys> column_results;
     std::array<PinnableAttributeGroups, num_keys> attribute_group_results;
 
+    std::string error_msg_header = FLAGS_use_attribute_group
+                                       ? "GetEntity (AttributeGroup) error"
+                                       : "GetEntity error";
+
     for (size_t i = 0; i < num_keys; ++i) {
       const std::string key = std::to_string(i) + key_suffix;
 
@@ -323,7 +327,8 @@ class BatchedOpsStressTest : public StressTest {
       }
 
       if (!s.ok() && !s.IsNotFound()) {
-        fprintf(stderr, "GetEntity error: %s\n", s.ToString().c_str());
+        fprintf(stderr, "%s: %s\n", error_msg_header.c_str(),
+                s.ToString().c_str());
         thread->stats.AddErrors(1);
       } else if (s.IsNotFound()) {
         thread->stats.AddGets(1, 0);
@@ -343,9 +348,8 @@ class BatchedOpsStressTest : public StressTest {
               : column_results[i].columns();
 
       if (!CompareColumns(columns_to_compare, columns)) {
-        fprintf(stderr,
-                "GetEntity error: inconsistent entities for key %s: %s, %s\n",
-                StringToHex(key_suffix).c_str(),
+        fprintf(stderr, "%s: inconsistent entities for key %s: %s, %s\n",
+                error_msg_header.c_str(), StringToHex(key_suffix).c_str(),
                 WideColumnsToHex(columns_to_compare).c_str(),
                 WideColumnsToHex(columns).c_str());
       }
@@ -360,20 +364,18 @@ class BatchedOpsStressTest : public StressTest {
 
           if (value.empty() || value[value.size() - 1] != expected) {
             fprintf(stderr,
-                    "GetEntity error: incorrect column value for key "
+                    "%s: incorrect column value for key "
                     "%s, entity %s, column value %s, expected %c\n",
-                    StringToHex(key_suffix).c_str(),
+                    error_msg_header.c_str(), StringToHex(key_suffix).c_str(),
                     WideColumnsToHex(columns).c_str(),
                     value.ToString(/* hex */ true).c_str(), expected);
           }
         }
 
         if (!VerifyWideColumns(columns)) {
-          fprintf(
-              stderr,
-              "GetEntity error: inconsistent columns for key %s, entity %s\n",
-              StringToHex(key_suffix).c_str(),
-              WideColumnsToHex(columns).c_str());
+          fprintf(stderr, "%s: inconsistent columns for key %s, entity %s\n",
+                  error_msg_header.c_str(), StringToHex(key_suffix).c_str(),
+                  WideColumnsToHex(columns).c_str());
         }
       }
     }
@@ -407,65 +409,139 @@ class BatchedOpsStressTest : public StressTest {
 
       std::array<std::string, num_prefixes> keys;
       std::array<Slice, num_prefixes> key_slices;
-      std::array<PinnableWideColumns, num_prefixes> results;
-      std::array<Status, num_prefixes> statuses;
 
       for (size_t j = 0; j < num_prefixes; ++j) {
         keys[j] = std::to_string(j) + key_suffix;
         key_slices[j] = keys[j];
       }
 
-      db_->MultiGetEntity(read_opts_copy, cfh, num_prefixes, key_slices.data(),
-                          results.data(), statuses.data());
+      if (FLAGS_use_attribute_group) {
+        // AttributeGroup MultiGetEntity verification
 
-      for (size_t j = 0; j < num_prefixes; ++j) {
-        const Status& s = statuses[j];
-
-        if (!s.ok() && !s.IsNotFound()) {
-          fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
-          thread->stats.AddErrors(1);
-        } else if (s.IsNotFound()) {
-          thread->stats.AddGets(1, 0);
-        } else {
-          thread->stats.AddGets(1, 1);
+        std::vector<PinnableAttributeGroups> results;
+        results.reserve(num_prefixes);
+        for (size_t j = 0; j < num_prefixes; ++j) {
+          PinnableAttributeGroups attribute_groups;
+          attribute_groups.emplace_back(cfh);
+          results.emplace_back(std::move(attribute_groups));
         }
+        db_->MultiGetEntity(read_opts_copy, num_prefixes, key_slices.data(),
+                            results.data());
 
-        const WideColumns& cmp_columns = results[0].columns();
-        const WideColumns& columns = results[j].columns();
+        const WideColumns& cmp_columns = results[0][0].columns();
 
-        if (!CompareColumns(cmp_columns, columns)) {
-          fprintf(stderr,
-                  "MultiGetEntity error: inconsistent entities for key %s: %s, "
-                  "%s\n",
-                  StringToHex(key_suffix).c_str(),
-                  WideColumnsToHex(cmp_columns).c_str(),
-                  WideColumnsToHex(columns).c_str());
-        }
-
-        if (!columns.empty()) {
-          // The last character of each column value should be 'j' as a decimal
-          // digit
-          const char expected = static_cast<char>('0' + j);
-
-          for (const auto& column : columns) {
-            const Slice& value = column.value();
-
-            if (value.empty() || value[value.size() - 1] != expected) {
-              fprintf(stderr,
-                      "MultiGetEntity error: incorrect column value for key "
-                      "%s, entity %s, column value %s, expected %c\n",
-                      StringToHex(key_suffix).c_str(),
-                      WideColumnsToHex(columns).c_str(),
-                      value.ToString(/* hex */ true).c_str(), expected);
-            }
+        for (size_t j = 0; j < num_prefixes; ++j) {
+          const auto& attribute_groups = results[j];
+          assert(attribute_groups.size() == 1);
+          const Status& s = attribute_groups[0].status();
+          if (!s.ok() && !s.IsNotFound()) {
+            fprintf(stderr, "MultiGetEntity (AttributeGroup) error: %s\n",
+                    s.ToString().c_str());
+            thread->stats.AddErrors(1);
+          } else if (s.IsNotFound()) {
+            thread->stats.AddGets(1, 0);
+          } else {
+            thread->stats.AddGets(1, 1);
           }
 
-          if (!VerifyWideColumns(columns)) {
+          const WideColumns& columns = results[j][0].columns();
+          if (!CompareColumns(cmp_columns, columns)) {
             fprintf(stderr,
-                    "MultiGetEntity error: inconsistent columns for key %s, "
-                    "entity %s\n",
+                    "MultiGetEntity (AttributeGroup) error: inconsistent "
+                    "entities for key %s: %s, "
+                    "%s\n",
                     StringToHex(key_suffix).c_str(),
+                    WideColumnsToHex(cmp_columns).c_str(),
                     WideColumnsToHex(columns).c_str());
+          }
+          if (!columns.empty()) {
+            // The last character of each column value should be 'j' as a
+            // decimal digit
+            const char expected = static_cast<char>('0' + j);
+
+            for (const auto& column : columns) {
+              const Slice& value = column.value();
+
+              if (value.empty() || value[value.size() - 1] != expected) {
+                fprintf(stderr,
+                        "MultiGetEntity (AttributeGroup) error: incorrect "
+                        "column value for key "
+                        "%s, entity %s, column value %s, expected %c\n",
+                        StringToHex(key_suffix).c_str(),
+                        WideColumnsToHex(columns).c_str(),
+                        value.ToString(/* hex */ true).c_str(), expected);
+              }
+            }
+
+            if (!VerifyWideColumns(columns)) {
+              fprintf(stderr,
+                      "MultiGetEntity (AttributeGroup) error: inconsistent "
+                      "columns for key %s, "
+                      "entity %s\n",
+                      StringToHex(key_suffix).c_str(),
+                      WideColumnsToHex(columns).c_str());
+            }
+          }
+        }
+      } else {
+        // Non-AttributeGroup MultiGetEntity verification
+
+        std::array<PinnableWideColumns, num_prefixes> results;
+        std::array<Status, num_prefixes> statuses;
+
+        db_->MultiGetEntity(read_opts_copy, cfh, num_prefixes,
+                            key_slices.data(), results.data(), statuses.data());
+
+        const WideColumns& cmp_columns = results[0].columns();
+
+        for (size_t j = 0; j < num_prefixes; ++j) {
+          const Status& s = statuses[j];
+
+          if (!s.ok() && !s.IsNotFound()) {
+            fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
+            thread->stats.AddErrors(1);
+          } else if (s.IsNotFound()) {
+            thread->stats.AddGets(1, 0);
+          } else {
+            thread->stats.AddGets(1, 1);
+          }
+          const WideColumns& columns = results[j].columns();
+
+          if (!CompareColumns(cmp_columns, columns)) {
+            fprintf(
+                stderr,
+                "MultiGetEntity error: inconsistent entities for key %s: %s, "
+                "%s\n",
+                StringToHex(key_suffix).c_str(),
+                WideColumnsToHex(cmp_columns).c_str(),
+                WideColumnsToHex(columns).c_str());
+          }
+
+          if (!columns.empty()) {
+            // The last character of each column value should be 'j' as a
+            // decimal digit
+            const char expected = static_cast<char>('0' + j);
+
+            for (const auto& column : columns) {
+              const Slice& value = column.value();
+
+              if (value.empty() || value[value.size() - 1] != expected) {
+                fprintf(stderr,
+                        "MultiGetEntity error: incorrect column value for key "
+                        "%s, entity %s, column value %s, expected %c\n",
+                        StringToHex(key_suffix).c_str(),
+                        WideColumnsToHex(columns).c_str(),
+                        value.ToString(/* hex */ true).c_str(), expected);
+              }
+            }
+
+            if (!VerifyWideColumns(columns)) {
+              fprintf(stderr,
+                      "MultiGetEntity error: inconsistent columns for key %s, "
+                      "entity %s\n",
+                      StringToHex(key_suffix).c_str(),
+                      WideColumnsToHex(columns).c_str());
+            }
           }
         }
       }

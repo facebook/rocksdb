@@ -1741,7 +1741,8 @@ class ReactiveVersionSet : public VersionSet {
       InstrumentedMutex* mu,
       std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
       Status* manifest_read_status,
-      std::unordered_set<ColumnFamilyData*>* cfds_changed);
+      std::unordered_set<ColumnFamilyData*>* cfds_changed,
+      std::vector<std::string>* files_to_delete);
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
