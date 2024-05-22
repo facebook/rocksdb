@@ -269,7 +269,7 @@ class OverwritingStringSink : public FSWritableFile {
   IOStatus Flush(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
     if (last_flush_ < contents_.size()) {
       assert(reader_contents_->size() >= contents_.size());
-      memcpy((char*)reader_contents_->data() + last_flush_,
+      memcpy(const_cast<char*>(reader_contents_->data()) + last_flush_,
              contents_.data() + last_flush_, contents_.size() - last_flush_);
       last_flush_ = contents_.size();
     }

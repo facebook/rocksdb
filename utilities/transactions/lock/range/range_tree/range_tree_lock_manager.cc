@@ -198,7 +198,7 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
 
   // tracked_locks_->range_list may hold nullptr if the transaction has never
   // acquired any locks.
-  ((RangeTreeLockTracker*)range_tracker)->ReleaseLocks(this, txn, all_keys);
+  const_cast<RangeTreeLockTracker*>(range_tracker)->ReleaseLocks(this, txn, all_keys);
 }
 
 int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
@@ -373,7 +373,7 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
   if (ltree_map_.find(column_family_id) == ltree_map_.end()) {
     DICTIONARY_ID dict_id = {.dictid = column_family_id};
     toku::comparator cmp;
-    cmp.create(CompareDbtEndpoints, (void*)cfh->GetComparator());
+    cmp.create(CompareDbtEndpoints, static_cast<void*>(const_cast<Comparator*>(cfh->GetComparator())));
     toku::locktree* ltree =
         ltm_.get_lt(dict_id, cmp,
                     /* on_create_extra*/ static_cast<void*>(this));

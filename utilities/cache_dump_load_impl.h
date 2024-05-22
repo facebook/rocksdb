@@ -359,7 +359,7 @@ class CacheDumperHelper {
     if (!GetLengthPrefixedSlice(&encoded_slice, &block)) {
       return Status::Incomplete("Decode dumped unit string failed");
     }
-    dump_unit->value = (void*)block.data();
+    dump_unit->value = static_cast<void*>(const_cast<char*>(block.data()));
     assert(block.size() == dump_unit->value_len);
     return Status::OK();
   }

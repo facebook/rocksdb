@@ -438,7 +438,7 @@ std::string IsFastCrc32Supported() {
   crc##1 = _mm_crc32_u64(crc##1, *(buf##1 + offset));
 
 #define CRCsinglet(crc, buf, offset) \
-  crc = _mm_crc32_u64(crc, *(uint64_t*)(buf + offset));
+  crc = _mm_crc32_u64(crc, *reinterpret_cast<uint64_t*>(const_cast<unsigned char*>(buf + offset)));
 
 // Numbers taken directly from intel whitepaper.
 // clang-format off
@@ -523,11 +523,11 @@ inline void align_to_8(
     const unsigned char*& next) { // next data pointer, updated on return
   uint32_t crc32bit = static_cast<uint32_t>(crc0);
   if (len & 0x04) {
-    crc32bit = _mm_crc32_u32(crc32bit, *(uint32_t*)next);
+    crc32bit = _mm_crc32_u32(crc32bit, *reinterpret_cast<uint32_t*>(const_cast<unsigned char*>(next)));
     next += sizeof(uint32_t);
   }
   if (len & 0x02) {
-    crc32bit = _mm_crc32_u16(crc32bit, *(uint16_t*)next);
+    crc32bit = _mm_crc32_u16(crc32bit, *reinterpret_cast<uint16_t*>(const_cast<unsigned char*>(next)));
     next += sizeof(uint16_t);
   }
   if (len & 0x01) {
@@ -555,7 +555,7 @@ inline uint64_t CombineCRC(
   const auto res1 = _mm_clmulepi64_si128(crc1_xmm, multiplier, 0x10);
   const auto res = _mm_xor_si128(res0, res1);
   crc0 = _mm_cvtsi128_si64(res);
-  crc0 = crc0 ^ *((uint64_t*)next2 - 1);
+  crc0 = crc0 ^ *(const_cast<uint64_t*>(next2) - 1);
   crc2 = _mm_crc32_u64(crc2, crc0);
   return crc2;
 }
@@ -596,7 +596,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
         n++;
       }
       // points to the first byte of the next block
-      const uint64_t* next0 = (uint64_t*)next + block_size;
+      const uint64_t* next0 = reinterpret_cast<uint64_t*>(const_cast<unsigned char*>(next)) + block_size;
       const uint64_t* next1 = next0 + block_size;
       const uint64_t* next2 = next1 + block_size;
 

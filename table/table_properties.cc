@@ -225,7 +225,7 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
 std::size_t TableProperties::ApproximateMemoryUsage() const {
   std::size_t usage = 0;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-  usage += malloc_usable_size((void*)this);
+  usage += malloc_usable_size(static_cast<void*>(const_cast<TableProperties*>(this)));
 #else
   usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE

@@ -88,7 +88,7 @@ void toku_destroy_dbt(DBT *dbt) {
 DBT *toku_fill_dbt(DBT *dbt, const void *k, size_t len) {
   toku_init_dbt(dbt);
   dbt->size = len;
-  dbt->data = (char *)k;
+  dbt->data = static_cast<char *>(const_cast<void *>(k));
   return dbt;
 }
 

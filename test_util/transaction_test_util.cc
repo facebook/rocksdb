@@ -357,7 +357,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
             "VerifyRead at %" PRIu64 " (%" PRIu64 "): %.*s value: %" PRIu64,
             roptions.snapshot ? roptions.snapshot->GetSequenceNumber() : 0ul,
             roptions.snapshot
-                ? ((SnapshotImpl*)roptions.snapshot)->min_uncommitted_
+                ? (static_cast<SnapshotImpl*>(const_cast<Snapshot*>(roptions.snapshot)))->min_uncommitted_
                 : 0ul,
             static_cast<int>(key.size()), key.data(), int_value);
         total += int_value;

@@ -322,7 +322,7 @@ Status BlockCacheTier::NewCacheFile() {
   lock_.AssertHeld();
 
   TEST_SYNC_POINT_CALLBACK("BlockCacheTier::NewCacheFile:DeleteDir",
-                           (void*)(GetCachePath().c_str()));
+                           static_cast<void*>(const_cast<char*>(GetCachePath().c_str())));
 
   std::unique_ptr<WriteableCacheFile> f(new WriteableCacheFile(
       opt_.env, &buffer_allocator_, &writer_, GetCachePath(), writer_cache_id_,

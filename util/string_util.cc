@@ -162,7 +162,10 @@ std::string TimeToHumanString(int unixtime) {
   struct tm tInfo;
   struct tm* timeinfo = port::LocalTimeR(&rawtime, &tInfo);
   assert(timeinfo == &tInfo);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-y2k"
   strftime(time_buffer, 80, "%c", timeinfo);
+#pragma GCC diagnostic pop
   return std::string(time_buffer);
 }
 

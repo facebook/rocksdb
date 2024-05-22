@@ -12,7 +12,7 @@
 namespace ROCKSDB_NAMESPACE {
 StderrLogger::~StderrLogger() {
   if (log_prefix != nullptr) {
-    free((void*)log_prefix);
+    free(static_cast<void*>(const_cast<char*>(log_prefix)));
   }
 }
 
@@ -33,7 +33,7 @@ void StderrLogger::Logv(const char* format, va_list ap) {
   // 44 bytes, but we allocate 50 to be safe.
   //
   //    ctx_len = 44         = ( 4+ 1+ 2+1+2+ 1+2+ 1+2+ 1+ 2+1+6+ 1+16+1)
-  const char* ctx_prefix_fmt = "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s";
+  const char* const ctx_prefix_fmt = "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx %s";
   size_t ctx_len = 50;
 
   va_list ap_copy;

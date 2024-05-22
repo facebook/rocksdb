@@ -108,7 +108,7 @@ class BlockReadAmpBitmap {
 
   size_t ApproximateMemoryUsage() const {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    return malloc_usable_size(static_cast<void*>(const_cast<rocksdb::BlockReadAmpBitmap*>(this)));
+    return malloc_usable_size(static_cast<void*>(const_cast<BlockReadAmpBitmap*>(this)));
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     return sizeof(*this);
   }

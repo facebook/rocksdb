@@ -1327,7 +1327,7 @@ IndexBlockIter* Block::NewIndexIterator(
 size_t Block::ApproximateMemoryUsage() const {
   size_t usage = usable_size();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-  usage += malloc_usable_size((void*)this);
+  usage += malloc_usable_size(static_cast<void*>(const_cast<Block*>((this))));
 #else
   usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
