@@ -1483,12 +1483,18 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_use_put_entity_one_in > 0 &&
         (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      if (FLAGS_use_attribute_group) {
-        s = db_->PutEntity(write_opts, k,
-                           GenerateAttributeGroups({cfh}, value_base, v));
+      if (!FLAGS_use_txn) {
+        if (FLAGS_use_attribute_group) {
+          s = db_->PutEntity(write_opts, k,
+                             GenerateAttributeGroups({cfh}, value_base, v));
+        } else {
+          s = db_->PutEntity(write_opts, cfh, k,
+                             GenerateWideColumns(value_base, v));
+        }
       } else {
-        s = db_->PutEntity(write_opts, cfh, k,
-                           GenerateWideColumns(value_base, v));
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+        });
       }
     } else if (FLAGS_use_timed_put_one_in > 0 &&
                ((value_base + kLargePrimeForCommonFactorSkew) %
