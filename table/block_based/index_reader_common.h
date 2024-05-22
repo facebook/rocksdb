@@ -24,6 +24,9 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     assert(table_ != nullptr);
   }
 
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
+
  protected:
   static Status ReadIndexBlock(const BlockBasedTable* table,
                                FilePrefetchBuffer* prefetch_buffer,

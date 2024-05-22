@@ -54,4 +54,11 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
                         cache_index_blocks(), get_context, lookup_context,
                         index_block);
 }
+
+void BlockBasedTable::IndexReaderCommon::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  if (uncache_aggressiveness > 0) {
+    index_block_.ResetEraseIfLastRef();
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
