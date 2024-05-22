@@ -140,6 +140,32 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
                              SelectCommand);
 }
 
+void LDBCommand::ParseSingleParam(const std::string& param,
+                                  ParsedParams& parsed_params,
+                                  std::vector<std::string>& cmd_tokens) {
+  const std::string OPTION_PREFIX = "--";
+
+  if (param[0] == '-' && param[1] == '-') {
+    std::vector<std::string> splits = StringSplit(param, '=');
+    // --option_name=option_value
+    if (splits.size() == 2) {
+      std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+      parsed_params.option_map[optionKey] = splits[1];
+    } else if (splits.size() == 1) {
+      // --flag_name
+      std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+      parsed_params.flags.push_back(optionKey);
+    } else {
+      // --option_name=option_value, option_value contains '='
+      std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+      parsed_params.option_map[optionKey] =
+          param.substr(splits[0].length() + 1);
+    }
+  } else {
+    cmd_tokens.push_back(param);
+  }
+}
+
 /**
  * Parse the command-line arguments and create the appropriate LDBCommand2
  * instance.
@@ -166,28 +192,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   // and their parameters.  For eg: put key1 value1 go into this vector.
   std::vector<std::string> cmdTokens;
 
-  const std::string OPTION_PREFIX = "--";
-
   for (const auto& arg : args) {
-    if (arg[0] == '-' && arg[1] == '-') {
-      std::vector<std::string> splits = StringSplit(arg, '=');
-      // --option_name=option_value
-      if (splits.size() == 2) {
-        std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-        parsed_params.option_map[optionKey] = splits[1];
-      } else if (splits.size() == 1) {
-        // --flag_name
-        std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-        parsed_params.flags.push_back(optionKey);
-      } else {
-        // --option_name=option_value, option_value contains '='
-        std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-        parsed_params.option_map[optionKey] =
-            arg.substr(splits[0].length() + 1);
-      }
-    } else {
-      cmdTokens.push_back(arg);
-    }
+    ParseSingleParam(arg, parsed_params, cmdTokens);
   }
 
   if (cmdTokens.size() < 1) {
@@ -3887,32 +3893,23 @@ void DBQuerierCommand::DoCommand() {
   while (s.ok() && getline(std::cin, line, '\n')) {
     // Parse line into std::vector<std::string>
     std::vector<std::string> tokens;
+    ParsedParams parsed_params;
     std::map<std::string, std::string> option_map;
     size_t pos = 0;
     while (true) {
       size_t pos2 = line.find(' ', pos);
       std::string token =
           line.substr(pos, (pos2 == std::string::npos) ? pos2 : (pos2 - pos));
-      const std::string OPTION_PREFIX = "--";
-      if (token.at(0) == '-' && token.at(1) == '-') {
-        std::vector<std::string> splits = StringSplit(token, '=');
-        if (splits.size() == 2) {
-          // --option_name=option_value
-          std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-          option_map[optionKey] = splits[1];
-        } else if (splits.size() > 2) {
-          // --option_name=option_value, option_value contains '='
-          std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-          option_map[optionKey] = token.substr(splits[0].length() + 1);
-        }
-      } else {
-        tokens.push_back(line.substr(
-            pos, (pos2 == std::string::npos) ? pos2 : (pos2 - pos)));
-      }
+      ParseSingleParam(token, parsed_params, tokens);
       if (pos2 == std::string::npos) {
         break;
       }
       pos = pos2 + 1;
+    }
+
+    if (tokens.empty() || !parsed_params.flags.empty()) {
+      fprintf(stdout, "Bad command\n");
+      continue;
     }
 
     const std::string& cmd = tokens[0];
@@ -3924,7 +3921,7 @@ void DBQuerierCommand::DoCommand() {
               "get <key>\n"
               "put <key> <value>\n"
               "delete <key>\n"
-              "count [--from=start_key] [--to=end_key]\n");
+              "count [--from=<start_key>] [--to=<end_key>]\n");
     } else if (cmd == DELETE_CMD && tokens.size() == 2) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       s = db_->Delete(write_options, GetCfHandle(), Slice(key));
@@ -3984,7 +3981,8 @@ void DBQuerierCommand::DoCommand() {
       if (!end_key.empty()) {
         read_options.iterate_upper_bound = &end_key_slice;
       }
-      Iterator* iter = db_->NewIterator(read_options, GetCfHandle());
+      std::unique_ptr<Iterator> iter(
+          db_->NewIterator(read_options, GetCfHandle()));
       if (start_key.empty()) {
         iter->SeekToFirst();
       } else {
@@ -4000,7 +3998,6 @@ void DBQuerierCommand::DoCommand() {
         oss << "scan from " << start_key << " to " << end_key
             << "failed: " << iter->status().ToString();
       }
-      delete iter;
     } else {
       fprintf(stdout, "Unknown command %s\n", line.c_str());
     }

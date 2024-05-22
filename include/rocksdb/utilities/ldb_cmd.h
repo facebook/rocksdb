@@ -84,6 +84,10 @@ class LDBCommand {
 
   static LDBCommand* SelectCommand(const ParsedParams& parsed_parms);
 
+  static void ParseSingleParam(const std::string& param,
+                               ParsedParams& parsed_params,
+                               std::vector<std::string>& cmd_tokens);
+
   static LDBCommand* InitFromCmdLineArgs(
       const std::vector<std::string>& args, const Options& options,
       const LDBOptions& ldb_options,
