@@ -1107,8 +1107,19 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family_with_import(
   return c_handle;
 }
 
-rocksdb_export_import_files_metadata_t*
-rocksdb_checkpoint_export_column_family(rocksdb_t* db,
+rocksdb_column_family_handle_t* rocksdb_create_column_family_with_ttl(
+    rocksdb_t* db, const rocksdb_options_t* column_family_options,
+    const char* column_family_name, int ttl, char** errptr) {
+  ROCKSDB_NAMESPACE::DBWithTTL* db_with_ttl =
+      static_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(db->rep);
+  rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
+  SaveError(errptr, db_with_ttl->CreateColumnFamilyWithTtl(
+                        ColumnFamilyOptions(column_family_options->rep),
+                        std::string(column_family_name), &(handle->rep), ttl));
+  return handle;
+}
+
+rocksdb_export_import_files_metadata_t* rocksdb_checkpoint_export_column_family(rocksdb_t* db,
                                         rocksdb_checkpoint_t* checkpoint,
                                         rocksdb_column_family_handle_t* handle,
                                         const char* export_dir, char** errptr) {
