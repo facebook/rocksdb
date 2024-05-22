@@ -798,7 +798,7 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
     # Wide column stress tests require FullMergeV3
