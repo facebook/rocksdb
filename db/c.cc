@@ -1118,10 +1118,13 @@ rocksdb_checkpoint_export_column_family(rocksdb_t* db,
             checkpoint->rep->ExportColumnFamily(
                 (handle->rep), std::string(export_dir), 
                 &metadata));
-  rocksdb_export_import_files_metadata_t* c_metadata =
-      static_cast<rocksdb_export_import_files_metadata_t*>(malloc(sizeof(*metadata)));
-  c_metadata = new rocksdb_export_import_files_metadata_t;
-  c_metadata->rep = *metadata;
+  //rocksdb_export_import_files_metadata_t* c_metadata =
+  //    static_cast<rocksdb_export_import_files_metadata_t*>(malloc(sizeof(*metadata)));
+  rocksdb_export_import_files_metadata_t* c_metadata = new rocksdb_export_import_files_metadata_t;
+  c_metadata->rep.db_comparator_name = metadata->db_comparator_name;
+  for (size_t i = 0; i < metadata->files.size(); i++) {
+    c_metadata->rep.files.push_back(metadata->files[i]);
+  }
   return c_metadata;
 }
 
@@ -5644,7 +5647,7 @@ void rocksdb_export_import_files_metadata_properties(rocksdb_t* db,
     *dbComparatorName = eifm->rep.db_comparator_name.data();
     *lfSize = eifm->rep.files.size();
     *lf = new rocksdb_livefiles_t();
-    for (int i = 0; i < (int)eifm->rep.files.size(); i++) {
+    for (size_t i = 0; i < eifm->rep.files.size(); i++) {
         (*lf)->rep.push_back(eifm->rep.files[i]);
     }
 }
