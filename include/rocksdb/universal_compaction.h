@@ -85,7 +85,12 @@ class CompactionOptionsUniversal {
   //  write_buffer_size. Note that this is only supported for the default
   //  stop_style kCompactionStopStyleTotalSize. For
   //  kCompactionStopStyleSimilarSize, this behaves as if -1 is configured.
-  // N (N > 0): limit the number of sorted runs to be at most N.
+  // N > 0: limit the number of sorted runs to be at most N.
+  //  N should be at least the compaction trigger specified by
+  //  level0_file_num_compaction_trigger. If 0 < max_read_amp <
+  //  level0_file_num_compaction_trigger, Status::NotSupported() will be
+  //  returned during DB open.
+  // N < 0: Status::NotSupported() will be returned during DB open.
   //
   // Default: -1
   int max_read_amp;
