@@ -4154,7 +4154,7 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:FlushTriggered");
 
   ASSERT_OK(db_->DisableFileDeletions());
-  VectorLogPtr log_files;
+  VectorWalPtr log_files;
   ASSERT_OK(db_->GetSortedWalFiles(log_files));
   TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:LiveFilesCaptured");
   for (const auto& log_file : log_files) {

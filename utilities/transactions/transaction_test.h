@@ -463,7 +463,7 @@ class TransactionTestBase : public ::testing::Test {
     }
     db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Check that WAL is empty
-    VectorLogPtr log_files;
+    VectorWalPtr log_files;
     ASSERT_OK(db_impl->GetSortedWalFiles(log_files));
     ASSERT_EQ(0, log_files.size());
 

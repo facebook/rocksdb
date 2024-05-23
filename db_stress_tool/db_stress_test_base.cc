@@ -974,7 +974,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           // Verify no writes during LockWAL
           auto old_seqno = db_->GetLatestSequenceNumber();
           // And also that WAL is not changed during LockWAL()
-          std::unique_ptr<LogFile> old_wal;
+          std::unique_ptr<WalFile> old_wal;
           s = db_->GetCurrentWalFile(&old_wal);
           if (!s.ok()) {
             fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
@@ -985,7 +985,7 @@ void StressTest::OperateDb(ThreadState* thread) {
               std::this_thread::yield();
             } while (thread->rand.OneIn(2));
             // Current WAL and size should not have changed
-            std::unique_ptr<LogFile> new_wal;
+            std::unique_ptr<WalFile> new_wal;
             s = db_->GetCurrentWalFile(&new_wal);
             if (!s.ok()) {
               fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
@@ -1592,13 +1592,13 @@ Status StressTest::VerifyGetAllColumnFamilyMetaData() const {
 
 // Test the return status of GetSortedWalFiles.
 Status StressTest::VerifyGetSortedWalFiles() const {
-  VectorLogPtr log_ptr;
+  VectorWalPtr log_ptr;
   return db_->GetSortedWalFiles(log_ptr);
 }
 
 // Test the return status of GetCurrentWalFile.
 Status StressTest::VerifyGetCurrentWalFile() const {
-  std::unique_ptr<LogFile> cur_wal_file;
+  std::unique_ptr<WalFile> cur_wal_file;
   return db_->GetCurrentWalFile(&cur_wal_file);
 }
 
