@@ -2175,9 +2175,9 @@ struct ImportColumnFamilyOptions {
   // Can be set to true to move the files instead of copying them.
   bool move_files = false;
 
-  // Create ColumnFamilyOptions with default values for all fields
+  // Create ImportColumnFamilyOptions with default values for all fields
   ImportColumnFamilyOptions();
-  // Create ColumnFamilyOptions from Options
+  // Create ImportColumnFamilyOptions from Options
   explicit ImportColumnFamilyOptions(const bool moveFiles);
 };
 
