@@ -773,6 +773,10 @@ DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
              "on average.  0 indicates calls to Flush() are disabled.");
 
+DEFINE_int32(get_update_since_one_in, 0,
+             "If non-zero, then GetUpdateSince() will be called "
+             "once for every N ops on average.  0 disables.");
+
 DEFINE_int32(key_may_exist_one_in, 0,
              "If non-zero, then KeyMayExist() will be called "
              "once for every N ops on average.  0 disables.");
