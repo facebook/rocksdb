@@ -641,6 +641,7 @@ TEST_F(FaultInjectionFSTest, SyncWALDuringDBClose) {
       std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fault_fs));
   Options options = CurrentOptions();
+  options.manual_wal_flush = true;
   options.avoid_sync_during_shutdown = true;
   options.env = env.get();
   Reopen(options);
