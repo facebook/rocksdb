@@ -82,7 +82,9 @@ class CompactionOptionsUniversal {
   //  This may change in the future to behave as 0 below.
   // 0: Let RocksDB auto-tune. Currently, we determine the max number of
   //  sorted runs based on the current DB size, size_ratio and
-  //  write_buffer_size.
+  //  write_buffer_size. Note that this is only supported for the default
+  //  stop_style kCompactionStopStyleTotalSize. For
+  //  kCompactionStopStyleSimilarSize, this behaves as if -1 is configured.
   // N (N > 0): limit the number of sorted runs to be at most N.
   //
   // Default: -1

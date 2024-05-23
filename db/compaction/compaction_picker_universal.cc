@@ -487,12 +487,13 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   max_run_size_ = 0;
   sorted_runs_ =
       CalculateSortedRuns(*vstorage_, max_output_level, &max_run_size_);
+  int file_num_compaction_trigger =
+      mutable_cf_options_.level0_file_num_compaction_trigger;
 
   if (sorted_runs_.size() == 0 ||
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&
        vstorage_->FilesMarkedForCompaction().empty() &&
-       sorted_runs_.size() < (unsigned int)mutable_cf_options_
-                                 .level0_file_num_compaction_trigger)) {
+       sorted_runs_.size() < (unsigned int)file_num_compaction_trigger)) {
     ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: nothing to do\n",
                      cf_name_.c_str());
     TEST_SYNC_POINT_CALLBACK(
@@ -515,9 +516,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   }
 
   if (c == nullptr &&
-      sorted_runs_.size() >=
-          static_cast<size_t>(
-              mutable_cf_options_.level0_file_num_compaction_trigger)) {
+      sorted_runs_.size() >= static_cast<size_t>(file_num_compaction_trigger)) {
     // Check for size amplification.
     if ((c = PickCompactionToReduceSizeAmp()) != nullptr) {
       TEST_SYNC_POINT("PickCompactionToReduceSizeAmpReturnNonnullptr");
@@ -542,23 +541,25 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
 
         // This is guaranteed by NeedsCompaction()
         assert(sorted_runs_.size() >=
-               static_cast<size_t>(
-                   mutable_cf_options_.level0_file_num_compaction_trigger));
+               static_cast<size_t>(file_num_compaction_trigger));
         int max_num_runs =
             mutable_cf_options_.compaction_options_universal.max_read_amp;
-        if (max_num_runs == -1) {
-          // default to old behavior
-          max_num_runs = mutable_cf_options_.level0_file_num_compaction_trigger;
+        if (max_num_runs < 0) {
+          // any value < -1 is not valid
+          assert(max_num_runs == -1);
+          // By default, fall back to `level0_file_num_compaction_trigger`
+          max_num_runs = file_num_compaction_trigger;
         } else if (max_num_runs == 0) {
-          // 0 means auto-tuning by RocksDB. We estimate max num run based on
-          // max_run_size, size_ratio and write buffer size:
-          // Assume the size of the lowest level size is equal to
-          // write_buffer_size. Each subsequent level is the max size without
-          // triggering size_ratio compaction. `max_num_runs` is the minimum
-          // number of levels required such that the target size of the largest
-          // level is at least `max_run_size_`.
-          max_num_runs = 1;
-          {
+          if (mutable_cf_options_.compaction_options_universal.stop_style ==
+              kCompactionStopStyleTotalSize) {
+            // 0 means auto-tuning by RocksDB. We estimate max num run based on
+            // max_run_size, size_ratio and write buffer size:
+            // Assume the size of the lowest level size is equal to
+            // write_buffer_size. Each subsequent level is the max size without
+            // triggering size_ratio compaction. `max_num_runs` is the minimum
+            // number of levels required such that the target size of the
+            // largest level is at least `max_run_size_`.
+            max_num_runs = 1;
             double cur_level_max_size =
                 static_cast<double>(mutable_cf_options_.write_buffer_size);
             double total_run_size = 0;
@@ -569,7 +570,12 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
               cur_level_max_size = (100.0 + ratio) / 100.0 * total_run_size;
               ++max_num_runs;
             }
+          } else {
+            // TODO: implement the auto-tune logic for this stop style
+            max_num_runs = file_num_compaction_trigger;
           }
+        } else {
+          // max_num_runs > 0, it's the limit on the number of sorted run
         }
         // Get the total number of sorted runs that are not being compacted
         int num_sr_not_compacted = 0;
