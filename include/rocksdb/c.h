@@ -453,7 +453,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_add_livefil
     uint64_t fileType, uint64_t size, uint64_t temperature,
     const char* fileChecksum, size_t fileChecksumSize,
     const char* fileChecksumFuncName, size_t fileChecksumFuncNameSize,
-    int index);
+    int* index);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_properties(
     rocksdb_t* db,

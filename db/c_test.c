@@ -1829,7 +1829,7 @@ int main(int argc, char** argv) {
                     relativeFilenamePtr, relativeFilenameSize, directoryNamePtr,
                     directoryNameSize, fileNumber, fileType, size, temperature,
                     fileChecksumPtr, fileChecksumSize,
-                    fileChecksumFuncNamePtr, fileChecksumFuncNameSize, index);
+                    fileChecksumFuncNamePtr, fileChecksumFuncNameSize, &index);
     }
 
     rocksdb_import_column_family_options_t* importCFOptions =

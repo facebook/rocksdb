@@ -5573,7 +5573,7 @@ void rocksdb_export_import_files_metadata_add_livefile(
     uint64_t size, uint64_t temperature,
     const char* fileChecksum, size_t fileChecksumSize, 
     const char* fileChecksumFuncName, size_t fileChecksumFuncNameSize, 
-    int index) {
+    int* index) {
 
     LiveFileMetaData* lf = new LiveFileMetaData();
     // use passed parameters to initialize a newly created 
@@ -5632,7 +5632,7 @@ void rocksdb_export_import_files_metadata_add_livefile(
     eifm->rep.files.push_back(*lf);
 
     // returns - index of added file
-    index = (int)(eifm->rep.files.size()) - 1;
+    *index = (int)(eifm->rep.files.size()) - 1;
 }
 
 void rocksdb_export_import_files_metadata_properties(rocksdb_t* db, 
