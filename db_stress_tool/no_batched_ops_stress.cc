@@ -610,8 +610,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     // When Flags_use_txn is enabled, we also do a read your write check.
-    std::vector<std::optional<ExpectedValue>> ryw_expected_values;
-    ryw_expected_values.reserve(num_keys);
+    std::unordered_map<std::string, ExpectedValue> ryw_expected_values;
 
     SharedState* shared = thread->shared;
 
@@ -661,37 +660,46 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!shared->AllowsOverwrite(rand_key) &&
             shared->Exists(column_family, rand_key)) {
           // Just do read your write checks for keys that allow overwrites.
-          ryw_expected_values.emplace_back(std::nullopt);
           continue;
         }
         // With a 1 in 10 probability, insert the just added key in the batch
         // into the transaction. This will create an overlap with the MultiGet
         // keys and exercise some corner cases in the code
         if (thread->rand.OneIn(10)) {
-          int op = thread->rand.Uniform(2);
+          enum class Op {
+            Put,
+            Merge,
+            Delete,
+            // add new operations above this line
+            NumberOfOps
+          };
+
+          const Op op = static_cast<Op>(
+              thread->rand.Uniform(static_cast<int>(Op::NumberOfOps)));
+
           Status s;
           assert(txn);
           switch (op) {
-            case 0:
-            case 1: {
+            case Op::Put:
+            case Op::Merge: {
               ExpectedValue put_value;
               put_value.Put(false /* pending */);
-              ryw_expected_values.emplace_back(put_value);
+              ryw_expected_values[key_str[i]] = put_value;
               char value[100];
               size_t sz =
                   GenerateValue(put_value.GetValueBase(), value, sizeof(value));
               Slice v(value, sz);
-              if (op == 0) {
+              if (op == Op::Put) {
                 s = txn->Put(cfh, keys.back(), v);
               } else {
                 s = txn->Merge(cfh, keys.back(), v);
               }
               break;
             }
-            case 2: {
+            case Op::Delete: {
               ExpectedValue delete_value;
               delete_value.Delete(false /* pending */);
-              ryw_expected_values.emplace_back(delete_value);
+              ryw_expected_values[key_str[i]] = delete_value;
               s = txn->Delete(cfh, keys.back());
               break;
             }
@@ -699,12 +707,10 @@ class NonBatchedOpsStressTest : public StressTest {
               assert(false);
           }
           if (!s.ok()) {
-            fprintf(stderr, "Transaction put error: %s\n",
+            fprintf(stderr, "Transaction write error in TestMultiGet: %s\n",
                     s.ToString().c_str());
             thread->shared->SafeTerminate();
           }
-        } else {
-          ryw_expected_values.emplace_back(std::nullopt);
         }
       }
     }
@@ -906,9 +912,15 @@ class NonBatchedOpsStressTest : public StressTest {
     for (size_t i = 0; i < num_of_keys; ++i) {
       bool check_result = true;
       if (use_txn) {
-        assert(ryw_expected_values.size() == num_of_keys);
-        check_result = check_multiget(keys[i], values[i], statuses[i],
-                                      ryw_expected_values[i]);
+        std::optional<ExpectedValue> ryw_expected_value;
+
+        const auto it = ryw_expected_values.find(key_str[i]);
+        if (it != ryw_expected_values.end()) {
+          ryw_expected_value = it->second;
+        }
+
+        check_result =
+            check_multiget(keys[i], values[i], statuses[i], ryw_expected_value);
       } else {
         check_result = check_multiget(keys[i], values[i], statuses[i],
                                       std::nullopt /* ryw_expected_value */);
