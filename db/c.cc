@@ -5639,20 +5639,14 @@ void rocksdb_export_import_files_metadata_properties(rocksdb_t* db,
                                                      const rocksdb_export_import_files_metadata_t* eifm, 
                                                      const char** dbComparatorName, size_t* dbComparatorNameSize,
                                                      rocksdb_livefiles_t** lf, size_t* lfSize) {
-
-    ROCKS_LOG_INFO(db->rep->GetOptions().info_log, "Getting export import file metadata");
-
     // ExportImportFilesMetadata
     *dbComparatorNameSize = eifm->rep.db_comparator_name.size();
     *dbComparatorName = eifm->rep.db_comparator_name.data();
     *lfSize = eifm->rep.files.size();
     *lf = new rocksdb_livefiles_t();
-    for (int i = 0; i < eifm->rep.files.size(); i++) {
+    for (int i = 0; i < (int)eifm->rep.files.size(); i++) {
         (*lf)->rep.push_back(eifm->rep.files[i]);
     }
-    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
-                   "Finished export import file %u metadata files",
-                   (*lf)->rep.size());
 }
 
 void rocksdb_livefiles_get_livefile_properties(rocksdb_t* db, const rocksdb_livefiles_t* lf, int index, 
