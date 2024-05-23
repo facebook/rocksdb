@@ -2798,7 +2798,11 @@ class InMemoryHandler : public WriteBatch::Handler {
     if (ts_sz == 0) {
       return LDBCommand::StringToHex(key.ToString());
     } else {
-      assert(key.size() >= ts_sz);
+      // This could happen if there is corruption or undetected comparator
+      // change.
+      if (key.size() < ts_sz) {
+        return "CORRUPT KEY";
+      }
       Slice user_key_without_ts = key;
       user_key_without_ts.remove_suffix(ts_sz);
       Slice ts = Slice(key.data() + key.size() - ts_sz, ts_sz);
@@ -2835,6 +2839,12 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
     uint64_t log_number;
     FileType type;
 
+    // Comparators are available and will be used for formatting user key if DB
+    // is opened for this dump wal operation.
+    UnorderedMap<uint32_t, size_t> running_ts_sz;
+    for (const auto& [cf_id, ucmp] : ucmps) {
+      running_ts_sz.emplace(cf_id, ucmp->timestamp_size());
+    }
     // we need the log number, but ParseFilename expects dbname/NNN.log.
     std::string sanitized = wal_file;
     size_t lastslash = sanitized.rfind('/');
@@ -2875,6 +2885,42 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
             std::cerr << oss.str() << std::endl;
           }
           break;
+        }
+        const UnorderedMap<uint32_t, size_t> recorded_ts_sz =
+            reader.GetRecordedTimestampSize();
+        if (!running_ts_sz.empty()) {
+          status = HandleWriteBatchTimestampSizeDifference(
+              &batch, running_ts_sz, recorded_ts_sz,
+              TimestampSizeConsistencyMode::kVerifyConsistency,
+              /*new_batch=*/nullptr);
+          if (!status.ok()) {
+            std::stringstream oss;
+            oss << "Format for user keys in WAL file is inconsistent with the "
+                   "comparator used to open the DB. Timestamp size recorded in "
+                   "WAL vs specified by "
+                   "comparator: {";
+            bool first_cf = true;
+            for (const auto& [cf_id, ts_sz] : running_ts_sz) {
+              if (first_cf) {
+                first_cf = false;
+              } else {
+                oss << ", ";
+              }
+              auto record_ts_iter = recorded_ts_sz.find(cf_id);
+              size_t ts_sz_in_wal = (record_ts_iter == recorded_ts_sz.end())
+                                        ? 0
+                                        : record_ts_iter->second;
+              oss << "(cf_id: " << cf_id << ", [recorded: " << ts_sz_in_wal
+                  << ", comparator: " << ts_sz << "])";
+            }
+            oss << "}";
+            if (exec_state) {
+              *exec_state = LDBCommandExecuteResult::Failed(oss.str());
+            } else {
+              std::cerr << oss.str() << std::endl;
+            }
+            break;
+          }
         }
         row << WriteBatchInternal::Sequence(&batch) << ",";
         row << WriteBatchInternal::Count(&batch) << ",";
