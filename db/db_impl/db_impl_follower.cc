@@ -95,17 +95,28 @@ Status DBImplFollower::TryCatchUpWithLeader() {
   assert(versions_.get() != nullptr);
   assert(manifest_reader_.get() != nullptr);
   Status s;
+
+  TEST_SYNC_POINT("DBImplFollower::TryCatchupWithLeader:Begin1");
+  TEST_SYNC_POINT("DBImplFollower::TryCatchupWithLeader:Begin2");
   // read the manifest and apply new changes to the follower instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   JobContext job_context(0, true /*create_superversion*/);
   {
     InstrumentedMutexLock lock_guard(&mutex_);
+    std::vector<std::string> files_to_delete;
     s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
             ->ReadAndApply(&mutex_, &manifest_reader_,
-                           manifest_reader_status_.get(), &cfds_changed);
+                           manifest_reader_status_.get(), &cfds_changed,
+                           &files_to_delete);
+    ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem_);
+    pending_outputs_inserted_elem_.reset(new std::list<uint64_t>::iterator(
+        CaptureCurrentFileNumberInPendingOutputs()));
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                    static_cast<uint64_t>(versions_->LastSequence()));
+    ROCKS_LOG_INFO(
+        immutable_db_options_.info_log, "Next file number is %" PRIu64,
+        static_cast<uint64_t>(versions_->current_next_file_number()));
     for (ColumnFamilyData* cfd : cfds_changed) {
       if (cfd->IsDropped()) {
         ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] is dropped\n",
@@ -147,8 +158,32 @@ Status DBImplFollower::TryCatchUpWithLeader() {
         sv_context.NewSuperVersion();
       }
     }
+
+    for (auto& file : files_to_delete) {
+      IOStatus io_s = fs_->DeleteFile(file, IOOptions(), nullptr);
+      if (!io_s.ok()) {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "Cannot delete file %s: %s", file.c_str(),
+                       io_s.ToString().c_str());
+      }
+    }
   }
   job_context.Clean();
+
+  // Cleanup unused, obsolete files.
+  JobContext purge_files_job_context(0);
+  {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    // Currently, follower instance does not create any database files, thus
+    // is unnecessary for the follower to force full scan.
+    FindObsoleteFiles(&purge_files_job_context, /*force=*/false);
+  }
+  if (purge_files_job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(purge_files_job_context);
+  }
+  purge_files_job_context.Clean();
+
+  TEST_SYNC_POINT("DBImplFollower::TryCatchupWithLeader:End");
 
   return s;
 }
@@ -198,6 +233,8 @@ Status DBImplFollower::Close() {
     catch_up_thread_->join();
     catch_up_thread_.reset();
   }
+
+  ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem_);
 
   return DBImpl::Close();
 }

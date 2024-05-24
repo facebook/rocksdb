@@ -348,6 +348,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_2pc=false;"
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
+                             "avoid_sync_during_shutdown=false;"
                              "allow_ingest_behind=false;"
                              "concurrent_prepare=false;"
                              "two_write_queues=false;"

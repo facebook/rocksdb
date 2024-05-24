@@ -67,7 +67,9 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in":  lambda: random.choice([1000, 1000000]),
     "compact_range_one_in":  lambda: random.choice([1000, 1000000]),
-    "promote_l0_one_in":  lambda: random.choice([1000, 1000000]),
+    # Disabled because of various likely related failures with
+    # "Cannot delete table file #N from level 0 since it is on level X"
+    "promote_l0_one_in": 0,
     "compaction_pri": random.randint(0, 4),
     "key_may_exist_one_in":  lambda: random.choice([100, 100000]),
     "data_block_index_type": lambda: random.choice([0, 1]),
@@ -269,6 +271,7 @@ default_params = {
     "WAL_size_limit_MB": lambda: random.choice([0, 1]),
     "strict_bytes_per_sync": lambda: random.choice([0, 1]),
     "avoid_flush_during_shutdown": lambda: random.choice([0, 1]),
+    "avoid_sync_during_shutdown": lambda: random.choice([0, 1]),
     "fill_cache": lambda: random.choice([0, 1]),
     "optimize_multiget_for_io": lambda: random.choice([0, 1]),
     "memtable_insert_hint_per_batch": lambda: random.choice([0, 1]),
@@ -490,8 +493,6 @@ txn_params = {
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with TransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
@@ -505,8 +506,6 @@ optimistic_txn_params = {
     "occ_validation_policy": random.randint(0, 1),
     "share_occ_lock_buckets": random.randint(0, 1),
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with OptimisticTransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
@@ -685,6 +684,11 @@ def finalize_and_sanitize(src_params):
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
 
+    # BER disables WAL and tests unsynced data loss which
+    # does not work with inplace_update_support.
+    if dest_params.get("best_efforts_recovery") == 1:
+        dest_params["inplace_update_support"] = 0
+
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
     if (
@@ -699,11 +703,22 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    # Since the value of inplace_update_support needs to be fixed across runs,
+    # we disable other incompatible options here instead of disabling
+    # inplace_update_support based on other option values, which may change
+    # across runs.
     if dest_params["inplace_update_support"] == 1:
        dest_params["delpercent"] += dest_params["delrangepercent"]
        dest_params["delrangepercent"] = 0
        dest_params["readpercent"] += dest_params["prefixpercent"]
        dest_params["prefixpercent"] = 0
+       dest_params["allow_concurrent_memtable_write"] = 0
+       # inplace_update_support does not update sequence number. Our stress test recovery
+       # logic for unsynced data loss relies on max sequence number stored
+       # in MANIFEST, so they don't work together.
+       dest_params["disable_wal"] = 0
+       dest_params["sync_fault_injection"] = 0
+       dest_params["manual_wal_flush_one_in"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
@@ -721,12 +736,15 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
+         # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
         # verification upon reopen. Currently reopen does not restore expected state
         # with potential data loss in mind like start of each `./db_stress` run.
         # Therefore it always expects no data loss.
-        dest_params["reopen"] = 0
+        if (dest_params.get("avoid_sync_during_shutdown") == 1):
+            dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
+    # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
+    # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
         dest_params["allow_concurrent_memtable_write"] = 1
@@ -776,9 +794,12 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
+        # Wide-column pessimistic transaction APIs are initially supported for
+        # WriteCommitted only
+        dest_params["use_put_entity_one_in"] = 0
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0
@@ -830,7 +851,6 @@ def finalize_and_sanitize(src_params):
           dest_params["disable_wal"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
-        dest_params["inplace_update_support"] = 0
     if (dest_params.get("enable_compaction_filter", 0) == 1
         or dest_params.get("inplace_update_support", 0) == 1):
         # Compaction filter, inplace update support are incompatible with snapshots. Need to avoid taking
@@ -863,7 +883,6 @@ def finalize_and_sanitize(src_params):
         dest_params.get("use_timed_put_one_in") == 1):
         dest_params["use_timed_put_one_in"] = 3
     return dest_params
-
 
 def gen_cmd_params(args):
     params = {}

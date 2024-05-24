@@ -882,6 +882,12 @@ Status TryDeleteDir(Env* env, const std::string& dirname);
 // Delete a directory if it exists
 void DeleteDir(Env* env, const std::string& dirname);
 
+// Find the FileType from the file path
+FileType GetFileType(const std::string& path);
+
+// Get the file number given the file path
+uint64_t GetFileNumber(const std::string& path);
+
 // Creates an Env from the system environment by looking at the system
 // environment variables.
 Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,

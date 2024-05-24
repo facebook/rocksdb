@@ -158,6 +158,39 @@ Status TimestampRecoveryHandler::PutCF(uint32_t cf, const Slice& key,
   return WriteBatchInternal::Put(new_batch_.get(), cf, new_key, value);
 }
 
+Status TimestampRecoveryHandler::PutEntityCF(uint32_t cf, const Slice& key,
+                                             const Slice& entity) {
+  std::string new_key_buf;
+  Slice new_key;
+  Status status = TimestampRecoveryHandler::ReconcileTimestampDiscrepancy(
+      cf, key, &new_key_buf, &new_key);
+  if (!status.ok()) {
+    return status;
+  }
+  Slice entity_copy = entity;
+  WideColumns columns;
+  if (!WideColumnSerialization::Deserialize(entity_copy, columns).ok()) {
+    return Status::Corruption("Unable to deserialize entity",
+                              entity.ToString(/* hex */ true));
+  }
+
+  return WriteBatchInternal::PutEntity(new_batch_.get(), cf, new_key, columns);
+}
+
+Status TimestampRecoveryHandler::TimedPutCF(uint32_t cf, const Slice& key,
+                                            const Slice& value,
+                                            uint64_t write_time) {
+  std::string new_key_buf;
+  Slice new_key;
+  Status status =
+      ReconcileTimestampDiscrepancy(cf, key, &new_key_buf, &new_key);
+  if (!status.ok()) {
+    return status;
+  }
+  return WriteBatchInternal::TimedPut(new_batch_.get(), cf, new_key, value,
+                                      write_time);
+}
+
 Status TimestampRecoveryHandler::DeleteCF(uint32_t cf, const Slice& key) {
   std::string new_key_buf;
   Slice new_key;

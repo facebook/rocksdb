@@ -443,6 +443,13 @@ class Transaction {
     }
   }
 
+  virtual Status GetEntityForUpdate(const ReadOptions& read_options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice& key,
+                                    PinnableWideColumns* columns,
+                                    bool exclusive = true,
+                                    bool do_validate = true) = 0;
+
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,

@@ -140,7 +140,7 @@ Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
   uint64_t num_read = 0;
   for (; internal_iter->Valid(); internal_iter->Next()) {
     ++num_read;
-  };
+  }
   s = internal_iter->status();
   if (!s.ok()) {
     return s;
