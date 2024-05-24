@@ -22,7 +22,7 @@ class LogReaderContainer {
   LogReaderContainer(Env* env, std::shared_ptr<Logger> info_log,
                      std::string fname,
                      std::unique_ptr<SequentialFileReader>&& file_reader,
-                     uint64_t log_number) {
+                     uint64_t log_number, bool retry_corrupt_read) {
     LogReporter* reporter = new LogReporter();
     status_ = new Status();
     reporter->env = env;
@@ -36,7 +36,7 @@ class LogReaderContainer {
     // large sequence numbers).
     reader_ = new log::FragmentBufferedReader(info_log, std::move(file_reader),
                                               reporter, true /*checksum*/,
-                                              log_number);
+                                              log_number, retry_corrupt_read);
   }
   log::FragmentBufferedReader* reader_;
   log::Reader::Reporter* reporter_;

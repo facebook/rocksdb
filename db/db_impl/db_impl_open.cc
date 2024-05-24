@@ -1212,8 +1212,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
+    bool retry_corrupt_read = false;
+    if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      retry_corrupt_read = true;
+    }
     log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
-                       &reporter, true /*checksum*/, wal_number);
+                       &reporter, true /*checksum*/, wal_number,
+                       retry_corrupt_read);
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable

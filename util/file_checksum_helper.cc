@@ -14,6 +14,7 @@
 #include "db/log_reader.h"
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
+#include "file/file_util.h"
 #include "file/sequence_file_reader.h"
 #include "rocksdb/utilities/customizable_util.h"
 
@@ -124,9 +125,15 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
       }
     }
   } reporter;
+  bool retry_corrupt_read = false;
+  if (CheckFSFeatureSupport(src_env->GetFileSystem().get(),
+                            FSSupportedOps::kVerifyAndReconstructRead)) {
+    retry_corrupt_read = true;
+  }
   reporter.status_ptr = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /* checksum */, 0 /* log_number */);
+                     true /* checksum */, 0 /* log_number */,
+                     retry_corrupt_read);
   FileChecksumRetriever retriever(read_options, manifest_file_size,
                                   *checksum_list);
   retriever.Iterate(reader, &s);

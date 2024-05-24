@@ -897,7 +897,7 @@ void CorruptLogFile(Env* env, Options& options, std::string log_path,
     file_reader.reset(new SequentialFileReader(std::move(file), log_path));
   }
   std::unique_ptr<log::Reader> reader(new log::Reader(
-      nullptr, std::move(file_reader), nullptr, false, log_num));
+      nullptr, std::move(file_reader), nullptr, false, log_num, false));
   std::string scratch;
   Slice record;
   uint64_t record_checksum;

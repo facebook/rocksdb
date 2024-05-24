@@ -24,7 +24,8 @@ Reader::Reporter::~Reporter() = default;
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                std::unique_ptr<SequentialFileReader>&& _file,
-               Reporter* reporter, bool checksum, uint64_t log_num)
+               Reporter* reporter, bool checksum, uint64_t log_num,
+               bool retry_corrupt_read)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -43,7 +44,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       compression_type_record_read_(false),
       uncompress_(nullptr),
       hash_state_(nullptr),
-      uncompress_hash_state_(nullptr){}
+      uncompress_hash_state_(nullptr),
+      retry_corrupt_read_(retry_corrupt_read) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -85,6 +87,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   uint64_t prospective_record_offset = 0;
 
   Slice fragment;
+  bool retry = false;
   while (true) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
     size_t drop_size = 0;
@@ -303,6 +306,12 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         if (record_type == kBadRecordLen) {
           ReportCorruption(drop_size, "bad record length");
         } else {
+          if (!retry && retry_corrupt_read_) {
+            retry = true;
+            in_fragmented_record = false;
+            scratch->clear();
+            continue;
+          }
           ReportCorruption(drop_size, "checksum mismatch");
         }
         if (in_fragmented_record) {
@@ -323,6 +332,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
       }
     }
+    retry = false;
   }
   return false;
 }
@@ -653,6 +663,7 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
   size_t drop_size = 0;
   unsigned int fragment_type_or_err = 0;  // Initialize to make compiler happy
   Slice fragment;
+  bool retry = false;
   while (TryReadFragment(&fragment, &drop_size, &fragment_type_or_err)) {
     switch (fragment_type_or_err) {
       case kFullType:
@@ -768,10 +779,18 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kBadRecordChecksum:
+        if (!retry && retry_corrupt_read_) {
+          retry = true;
+          fragments_.clear();
+          in_fragmented_record_ = false;
+          continue;
+        }
+
         if (recycled_) {
           fragments_.clear();
           return false;
         }
+
         ReportCorruption(drop_size, "checksum mismatch");
         if (in_fragmented_record_) {
           ReportCorruption(fragments_.size(), "error in middle of record");
@@ -792,6 +811,7 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         break;
       }
     }
+    retry = false;
   }
   return false;
 }

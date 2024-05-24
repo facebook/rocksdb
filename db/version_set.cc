@@ -2239,10 +2239,15 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
       io_tracer_(io_tracer),
-      use_async_io_(false) {
+      use_async_io_(false),
+      retry_corrupt_read_(false) {
   if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
                             FSSupportedOps::kAsyncIO)) {
     use_async_io_ = true;
+  }
+  if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
+                            FSSupportedOps::kVerifyAndReconstructRead)) {
+    retry_corrupt_read_ = true;
   }
 }
 
@@ -5135,7 +5140,13 @@ VersionSet::VersionSet(
       offpeak_time_option_(OffpeakTimeOption(daily_offpeak_time_utc)),
       error_handler_(error_handler),
       read_only_(read_only),
-      closed_(false) {}
+      closed_(false),
+      retry_corrupt_read_(false) {
+  if (CheckFSFeatureSupport(fs_.get(),
+                            FSSupportedOps::kVerifyAndReconstructRead)) {
+    retry_corrupt_read_ = true;
+  }
+}
 
 Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
   Status s;
@@ -6060,7 +6071,8 @@ Status VersionSet::Recover(
     Status log_read_status;
     reporter.status = &log_read_status;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
-                       true /* checksum */, 0 /* log_number */);
+                       true /* checksum */, 0 /* log_number */,
+                       retry_corrupt_read_);
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_found_and_missing_files=*/false, no_error_if_files_missing,
@@ -6237,7 +6249,7 @@ Status VersionSet::TryRecoverFromOneManifest(
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
-                     /*checksum=*/true, /*log_num=*/0);
+                     /*checksum=*/true, /*log_num=*/0, retry_corrupt_read_);
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
       read_options, EpochNumberRequirement::kMightMissing);
@@ -6301,8 +6313,13 @@ Status VersionSet::ListColumnFamiliesFromManifest(
 
   VersionSet::LogReporter reporter;
   reporter.status = &s;
+  bool retry_corrupt_read = false;
+  if (CheckFSFeatureSupport(fs, FSSupportedOps::kVerifyAndReconstructRead)) {
+    retry_corrupt_read = true;
+  }
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /* checksum */, 0 /* log_number */);
+                     true /* checksum */, 0 /* log_number */,
+                     retry_corrupt_read);
 
   ListColumnFamiliesHandler handler(read_options);
   handler.Iterate(reader, &s);
@@ -6538,7 +6555,8 @@ Status VersionSet::DumpManifest(
     VersionSet::LogReporter reporter;
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                       true /* checksum */, 0 /* log_number */);
+                       true /* checksum */, 0 /* log_number */,
+                       retry_corrupt_read_);
     handler.Iterate(reader, &s);
   }
 
@@ -7509,9 +7527,14 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
     manifest_file_reader.reset(new SequentialFileReader(
         std::move(manifest_file), manifest_path,
         db_options_->log_readahead_size, io_tracer_, db_options_->listeners));
+    bool retry_corrupt_read = false;
+    if (CheckFSFeatureSupport(fs_.get(),
+                              FSSupportedOps::kVerifyAndReconstructRead)) {
+      retry_corrupt_read = true;
+    }
     manifest_reader->reset(new log::FragmentBufferedReader(
         nullptr, std::move(manifest_file_reader), reporter, true /* checksum */,
-        0 /* log_number */));
+        0 /* log_number */, retry_corrupt_read));
     ROCKS_LOG_INFO(db_options_->info_log, "Switched to new manifest: %s\n",
                    manifest_path.c_str());
     if (manifest_tailer_) {
