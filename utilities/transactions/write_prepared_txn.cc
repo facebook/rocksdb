@@ -522,9 +522,19 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted,
                                             kBackedByDBSnapshot);
   // TODO(yanqin): support user-defined timestamp
-  return TransactionUtil::CheckKeyForConflicts(
+  bool found_record_for_key = false;
+  Status s = TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, /*ts=*/nullptr,
-      false /* cache_only */, &snap_checker, min_uncommitted);
+      false /* cache_only */, &found_record_for_key, &snap_checker,
+      min_uncommitted);
+  // If a record is found or the checking is not successful due to other
+  // failures, it's considered the key may exist in the db.
+  if (!keys_may_exist_in_db_ &&
+      (found_record_for_key ||
+       !(s.ok() || s.IsNotFound() || s.IsMergeInProgress()))) {
+    keys_may_exist_in_db_ = true;
+  }
+  return s;
 }
 
 void WritePreparedTxn::SetSnapshot() {

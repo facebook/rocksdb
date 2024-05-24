@@ -535,6 +535,17 @@ TEST_P(WriteCommittedTxnWithTsTest, GetForUpdate) {
   // commit transactions in a single thread etc.
   ASSERT_OK(txn5->SetCommitTimestamp(3));
   ASSERT_OK(txn5->Commit());
+
+  // An entry that does not exist in the db, should allow to commit with any
+  // timestamp, regardless of the read timestamp when `do_validate` is true.
+  std::unique_ptr<Transaction> txn6(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn6->SetReadTimestampForValidation(5));
+  ASSERT_TRUE(txn6->GetForUpdate(ReadOptions(), handles_[1], "bar", &value,
+                                 /*exclusive=*/true, /*do_validate=*/true)
+                  .IsNotFound());
+  ASSERT_OK(txn6->SetCommitTimestamp(0));
+  ASSERT_OK(txn6->Commit());
   txn5.reset();
 }
 
