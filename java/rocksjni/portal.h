@@ -24,6 +24,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -35,7 +36,6 @@
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
-#include "db/dbformat.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -2478,6 +2478,35 @@ class JniUtil {
     return op(key_slice);
   }
 
+  /*
+   * Helper for operations on a key on java byte array
+   * Copies values from jbyte array to slice and performs op on the slice.
+   * for example WriteBatch->Delete
+   *
+   * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
+   * from `op` and used for RocksDB->Delete etc.
+   */
+  static void k_op_indirect(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
+                            JNIEnv* env, jbyteArray jkey, jint jkey_off,
+                            jint jkey_len) {
+    if (jkey == nullptr || env->GetArrayLength(jkey) < (jkey_off + jkey_len)) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env,
+                                                       "Invalid key argument");
+      return;
+    }
+    const std::unique_ptr<char[]> target(new char[jkey_len]);
+    if (target == nullptr) {
+      jclass oom_class = env->FindClass("java/lang/OutOfMemoryError");
+      env->ThrowNew(oom_class,
+                    "Memory allocation failed in RocksDB JNI function");
+      return;
+    }
+    env->GetByteArrayRegion(jkey, jkey_off, jkey_len,
+                            reinterpret_cast<jbyte*>(target.get()));
+    ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jkey_len);
+    return op(target_slice);
+  }
+
   template <class T>
   static jint copyToDirect(JNIEnv* env, T& source, jobject jtarget,
                            jint jtarget_off, jint jtarget_len) {
@@ -2497,6 +2526,24 @@ class JniUtil {
 
     memcpy(target, source.data(), length);
 
+    return cvalue_len;
+  }
+
+  template <class T>
+  static jint copyToIndirect(JNIEnv* env, T& source, jbyteArray jtarget,
+                             jint jtarget_off, jint jtarget_len) {
+    if (jtarget == nullptr ||
+        env->GetArrayLength(jtarget) < (jtarget_off + jtarget_len)) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Invalid target argument");
+      return 0;
+    }
+
+    const jint cvalue_len = static_cast<jint>(source.size());
+    const jint length = std::min(jtarget_len, cvalue_len);
+    env->SetByteArrayRegion(
+        jtarget, jtarget_off, length,
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(source.data())));
     return cvalue_len;
   }
 };
@@ -6420,6 +6467,8 @@ class EntryTypeJni {
         return 0x7;
       case ROCKSDB_NAMESPACE::EntryType::kEntryOther:
         return 0x8;
+      default:
+        return 0x9;
     }
   }
 };
