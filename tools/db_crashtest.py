@@ -493,8 +493,6 @@ txn_params = {
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with TransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
@@ -508,8 +506,6 @@ optimistic_txn_params = {
     "occ_validation_policy": random.randint(0, 1),
     "share_occ_lock_buckets": random.randint(0, 1),
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with OptimisticTransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
@@ -798,9 +794,12 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
+        # Wide-column pessimistic transaction APIs are initially supported for
+        # WriteCommitted only
+        dest_params["use_put_entity_one_in"] = 0
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0
@@ -883,12 +882,6 @@ def finalize_and_sanitize(src_params):
     elif (dest_params.get("use_put_entity_one_in") > 1 and
         dest_params.get("use_timed_put_one_in") == 1):
         dest_params["use_timed_put_one_in"] = 3
-    # TODO: re-enable this combination.
-    if dest_params.get("lock_wal_one_in") != 0 and dest_params["ingest_external_file_one_in"] != 0:
-        if random.choice([0, 1]) == 0:
-            dest_params["ingest_external_file_one_in"] = 0
-        else:
-            dest_params["lock_wal_one_in"] = 0
     return dest_params
 
 def gen_cmd_params(args):

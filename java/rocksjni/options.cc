@@ -3917,7 +3917,7 @@ jlongArray Java_org_rocksdb_Options_tablePropertiesCollectorFactory(
     // exception thrown: OutOfMemoryError
     return nullptr;
   }
-  jlong* buf = env->GetLongArrayElements(retVal, NULL);
+  jlong* buf = env->GetLongArrayElements(retVal, nullptr);
   if (buf == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
@@ -3943,7 +3943,7 @@ void Java_org_rocksdb_Options_setTablePropertiesCollectorFactory(
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   const jsize size = env->GetArrayLength(j_factory_handles);
 
-  jlong* buf = env->GetLongArrayElements(j_factory_handles, NULL);
+  jlong* buf = env->GetLongArrayElements(j_factory_handles, nullptr);
   if (buf == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
