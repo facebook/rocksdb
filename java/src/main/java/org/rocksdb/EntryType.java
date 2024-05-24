@@ -20,7 +20,7 @@ public enum EntryType {
   kEntryOther((byte) 0x8);
   private final byte value;
 
-  EntryType(byte value) {
+  EntryType(final byte value) {
     this.value = value;
   }
 
