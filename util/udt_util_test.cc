@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static const std::string kTestKeyWithoutTs = "key";
 static const std::string kValuePlaceHolder = "value";
+static const uint64_t kWriteUnixTime = 100;
 }  // namespace
 
 class HandleTimestampSizeDifferenceTest : public testing::Test {
@@ -33,6 +34,34 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
 
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
       if (value.compare(kValuePlaceHolder) != 0) {
+        return Status::InvalidArgument();
+      }
+      return AddKey(cf, key);
+    }
+
+    Status TimedPutCF(uint32_t cf, const Slice& key, const Slice& value,
+                      uint64_t write_unix_time) override {
+      if (value.compare(kValuePlaceHolder) != 0) {
+        return Status::InvalidArgument();
+      }
+      if (write_unix_time != kWriteUnixTime) {
+        return Status::InvalidArgument();
+      }
+      return AddKey(cf, key);
+    }
+
+    Status PutEntityCF(uint32_t cf, const Slice& key,
+                       const Slice& entity) override {
+      Slice entity_copy = entity;
+      WideColumns columns;
+      Status s = WideColumnSerialization::Deserialize(entity_copy, columns);
+      if (!s.ok()) {
+        return s;
+      }
+      if (columns.size() != 1) {
+        return Status::InvalidArgument();
+      }
+      if (columns[0].value().compare(kValuePlaceHolder) != 0) {
         return Status::InvalidArgument();
       }
       return AddKey(cf, key);
@@ -117,6 +146,10 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
           WriteBatchInternal::Merge(batch, cf_id, key, kValuePlaceHolder));
       ASSERT_OK(WriteBatchInternal::PutBlobIndex(batch, cf_id, key,
                                                  kValuePlaceHolder));
+      ASSERT_OK(WriteBatchInternal::TimedPut(
+          batch, cf_id, key, kValuePlaceHolder, kWriteUnixTime));
+      WideColumns columns{{kDefaultWideColumnName, kValuePlaceHolder}};
+      ASSERT_OK(WriteBatchInternal::PutEntity(batch, cf_id, key, columns));
     }
   }
 

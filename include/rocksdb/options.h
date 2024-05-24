@@ -234,6 +234,12 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.
   //
+  // Universal compaction: RocksDB will try to keep the number of sorted runs
+  //   no more than this number. If CompactionOptionsUniversal::max_read_amp is
+  //   set, then this option will be used only as a trigger to look for
+  //   compaction. CompactionOptionsUniversal::max_read_amp will be the limit
+  //   on the number of sorted runs.
+  //
   // Default: 4
   //
   // Dynamically changeable through SetOptions() API
@@ -1264,6 +1270,16 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
+
+  // By default RocksDB will not flush (if `manual_wal_flush` = true) and sync
+  // WAL on DB close even if there are unpersisted data (i.e. unflushed or
+  // unsynced WAL data). This can speed up DB close. Unpersisted data WILL BE
+  // LOST.
+  //
+  // DEFAULT: true
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  bool avoid_sync_during_shutdown = true;
 
   // Set this option to true during creation of database if you want
   // to be able to ingest behind (call IngestExternalFile() skipping keys

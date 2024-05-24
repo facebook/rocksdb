@@ -306,6 +306,9 @@ DEFINE_int32(universal_max_merge_width, 0,
 DEFINE_int32(universal_max_size_amplification_percent, 0,
              "The max size amplification for universal style compaction");
 
+DEFINE_int32(universal_max_read_amp, -1,
+             "The limit on the number of sorted runs");
+
 DEFINE_int32(clear_column_family_one_in, 1000000,
              "With a chance of 1/N, delete a column family and then recreate "
              "it again. If N == 0, never drop/create column families. "
@@ -975,6 +978,10 @@ DEFINE_bool(write_dbid_to_manifest,
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");
+
+DEFINE_bool(avoid_sync_during_shutdown,
+            ROCKSDB_NAMESPACE::Options().avoid_sync_during_shutdown,
+            "Options.avoid_sync_during_shutdown");
 
 DEFINE_uint64(max_write_batch_group_size_bytes,
               ROCKSDB_NAMESPACE::Options().max_write_batch_group_size_bytes,

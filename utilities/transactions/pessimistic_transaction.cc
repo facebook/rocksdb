@@ -217,6 +217,60 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
                                            value, exclusive, do_validate);
 }
 
+Status WriteCommittedTxn::GetEntityForUpdate(const ReadOptions& read_options,
+                                             ColumnFamilyHandle* column_family,
+                                             const Slice& key,
+                                             PinnableWideColumns* columns,
+                                             bool exclusive, bool do_validate) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityForUpdate without a column family handle");
+  }
+
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+
+  if (ts_sz == 0) {
+    return TransactionBaseImpl::GetEntityForUpdate(
+        read_options, column_family, key, columns, exclusive, do_validate);
+  }
+
+  assert(ts_sz > 0);
+
+  if (!do_validate) {
+    if (read_timestamp_ != kMaxTxnTimestamp) {
+      return Status::InvalidArgument(
+          "Read timestamp must not be set if validation is disabled");
+    }
+  } else {
+    if (read_timestamp_ == kMaxTxnTimestamp) {
+      return Status::InvalidArgument(
+          "Read timestamp must be set for validation");
+    }
+  }
+
+  std::string ts_buf;
+  PutFixed64(&ts_buf, read_timestamp_);
+  Slice ts(ts_buf);
+
+  if (!read_options.timestamp) {
+    ReadOptions read_options_copy = read_options;
+    read_options_copy.timestamp = &ts;
+
+    return TransactionBaseImpl::GetEntityForUpdate(
+        read_options_copy, column_family, key, columns, exclusive, do_validate);
+  }
+
+  assert(read_options.timestamp);
+  if (*read_options.timestamp != ts) {
+    return Status::InvalidArgument("Must read from the same read timestamp");
+  }
+
+  return TransactionBaseImpl::GetEntityForUpdate(
+      read_options, column_family, key, columns, exclusive, do_validate);
+}
+
 Status WriteCommittedTxn::PutEntityImpl(ColumnFamilyHandle* column_family,
                                         const Slice& key,
                                         const WideColumns& columns,

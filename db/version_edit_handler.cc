@@ -152,7 +152,7 @@ Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
 
 VersionEditHandler::VersionEditHandler(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
-    VersionSet* version_set, bool track_missing_files,
+    VersionSet* version_set, bool track_found_and_missing_files,
     bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
     const ReadOptions& read_options, bool skip_load_table_files,
     EpochNumberRequirement epoch_number_requirement)
@@ -160,7 +160,7 @@ VersionEditHandler::VersionEditHandler(
       read_only_(read_only),
       column_families_(std::move(column_families)),
       version_set_(version_set),
-      track_missing_files_(track_missing_files),
+      track_found_and_missing_files_(track_found_and_missing_files),
       no_error_if_files_missing_(no_error_if_files_missing),
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
@@ -500,7 +500,8 @@ ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
   assert(builders_.find(cf_id) == builders_.end());
   builders_.emplace(cf_id,
                     VersionBuilderUPtr(new BaseReferencedVersionBuilder(cfd)));
-  if (track_missing_files_) {
+  if (track_found_and_missing_files_) {
+    cf_to_found_files_.emplace(cf_id, std::unordered_set<uint64_t>());
     cf_to_missing_files_.emplace(cf_id, std::unordered_set<uint64_t>());
     cf_to_missing_blob_files_high_.emplace(cf_id, kInvalidBlobFileNumber);
   }
@@ -513,7 +514,11 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   auto builder_iter = builders_.find(cf_id);
   assert(builder_iter != builders_.end());
   builders_.erase(builder_iter);
-  if (track_missing_files_) {
+  if (track_found_and_missing_files_) {
+    auto found_files_iter = cf_to_found_files_.find(cf_id);
+    assert(found_files_iter != cf_to_found_files_.end());
+    cf_to_found_files_.erase(found_files_iter);
+
     auto missing_files_iter = cf_to_missing_files_.find(cf_id);
     assert(missing_files_iter != cf_to_missing_files_.end());
     cf_to_missing_files_.erase(missing_files_iter);
@@ -729,7 +734,7 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     const ReadOptions& read_options,
     EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandler(read_only, column_families, version_set,
-                         /*track_missing_files=*/true,
+                         /*track_found_and_missing_files=*/true,
                          /*no_error_if_files_missing=*/true, io_tracer,
                          read_options, epoch_number_requirement) {}
 
@@ -824,6 +829,12 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
 
         version_set_->AppendVersion(cfd, v_iter->second);
         versions_.erase(v_iter);
+        // Let's clear found_files, since any files in that are part of the
+        // installed Version. Any files that got obsoleted would have already
+        // been moved to intermediate_files_
+        auto found_files_iter = cf_to_found_files_.find(cfd->GetID());
+        assert(found_files_iter != cf_to_found_files_.end());
+        found_files_iter->second.clear();
       }
     }
   } else {
@@ -854,10 +865,16 @@ ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
 
 Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version) {
+  TEST_SYNC_POINT("VersionEditHandlerPointInTime::MaybeCreateVersion:Begin1");
+  TEST_SYNC_POINT("VersionEditHandlerPointInTime::MaybeCreateVersion:Begin2");
   assert(cfd != nullptr);
   if (!force_create_version) {
     assert(edit.GetColumnFamily() == cfd->GetID());
   }
+  auto found_files_iter = cf_to_found_files_.find(cfd->GetID());
+  assert(found_files_iter != cf_to_found_files_.end());
+  std::unordered_set<uint64_t>& found_files = found_files_iter->second;
+
   auto missing_files_iter = cf_to_missing_files_.find(cfd->GetID());
   assert(missing_files_iter != cf_to_missing_files_.end());
   std::unordered_set<uint64_t>& missing_files = missing_files_iter->second;
@@ -889,6 +906,18 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     auto fiter = missing_files.find(file_num);
     if (fiter != missing_files.end()) {
       missing_files.erase(fiter);
+    } else {
+      fiter = found_files.find(file_num);
+      // Only mark new files added during this catchup attempt for deletion.
+      // These files were never installed in VersionStorageInfo.
+      // Already referenced files that are deleted by a VersionEdit will
+      // be added to the VersionStorageInfo's obsolete files when the old
+      // version is dereferenced.
+      if (fiter != found_files.end()) {
+        intermediate_files_.emplace_back(
+            MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num));
+        found_files.erase(fiter);
+      }
     }
   }
 
@@ -904,9 +933,14 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     s = VerifyFile(cfd, fpath, level, meta);
     if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
+      if (s.IsCorruption()) {
+        found_files.insert(file_num);
+      }
       s = Status::OK();
     } else if (!s.ok()) {
       break;
+    } else {
+      found_files.insert(file_num);
     }
   }
 
