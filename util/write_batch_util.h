@@ -32,6 +32,11 @@ class ColumnFamilyCollector : public WriteBatch::Handler {
     return AddColumnFamilyId(column_family_id);
   }
 
+  Status PutEntityCF(uint32_t column_family_id, const Slice&,
+                     const Slice&) override {
+    return AddColumnFamilyId(column_family_id);
+  }
+
   Status TimedPutCF(uint32_t column_family_id, const Slice&, const Slice&,
                     uint64_t) override {
     return AddColumnFamilyId(column_family_id);

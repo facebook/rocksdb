@@ -5645,6 +5645,8 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   ASSERT_EQ(
       dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
       false);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_read_amp,
+            -1);
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{size_ratio=7;}"}}));
@@ -5666,9 +5668,11 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   ASSERT_EQ(
       dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
       false);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_read_amp,
+            -1);
 
-  ASSERT_OK(dbfull()->SetOptions(
-      {{"compaction_options_universal", "{min_merge_width=11;}"}}));
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_universal",
+                                   "{min_merge_width=11;max_read_amp=0;}"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
             11u);
@@ -5687,6 +5691,8 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   ASSERT_EQ(
       dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
       false);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_read_amp,
+            0);
 }
 
 TEST_F(DBTest, FileCreationRandomFailure) {
