@@ -617,8 +617,21 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        s = db_->PutEntity(write_opts, cfh, key,
-                           GenerateWideColumns(value_base, v));
+        if (!FLAGS_use_txn) {
+          if (FLAGS_use_attribute_group) {
+            s = db_->PutEntity(write_opts, key,
+                               GenerateAttributeGroups({cfh}, value_base, v));
+          } else {
+            s = db_->PutEntity(write_opts, cfh, key,
+                               GenerateWideColumns(value_base, v));
+          }
+        } else {
+          s = ExecuteTransaction(
+              write_opts, /*thread=*/nullptr, [&](Transaction& txn) {
+                return txn.PutEntity(cfh, key,
+                                     GenerateWideColumns(value_base, v));
+              });
+        }
       } else if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size > 0) {
