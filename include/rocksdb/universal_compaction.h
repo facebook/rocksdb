@@ -90,7 +90,7 @@ class CompactionOptionsUniversal {
   //  level0_file_num_compaction_trigger. If 0 < max_read_amp <
   //  level0_file_num_compaction_trigger, Status::NotSupported() will be
   //  returned during DB open.
-  // N < 0: Status::NotSupported() will be returned during DB open.
+  // N < -1: Status::NotSupported() will be returned during DB open.
   //
   // Default: -1
   int max_read_amp;
