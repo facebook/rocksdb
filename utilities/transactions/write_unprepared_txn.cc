@@ -378,7 +378,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   // WriteImpl should not overwrite that value, so set log_used to nullptr if
   // log_number_ is already set.
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, /*wal_write_cb=*/nullptr,
+                          /*callback*/ nullptr, /*user_write_cb=*/nullptr,
                           &last_log_number_,
                           /*log ref*/ 0, !DISABLE_MEMTABLE, &seq_used,
                           prepare_batch_cnt_, &add_prepared_callback);

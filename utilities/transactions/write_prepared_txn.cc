@@ -154,7 +154,7 @@ Status WritePreparedTxn::PrepareInternal() {
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, /*wal_write_cb=*/nullptr,
+                          /*callback*/ nullptr, /*user_write_cb=*/nullptr,
                           &log_number_, /*log ref*/ 0, !DISABLE_MEMTABLE,
                           &seq_used, prepare_batch_cnt_,
                           &add_prepared_callback);
