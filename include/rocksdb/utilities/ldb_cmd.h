@@ -160,6 +160,7 @@ class LDBCommand {
   DB* db_;
   DBWithTTL* db_ttl_;
   std::map<std::string, ColumnFamilyHandle*> cf_handles_;
+  std::map<uint32_t, const Comparator*> ucmps_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -224,17 +225,19 @@ class LDBCommand {
   ColumnFamilyHandle* GetCfHandle();
 
   static std::string PrintKeyValue(const std::string& key,
+                                   const std::string& timestamp,
                                    const std::string& value, bool is_key_hex,
-                                   bool is_value_hex);
+                                   bool is_value_hex, const Comparator* ucmp);
 
   static std::string PrintKeyValue(const std::string& key,
-                                   const std::string& value, bool is_hex);
+                                   const std::string& timestamp,
+                                   const std::string& value, bool is_hex,
+                                   const Comparator* ucmp);
 
-  static std::string PrintKeyValueOrWideColumns(const Slice& key,
-                                                const Slice& value,
-                                                const WideColumns& wide_columns,
-                                                bool is_key_hex,
-                                                bool is_value_hex);
+  static std::string PrintKeyValueOrWideColumns(
+      const Slice& key, const Slice& timestamp, const Slice& value,
+      const WideColumns& wide_columns, bool is_key_hex, bool is_value_hex,
+      const Comparator* ucmp);
 
   /**
    * Return true if the specified flag is present in the specified flags vector
