@@ -1481,13 +1481,6 @@ class DB {
     // if its manifest update sequence number is lower and equal than the DB's
     // manifest update sequence number.
     uint64_t latest_applied_manifest_update_seq{0};
-    // If true, the replication event contains manifest writes with manifest
-    // update sequence number greater than the DB's manifest update sequence
-    // number. The new manifest writes may or may not be applied depending on
-    // value of `allow_new_manifest_writes`
-    // TODO(wei): remove once epoch based diverged manifest write detection is
-    // rolled out
-    bool has_new_manifest_writes{false};
     bool diverged_manifest_writes{false};
 
     // added_column_families contains column family handles for all column
@@ -1508,21 +1501,14 @@ class DB {
   // options need to be returned. The function is invoked done outside of the DB
   // mutex.
   //
-  // If `allow_new_manifest_writes` is false, and there are new
-  // manifest writes after DB's manfiest update sequence, this function will set
-  // `has_new_manifest_writes_` to true and return early without applying
-  // the new manifest writes.
-  //
   // REQUIRES: info needs to be provided, can't be nullptr.
   enum ApplyReplicationLogRecordFlags : unsigned {
     AR_EVICT_OBSOLETE_FILES = 1U << 0,
-    AR_EPOCH_BASED_DIVERGENCE_DETECTION = 1U << 1,
   };
   using CFOptionsFactory = std::function<ColumnFamilyOptions(Slice)>;
   virtual Status ApplyReplicationLogRecord(ReplicationLogRecord record,
                                            std::string replication_sequence,
                                            CFOptionsFactory cf_options_factory,
-                                           bool allow_new_manifest_writes,
                                            uint64_t snapshot_replication_epoch,
                                            ApplyReplicationLogRecordInfo* info,
                                            unsigned flags = 0) = 0;

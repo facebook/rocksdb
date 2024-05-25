@@ -1321,15 +1321,12 @@ std::string DescribeVersionEdit(const VersionEdit& e, ColumnFamilyData* cfd) {
 Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
                                          std::string replication_sequence,
                                          CFOptionsFactory cf_options_factory,
-                                         bool allow_new_manifest_writes,
                                          uint64_t snapshot_replication_epoch,
                                          ApplyReplicationLogRecordInfo* info,
                                          unsigned flags) {
   JobContext job_context(0, false);
   Status s;
   bool evictObsoleteFiles = flags & AR_EVICT_OBSOLETE_FILES;
-  bool enableEpochBasedDivergenceDetection =
-      flags & AR_EPOCH_BASED_DIVERGENCE_DETECTION;
 
   {
     WriteThread::Writer w;
@@ -1469,8 +1466,7 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
           // at epoch `e` is generated while there is no manifest writes for the
           // latest epoch yet.
           if (latest_applied_update_sequence <= current_update_sequence) {
-            if (enableEpochBasedDivergenceDetection &&
-                !versions_->IsReplicationEpochsEmpty()) {
+            if (!versions_->IsReplicationEpochsEmpty()) {
               auto inferred_epoch_of_mus = versions_->GetReplicationEpochForMUS(
                   latest_applied_update_sequence);
               // If mus is smaller than mus in the epoch set, the replication
@@ -1506,9 +1502,9 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
             // don't apply the manifest write if it's already applied
             continue;
           } else {
-            if (enableEpochBasedDivergenceDetection &&
-                !versions_->IsReplicationEpochsEmpty() &&
-                versions_->replication_epochs_.GetLargestEpoch() < snapshot_replication_epoch) {
+            if (!versions_->IsReplicationEpochsEmpty() &&
+                versions_->replication_epochs_.GetLargestEpoch() <
+                    snapshot_replication_epoch) {
               // This should be the first mus of `snapshotEpoch`
               if (replication_epoch != snapshot_replication_epoch) {
                 info->diverged_manifest_writes = true;
@@ -1523,11 +1519,6 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
             }
           }
 
-          info->has_new_manifest_writes = true;
-          if (!allow_new_manifest_writes) {
-            // We don't expect new manifest writes, break early
-            break;
-          }
           ++current_update_sequence;
           if (e.GetManifestUpdateSequence() != current_update_sequence) {
             std::ostringstream oss;
