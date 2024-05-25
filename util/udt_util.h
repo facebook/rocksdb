@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -115,6 +116,12 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
   TimestampRecoveryHandler& operator=(TimestampRecoveryHandler&&) = delete;
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override;
+
+  Status PutEntityCF(uint32_t cf, const Slice& key,
+                     const Slice& entity) override;
+
+  Status TimedPutCF(uint32_t cf, const Slice& key, const Slice& value,
+                    uint64_t write_time) override;
 
   Status DeleteCF(uint32_t cf, const Slice& key) override;
 
