@@ -10,6 +10,8 @@
 
 #include <cstddef>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 template <typename T, std::size_t Align = alignof(T)>
