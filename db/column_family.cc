@@ -1532,12 +1532,14 @@ Status ColumnFamilyData::ValidateOptions(
   if (cf_options.compaction_style == kCompactionStyleUniversal) {
     int max_read_amp = cf_options.compaction_options_universal.max_read_amp;
     if (max_read_amp < -1) {
-      return Status::NotSupported("max_read_amp should be at least -1.");
+      return Status::NotSupported(
+          "CompactionOptionsUniversal::max_read_amp should be at least -1.");
     } else if (0 < max_read_amp &&
                max_read_amp < cf_options.level0_file_num_compaction_trigger) {
       return Status::NotSupported(
-          "max_read_amp limits the number of sorted runs but is smaller than "
-          "the compaction trigger level0_file_num_compaction_trigger.");
+          "CompactionOptionsUniversal::max_read_amp limits the number of sorted"
+          " runs but is smaller than the compaction trigger "
+          "level0_file_num_compaction_trigger.");
     }
   }
   return s;
