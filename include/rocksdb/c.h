@@ -434,14 +434,11 @@ rocksdb_create_column_family_with_ttl(
 extern ROCKSDB_LIBRARY_API void rocksdb_drop_column_family(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, char** errptr);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
-    rocksdb_column_family_handle_t*);
-
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
     rocksdb_get_default_column_family_handle(rocksdb_t* db);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_default_column_family_handle_destroy(
-    rocksdb_column_family_handle_t* handle);
+extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
+    rocksdb_column_family_handle_t*);
 
 extern ROCKSDB_LIBRARY_API uint32_t
 rocksdb_column_family_handle_get_id(rocksdb_column_family_handle_t* handle);
