@@ -32,7 +32,7 @@ class Logger;
 // only if ConcurrentArena actually notices concurrent use, and they
 // adjust their size so that there is no fragmentation waste when the
 // shard blocks are allocated from the underlying main arena.
-class ALIGN_AS(CACHE_LINE_SIZE) ConcurrentArena : public Allocator {
+class alignas(CACHE_LINE_SIZE) ConcurrentArena : public Allocator {
  public:
   // block_size and huge_page_size are the same as for Arena (and are
   // in fact just passed to the constructor of arena_.  The core-local
@@ -82,7 +82,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ConcurrentArena : public Allocator {
   size_t BlockSize() const override { return arena_.BlockSize(); }
 
  private:
-  struct ALIGN_AS(CACHE_LINE_SIZE) Shard {
+  struct alignas(CACHE_LINE_SIZE) Shard {
     mutable SpinMutex mutex;
     char* free_begin_;
     std::atomic<size_t> allocated_and_unused_;
