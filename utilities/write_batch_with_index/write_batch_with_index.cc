@@ -567,41 +567,60 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                            nullptr);
 }
 
-void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+void WriteBatchWithIndex::MergeAcrossBatchAndDBImpl(
     ColumnFamilyHandle* column_family, const Slice& key,
     const PinnableWideColumns& existing, const MergeContext& merge_context,
-    PinnableSlice* value, Status* status) {
-  assert(value);
+    std::string* value, PinnableWideColumns* columns, Status* status) {
+  assert(value || columns);
+  assert(!value || !columns);
   assert(status);
-  assert(status->ok() || status->IsNotFound());
-
-  std::string result_value;
 
   if (status->ok()) {
     if (WideColumnsHelper::HasDefaultColumnOnly(existing.columns())) {
       *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
           column_family, key, MergeHelper::kPlainBaseValue,
           WideColumnsHelper::GetDefaultColumn(existing.columns()),
-          merge_context, &result_value,
-          static_cast<PinnableWideColumns*>(nullptr));
+          merge_context, value, columns);
     } else {
       *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
           column_family, key, MergeHelper::kWideBaseValue, existing.columns(),
-          merge_context, &result_value,
-          static_cast<PinnableWideColumns*>(nullptr));
+          merge_context, value, columns);
     }
   } else {
     assert(status->IsNotFound());
     *status = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
-        column_family, key, merge_context, &result_value,
-        static_cast<PinnableWideColumns*>(nullptr));
+        column_family, key, merge_context, value, columns);
   }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableSlice* value, Status* status) {
+  assert(value);
+  assert(status);
+
+  std::string result_value;
+  constexpr PinnableWideColumns* result_entity = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context,
+                            &result_value, result_entity, status);
 
   if (status->ok()) {
-    value->Reset();
     *value->GetSelf() = std::move(result_value);
     value->PinSelf();
   }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableWideColumns* columns, Status* status) {
+  assert(columns);
+  assert(status);
+
+  constexpr std::string* value = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context, value,
+                            columns, status);
 }
 
 Status WriteBatchWithIndex::GetFromBatchAndDB(
@@ -620,6 +639,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     return Status::InvalidArgument("Must specify timestamp");
   }
 
+  pinnable_val->Reset();
+
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
@@ -634,7 +655,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     return s;
   }
 
-  if (!s.ok() || result == WBWIIteratorImpl::kError) {
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+  if (result == WBWIIteratorImpl::kError) {
     return s;
   }
 
@@ -796,6 +818,283 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
       MergeAcrossBatchAndDB(column_family, merge.key, merge.existing,
                             merge.merge_context, merge.value, merge.s);
+    }
+  }
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns, ReadCallback* callback) {
+  if (!db) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a DB object");
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntityFromBatchAndDB with `ReadOptions::io_activity` "
+        "set to `Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a column family handle");
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      return Status::InvalidArgument("Must specify timestamp");
+    }
+
+    if (read_options.timestamp->size() != ts_sz) {
+      return Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+    }
+  } else {
+    if (read_options.timestamp) {
+      return Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+    }
+  }
+
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a PinnableWideColumns "
+        "object");
+  }
+
+  columns->Reset();
+
+  MergeContext merge_context;
+  Status s;
+
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+
+  if (result == WBWIIteratorImpl::kFound ||
+      result == WBWIIteratorImpl::kError) {
+    return s;
+  }
+
+  if (result == WBWIIteratorImpl::kDeleted) {
+    return Status::NotFound();
+  }
+
+  assert(result == WBWIIteratorImpl::kMergeInProgress ||
+         result == WBWIIteratorImpl::kNotFound);
+
+  PinnableWideColumns existing;
+
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns =
+      (result == WBWIIteratorImpl::kMergeInProgress) ? &existing : columns;
+  get_impl_options.callback = callback;
+
+  s = static_cast_with_check<DBImpl>(db->GetRootDB())
+          ->GetImpl(read_options, key, get_impl_options);
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    if (s.ok() || s.IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, key, existing, merge_context,
+                            columns, &s);
+    }
+  }
+
+  return s;
+}
+
+void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    size_t num_keys, const Slice* keys, PinnableWideColumns* results,
+    Status* statuses, bool sorted_input, ReadCallback* callback) {
+  assert(statuses);
+
+  if (!db) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a DB object");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    const Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntityFromBatchAndDB with "
+        "`ReadOptions::io_activity` set to `Env::IOActivity::kUnknown` or "
+        "`Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  if (!column_family) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a column family "
+        "handle");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      const Status s = Status::InvalidArgument("Must specify timestamp");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+
+    if (read_options.timestamp->size() != ts_sz) {
+      const Status s = Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  } else {
+    if (read_options.timestamp) {
+      const Status s = Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  }
+
+  if (!keys) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without keys");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  if (!results) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without "
+        "PinnableWideColumns objects");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  struct MergeTuple {
+    MergeTuple(const Slice& _key, Status* _s, MergeContext&& _merge_context,
+               PinnableWideColumns* _columns)
+        : key(_key),
+          s(_s),
+          merge_context(std::move(_merge_context)),
+          columns(_columns) {
+      assert(s);
+      assert(columns);
+    }
+
+    Slice key;
+    Status* s;
+    PinnableWideColumns existing;
+    MergeContext merge_context;
+    PinnableWideColumns* columns;
+  };
+
+  autovector<MergeTuple, MultiGetContext::MAX_BATCH_SIZE> merges;
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_contexts;
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    const Slice& key = keys[i];
+    MergeContext merge_context;
+    PinnableWideColumns* const columns = &results[i];
+    Status* const s = &statuses[i];
+
+    columns->Reset();
+
+    auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+        this, column_family, key, &merge_context, columns, s);
+
+    if (result == WBWIIteratorImpl::kFound ||
+        result == WBWIIteratorImpl::kError) {
+      continue;
+    }
+
+    if (result == WBWIIteratorImpl::kDeleted) {
+      *s = Status::NotFound();
+      continue;
+    }
+
+    if (result == WBWIIteratorImpl::kMergeInProgress) {
+      merges.emplace_back(key, s, std::move(merge_context), columns);
+
+      // The columns field will be populated by the loop below to prevent issues
+      // with dangling pointers.
+      key_contexts.emplace_back(column_family, key, /* value */ nullptr,
+                                /* columns */ nullptr, /* timestamp */ nullptr,
+                                s);
+      continue;
+    }
+
+    assert(result == WBWIIteratorImpl::kNotFound);
+    key_contexts.emplace_back(column_family, key, /* value */ nullptr, columns,
+                              /* timestamp */ nullptr, s);
+  }
+
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.reserve(key_contexts.size());
+
+  size_t merges_idx = 0;
+  for (KeyContext& key_context : key_contexts) {
+    if (!key_context.columns) {
+      assert(*key_context.key == merges[merges_idx].key);
+
+      key_context.columns = &merges[merges_idx].existing;
+      ++merges_idx;
+    }
+
+    sorted_keys.emplace_back(&key_context);
+  }
+
+  static_cast_with_check<DBImpl>(db->GetRootDB())
+      ->PrepareMultiGetKeys(sorted_keys.size(), sorted_input, &sorted_keys);
+  static_cast_with_check<DBImpl>(db->GetRootDB())
+      ->MultiGetEntityWithCallback(read_options, column_family, callback,
+                                   &sorted_keys);
+
+  for (const auto& merge : merges) {
+    if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, merge.key, merge.existing,
+                            merge.merge_context, merge.columns, merge.s);
     }
   }
 }

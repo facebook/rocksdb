@@ -607,3 +607,13 @@ jobs:
       with:
         name: maven-site
         path: "${{ github.workspace }}/java/target/site"
+  build-linux-arm:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 4-core-ubuntu-arm
+    steps:
+      - uses: actions/checkout@v4.1.0
+      - uses: "./.github/actions/pre-steps"
+      - run: sudo apt-get update && sudo apt-get install -y build-essential
+      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
+      - uses: "./.github/actions/post-steps"

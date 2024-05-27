@@ -1331,14 +1331,16 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
 }
 
 void MultiOpsTxnsStressTest::ProcessRecoveredPreparedTxnsHelper(
-    Transaction* txn, SharedState*) {
+    Transaction* txn, SharedState* shared) {
   thread_local Random rand(static_cast<uint32_t>(FLAGS_seed));
   if (rand.OneIn(2)) {
     Status s = txn->Commit();
-    assert(s.ok());
+    ProcessStatus(shared, "ProcessRecoveredPreparedTxnsHelper", s,
+                  /*ignore_injected_error=*/false);
   } else {
     Status s = txn->Rollback();
-    assert(s.ok());
+    ProcessStatus(shared, "ProcessRecoveredPreparedTxnsHelper", s,
+                  /*ignore_injected_error=*/false);
   }
 }
 
@@ -1517,14 +1519,15 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     WriteBatch wb;
     const auto primary_index_entry = record.EncodePrimaryIndexEntry();
     Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
-    assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     const auto secondary_index_entry = record.EncodeSecondaryIndexEntry();
     s = wb.Put(secondary_index_entry.first, secondary_index_entry.second);
-    assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     s = txn_db_->Write(wopts, &wb);
     assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     // TODO (yanqin): make the following check optional, especially when data
     // size is large.
@@ -1532,7 +1535,7 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     tmp_rec.SetB(record.b_value());
     s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
                                           secondary_index_entry.second);
-    assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
     assert(tmp_rec == record);
 
     existing_a_uniqs[tid].insert(a);

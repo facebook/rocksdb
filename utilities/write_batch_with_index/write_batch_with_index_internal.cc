@@ -281,6 +281,7 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
 
       status_ = WideColumnSerialization::Deserialize(value_copy, columns_);
       if (!status_.ok()) {
+        columns_.clear();
         return;
       }
 
@@ -340,6 +341,7 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
 
     status_ = WideColumnSerialization::Deserialize(entity, columns_);
     if (!status_.ok()) {
+      columns_.clear();
       return;
     }
 
@@ -838,6 +840,9 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatchImpl(
         Traits::ClearOutput(output);
         result = WBWIIteratorImpl::Result::kError;
       }
+    } else {
+      Traits::ClearOutput(output);
+      *s = Status::OK();
     }
 
     return result;

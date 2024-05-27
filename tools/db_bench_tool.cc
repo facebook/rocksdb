@@ -544,11 +544,19 @@ DEFINE_int32(universal_compression_size_percent, -1,
              "The percentage of the database to compress for universal "
              "compaction. -1 means compress everything.");
 
+DEFINE_int32(universal_max_read_amp, -1,
+             "The limit on the number of sorted runs");
+
 DEFINE_bool(universal_allow_trivial_move, false,
             "Allow trivial move in universal compaction.");
 
 DEFINE_bool(universal_incremental, false,
             "Enable incremental compactions in universal compaction.");
+
+DEFINE_int32(
+    universal_stop_style,
+    (int32_t)ROCKSDB_NAMESPACE::CompactionOptionsUniversal().stop_style,
+    "Universal compaction stop style.");
 
 DEFINE_int64(cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of uncompressed data");
@@ -1135,6 +1143,11 @@ DEFINE_int32(secondary_update_interval, 5,
              "Secondary instance attempts to catch up with the primary every "
              "secondary_update_interval seconds.");
 
+DEFINE_bool(open_as_follower, false,
+            "Open a RocksDB DB as a follower. The leader instance can be "
+            "running in another db_bench process.");
+
+DEFINE_string(leader_path, "", "Path to the directory of the leader DB");
 
 DEFINE_bool(report_bg_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
@@ -1294,6 +1307,8 @@ static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
     return ROCKSDB_NAMESPACE::kAdmPolicyAllowCacheHits;
   } else if (!strcasecmp(policy, "three_queue")) {
     return ROCKSDB_NAMESPACE::kAdmPolicyThreeQueue;
+  } else if (!strcasecmp(policy, "allow_all")) {
+    return ROCKSDB_NAMESPACE::kAdmPolicyAllowAll;
   } else {
     fprintf(stderr, "Cannot parse admission policy %s\n", policy);
     exit(1);
@@ -4657,10 +4672,14 @@ class Benchmark {
       options.compaction_options_universal.compression_size_percent =
           FLAGS_universal_compression_size_percent;
     }
+    options.compaction_options_universal.max_read_amp =
+        FLAGS_universal_max_read_amp;
     options.compaction_options_universal.allow_trivial_move =
         FLAGS_universal_allow_trivial_move;
     options.compaction_options_universal.incremental =
         FLAGS_universal_incremental;
+    options.compaction_options_universal.stop_style =
+        static_cast<CompactionStopStyle>(FLAGS_universal_stop_style);
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
     }
@@ -4978,6 +4997,12 @@ class Benchmark {
               }
             },
             FLAGS_secondary_update_interval, db));
+      }
+    } else if (FLAGS_open_as_follower) {
+      std::unique_ptr<DB> dbptr;
+      s = DB::OpenAsFollower(options, db_name, FLAGS_leader_path, &dbptr);
+      if (s.ok()) {
+        db->db = dbptr.release();
       }
     } else {
       s = DB::Open(options, db_name, &db->db);

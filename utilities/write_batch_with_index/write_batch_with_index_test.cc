@@ -2614,8 +2614,40 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
     }
   }
 
-  // TODO: add tests for GetEntityFromBatchAndDB and
-  // MultiGetEntityFromBatchAndDB once they are implemented
+  // GetEntityFromBatchAndDB
+  {
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, read_opts_,
+                                              db_->DefaultColumnFamily(),
+                                              delete_key, &columns)
+                    .IsNotFound());
+  }
+
+  for (size_t i = 1; i < num_keys; ++i) {
+    PinnableWideColumns columns;
+    ASSERT_OK(batch_->GetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
+    ASSERT_EQ(columns.columns(), expected[i]);
+  }
+
+  // MultiGetEntityFromBatchAndDB
+  {
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsNotFound());
+
+    for (size_t i = 1; i < num_keys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i].columns(), expected[i]);
+    }
+  }
 
   // Iterator
   std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
@@ -2733,8 +2765,40 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchAndDB) {
     ASSERT_TRUE(statuses[num_keys - 1].IsNotFound());
   }
 
-  // TODO: add tests for GetEntityFromBatchAndDB and
-  // MultiGetEntityFromBatchAndDB once they are implemented
+  // GetEntityFromBatchAndDB
+  for (size_t i = 0; i < num_keys - 1; ++i) {
+    PinnableWideColumns columns;
+    ASSERT_OK(batch_->GetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
+    ASSERT_EQ(columns.columns(), expected[i]);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, read_opts_,
+                                              db_->DefaultColumnFamily(),
+                                              no_merge_c_key, &columns)
+                    .IsNotFound());
+  }
+
+  // MultiGetEntityFromBatchAndDB
+  {
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, read_opts_, db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+
+    for (size_t i = 0; i < num_keys - 1; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i].columns(), expected[i]);
+    }
+
+    ASSERT_TRUE(statuses[num_keys - 1].IsNotFound());
+  }
 
   // Iterator
   std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
@@ -2906,6 +2970,128 @@ TEST_P(WriteBatchWithIndexTest, GetEntityFromBatch) {
     ASSERT_TRUE(
         batch_->GetEntityFromBatch(db_->DefaultColumnFamily(), key, nullptr)
             .IsInvalidArgument());
+  }
+}
+
+TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
+  ASSERT_OK(OpenDB());
+
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr size_t num_keys = 2;
+
+  {
+    constexpr DB* db = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db, ReadOptions(),
+                                              db_->DefaultColumnFamily(), foo,
+                                              &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, ReadOptions(), column_family,
+                                              foo, &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr PinnableWideColumns* columns = nullptr;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, ReadOptions(),
+                                              db_->DefaultColumnFamily(), foo,
+                                              columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kGet;
+
+    PinnableWideColumns columns;
+    ASSERT_TRUE(batch_
+                    ->GetEntityFromBatchAndDB(db_, read_options,
+                                              db_->DefaultColumnFamily(), foo,
+                                              &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr DB* db = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(db_, ReadOptions(), column_family,
+                                         num_keys, keys.data(), results.data(),
+                                         statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr Slice* keys = nullptr;
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys,
+        results.data(), statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    constexpr PinnableWideColumns* results = nullptr;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results, statuses.data(), sorted_input);
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+    constexpr bool sorted_input = false;
+
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_, read_options, db_->DefaultColumnFamily(), num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
   }
 }
 

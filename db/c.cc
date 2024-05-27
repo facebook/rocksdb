@@ -2757,6 +2757,24 @@ void rocksdb_options_set_block_based_table_factory(
   }
 }
 
+void rocksdb_block_based_options_set_top_level_index_pinning_tier(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.top_level_index_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+}
+
+void rocksdb_block_based_options_set_partition_pinning_tier(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.partition_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+}
+
+void rocksdb_block_based_options_set_unpartitioned_pinning_tier(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.unpartitioned_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+}
+
 rocksdb_cuckoo_table_options_t* rocksdb_cuckoo_options_create() {
   return new rocksdb_cuckoo_table_options_t;
 }
@@ -3940,6 +3958,14 @@ void rocksdb_options_set_universal_compaction_options(
 void rocksdb_options_set_fifo_compaction_options(
     rocksdb_options_t* opt, rocksdb_fifo_compaction_options_t* fifo) {
   opt->rep.compaction_options_fifo = fifo->rep;
+}
+
+void rocksdb_options_set_compaction_pri(rocksdb_options_t* opt, int pri) {
+  opt->rep.compaction_pri = static_cast<ROCKSDB_NAMESPACE::CompactionPri>(pri);
+}
+
+int rocksdb_options_get_compaction_pri(rocksdb_options_t* opt) {
+  return opt->rep.compaction_pri;
 }
 
 char* rocksdb_options_statistics_get_string(rocksdb_options_t* opt) {

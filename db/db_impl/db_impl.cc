@@ -26,7 +26,9 @@
 #include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/attribute_group_iterator_impl.h"
 #include "db/builder.h"
+#include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
 #include "db/convenience_impl.h"
 #include "db/db_info_dumper.h"
@@ -45,7 +47,6 @@
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
-#include "db/multi_cf_iterator.h"
 #include "db/periodic_task_scheduler.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
@@ -625,6 +626,19 @@ Status DBImpl::CloseHelper() {
     job_context.Clean();
     mutex_.Lock();
   }
+  if (!mutable_db_options_.avoid_sync_during_shutdown && !logs_.empty()) {
+    mutex_.Unlock();
+    Status s = FlushWAL(true /* sync */);
+    mutex_.Lock();
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to flush and sync WALs with error -- %s",
+                     s.ToString().c_str());
+      if (ret.ok()) {
+        ret = s;
+      }
+    }
+  }
   {
     InstrumentedMutexLock lock(&log_write_mutex_);
     for (auto l : logs_to_free_) {
@@ -636,7 +650,7 @@ Status DBImpl::CloseHelper() {
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             immutable_db_options_.info_log,
-            "Unable to Sync WAL file %s with error -- %s",
+            "Unable to clear writer for WAL %s with error -- %s",
             LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
             s.ToString().c_str());
         // Retain the first error
@@ -1853,6 +1867,7 @@ void DBImpl::SchedulePurge() {
 }
 
 void DBImpl::BackgroundCallPurge() {
+  TEST_SYNC_POINT("DBImpl::BackgroundCallPurge:beforeMutexLock");
   mutex_.Lock();
 
   while (!logs_to_free_queue_.empty()) {
@@ -2097,7 +2112,7 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGetEntity) {
     return Status::InvalidArgument(
-        "Cannot call GetEntity with `ReadOptions::io_activity` != "
+        "Can only call GetEntity with `ReadOptions::io_activity` set to "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
   }
   ReadOptions read_options(_read_options);
@@ -2124,7 +2139,7 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGetEntity) {
     s = Status::InvalidArgument(
-        "Cannot call GetEntity with `ReadOptions::io_activity` != "
+        "Can only call GetEntity with `ReadOptions::io_activity` set to "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
     for (size_t i = 0; i < num_column_families; ++i) {
       (*result)[i].SetStatus(s);
@@ -2515,12 +2530,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   return s;
 }
 
-template <class T>
-Status DBImpl::MultiCFSnapshot(
-    const ReadOptions& read_options, ReadCallback* callback,
-    std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
-        iter_deref_func,
-    T* cf_list, SequenceNumber* snapshot, bool* sv_from_thread_local) {
+template <class T, typename IterDerefFuncType>
+Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
+                               ReadCallback* callback,
+                               IterDerefFuncType iter_deref_func, T* cf_list,
+                               bool extra_sv_ref, SequenceNumber* snapshot,
+                               bool* sv_from_thread_local) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
   assert(sv_from_thread_local);
@@ -2537,7 +2552,7 @@ Status DBImpl::MultiCFSnapshot(
       SuperVersion* super_version = node->super_version;
       ColumnFamilyData* cfd = node->cfd;
       if (super_version != nullptr) {
-        if (*sv_from_thread_local) {
+        if (*sv_from_thread_local && !extra_sv_ref) {
           ReturnAndCleanupSuperVersion(cfd, super_version);
         } else {
           CleanupSuperVersion(super_version);
@@ -2553,7 +2568,11 @@ Status DBImpl::MultiCFSnapshot(
     // super version
     auto cf_iter = cf_list->begin();
     auto node = iter_deref_func(cf_iter);
-    node->super_version = GetAndRefSuperVersion(node->cfd);
+    if (extra_sv_ref) {
+      node->super_version = node->cfd->GetReferencedSuperVersion(this);
+    } else {
+      node->super_version = GetAndRefSuperVersion(node->cfd);
+    }
     if (check_read_ts) {
       s = FailIfReadCollapsedHistory(node->cfd, node->super_version,
                                      *(read_options.timestamp));
@@ -2600,7 +2619,7 @@ Status DBImpl::MultiCFSnapshot(
       }
       if (read_options.snapshot == nullptr) {
         if (last_try) {
-          TEST_SYNC_POINT("DBImpl::MultiGet::LastTry");
+          TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::LastTry");
           // We're close to max number of retries. For the last retry,
           // acquire the lock so we're sure to succeed
           mutex_.Lock();
@@ -2615,11 +2634,15 @@ Status DBImpl::MultiCFSnapshot(
            ++cf_iter) {
         auto node = iter_deref_func(cf_iter);
         if (!last_try) {
-          node->super_version = GetAndRefSuperVersion(node->cfd);
+          if (extra_sv_ref) {
+            node->super_version = node->cfd->GetReferencedSuperVersion(this);
+          } else {
+            node->super_version = GetAndRefSuperVersion(node->cfd);
+          }
         } else {
           node->super_version = node->cfd->GetSuperVersion()->Ref();
         }
-        TEST_SYNC_POINT("DBImpl::MultiGet::AfterRefSV");
+        TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::AfterRefSV");
         if (check_read_ts) {
           s = FailIfReadCollapsedHistory(node->cfd, node->super_version,
                                          *(read_options.timestamp));
@@ -2633,6 +2656,7 @@ Status DBImpl::MultiCFSnapshot(
             break;
           }
         }
+        TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot");
         if (read_options.snapshot != nullptr || last_try) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
@@ -2656,7 +2680,7 @@ Status DBImpl::MultiCFSnapshot(
       if (!retry) {
         if (last_try) {
           mutex_.Unlock();
-          TEST_SYNC_POINT("DBImpl::MultiGet::AfterLastTryRefSV");
+          TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::AfterLastTryRefSV");
         }
         break;
       }
@@ -2768,37 +2792,37 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   }
   PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
 
-  autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>
-      multiget_cf_data;
+  autovector<MultiGetKeyRangePerCf, MultiGetContext::MAX_BATCH_SIZE>
+      key_range_per_cf;
+  autovector<ColumnFamilySuperVersionPair, MultiGetContext::MAX_BATCH_SIZE>
+      cf_sv_pairs;
   size_t cf_start = 0;
   ColumnFamilyHandle* cf = sorted_keys[0]->column_family;
 
   for (size_t i = 0; i < num_keys; ++i) {
     KeyContext* key_ctx = sorted_keys[i];
     if (key_ctx->column_family != cf) {
-      multiget_cf_data.emplace_back(cf, cf_start, i - cf_start, nullptr);
+      key_range_per_cf.emplace_back(cf_start, i - cf_start);
+      cf_sv_pairs.emplace_back(cf, nullptr);
       cf_start = i;
       cf = key_ctx->column_family;
     }
   }
 
-  multiget_cf_data.emplace_back(cf, cf_start, num_keys - cf_start, nullptr);
+  key_range_per_cf.emplace_back(cf_start, num_keys - cf_start);
+  cf_sv_pairs.emplace_back(cf, nullptr);
 
-  std::function<MultiGetColumnFamilyData*(
-      autovector<MultiGetColumnFamilyData,
-                 MultiGetContext::MAX_BATCH_SIZE>::iterator&)>
-      iter_deref_lambda =
-          [](autovector<MultiGetColumnFamilyData,
-                        MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
-            return &(*cf_iter);
-          };
-
-  SequenceNumber consistent_seqnum;
-  bool sv_from_thread_local;
-  Status s = MultiCFSnapshot<
-      autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>>(
-      read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
-      &consistent_seqnum, &sv_from_thread_local);
+  SequenceNumber consistent_seqnum = kMaxSequenceNumber;
+  bool sv_from_thread_local = false;
+  Status s = MultiCFSnapshot<autovector<ColumnFamilySuperVersionPair,
+                                        MultiGetContext::MAX_BATCH_SIZE>>(
+      read_options, nullptr,
+      [](autovector<ColumnFamilySuperVersionPair,
+                    MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
+        return &(*cf_iter);
+      },
+      &cf_sv_pairs,
+      /* extra_sv_ref */ false, &consistent_seqnum, &sv_from_thread_local);
 
   if (!s.ok()) {
     for (size_t i = 0; i < num_keys; ++i) {
@@ -2816,31 +2840,40 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     read_callback = &timestamp_read_callback;
   }
 
-  auto cf_iter = multiget_cf_data.begin();
-  for (; cf_iter != multiget_cf_data.end(); ++cf_iter) {
-    s = MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys,
-                     &sorted_keys, cf_iter->super_version, consistent_seqnum,
+  assert(key_range_per_cf.size() == cf_sv_pairs.size());
+  auto key_range_per_cf_iter = key_range_per_cf.begin();
+  auto cf_sv_pair_iter = cf_sv_pairs.begin();
+  while (key_range_per_cf_iter != key_range_per_cf.end() &&
+         cf_sv_pair_iter != cf_sv_pairs.end()) {
+    s = MultiGetImpl(read_options, key_range_per_cf_iter->start,
+                     key_range_per_cf_iter->num_keys, &sorted_keys,
+                     cf_sv_pair_iter->super_version, consistent_seqnum,
                      read_callback);
     if (!s.ok()) {
       break;
     }
+    ++key_range_per_cf_iter;
+    ++cf_sv_pair_iter;
   }
   if (!s.ok()) {
     assert(s.IsTimedOut() || s.IsAborted());
-    for (++cf_iter; cf_iter != multiget_cf_data.end(); ++cf_iter) {
-      for (size_t i = cf_iter->start; i < cf_iter->start + cf_iter->num_keys;
+    for (++key_range_per_cf_iter;
+         key_range_per_cf_iter != key_range_per_cf.end();
+         ++key_range_per_cf_iter) {
+      for (size_t i = key_range_per_cf_iter->start;
+           i < key_range_per_cf_iter->start + key_range_per_cf_iter->num_keys;
            ++i) {
         *sorted_keys[i]->s = s;
       }
     }
   }
 
-  for (const auto& iter : multiget_cf_data) {
+  for (const auto& cf_sv_pair : cf_sv_pairs) {
     if (sv_from_thread_local) {
-      ReturnAndCleanupSuperVersion(iter.cfd, iter.super_version);
+      ReturnAndCleanupSuperVersion(cf_sv_pair.cfd, cf_sv_pair.super_version);
     } else {
-      TEST_SYNC_POINT("DBImpl::MultiGet::BeforeLastTryUnRefSV");
-      CleanupSuperVersion(iter.super_version);
+      TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeLastTryUnRefSV");
+      CleanupSuperVersion(cf_sv_pair.super_version);
     }
   }
 }
@@ -2972,21 +3005,18 @@ void DBImpl::MultiGetWithCallbackImpl(
     const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     ReadCallback* callback,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
-  std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
-  multiget_cf_data[0] = MultiGetColumnFamilyData(column_family, nullptr);
-  std::function<MultiGetColumnFamilyData*(
-      std::array<MultiGetColumnFamilyData, 1>::iterator&)>
-      iter_deref_lambda =
-          [](std::array<MultiGetColumnFamilyData, 1>::iterator& cf_iter) {
-            return &(*cf_iter);
-          };
-
+  std::array<ColumnFamilySuperVersionPair, 1> cf_sv_pairs;
+  cf_sv_pairs[0] = ColumnFamilySuperVersionPair(column_family, nullptr);
   size_t num_keys = sorted_keys->size();
-  SequenceNumber consistent_seqnum;
-  bool sv_from_thread_local;
-  Status s = MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
-      read_options, callback, iter_deref_lambda, &multiget_cf_data,
-      &consistent_seqnum, &sv_from_thread_local);
+  SequenceNumber consistent_seqnum = kMaxSequenceNumber;
+  bool sv_from_thread_local = false;
+  Status s = MultiCFSnapshot<std::array<ColumnFamilySuperVersionPair, 1>>(
+      read_options, callback,
+      [](std::array<ColumnFamilySuperVersionPair, 1>::iterator& cf_iter) {
+        return &(*cf_iter);
+      },
+      &cf_sv_pairs,
+      /* extra_sv_ref */ false, &consistent_seqnum, &sv_from_thread_local);
   if (!s.ok()) {
     return;
   }
@@ -3025,11 +3055,11 @@ void DBImpl::MultiGetWithCallbackImpl(
   }
 
   s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
-                   multiget_cf_data[0].super_version, consistent_seqnum,
+                   cf_sv_pairs[0].super_version, consistent_seqnum,
                    read_callback);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
-  ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
-                               multiget_cf_data[0].super_version);
+  ReturnAndCleanupSuperVersion(cf_sv_pairs[0].cfd,
+                               cf_sv_pairs[0].super_version);
 }
 
 // The actual implementation of batched MultiGet. Parameters -
@@ -3168,22 +3198,55 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                             ColumnFamilyHandle** column_families,
                             const Slice* keys, PinnableWideColumns* results,
                             Status* statuses, bool sorted_input) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
-    Status s = Status::InvalidArgument(
-        "Can only call MultiGetEntity with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+  assert(statuses);
+
+  if (!column_families) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntity without column families");
     for (size_t i = 0; i < num_keys; ++i) {
-      if (statuses[i].ok()) {
-        statuses[i] = s;
-      }
+      statuses[i] = s;
     }
+
     return;
   }
+
+  if (!keys) {
+    const Status s =
+        Status::InvalidArgument("Cannot call MultiGetEntity without keys");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+
+    return;
+  }
+
+  if (!results) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntity without PinnableWideColumns objects");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+
+    return;
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    const Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with `ReadOptions::io_activity` set to "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+
+    return;
+  }
+
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
+
   MultiGetCommon(read_options, num_keys, column_families, keys,
                  /* values */ nullptr, results, /* timestamps */ nullptr,
                  statuses, sorted_input);
@@ -3193,22 +3256,54 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                             ColumnFamilyHandle* column_family, size_t num_keys,
                             const Slice* keys, PinnableWideColumns* results,
                             Status* statuses, bool sorted_input) {
+  assert(statuses);
+
+  if (!column_family) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntity without a column family handle");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+
+    return;
+  }
+
+  if (!keys) {
+    const Status s =
+        Status::InvalidArgument("Cannot call MultiGetEntity without keys");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+
+    return;
+  }
+
+  if (!results) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntity without PinnableWideColumns objects");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+
+    return;
+  }
+
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
-    Status s = Status::InvalidArgument(
-        "Can only call MultiGetEntity with `ReadOptions::io_activity` is "
+    const Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with `ReadOptions::io_activity` set to "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
     for (size_t i = 0; i < num_keys; ++i) {
-      if (statuses[i].ok()) {
-        statuses[i] = s;
-      }
+      statuses[i] = s;
     }
     return;
   }
+
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
+
   MultiGetCommon(read_options, column_family, num_keys, keys,
                  /* values */ nullptr, results, /* timestamps */ nullptr,
                  statuses, sorted_input);
@@ -3217,18 +3312,34 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                             const Slice* keys,
                             PinnableAttributeGroups* results) {
+  assert(results);
+
+  if (!keys) {
+    const Status s =
+        Status::InvalidArgument("Cannot call MultiGetEntity without keys");
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < results[i].size(); ++j) {
+        results[i][j].SetStatus(s);
+      }
+    }
+
+    return;
+  }
+
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
-    Status s = Status::InvalidArgument(
-        "Can only call MultiGetEntity with ReadOptions::io_activity` is "
+    const Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with `ReadOptions::io_activity` set to "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
     for (size_t i = 0; i < num_keys; ++i) {
       for (size_t j = 0; j < results[i].size(); ++j) {
         results[i][j].SetStatus(s);
       }
     }
+
     return;
   }
+
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
@@ -3246,6 +3357,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
       ++total_count;
     }
   }
+
   std::vector<Status> statuses(total_count);
   std::vector<PinnableWideColumns> columns(total_count);
   MultiGetCommon(read_options, total_count, column_families.data(),
@@ -3264,6 +3376,15 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
       ++index;
     }
   }
+}
+
+void DBImpl::MultiGetEntityWithCallback(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    ReadCallback* callback,
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
+  assert(read_options.io_activity == Env::IOActivity::kMultiGetEntity);
+
+  MultiGetWithCallbackImpl(read_options, column_family, callback, sorted_keys);
 }
 
 Status DBImpl::WrapUpCreateColumnFamilies(
@@ -3744,29 +3865,49 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   return db_iter;
 }
 
-std::unique_ptr<Iterator> DBImpl::NewMultiCfIterator(
+std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
+  return NewMultiCfIterator<Iterator, CoalescingIterator>(
+      _read_options, column_families, [](const Status& s) {
+        return std::unique_ptr<Iterator>(NewErrorIterator(s));
+      });
+}
+
+std::unique_ptr<AttributeGroupIterator> DBImpl::NewAttributeGroupIterator(
+    const ReadOptions& _read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  return NewMultiCfIterator<AttributeGroupIterator, AttributeGroupIteratorImpl>(
+      _read_options, column_families,
+      [](const Status& s) { return NewAttributeGroupErrorIterator(s); });
+}
+
+template <typename IterType, typename ImplType, typename ErrorIteratorFuncType>
+std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
+    const ReadOptions& _read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    ErrorIteratorFuncType error_iterator_func) {
   if (column_families.size() == 0) {
-    return std::unique_ptr<Iterator>(NewErrorIterator(
-        Status::InvalidArgument("No Column Family was provided")));
+    return error_iterator_func(
+        Status::InvalidArgument("No Column Family was provided"));
   }
   const Comparator* first_comparator = column_families[0]->GetComparator();
   for (size_t i = 1; i < column_families.size(); ++i) {
     const Comparator* cf_comparator = column_families[i]->GetComparator();
     if (first_comparator != cf_comparator &&
         first_comparator->GetId().compare(cf_comparator->GetId()) != 0) {
-      return std::unique_ptr<Iterator>(NewErrorIterator(Status::InvalidArgument(
-          "Different comparators are being used across CFs")));
+      return error_iterator_func(Status::InvalidArgument(
+          "Different comparators are being used across CFs"));
     }
   }
   std::vector<Iterator*> child_iterators;
   Status s = NewIterators(_read_options, column_families, &child_iterators);
-  if (s.ok()) {
-    return std::make_unique<MultiCfIterator>(first_comparator, column_families,
-                                             std::move(child_iterators));
+  if (!s.ok()) {
+    return error_iterator_func(s);
   }
-  return std::unique_ptr<Iterator>(NewErrorIterator(s));
+  return std::make_unique<ImplType>(column_families[0]->GetComparator(),
+                                    column_families,
+                                    std::move(child_iterators));
 }
 
 Status DBImpl::NewIterators(
@@ -3791,69 +3932,62 @@ Status DBImpl::NewIterators(
         "ReadTier::kPersistedData is not yet supported in iterators.");
   }
 
-  if (read_options.timestamp) {
-    for (auto* cf : column_families) {
-      assert(cf);
-      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
-      if (!s.ok()) {
-        return s;
-      }
-    }
-  } else {
-    for (auto* cf : column_families) {
-      assert(cf);
-      const Status s = FailIfCfHasTs(cf);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-  }
+  autovector<ColumnFamilySuperVersionPair, MultiGetContext::MAX_BATCH_SIZE>
+      cf_sv_pairs;
 
+  Status s;
+  for (auto* cf : column_families) {
+    assert(cf);
+    if (read_options.timestamp) {
+      s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
+    } else {
+      s = FailIfCfHasTs(cf);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    cf_sv_pairs.emplace_back(cf, nullptr);
+  }
   iterators->clear();
   iterators->reserve(column_families.size());
-  autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
-  const bool check_read_ts =
-      read_options.timestamp && read_options.timestamp->size() > 0;
-  for (auto cf : column_families) {
-    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
-    auto cfd = cfh->cfd();
-    SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-    cfh_to_sv.emplace_back(cfh, sv);
-    if (check_read_ts) {
-      const Status s =
-          FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
-      if (!s.ok()) {
-        for (auto prev_entry : cfh_to_sv) {
-          CleanupSuperVersion(std::get<1>(prev_entry));
-        }
-        return s;
-      }
-    }
-  }
-  assert(cfh_to_sv.size() == column_families.size());
-  if (read_options.tailing) {
-    for (auto [cfh, sv] : cfh_to_sv) {
-      auto iter = new ForwardIterator(this, read_options, cfh->cfd(), sv,
-                                      /* allow_unprepared_value */ true);
-      iterators->push_back(NewDBIterator(
-          env_, read_options, *cfh->cfd()->ioptions(), sv->mutable_cf_options,
-          cfh->cfd()->user_comparator(), iter, sv->current, kMaxSequenceNumber,
-          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          nullptr /*read_callback*/, cfh));
-    }
-  } else {
-    // Note: no need to consider the special case of
-    // last_seq_same_as_publish_seq_==false since NewIterators is overridden in
-    // WritePreparedTxnDB
-    auto snapshot = read_options.snapshot != nullptr
-                        ? read_options.snapshot->GetSequenceNumber()
-                        : versions_->LastSequence();
-    for (auto [cfh, sv] : cfh_to_sv) {
-      iterators->push_back(NewIteratorImpl(read_options, cfh, sv, snapshot,
-                                           nullptr /*read_callback*/));
-    }
+
+  SequenceNumber consistent_seqnum = kMaxSequenceNumber;
+  bool sv_from_thread_local = false;
+  s = MultiCFSnapshot<autovector<ColumnFamilySuperVersionPair,
+                                 MultiGetContext::MAX_BATCH_SIZE>>(
+      read_options, nullptr /* read_callback*/,
+      [](autovector<ColumnFamilySuperVersionPair,
+                    MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
+        return &(*cf_iter);
+      },
+      &cf_sv_pairs,
+      /* extra_sv_ref */ true, &consistent_seqnum, &sv_from_thread_local);
+  if (!s.ok()) {
+    return s;
   }
 
+  assert(cf_sv_pairs.size() == column_families.size());
+  if (read_options.tailing) {
+    for (const auto& cf_sv_pair : cf_sv_pairs) {
+      auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,
+                                      cf_sv_pair.super_version,
+                                      /* allow_unprepared_value */ true);
+      iterators->push_back(
+          NewDBIterator(env_, read_options, *cf_sv_pair.cfd->ioptions(),
+                        cf_sv_pair.super_version->mutable_cf_options,
+                        cf_sv_pair.cfd->user_comparator(), iter,
+                        cf_sv_pair.super_version->current, kMaxSequenceNumber,
+                        cf_sv_pair.super_version->mutable_cf_options
+                            .max_sequential_skip_in_iterations,
+                        nullptr /*read_callback*/, cf_sv_pair.cfh));
+    }
+  } else {
+    for (const auto& cf_sv_pair : cf_sv_pairs) {
+      iterators->push_back(NewIteratorImpl(
+          read_options, cf_sv_pair.cfh, cf_sv_pair.super_version,
+          consistent_seqnum, nullptr /*read_callback*/));
+    }
+  }
   return Status::OK();
 }
 
@@ -3968,8 +4102,8 @@ DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
   std::shared_ptr<const SnapshotImpl> latest =
       timestamped_snapshots_.GetSnapshot(std::numeric_limits<uint64_t>::max());
 
-  // If there is already a latest timestamped snapshot, then we need to do some
-  // checks.
+  // If there is already a latest timestamped snapshot, then we need to do
+  // some checks.
   if (latest) {
     uint64_t latest_snap_ts = latest->GetTimestamp();
     SequenceNumber latest_snap_seq = latest->GetSequenceNumber();
@@ -3978,8 +4112,8 @@ DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
     Status status;
     std::shared_ptr<const SnapshotImpl> ret;
     if (latest_snap_ts > ts) {
-      // A snapshot created later cannot have smaller timestamp than a previous
-      // timestamped snapshot.
+      // A snapshot created later cannot have smaller timestamp than a
+      // previous timestamped snapshot.
       needs_create_snap = false;
       std::ostringstream oss;
       oss << "snapshot exists with larger timestamp " << latest_snap_ts << " > "
@@ -4093,7 +4227,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
 
       // Calculate a new threshold, skipping those CFs where compactions are
       // scheduled. We do not do the same pass as the previous loop because
-      // mutex might be unlocked during the loop, making the result inaccurate.
+      // mutex might be unlocked during the loop, making the result
+      // inaccurate.
       SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (CfdListContains(cf_scheduled, cfd) ||
@@ -4521,7 +4656,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
     sizes[i] = 0;
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
-          options, read_options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
+          options, read_options, v, k1.Encode(), k2.Encode(),
+          /*start_level=*/0,
           /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
     if (options.include_memtables) {
@@ -4806,9 +4942,9 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   auto* sv = GetAndRefSuperVersion(cfd);
   {
-    // Without mutex, Version::GetColumnFamilyMetaData will have data race with
-    // Compaction::MarkFilesBeingCompacted. One solution is to use mutex, but
-    // this may cause regression. An alternative is to make
+    // Without mutex, Version::GetColumnFamilyMetaData will have data race
+    // with Compaction::MarkFilesBeingCompacted. One solution is to use mutex,
+    // but this may cause regression. An alternative is to make
     // FileMetaData::being_compacted atomic, but it will make FileMetaData
     // non-copy-able. Another option is to separate these variables from
     // original FileMetaData struct, and this requires re-organization of data

@@ -85,12 +85,18 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              "=<double,e.g.:0.25>\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE +
              "=<int,e.g.:2097152>\n");
+  ret.append("  --" + LDBCommand::ARG_READ_TIMESTAMP +
+             "=<uint64_ts, e.g.:323> : read timestamp, required if column "
+             "family enables timestamp, otherwise invalid if provided.");
 
   ret.append("\n\n");
   ret.append("Data Access Commands:\n");
   PutCommand::Help(ret);
+  PutEntityCommand::Help(ret);
   GetCommand::Help(ret);
+  GetEntityCommand::Help(ret);
   MultiGetCommand::Help(ret);
+  MultiGetEntityCommand::Help(ret);
   BatchPutCommand::Help(ret);
   ScanCommand::Help(ret);
   DeleteCommand::Help(ret);

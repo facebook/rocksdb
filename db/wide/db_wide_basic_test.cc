@@ -1723,6 +1723,215 @@ TEST_F(DBWideBasicTest, PutEntitySerializationError) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
+TEST_F(DBWideBasicTest, PinnableWideColumnsMove) {
+  Options options = GetDefaultOptions();
+
+  constexpr char key1[] = "foo";
+  constexpr char value[] = "bar";
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), key1, value));
+
+  constexpr char key2[] = "baz";
+  const WideColumns columns{{"quux", "corge"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns));
+
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  const auto test_move = [&](bool fill_cache) {
+    ReadOptions read_options;
+    read_options.fill_cache = fill_cache;
+
+    {
+      const WideColumns expected_columns{{kDefaultWideColumnName, value}};
+
+      {
+        PinnableWideColumns result;
+        ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key1,
+                                 &result));
+        ASSERT_EQ(result.columns(), expected_columns);
+
+        PinnableWideColumns move_target(std::move(result));
+        ASSERT_EQ(move_target.columns(), expected_columns);
+      }
+
+      {
+        PinnableWideColumns result;
+        ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key1,
+                                 &result));
+        ASSERT_EQ(result.columns(), expected_columns);
+
+        PinnableWideColumns move_target;
+        move_target = std::move(result);
+        ASSERT_EQ(move_target.columns(), expected_columns);
+      }
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key2,
+                               &result));
+      ASSERT_EQ(result.columns(), columns);
+
+      PinnableWideColumns move_target(std::move(result));
+      ASSERT_EQ(move_target.columns(), columns);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(), key2,
+                               &result));
+      ASSERT_EQ(result.columns(), columns);
+
+      PinnableWideColumns move_target;
+      move_target = std::move(result);
+      ASSERT_EQ(move_target.columns(), columns);
+    }
+  };
+
+  // Test with and without fill_cache to cover both the case when pointers are
+  // invalidated during PinnableSlice's move and when they are not.
+  test_move(/* fill_cache*/ false);
+  test_move(/* fill_cache*/ true);
+}
+
+TEST_F(DBWideBasicTest, SanityChecks) {
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr size_t num_keys = 2;
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(db_->GetEntity(ReadOptions(), column_family, foo, &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    constexpr PinnableWideColumns* columns = nullptr;
+    ASSERT_TRUE(
+        db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), foo, columns)
+            .IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kGet;
+
+    PinnableWideColumns columns;
+    ASSERT_TRUE(
+        db_->GetEntity(read_options, db_->DefaultColumnFamily(), foo, &columns)
+            .IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), column_family, num_keys, keys.data(),
+                        results.data(), statuses.data());
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr Slice* keys = nullptr;
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        keys, results.data(), statuses.data());
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    constexpr PinnableWideColumns* results = nullptr;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        keys.data(), results, statuses.data());
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(read_options, db_->DefaultColumnFamily(), num_keys,
+                        keys.data(), results.data(), statuses.data());
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle** column_families = nullptr;
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), num_keys, column_families, keys.data(),
+                        results.data(), statuses.data());
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    std::array<ColumnFamilyHandle*, num_keys> column_families{
+        {db_->DefaultColumnFamily(), db_->DefaultColumnFamily()}};
+    constexpr Slice* keys = nullptr;
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), num_keys, column_families.data(), keys,
+                        results.data(), statuses.data());
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    std::array<ColumnFamilyHandle*, num_keys> column_families{
+        {db_->DefaultColumnFamily(), db_->DefaultColumnFamily()}};
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    constexpr PinnableWideColumns* results = nullptr;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), num_keys, column_families.data(),
+                        keys.data(), results, statuses.data());
+
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+
+    std::array<ColumnFamilyHandle*, num_keys> column_families{
+        {db_->DefaultColumnFamily(), db_->DefaultColumnFamily()}};
+    std::array<Slice, num_keys> keys{{foo, bar}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(read_options, num_keys, column_families.data(),
+                        keys.data(), results.data(), statuses.data());
+    ASSERT_TRUE(statuses[0].IsInvalidArgument());
+    ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -46,6 +46,11 @@ inline IOStatus CreateFile(const std::shared_ptr<FileSystem>& fs,
   return CreateFile(fs.get(), destination, contents, use_fsync);
 }
 
+// Delete a DB file, if this file is a SST file or Blob file and SstFileManager
+// is used, it should have already been tracked by SstFileManager via its
+// `OnFileAdd` API before passing to this API to be deleted, to ensure
+// SstFileManager and its DeleteScheduler are tracking DB size and trash size
+// properly.
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const std::string& fname, const std::string& path_to_sync,
                     const bool force_bg, const bool force_fg);

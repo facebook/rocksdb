@@ -77,4 +77,5 @@ Status MemoryAllocator::CreateFromString(
   copy.invoke_prepare_options = true;
   return LoadManagedObject<MemoryAllocator>(copy, value, result);
 }
+
 }  // namespace ROCKSDB_NAMESPACE

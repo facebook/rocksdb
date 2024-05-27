@@ -136,8 +136,10 @@ DECLARE_int32(universal_size_ratio);
 DECLARE_int32(universal_min_merge_width);
 DECLARE_int32(universal_max_merge_width);
 DECLARE_int32(universal_max_size_amplification_percent);
+DECLARE_int32(universal_max_read_amp);
 DECLARE_int32(clear_column_family_one_in);
-DECLARE_int32(get_live_files_one_in);
+DECLARE_int32(get_live_files_apis_one_in);
+DECLARE_int32(get_all_column_family_metadata_one_in);
 DECLARE_int32(get_sorted_wal_files_one_in);
 DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
@@ -156,6 +158,7 @@ DECLARE_int32(unpartitioned_pinning);
 DECLARE_string(cache_type);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
+DECLARE_string(daily_offpeak_time_utc);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(fifo_allow_compaction);
 DECLARE_bool(allow_concurrent_memtable_write);
@@ -207,9 +210,14 @@ DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
+DECLARE_int32(promote_l0_one_in);
 DECLARE_int32(mark_for_compaction_one_file_in);
 DECLARE_int32(flush_one_in);
+DECLARE_int32(key_may_exist_one_in);
+DECLARE_int32(reset_stats_one_in);
 DECLARE_int32(pause_background_one_in);
+DECLARE_int32(disable_file_deletions_one_in);
+DECLARE_int32(disable_manual_compaction_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
@@ -246,6 +254,7 @@ DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_uint32(use_put_entity_one_in);
+DECLARE_bool(use_attribute_group);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
@@ -258,6 +267,7 @@ DECLARE_int32(verify_file_checksums_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
+DECLARE_int32(get_properties_of_all_tables_one_in);
 DECLARE_string(file_checksum_impl);
 DECLARE_bool(verification_only);
 DECLARE_string(last_level_temperature);
@@ -346,6 +356,7 @@ DECLARE_uint32(bottommost_file_compaction_delay);
 // Tiered storage
 DECLARE_int64(preclude_last_level_data_seconds);
 DECLARE_int64(preserve_internal_time_seconds);
+DECLARE_uint32(use_timed_put_one_in);
 
 DECLARE_int32(verify_iterator_with_expected_state_one_in);
 DECLARE_bool(preserve_unverified_changes);
@@ -369,6 +380,7 @@ DECLARE_uint64(WAL_ttl_seconds);
 DECLARE_uint64(WAL_size_limit_MB);
 DECLARE_bool(strict_bytes_per_sync);
 DECLARE_bool(avoid_flush_during_shutdown);
+DECLARE_bool(avoid_sync_during_shutdown);
 DECLARE_bool(fill_cache);
 DECLARE_bool(optimize_multiget_for_io);
 DECLARE_bool(memtable_insert_hint_per_batch);
@@ -402,10 +414,14 @@ DECLARE_uint32(lowest_used_cache_tier);
 DECLARE_bool(enable_custom_split_merge);
 DECLARE_uint32(adm_policy);
 DECLARE_bool(enable_memtable_insert_with_hint_prefix_extractor);
+DECLARE_bool(check_multiget_consistency);
+DECLARE_bool(check_multiget_entity_consistency);
+DECLARE_bool(inplace_update_support);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
+constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
 
 // wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
@@ -748,6 +764,10 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
 bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
 bool VerifyWideColumns(const WideColumns& columns);
 
+AttributeGroups GenerateAttributeGroups(
+    const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
+    const Slice& slice);
+
 StressTest* CreateCfConsistencyStressTest();
 StressTest* CreateBatchedOpsStressTest();
 StressTest* CreateNonBatchedOpsStressTest();
@@ -757,6 +777,8 @@ void InitializeHotKeyGenerator(double alpha);
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
 std::string GetNowNanos();
+
+uint64_t GetWriteUnixTime(ThreadState* thread);
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

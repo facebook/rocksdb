@@ -30,6 +30,14 @@ class DBErrorHandlingFSTest : public DBTestBase {
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }
 
+  ~DBErrorHandlingFSTest() {
+    // Before destroying fault_env_
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    Close();
+  }
+
   std::string GetManifestNameFromLiveFiles() {
     std::vector<std::string> live_files;
     uint64_t manifest_size;
@@ -1238,6 +1246,7 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
                    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
   ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
                    ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  ASSERT_OK(dbfull()->SyncWAL());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));

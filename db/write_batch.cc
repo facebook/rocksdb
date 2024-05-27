@@ -484,13 +484,22 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad WriteBatch TimedPut");
       }
       FALLTHROUGH_INTENDED;
-    case kTypeValuePreferredSeqno:
+    case kTypeValuePreferredSeqno: {
+      Slice packed_value;
       if (!GetLengthPrefixedSlice(input, key) ||
-          !GetLengthPrefixedSlice(input, value) ||
-          !GetFixed64(input, write_unix_time)) {
+          !GetLengthPrefixedSlice(input, &packed_value)) {
         return Status::Corruption("bad WriteBatch TimedPut");
       }
+      if (write_unix_time) {
+        std::tie(*value, *write_unix_time) =
+            ParsePackedValueWithWriteTime(packed_value);
+      } else {
+        // Caller doesn't want to unpack write_unix_time, so keep it packed in
+        // the value.
+        *value = packed_value;
+      }
       break;
+    }
     default:
       return Status::Corruption("unknown WriteBatch tag");
   }
@@ -883,12 +892,11 @@ Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValuePreferredSeqno));
     PutVarint32(&b->rep_, column_family_id);
   }
+  std::string value_buf;
+  Slice packed_value =
+      PackValueAndWriteTime(value, write_unix_time, &value_buf);
   PutLengthPrefixedSlice(&b->rep_, key);
-  PutLengthPrefixedSlice(&b->rep_, value);
-  // For a kTypeValuePreferredSeqno entry, its write time is encoded separately
-  // from value in an encoded WriteBatch. They are packed into one value Slice
-  // once it's written to the database.
-  PutFixed64(&b->rep_, write_unix_time);
+  PutLengthPrefixedSlice(&b->rep_, packed_value);
 
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_TIMED_PUT,
@@ -899,7 +907,7 @@ Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
     // `kTypeColumnFamilyValuePreferredSeqno` here.
     b->prot_info_->entries_.emplace_back(
         ProtectionInfo64()
-            .ProtectKVO(key, value, kTypeValuePreferredSeqno)
+            .ProtectKVO(key, packed_value, kTypeValuePreferredSeqno)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1779,7 +1787,6 @@ Status WriteBatch::VerifyChecksum() const {
   Slice input(rep_.data() + WriteBatchInternal::kHeader,
               rep_.size() - WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
-  uint64_t unix_write_time = 0;
   char tag = 0;
   uint32_t column_family = 0;  // default
   Status s;
@@ -1792,7 +1799,7 @@ Status WriteBatch::VerifyChecksum() const {
     value.clear();
     column_family = 0;
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
-                                 &blob, &xid, &unix_write_time);
+                                 &blob, &xid, /*write_unix_time=*/nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -2114,14 +2121,15 @@ class MemTableInserter : public WriteBatch::Handler {
     return true;
   }
 
+  template <typename RebuildTxnOp>
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
                    const Slice& value, ValueType value_type,
+                   RebuildTxnOp rebuild_txn_op,
                    const ProtectionInfoKVOS64* kv_prot_info) {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
-      return WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key,
-                                     value);
+      return rebuild_txn_op(rebuilding_trx_, column_family_id, key, value);
       // else insert the values to the memtable right away
     }
 
@@ -2132,8 +2140,8 @@ class MemTableInserter : public WriteBatch::Handler {
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
-        ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
-                                             key, value);
+        ret_status =
+            rebuild_txn_op(rebuilding_trx_, column_family_id, key, value);
         if (ret_status.ok()) {
           MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
         }
@@ -2257,8 +2265,8 @@ class MemTableInserter : public WriteBatch::Handler {
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
-      ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
-                                           key, value);
+      ret_status =
+          rebuild_txn_op(rebuilding_trx_, column_family_id, key, value);
     }
     return ret_status;
   }
@@ -2267,15 +2275,21 @@ class MemTableInserter : public WriteBatch::Handler {
                const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
     Status ret_status;
+
+    auto rebuild_txn_op = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
+                             const Slice& k, const Slice& v) -> Status {
+      return WriteBatchInternal::Put(rebuilding_trx, cf_id, k, v);
+    };
+
     if (kv_prot_info != nullptr) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
-                             &mem_kv_prot_info);
+                             rebuild_txn_op, &mem_kv_prot_info);
     } else {
       ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
-                             nullptr /* kv_prot_info */);
+                             rebuild_txn_op, nullptr /* kv_prot_info */);
     }
     // TODO: this assumes that if TryAgain status is returned to the caller,
     // the operation is actually tried again. The proper way to do this is to
@@ -2294,15 +2308,23 @@ class MemTableInserter : public WriteBatch::Handler {
     std::string value_buf;
     Slice packed_value =
         PackValueAndWriteTime(value, unix_write_time, &value_buf);
+
+    auto rebuild_txn_op = [](WriteBatch* /* rebuilding_trx */,
+                             uint32_t /* cf_id */, const Slice& /* k */,
+                             const Slice& /* v */) -> Status {
+      return Status::NotSupported();
+    };
+
     if (kv_prot_info != nullptr) {
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       ret_status = PutCFImpl(column_family_id, key, packed_value,
-                             kTypeValuePreferredSeqno, &mem_kv_prot_info);
+                             kTypeValuePreferredSeqno, rebuild_txn_op,
+                             &mem_kv_prot_info);
     } else {
-      ret_status =
-          PutCFImpl(column_family_id, key, packed_value,
-                    kTypeValuePreferredSeqno, nullptr /* kv_prot_info */);
+      ret_status = PutCFImpl(column_family_id, key, packed_value,
+                             kTypeValuePreferredSeqno, rebuild_txn_op,
+                             nullptr /* kv_prot_info */);
     }
 
     // TODO: this assumes that if TryAgain status is returned to the caller,
@@ -2320,14 +2342,27 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
 
     Status s;
+
+    auto rebuild_txn_op = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
+                             const Slice& k, Slice entity) -> Status {
+      WideColumns columns;
+      const Status st = WideColumnSerialization::Deserialize(entity, columns);
+      if (!st.ok()) {
+        return st;
+      }
+
+      return WriteBatchInternal::PutEntity(rebuilding_trx, cf_id, k, columns);
+    };
+
     if (kv_prot_info) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
-                    &mem_kv_prot_info);
+                    rebuild_txn_op, &mem_kv_prot_info);
     } else {
       s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
+                    rebuild_txn_op,
                     /* kv_prot_info */ nullptr);
     }
 
@@ -2514,6 +2549,11 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(ret_status.ok());
 
     if (db_ != nullptr) {
+      if (db_->immutable_db_options().row_cache) {
+        ret_status.PermitUncheckedError();
+        return Status::NotSupported(
+            "DeleteRange is not compatible with row cache.");
+      }
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
@@ -2623,8 +2663,10 @@ class MemTableInserter : public WriteBatch::Handler {
       LookupKey lkey(key, sequence_);
 
       // Count the number of successive merges at the head
-      // of the key in the memtable
-      size_t num_merges = mem->CountSuccessiveMergeEntries(lkey);
+      // of the key in the memtable. Limit the count to the threshold for
+      // triggering merge to prevent unnecessary counting overhead.
+      size_t num_merges = mem->CountSuccessiveMergeEntries(
+          lkey, moptions->max_successive_merges /* limit */);
 
       if (num_merges >= moptions->max_successive_merges) {
         perform_merge = true;
@@ -2764,16 +2806,23 @@ class MemTableInserter : public WriteBatch::Handler {
                         const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
     Status ret_status;
+
+    auto rebuild_txn_op = [](WriteBatch* /* rebuilding_trx */,
+                             uint32_t /* cf_id */, const Slice& /* k */,
+                             const Slice& /* v */) -> Status {
+      return Status::NotSupported();
+    };
+
     if (kv_prot_info != nullptr) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       // Same as PutCF except for value type.
       ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                             &mem_kv_prot_info);
+                             rebuild_txn_op, &mem_kv_prot_info);
     } else {
       ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                             nullptr /* kv_prot_info */);
+                             rebuild_txn_op, nullptr /* kv_prot_info */);
     }
     if (UNLIKELY(ret_status.IsTryAgain())) {
       DecrementProtectionInfoIdxForTryAgain();
@@ -3160,8 +3209,12 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   }
 
   Status TimedPutCF(uint32_t cf, const Slice& key, const Slice& val,
-                    uint64_t /*unix_write_time*/) override {
-    return UpdateProtInfo(cf, key, val, kTypeValuePreferredSeqno);
+                    uint64_t unix_write_time) override {
+    std::string encoded_write_time;
+    PutFixed64(&encoded_write_time, unix_write_time);
+    std::array<Slice, 2> value_with_time{{val, encoded_write_time}};
+    SliceParts packed_value(value_with_time.data(), 2);
+    return UpdateProtInfo(cf, key, packed_value, kTypeValuePreferredSeqno);
   }
 
   Status PutEntityCF(uint32_t cf, const Slice& key,
@@ -3216,6 +3269,17 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
     if (prot_info_) {
       prot_info_->entries_.emplace_back(
           ProtectionInfo64().ProtectKVO(key, val, op_type).ProtectC(cf));
+    }
+    return Status::OK();
+  }
+
+  Status UpdateProtInfo(uint32_t cf, const Slice& key, const SliceParts& val,
+                        const ValueType op_type) {
+    if (prot_info_) {
+      prot_info_->entries_.emplace_back(
+          ProtectionInfo64()
+              .ProtectKVO(SliceParts(&key, 1), val, op_type)
+              .ProtectC(cf));
     }
     return Status::OK();
   }

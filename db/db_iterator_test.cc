@@ -133,10 +133,16 @@ TEST_P(DBIteratorTest, IteratorProperty) {
     ASSERT_NOK(iter->GetProperty("non_existing.value", &prop_value));
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("0", prop_value);
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("0", prop_value);
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
     ASSERT_EQ("1", prop_value);
     iter->Next();
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
+    ASSERT_EQ("Iterator is not valid.", prop_value);
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
     ASSERT_EQ("Iterator is not valid.", prop_value);
 
     // Get internal key at which the iteration stopped (tombstone in this case).
@@ -1680,12 +1686,15 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   ro.pin_data = true;
   auto iter = NewIterator(ro);
 
-  std::vector<std::pair<Slice, std::string>> results;
+  std::vector<std::pair<Slice, Slice>> results;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
-    results.emplace_back(iter->key(), iter->value().ToString());
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("1", prop_value);
+    results.emplace_back(iter->key(), iter->value());
   }
 
   ASSERT_EQ(results.size(), true_data.size());
@@ -1739,6 +1748,9 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("0", prop_value);
     results.emplace_back(iter->key(), iter->value().ToString());
   }
   ASSERT_OK(iter->status());
@@ -1792,12 +1804,15 @@ TEST_P(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
     }
   }
 
-  std::vector<std::pair<Slice, std::string>> results;
+  std::vector<std::pair<Slice, Slice>> results;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
-    results.emplace_back(iter->key(), iter->value().ToString());
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("1", prop_value);
+    results.emplace_back(iter->key(), iter->value());
   }
   ASSERT_OK(iter->status());
 
@@ -3553,6 +3568,121 @@ TEST_F(DBIteratorTest, ErrorWhenReadFile) {
   ASSERT_TRUE(iter->status().IsIOError());
   SyncPoint::GetInstance()->DisableProcessing();
   iter->Reset();
+}
+
+TEST_F(DBIteratorTest, IteratorsConsistentViewImplicitSnapshot) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1", "cf_2"}, options);
+
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush:done",
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
+
+  bool flushed = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
+        if (!flushed) {
+          for (int i = 0; i < 3; ++i) {
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val_new"));
+          }
+          // After SV is obtained for the first CF, flush for the second CF
+          ASSERT_OK(Flush(1));
+          flushed = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ReadOptions read_options;
+  std::vector<Iterator*> iters;
+  ASSERT_OK(db_->NewIterators(read_options, handles_, &iters));
+
+  for (int i = 0; i < 3; ++i) {
+    auto iter = iters[i];
+    ASSERT_OK(iter->status());
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "cf" + std::to_string(i) + "_key->cf" +
+                                    std::to_string(i) + "_val_new");
+  }
+  for (auto* iter : iters) {
+    delete iter;
+  }
+
+  // Thread-local SVs are no longer obsolete nor in use
+  for (int i = 0; i < 3; ++i) {
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(handles_[i])->cfd();
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
+}
+
+TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
+  Options options = GetDefaultOptions();
+  options.atomic_flush = true;
+  CreateAndReopenWithCF({"cf_1", "cf_2"}, options);
+
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush:done",
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
+
+  bool flushed = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
+        if (!flushed) {
+          for (int i = 0; i < 3; ++i) {
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val_new"));
+          }
+          // After SV is obtained for the first CF, do the atomic flush()
+          ASSERT_OK(Flush());
+          flushed = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // Explicit snapshot wouldn't force reloading all svs. We should expect old
+  // values
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  std::vector<Iterator*> iters;
+  ASSERT_OK(db_->NewIterators(read_options, handles_, &iters));
+
+  for (int i = 0; i < 3; ++i) {
+    auto iter = iters[i];
+    ASSERT_OK(iter->status());
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "cf" + std::to_string(i) + "_key->cf" +
+                                    std::to_string(i) + "_val");
+  }
+  db_->ReleaseSnapshot(snapshot);
+  for (auto* iter : iters) {
+    delete iter;
+  }
+
+  // Thread-local SV for cf_0 is obsolete (atomic flush happened after the first
+  // SV Ref)
+  auto* cfd0 =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles_[0])->cfd();
+  ASSERT_EQ(cfd0->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+  ASSERT_NE(cfd0->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  // Rest are not InUse nor Obsolete
+  for (int i = 1; i < 3; ++i) {
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(handles_[i])->cfd();
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

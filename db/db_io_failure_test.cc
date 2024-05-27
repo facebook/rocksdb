@@ -21,14 +21,15 @@ class CorruptionFS : public FileSystemWrapper {
   int num_writable_file_errors_;
 
   explicit CorruptionFS(const std::shared_ptr<FileSystem>& _target,
-                        bool fs_buffer)
+                        bool fs_buffer, bool verify_read)
       : FileSystemWrapper(_target),
         writable_file_error_(false),
         num_writable_file_errors_(0),
         corruption_trigger_(INT_MAX),
         read_count_(0),
         rnd_(300),
-        fs_buffer_(fs_buffer) {}
+        fs_buffer_(fs_buffer),
+        verify_read_(verify_read) {}
   ~CorruptionFS() override {
     // Assert that the corruption was reset, which means it got triggered
     assert(corruption_trigger_ == INT_MAX);
@@ -113,10 +114,12 @@ class CorruptionFS : public FileSystemWrapper {
   }
 
   void SupportedOps(int64_t& supported_ops) override {
-    supported_ops = 1 << FSSupportedOps::kVerifyAndReconstructRead |
-                    1 << FSSupportedOps::kAsyncIO;
+    supported_ops = 1 << FSSupportedOps::kAsyncIO;
     if (fs_buffer_) {
       supported_ops |= 1 << FSSupportedOps::kFSBuffer;
+    }
+    if (verify_read_) {
+      supported_ops |= 1 << FSSupportedOps::kVerifyAndReconstructRead;
     }
   }
 
@@ -125,6 +128,7 @@ class CorruptionFS : public FileSystemWrapper {
   int read_count_;
   Random rnd_;
   bool fs_buffer_;
+  bool verify_read_;
 };
 }  // anonymous namespace
 
@@ -696,23 +700,24 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
 
 class DBIOCorruptionTest
     : public DBIOFailureTest,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   DBIOCorruptionTest() : DBIOFailureTest() {
     BlockBasedTableOptions bbto;
-    Options options = CurrentOptions();
+    options_ = CurrentOptions();
 
     base_env_ = env_;
     EXPECT_NE(base_env_, nullptr);
-    fs_.reset(
-        new CorruptionFS(base_env_->GetFileSystem(), std::get<0>(GetParam())));
+    fs_.reset(new CorruptionFS(base_env_->GetFileSystem(),
+                               std::get<0>(GetParam()),
+                               std::get<2>(GetParam())));
     env_guard_ = NewCompositeEnv(fs_);
-    options.env = env_guard_.get();
+    options_.env = env_guard_.get();
     bbto.num_file_reads_for_auto_readahead = 0;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    options.disable_auto_compactions = true;
+    options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options_.disable_auto_compactions = true;
 
-    Reopen(options);
+    Reopen(options_);
   }
 
   ~DBIOCorruptionTest() {
@@ -720,10 +725,13 @@ class DBIOCorruptionTest
     db_ = nullptr;
   }
 
+  Status ReopenDB() { return TryReopen(options_); }
+
  protected:
   std::unique_ptr<Env> env_guard_;
   std::shared_ptr<CorruptionFS> fs_;
   Env* base_env_;
+  Options options_;
 };
 
 TEST_P(DBIOCorruptionTest, GetReadCorruptionRetry) {
@@ -737,8 +745,13 @@ TEST_P(DBIOCorruptionTest, GetReadCorruptionRetry) {
   std::string val;
   ReadOptions ro;
   ro.async_io = std::get<1>(GetParam());
-  ASSERT_OK(dbfull()->Get(ReadOptions(), "key1", &val));
-  ASSERT_EQ(val, "val1");
+  Status s = dbfull()->Get(ReadOptions(), "key1", &val);
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(s);
+    ASSERT_EQ(val, "val1");
+  } else {
+    ASSERT_TRUE(s.IsCorruption());
+  }
 }
 
 TEST_P(DBIOCorruptionTest, IterReadCorruptionRetry) {
@@ -758,7 +771,11 @@ TEST_P(DBIOCorruptionTest, IterReadCorruptionRetry) {
   while (iter->status().ok() && iter->Valid()) {
     iter->Next();
   }
-  ASSERT_OK(iter->status());
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(iter->status());
+  } else {
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
   delete iter;
 }
 
@@ -779,8 +796,13 @@ TEST_P(DBIOCorruptionTest, MultiGetReadCorruptionRetry) {
   ro.async_io = std::get<1>(GetParam());
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
-  ASSERT_EQ(values[0].ToString(), "val1");
-  ASSERT_EQ(values[1].ToString(), "val2");
+  if (std::get<2>(GetParam())) {
+    ASSERT_EQ(values[0].ToString(), "val1");
+    ASSERT_EQ(values[1].ToString(), "val2");
+  } else {
+    ASSERT_TRUE(statuses[0].IsCorruption());
+    ASSERT_TRUE(statuses[1].IsCorruption());
+  }
 }
 
 TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
@@ -793,13 +815,18 @@ TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
   ASSERT_OK(Put("key2", "val2"));
   ASSERT_OK(Flush());
   fs->SetCorruptionTrigger(1);
-  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(s);
 
-  std::string val;
-  ReadOptions ro;
-  ro.async_io = std::get<1>(GetParam());
-  ASSERT_OK(dbfull()->Get(ro, "key1", &val));
-  ASSERT_EQ(val, "val1");
+    std::string val;
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+    ASSERT_EQ(val, "val1");
+  } else {
+    ASSERT_TRUE(s.IsCorruption());
+  }
 }
 
 TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
@@ -808,17 +835,44 @@ TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
 
   ASSERT_OK(Put("key1", "val1"));
   fs->SetCorruptionTrigger(1);
-  ASSERT_OK(Flush());
+  Status s = Flush();
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(s);
 
-  std::string val;
-  ReadOptions ro;
-  ro.async_io = std::get<1>(GetParam());
-  ASSERT_OK(dbfull()->Get(ro, "key1", &val));
-  ASSERT_EQ(val, "val1");
+    std::string val;
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+    ASSERT_EQ(val, "val1");
+  } else {
+    ASSERT_NOK(s);
+  }
 }
 
+TEST_P(DBIOCorruptionTest, ManifestCorruptionRetry) {
+  CorruptionFS* fs =
+      static_cast<CorruptionFS*>(env_guard_->GetFileSystem().get());
+
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Recover:StartManifestRead",
+      [&](void* /*arg*/) { fs->SetCorruptionTrigger(0); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(ReopenDB());
+  } else {
+    ASSERT_EQ(ReopenDB(), Status::Corruption());
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+// The parameters are - 1. Use FS provided buffer, 2. Use async IO ReadOption,
+// 3. Retry with verify_and_reconstruct_read IOOption
 INSTANTIATE_TEST_CASE_P(DBIOCorruptionTest, DBIOCorruptionTest,
-                        testing::Combine(testing::Bool(), testing::Bool()));
+                        testing::Combine(testing::Bool(), testing::Bool(),
+                                         testing::Bool()));
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

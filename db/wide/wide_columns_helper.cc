@@ -6,6 +6,7 @@
 #include "db/wide/wide_columns_helper.h"
 
 #include <algorithm>
+#include <ios>
 
 #include "db/wide/wide_column_serialization.h"
 
@@ -15,6 +16,9 @@ void WideColumnsHelper::DumpWideColumns(const WideColumns& columns,
   if (columns.empty()) {
     return;
   }
+
+  const std::ios_base::fmtflags orig_flags = os.flags();
+
   if (hex) {
     os << std::hex;
   }
@@ -23,6 +27,8 @@ void WideColumnsHelper::DumpWideColumns(const WideColumns& columns,
   for (++it; it != columns.end(); ++it) {
     os << ' ' << *it;
   }
+
+  os.flags(orig_flags);
 }
 
 Status WideColumnsHelper::DumpSliceAsWideColumns(const Slice& value,

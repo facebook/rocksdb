@@ -16,6 +16,7 @@
 #include "env/mock_env.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/sst_file_writer.h"
@@ -3997,7 +3998,7 @@ TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
-TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
+TEST_F(DBCompactionTest, CancelCompactionWaitingOnRunningConflict) {
   // This test verifies cancellation of a compaction waiting to be scheduled due
   // to conflict with a running compaction.
   //
@@ -4036,7 +4037,7 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
   // Make sure the manual compaction has seen the conflict before being canceled
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyData::CompactRange:Return",
-        "DBCompactionTest::CancelCompactionWaitingOnConflict:"
+        "DBCompactionTest::CancelCompactionWaitingOnRunningConflict:"
         "PreDisableManualCompaction"}});
   auto manual_compaction_thread = port::Thread([this]() {
     ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
@@ -4047,10 +4048,71 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
   // despite finding a conflict with an automatic compaction that is still
   // running
   TEST_SYNC_POINT(
-      "DBCompactionTest::CancelCompactionWaitingOnConflict:"
+      "DBCompactionTest::CancelCompactionWaitingOnRunningConflict:"
       "PreDisableManualCompaction");
   db_->DisableManualCompaction();
   manual_compaction_thread.join();
+}
+
+TEST_F(DBCompactionTest, CancelCompactionWaitingOnScheduledConflict) {
+  // This test verifies cancellation of a compaction waiting to be scheduled due
+  // to conflict with a scheduled (but not running) compaction.
+  //
+  // A `CompactRange()` in universal compacts all files, waiting for files to
+  // become available if they are locked for another compaction. This test
+  // blocks the compaction thread pool and then calls `CompactRange()` twice.
+  // The first call to `CompactRange()` schedules a compaction that is queued
+  // in the thread pool. The second call to `CompactRange()` blocks on the first
+  // call due to the conflict in file picking. The test verifies that
+  // `DisableManualCompaction()` can cancel both while the thread pool remains
+  // blocked.
+  const int kNumSortedRuns = 4;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  Reopen(options);
+
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  // Fill overlapping files in L0
+  Random rnd(301);
+  for (int i = 0; i < kNumSortedRuns; ++i) {
+    int key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx, false /* nowait */);
+  }
+
+  std::atomic<int> num_compact_range_calls{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "ColumnFamilyData::CompactRange:Return",
+      [&](void* /* arg */) { num_compact_range_calls++; });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int kNumManualCompactions = 2;
+  port::Thread manual_compaction_threads[kNumManualCompactions];
+  for (int i = 0; i < kNumManualCompactions; i++) {
+    manual_compaction_threads[i] = port::Thread([this]() {
+      ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                      .IsIncomplete());
+    });
+  }
+  while (num_compact_range_calls < kNumManualCompactions) {
+  }
+
+  // Cancel it. Threads should be joinable, i.e., both the scheduled and blocked
+  // manual compactions were canceled despite no compaction could have ever run.
+  db_->DisableManualCompaction();
+  for (int i = 0; i < kNumManualCompactions; i++) {
+    manual_compaction_threads[i].join();
+  }
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 }
 
 TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
@@ -6143,29 +6205,14 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
               NumTableFilesAtLevel(0, 0));
   }
 
-  // All CFs are pending compaction
+  // Wait until all CFs are pending compaction. WaitForFlushMemtable() can
+  // return before the next compaction is scheduled, so we need to do some
+  // waiting here.
   unsigned int tp_len = env_->GetThreadPoolQueueLen(Env::LOW);
-  if (cf_count != tp_len) {
-    // The test is flaky and fails the assertion below.
-    // Print some debug information.
-    uint64_t num_running_flushes = 0;
-    if (db_->GetIntProperty(DB::Properties::kNumRunningFlushes,
-                            &num_running_flushes)) {
-      fprintf(stdout, "Running flushes: %" PRIu64 "\n", num_running_flushes);
-    }
-    fprintf(stdout,
-            "%zu CF in compaction queue: ", pending_compaction_cfs.size());
-    for (const auto& cf_name : pending_compaction_cfs) {
-      fprintf(stdout, "%s, ", cf_name.c_str());
-    }
-    fprintf(stdout, "\n");
-
-    // print lsm
-    for (unsigned int cf = 0; cf < cf_count; cf++) {
-      fprintf(stdout, "%s: %s\n", cf_names[cf], FilesPerLevel(cf).c_str());
-    }
+  for (int i = 0; i < 10000 && tp_len < cf_count; i++) {
+    env_->SleepForMicroseconds(1000);
+    tp_len = env_->GetThreadPoolQueueLen(Env::LOW);
   }
-
   ASSERT_EQ(cf_count, tp_len);
 
   // Unblock all compaction threads
@@ -7074,7 +7121,8 @@ class DBCompactionTestWithOngoingFileIngestionParam
       SyncPoint::GetInstance()->SetCallBack(
           "ExternalSstFileIngestionJob::Run", [&](void*) {
             SyncPoint::GetInstance()->LoadDependency(
-                {{"DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles",
+                {{"DBImpl::CompactFilesImpl::"
+                  "PostSanitizeAndConvertCompactionInputFiles",
                   "VersionSet::LogAndApply:WriteManifest"}});
           });
     } else {
@@ -7555,6 +7603,72 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
   std::atomic<bool> compaction_path_sync_point_called_;
   std::shared_ptr<test::SleepingBackgroundTask> sleeping_task_;
 };
+
+TEST_F(DBCompactionTest, CompactFilesSupportKeyPlacementRangeConflict) {
+  Options options;
+  options.create_if_missing = true;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  // To create LSM of below shape:
+  // L0: [k2]
+  // L1: [k3],[k4]
+  // L2: [k1,  k5]
+  ASSERT_OK(Put("k1", "v"));
+  ASSERT_OK(Put("k5", "v"));
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,1", FilesPerLevel());
+
+  ASSERT_OK(Put("k3", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("k4", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(experimental::PromoteL0(db_, db_->DefaultColumnFamily(), 1));
+  ASSERT_EQ("0,2,1", FilesPerLevel());
+
+  ASSERT_OK(Put("k2", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1,2,1", FilesPerLevel());
+
+  Close();
+
+  // To force below two CompactFiles() in order to coerce range conflict on L1
+  // upon (2)
+  // (1): Compact [k2] at L0 and [k3] at L1 with output to L1
+  // (2): Compact [k4] at L1 and [k1, k5] at L2 and output to L1 and L2
+  options.preclude_last_level_data_seconds = 1;
+  Reopen(options);
+
+  ColumnFamilyMetaData cf_meta_data;
+  db_->GetColumnFamilyMetaData(&cf_meta_data);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactFilesImpl:0", [&](void* /*arg*/) {
+        std::vector<std::string> c2_input_files;
+        c2_input_files.push_back(cf_meta_data.levels[1].files[1].name);
+        c2_input_files.push_back(cf_meta_data.levels[2].files[0].name);
+        // To verify CompactFiles() is aborted upon range conflict instead
+        // of crashing upon internal assertion
+        Status s = db_->CompactFiles(CompactionOptions(), c2_input_files,
+                                     2 /* output_level */);
+        ASSERT_TRUE(s.IsAborted());
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> c1_input_files;
+  c1_input_files.push_back(cf_meta_data.levels[0].files[0].name);
+  c1_input_files.push_back(cf_meta_data.levels[1].files[0].name);
+  Status s = db_->CompactFiles(CompactionOptions(), c1_input_files,
+                               1 /* output_level */);
+  ASSERT_OK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
 
 TEST_F(DBCompactionTestL0FilesMisorderCorruption,
        FlushAfterIntraL0LevelCompactionWithIngestedFile) {

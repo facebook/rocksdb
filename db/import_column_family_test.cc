@@ -881,6 +881,173 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyWithOverlap) {
   delete db_copy;
   ASSERT_OK(DestroyDir(env_, dbname_ + "/db_copy"));
 }
+
+TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilySeveralFilesWithOverlap) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"koko"}, options);
+
+  SstFileWriter sfw_cf1(EnvOptions(), options, handles_[1]);
+  const std::string file1_sst_name = "file1.sst";
+  const std::string file1_sst = sst_files_dir_ + file1_sst_name;
+  ASSERT_OK(sfw_cf1.Open(file1_sst));
+  ASSERT_OK(sfw_cf1.Put("K1", "V1"));
+  ASSERT_OK(sfw_cf1.Put("K2", "V2"));
+  ASSERT_OK(sfw_cf1.Finish());
+
+  SstFileWriter sfw_cf2(EnvOptions(), options, handles_[1]);
+  const std::string file2_sst_name = "file2.sst";
+  const std::string file2_sst = sst_files_dir_ + file2_sst_name;
+  ASSERT_OK(sfw_cf2.Open(file2_sst));
+  ASSERT_OK(sfw_cf2.Put("K2", "V2"));
+  ASSERT_OK(sfw_cf2.Put("K3", "V3"));
+  ASSERT_OK(sfw_cf2.Finish());
+
+  ColumnFamilyHandle* second_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "toto", &second_cfh));
+
+  SstFileWriter sfw_cf3(EnvOptions(), options, second_cfh);
+  const std::string file3_sst_name = "file3.sst";
+  const std::string file3_sst = sst_files_dir_ + file3_sst_name;
+  ASSERT_OK(sfw_cf3.Open(file3_sst));
+  ASSERT_OK(sfw_cf3.Put("K3", "V3"));
+  ASSERT_OK(sfw_cf3.Put("K4", "V4"));
+  ASSERT_OK(sfw_cf3.Finish());
+
+  SstFileWriter sfw_cf4(EnvOptions(), options, second_cfh);
+  const std::string file4_sst_name = "file4.sst";
+  const std::string file4_sst = sst_files_dir_ + file4_sst_name;
+  ASSERT_OK(sfw_cf4.Open(file4_sst));
+  ASSERT_OK(sfw_cf4.Put("K4", "V4"));
+  ASSERT_OK(sfw_cf4.Put("K5", "V5"));
+  ASSERT_OK(sfw_cf4.Finish());
+
+  ExportImportFilesMetaData metadata1, metadata2;
+  metadata1.files.push_back(
+      LiveFileMetaDataInit(file1_sst_name, sst_files_dir_, 1, 1, 2));
+  metadata1.files.push_back(
+      LiveFileMetaDataInit(file2_sst_name, sst_files_dir_, 1, 3, 4));
+  metadata1.db_comparator_name = options.comparator->Name();
+  metadata2.files.push_back(
+      LiveFileMetaDataInit(file3_sst_name, sst_files_dir_, 1, 1, 2));
+  metadata2.files.push_back(
+      LiveFileMetaDataInit(file4_sst_name, sst_files_dir_, 1, 3, 4));
+  metadata2.db_comparator_name = options.comparator->Name();
+
+  std::vector<const ExportImportFilesMetaData*> metadatas{&metadata1,
+                                                          &metadata2};
+
+  ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                              ImportColumnFamilyOptions(),
+                                              metadatas, &import_cfh_),
+            Status::InvalidArgument("CFs have overlapping ranges"));
+  ASSERT_EQ(import_cfh_, nullptr);
+
+  ASSERT_OK(db_->DropColumnFamily(second_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(second_cfh));
+}
+
+TEST_F(ImportColumnFamilyTest, AssignEpochNumberToMultipleCF) {
+  // Test ingesting CFs where L0 files could have the same epoch number.
+  Options options = CurrentOptions();
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_background_jobs = 8;
+  env_->SetBackgroundThreads(2, Env::LOW);
+  env_->SetBackgroundThreads(0, Env::BOTTOM);
+  CreateAndReopenWithCF({"CF1", "CF2"}, options);
+
+  // CF1:
+  // L6: [0, 99], [100, 199]
+  // CF2:
+  // L6: [1000, 1099], [1100, 1199]
+  for (int i = 100; i < 200; ++i) {
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_val"));
+    ASSERT_OK(Put(2, Key(1000 + i), Key(1000 + i) + "_val"));
+  }
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_val"));
+    ASSERT_OK(Put(2, Key(1000 + i), Key(1000 + i) + "_val"));
+  }
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+  MoveFilesToLevel(6, 1);
+  MoveFilesToLevel(6, 2);
+
+  // CF1:
+  // level 0 epoch: 5 file num 30 smallest key000010 - key000019
+  // level 0 epoch: 4 file num 27 smallest key000000 - key000009
+  // level 0 epoch: 3 file num 23 smallest key000100 - key000199
+  // level 6 epoch: 2 file num 20 smallest key000000 - key000099
+  // level 6 epoch: 1 file num 17 smallest key000100 - key000199
+  // CF2:
+  // level 0 epoch: 5 file num 31 smallest key001010 - key001019
+  // level 0 epoch: 4 file num 28 smallest key001000 - key001009
+  // level 0 epoch: 3 file num 25 smallest key001020 - key001029
+  // level 6 epoch: 2 file num 21 smallest key001000 - key001099
+  // level 6 epoch: 1 file num 18 smallest key001100 - key001199
+  for (int i = 100; i < 200; ++i) {
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_val"));
+  }
+  ASSERT_OK(Flush(1));
+  for (int i = 20; i < 30; ++i) {
+    ASSERT_OK(Put(2, Key(i + 1000), Key(i + 1000) + "_val"));
+  }
+  ASSERT_OK(Flush(2));
+
+  for (int i = 0; i < 20; ++i) {
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_val"));
+    ASSERT_OK(Put(2, Key(i + 1000), Key(i + 1000) + "_val"));
+    if (i % 10 == 9) {
+      ASSERT_OK(Flush(1));
+      ASSERT_OK(Flush(2));
+    }
+  }
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+
+  // Create a CF by importing these two CF1 and CF2.
+  // Then two compactions will be triggerred, one to compact from L0
+  // to L6 (files #23 and #17), and another to do intra-L0 compaction
+  // for the rest of the L0 files. Before a bug fix, we used to
+  // directly use the epoch numbers from the ingested files in the new CF.
+  // This means different files from different CFs can have the same epoch
+  // number. If the intra-L0 compaction finishes first, it can cause a
+  // corruption where two L0 files can have the same epoch number but
+  // with overlapping key range.
+  Checkpoint* checkpoint1;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint1));
+  ASSERT_OK(checkpoint1->ExportColumnFamily(handles_[1], export_files_dir_,
+                                            &metadata_ptr_));
+  ASSERT_OK(checkpoint1->ExportColumnFamily(handles_[2], export_files_dir2_,
+                                            &metadata_ptr2_));
+  ASSERT_NE(metadata_ptr_, nullptr);
+  ASSERT_NE(metadata_ptr2_, nullptr);
+
+  std::atomic_int compaction_counter = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+      [&compaction_counter](void*) {
+        compaction_counter++;
+        if (compaction_counter == 1) {
+          // Wait for the next compaction to finish
+          TEST_SYNC_POINT("WaitForSecondCompaction");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction:AfterCompaction",
+        "WaitForSecondCompaction"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  ImportColumnFamilyOptions import_options;
+  import_options.move_files = false;
+  std::vector<const ExportImportFilesMetaData*> metadatas = {metadata_ptr_,
+                                                             metadata_ptr2_};
+  ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "CF3", import_options,
+                                              metadatas, &import_cfh_));
+  WaitForCompactOptions o;
+  ASSERT_OK(db_->WaitForCompact(o));
+  delete checkpoint1;
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

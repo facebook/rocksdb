@@ -523,6 +523,11 @@ enum TieredAdmissionPolicy {
   // compressed secondary, and a compressed local flash (non-volatile) cache.
   // Each tier is managed as an independent queue.
   kAdmPolicyThreeQueue,
+  // Allow all blocks evicted from the primary block cache into the secondary
+  // cache. This may increase CPU overhead due to more blocks being admitted
+  // and compressed, but may increase the compressed secondary cache hit rate
+  // for some workloads
+  kAdmPolicyAllowAll,
   kAdmPolicyMax,
 };
 

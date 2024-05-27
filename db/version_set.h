@@ -341,7 +341,15 @@ class VersionStorageInfo {
       EpochNumberRequirement epoch_number_requirement) {
     epoch_number_requirement_ = epoch_number_requirement;
   }
-  void RecoverEpochNumbers(ColumnFamilyData* cfd);
+  // Ensure all files have epoch number set.
+  // If there is a file missing epoch number, all files' epoch number will be
+  // reset according to CF's epoch number. Otherwise, the CF will be updated
+  // with the max epoch number of the files.
+  //
+  // @param restart_epoch This CF's epoch number will be reset to start from 0.
+  // @param force Force resetting all files' epoch number.
+  void RecoverEpochNumbers(ColumnFamilyData* cfd, bool restart_epoch = true,
+                           bool force = false);
 
   class FileLocation {
    public:
@@ -1258,7 +1266,8 @@ class VersionSet {
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false, std::string* db_id = nullptr,
-                 bool no_error_if_files_missing = false);
+                 bool no_error_if_files_missing = false, bool is_retry = false,
+                 Status* log_status = nullptr);
 
   Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
                     bool read_only,
@@ -1732,7 +1741,8 @@ class ReactiveVersionSet : public VersionSet {
       InstrumentedMutex* mu,
       std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
       Status* manifest_read_status,
-      std::unordered_set<ColumnFamilyData*>* cfds_changed);
+      std::unordered_set<ColumnFamilyData*>* cfds_changed,
+      std::vector<std::string>* files_to_delete);
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
