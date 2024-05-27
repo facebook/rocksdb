@@ -860,11 +860,6 @@ rocksdb_writebatch_wi_create(size_t reserved_bytes,
 extern ROCKSDB_LIBRARY_API rocksdb_writebatch_wi_t*
 rocksdb_writebatch_wi_create_from(const char* rep, size_t size);
 extern ROCKSDB_LIBRARY_API rocksdb_writebatch_wi_t*
-rocksdb_writebatch_wi_create(size_t reserved_bytes,
-                             unsigned char overwrite_keys);
-extern ROCKSDB_LIBRARY_API rocksdb_writebatch_wi_t*
-rocksdb_writebatch_wi_create_from(const char* rep, size_t size);
-extern ROCKSDB_LIBRARY_API rocksdb_writebatch_wi_t*
 rocksdb_writebatch_wi_create_with_params(
     rocksdb_comparator_t* backup_index_comparator, size_t reserved_bytes,
     unsigned char overwrite_key, size_t max_bytes,
