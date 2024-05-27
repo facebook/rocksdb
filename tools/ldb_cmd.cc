@@ -3894,7 +3894,6 @@ void DBQuerierCommand::DoCommand() {
     // Parse line into std::vector<std::string>
     std::vector<std::string> tokens;
     ParsedParams parsed_params;
-    std::map<std::string, std::string> option_map;
     size_t pos = 0;
     while (true) {
       size_t pos2 = line.find(' ', pos);
@@ -3922,7 +3921,8 @@ void DBQuerierCommand::DoCommand() {
               "put <key> <value>\n"
               "delete <key>\n"
               "count [--from=<start_key>] [--to=<end_key>]\n");
-    } else if (cmd == DELETE_CMD && tokens.size() == 2) {
+    } else if (cmd == DELETE_CMD && tokens.size() == 2 &&
+               parsed_params.option_map.empty()) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       s = db_->Delete(write_options, GetCfHandle(), Slice(key));
       if (s.ok()) {
@@ -3930,7 +3930,8 @@ void DBQuerierCommand::DoCommand() {
       } else {
         oss << "delete " << key << " failed: " << s.ToString();
       }
-    } else if (cmd == PUT_CMD && tokens.size() == 3) {
+    } else if (cmd == PUT_CMD && tokens.size() == 3 &&
+               parsed_params.option_map.empty()) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       value = (is_value_hex_ ? HexToString(tokens[2]) : tokens[2]);
       s = db_->Put(write_options, GetCfHandle(), Slice(key), Slice(value));
@@ -3940,7 +3941,8 @@ void DBQuerierCommand::DoCommand() {
       } else {
         oss << "put " << key << "=>" << value << " failed: " << s.ToString();
       }
-    } else if (cmd == GET_CMD && tokens.size() == 2) {
+    } else if (cmd == GET_CMD && tokens.size() == 2 &&
+               parsed_params.option_map.empty()) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       s = db_->Get(read_options, GetCfHandle(), Slice(key), &value);
       if (s.ok()) {
@@ -3960,7 +3962,7 @@ void DBQuerierCommand::DoCommand() {
       std::string start_key;
       std::string end_key;
       bool bad_option = false;
-      for (auto& option : option_map) {
+      for (auto& option : parsed_params.option_map) {
         if (option.first == "from") {
           start_key =
               (is_key_hex_ ? HexToString(option.second) : option.second);
