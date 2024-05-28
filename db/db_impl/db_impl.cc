@@ -1564,61 +1564,103 @@ bool DBImpl::WALBufferIsEmpty() {
 
 Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
-  autovector<log::Writer*, 1> logs_to_sync;
-  bool need_log_dir_sync;
-  uint64_t current_log_number;
+  WriteOptions write_options;
+  VersionEdit synced_wals;
+  Status s = SyncWalImpl(/*include_current_wal=*/true, write_options,
+                         /*job_context=*/nullptr, &synced_wals,
+                         /*error_recovery_in_prog=*/false);
+
+  if (s.ok() && synced_wals.IsWalAddition()) {
+    InstrumentedMutexLock l(&mutex_);
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    const ReadOptions read_options;
+    s = ApplyWALToManifest(read_options, write_options, &synced_wals);
+  }
+
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
+  return s;
+}
+
+IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
+                             const WriteOptions& write_options,
+                             JobContext* job_context, VersionEdit* synced_wals,
+                             bool error_recovery_in_prog) {
+  autovector<log::Writer*, 1> wals_to_sync;
+  bool need_wal_dir_sync;
+  // Number of a WAL that was active at the start of call and maybe is by
+  // the end of the call.
+  uint64_t maybe_active_number;
+  // Sync WALs up to this number
+  uint64_t up_to_number;
 
   {
     InstrumentedMutexLock l(&log_write_mutex_);
     assert(!logs_.empty());
 
-    // This SyncWAL() call only cares about logs up to this number.
-    current_log_number = logfile_number_;
+    maybe_active_number = logfile_number_;
+    up_to_number =
+        include_current_wal ? maybe_active_number : maybe_active_number - 1;
 
-    while (logs_.front().number <= current_log_number &&
-           logs_.front().IsSyncing()) {
+    while (logs_.front().number <= up_to_number && logs_.front().IsSyncing()) {
       log_sync_cv_.Wait();
     }
     // First check that logs are safe to sync in background.
-    for (auto it = logs_.begin();
-         it != logs_.end() && it->number <= current_log_number; ++it) {
-      if (!it->writer->file()->writable_file()->IsSyncThreadSafe()) {
-        return Status::NotSupported(
-            "SyncWAL() is not supported for this implementation of WAL file",
-            immutable_db_options_.allow_mmap_writes
-                ? "try setting Options::allow_mmap_writes to false"
-                : Slice());
-      }
+    if (include_current_wal &&
+        !logs_.back().writer->file()->writable_file()->IsSyncThreadSafe()) {
+      return IOStatus::NotSupported(
+          "SyncWAL() is not supported for this implementation of WAL file",
+          immutable_db_options_.allow_mmap_writes
+              ? "try setting Options::allow_mmap_writes to false"
+              : Slice());
     }
     for (auto it = logs_.begin();
-         it != logs_.end() && it->number <= current_log_number; ++it) {
+         it != logs_.end() && it->number <= up_to_number; ++it) {
       auto& log = *it;
       log.PrepareForSync();
-      logs_to_sync.push_back(log.writer);
+      wals_to_sync.push_back(log.writer);
     }
 
-    need_log_dir_sync = !log_dir_synced_;
+    need_wal_dir_sync = !log_dir_synced_;
   }
 
-  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
-  RecordTick(stats_, WAL_FILE_SYNCED);
-  Status status;
-  IOStatus io_s;
-  // TODO: plumb Env::IOActivity, Env::IOPriority
-  const ReadOptions read_options;
-  const WriteOptions write_options;
-  IOOptions opts;
-  io_s = WritableFileWriter::PrepareIOOptions(write_options, opts);
-  if (!io_s.ok()) {
-    status = io_s;
+  if (include_current_wal) {
+    TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
   }
+  RecordTick(stats_, WAL_FILE_SYNCED);
+  IOOptions opts;
+  IOStatus io_s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (io_s.ok()) {
-    for (log::Writer* log : logs_to_sync) {
-      io_s =
-          log->file()->SyncWithoutFlush(opts, immutable_db_options_.use_fsync);
+    for (log::Writer* log : wals_to_sync) {
+      if (job_context) {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
+                       log->get_log_number());
+      }
+      if (error_recovery_in_prog) {
+        log->file()->reset_seen_error();
+      }
+      if (log->get_log_number() >= maybe_active_number) {
+        assert(log->get_log_number() == maybe_active_number);
+        io_s = log->file()->SyncWithoutFlush(opts,
+                                             immutable_db_options_.use_fsync);
+      } else {
+        io_s = log->file()->Sync(opts, immutable_db_options_.use_fsync);
+      }
       if (!io_s.ok()) {
-        status = io_s;
         break;
+      }
+      // Normally the log file is closed when purging obsolete file, but if
+      // log recycling is enabled, the log file is closed here so that it
+      // can be reused.
+      if (log->get_log_number() < maybe_active_number &&
+          immutable_db_options_.recycle_log_file_num > 0) {
+        if (error_recovery_in_prog) {
+          log->file()->reset_seen_error();
+        }
+        io_s = log->Close(write_options);
+        if (!io_s.ok()) {
+          break;
+        }
       }
     }
   }
@@ -1629,31 +1671,28 @@ Status DBImpl::SyncWAL() {
     // future writes
     IOStatusCheck(io_s);
   }
-  if (status.ok() && need_log_dir_sync) {
-    status = directories_.GetWalDir()->FsyncWithDirOptions(
+  if (io_s.ok() && need_wal_dir_sync) {
+    io_s = directories_.GetWalDir()->FsyncWithDirOptions(
         IOOptions(), nullptr,
         DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
   }
-  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
+  if (include_current_wal) {
+    TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
-  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
-  VersionEdit synced_wals;
+    TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
+  } else {
+    TEST_SYNC_POINT_CALLBACK("DBImpl::SyncClosedWals:BeforeReLock",
+                             /*arg=*/nullptr);
+  }
   {
     InstrumentedMutexLock l(&log_write_mutex_);
-    if (status.ok()) {
-      MarkLogsSynced(current_log_number, need_log_dir_sync, &synced_wals);
+    if (io_s.ok()) {
+      MarkLogsSynced(up_to_number, need_wal_dir_sync, synced_wals);
     } else {
-      MarkLogsNotSynced(current_log_number);
+      MarkLogsNotSynced(up_to_number);
     }
   }
-  if (status.ok() && synced_wals.IsWalAddition()) {
-    InstrumentedMutexLock l(&mutex_);
-    status = ApplyWALToManifest(read_options, write_options, &synced_wals);
-  }
-
-  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
-
-  return status;
+  return io_s;
 }
 
 Status DBImpl::ApplyWALToManifest(const ReadOptions& read_options,

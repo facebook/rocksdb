@@ -425,7 +425,7 @@ TEST_F(DBErrorHandlingFSTest, FlushWALWriteRetryableError) {
 
   listener->EnableAutoRecovery(false);
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SyncClosedLogs:Start",
+      "DBImpl::SyncClosedWals:Start",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -470,7 +470,7 @@ TEST_F(DBErrorHandlingFSTest, FlushWALAtomicWriteRetryableError) {
 
   listener->EnableAutoRecovery(false);
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SyncClosedLogs:Start",
+      "DBImpl::SyncClosedWals:Start",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
 
