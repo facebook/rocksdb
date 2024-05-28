@@ -255,6 +255,7 @@ DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_uint32(use_put_entity_one_in);
 DECLARE_bool(use_attribute_group);
+DECLARE_bool(use_multi_cf_iterator);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);

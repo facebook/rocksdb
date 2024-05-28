@@ -153,6 +153,7 @@ default_params = {
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
+    "use_multi_cf_iterator": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
     "value_size_mult": 32,
