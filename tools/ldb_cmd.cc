@@ -4354,7 +4354,7 @@ void DBFileDumperCommand::DoCommand() {
 
   std::cout << "Write Ahead Log Files" << std::endl;
   std::cout << "==============================" << std::endl;
-  ROCKSDB_NAMESPACE::VectorLogPtr wal_files;
+  ROCKSDB_NAMESPACE::VectorWalPtr wal_files;
   s = db_->GetSortedWalFiles(wal_files);
   if (!s.ok()) {
     std::cerr << "Error when getting WAL files" << std::endl;
