@@ -1647,11 +1647,17 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
       if (!io_s.ok()) {
         break;
       }
-      // Normally the log file is closed when purging obsolete file, but if
-      // log recycling is enabled, the log file is closed here so that it
-      // can be reused.
+      // WALs can be closed when purging obsolete files, but if recycling is
+      // enabled, the log file is closed here so that it can be reused. And
+      // immediate closure here upon final sync makes it easier to guarantee
+      // that Checkpoint doesn't LinkFile on a WAL still open for write, which
+      // might be unsupported for some FileSystem implementations. Close here
+      // should be inexpensive because flush and sync are done, so the kill
+      // switch background_close_inactive_wals is expected to be removed in
+      // the future.
       if (log->get_log_number() < maybe_active_number &&
-          immutable_db_options_.recycle_log_file_num > 0) {
+          (immutable_db_options_.recycle_log_file_num > 0 ||
+           !immutable_db_options_.background_close_inactive_wals)) {
         if (error_recovery_in_prog) {
           log->file()->reset_seen_error();
         }

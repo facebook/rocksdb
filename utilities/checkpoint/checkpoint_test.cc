@@ -762,26 +762,37 @@ TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
 
 class CheckpointTestWithWalParams
     : public CheckpointTest,
-      public testing::WithParamInterface<std::tuple<uint64_t, bool, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<uint64_t, bool, bool, bool>> {
  public:
   uint64_t GetLogSizeForFlush() { return std::get<0>(GetParam()); }
   bool GetWalsInManifest() { return std::get<1>(GetParam()); }
   bool GetManualWalFlush() { return std::get<2>(GetParam()); }
+  bool GetBackgroundCloseInactiveWals() { return std::get<3>(GetParam()); }
 };
 
-INSTANTIATE_TEST_CASE_P(CheckpointTestWithWalParams,
-                        CheckpointTestWithWalParams,
+INSTANTIATE_TEST_CASE_P(NormalWalParams, CheckpointTestWithWalParams,
                         ::testing::Combine(::testing::Values(0U, 100000000U),
-                                           ::testing::Bool(),
-                                           ::testing::Bool()));
+                                           ::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Values(false)));
+
+INSTANTIATE_TEST_CASE_P(DeprecatedWalParams, CheckpointTestWithWalParams,
+                        ::testing::Values(std::make_tuple(100000000U, true,
+                                                          false, true)));
 
 TEST_P(CheckpointTestWithWalParams, CheckpointWithUnsyncedDataDropped) {
   Options options = CurrentOptions();
   options.max_write_buffer_number = 4;
   options.track_and_verify_wals_in_manifest = GetWalsInManifest();
   options.manual_wal_flush = GetManualWalFlush();
+  options.background_close_inactive_wals = GetBackgroundCloseInactiveWals();
   auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+
+  if (options.background_close_inactive_wals) {
+    // Disable this hygiene check when the fix is disabled
+    fault_fs->SetAllowLinkOpenFile();
+  }
 
   options.env = fault_fs_env.get();
   Reopen(options);
