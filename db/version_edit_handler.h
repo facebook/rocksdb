@@ -364,14 +364,15 @@ class DumpManifestHandler : public VersionEditHandler {
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
     // Write out each individual edit
-    if (verbose_ && !json_) {
+    if (json_) {
       // Print out DebugStrings. Can include non-terminating null characters.
-      fwrite(edit.DebugString(hex_).data(), sizeof(char),
-             edit.DebugString(hex_).size(), stdout);
-    } else if (json_) {
+      std::string edit_dump_str = edit.DebugJSON(count_, hex_);
+      fwrite(edit_dump_str.data(), sizeof(char), edit_dump_str.size(), stdout);
+      fwrite("\n", sizeof(char), 1, stdout);
+    } else if (verbose_) {
       // Print out DebugStrings. Can include non-terminating null characters.
-      fwrite(edit.DebugString(hex_).data(), sizeof(char),
-             edit.DebugString(hex_).size(), stdout);
+      std::string edit_dump_str = edit.DebugString(hex_);
+      fwrite(edit_dump_str.data(), sizeof(char), edit_dump_str.size(), stdout);
     }
     ++count_;
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);
