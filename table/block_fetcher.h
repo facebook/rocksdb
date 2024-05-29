@@ -137,6 +137,7 @@ class BlockFetcher {
   bool for_compaction_ = false;
   bool use_fs_scratch_ = false;
   bool retry_corrupt_read_ = false;
+  FSAllocationPtr fs_buf_;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

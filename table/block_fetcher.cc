@@ -347,7 +347,6 @@ void BlockFetcher::ReadBlock(bool retry, FSAllocationPtr& fs_buf) {
 }
 
 IOStatus BlockFetcher::ReadBlockContents() {
-  FSAllocationPtr fs_buf;
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
@@ -360,15 +359,15 @@ IOStatus BlockFetcher::ReadBlockContents() {
       return io_status_;
     }
   } else if (!TryGetSerializedBlockFromPersistentCache()) {
-    ReadBlock(/*retry =*/false, fs_buf);
+    ReadBlock(/*retry =*/false, fs_buf_);
     // If the file system supports retry after corruption, then try to
     // re-read the block and see if it succeeds.
     if (io_status_.IsCorruption() && retry_corrupt_read_) {
-      assert(!fs_buf);
-      ReadBlock(/*retry=*/true, fs_buf);
+      assert(!fs_buf_);
+      ReadBlock(/*retry=*/true, fs_buf_);
     }
     if (!io_status_.ok()) {
-      assert(!fs_buf);
+      assert(!fs_buf_);
       return io_status_;
     }
   }
@@ -417,16 +416,15 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
         return io_s;
       }
       if (io_s.ok()) {
-        FSAllocationPtr fs_buf;
         // Data Block is already in prefetch.
         got_from_prefetch_buffer_ = true;
         ProcessTrailerIfPresent();
         if (io_status_.IsCorruption() && retry_corrupt_read_) {
           got_from_prefetch_buffer_ = false;
-          ReadBlock(/*retry = */ true, fs_buf);
+          ReadBlock(/*retry = */ true, fs_buf_);
         }
         if (!io_status_.ok()) {
-          assert(!fs_buf);
+          assert(!fs_buf_);
           return io_status_;
         }
         used_buf_ = const_cast<char*>(slice_.data());
