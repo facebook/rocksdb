@@ -159,7 +159,11 @@ template <typename TBlocklike>
 void FilterBlockReaderCommon<TBlocklike>::EraseFromCacheBeforeDestruction(
     uint32_t uncache_aggressiveness) {
   if (uncache_aggressiveness > 0) {
-    filter_block_.ResetEraseIfLastRef();
+    if (filter_block_.IsCached()) {
+      filter_block_.ResetEraseIfLastRef();
+    } else {
+      table()->EraseFromCache(table()->get_rep()->filter_handle);
+    }
   }
 }
 
