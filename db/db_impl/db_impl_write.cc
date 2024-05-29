@@ -268,6 +268,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "seq_per_batch currently does not honor post_memtable_callback");
   }
+  if (my_batch->HasDeleteRange() && immutable_db_options_.row_cache) {
+    return Status::NotSupported(
+        "DeleteRange is not compatible with row cache.");
+  }
   // Otherwise IsLatestPersistentState optimization does not make sense
   assert(!WriteBatchInternal::IsLatestPersistentState(my_batch) ||
          disable_memtable);
