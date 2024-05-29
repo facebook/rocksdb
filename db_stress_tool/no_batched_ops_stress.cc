@@ -901,16 +901,13 @@ class NonBatchedOpsStressTest : public StressTest {
     assert(shared);
 
     assert(!rand_column_families.empty());
-    assert(!rand_keys.empty());
-
-    std::unique_ptr<MutexLock> lock(new MutexLock(
-        shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
-
     assert(rand_column_families[0] >= 0);
     assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
     assert(cfh);
+
+    assert(!rand_keys.empty());
 
     const std::string key = Key(rand_keys[0]);
 
@@ -2357,13 +2354,16 @@ class NonBatchedOpsStressTest : public StressTest {
     // into the transaction. This will create an overlap with the MultiGet
     // keys and exercise some corner cases in the code
     if (thread->rand.OneIn(10)) {
+      assert(column_family >= 0);
+      assert(column_family < static_cast<int>(column_families_.size()));
+
       ColumnFamilyHandle* const cfh = column_families_[column_family];
       assert(cfh);
 
       const std::string k = Key(key);
 
       enum class Op {
-        Put,
+        PutOrPutEntity,
         Merge,
         Delete,
         // add new operations above this line
@@ -2376,19 +2376,26 @@ class NonBatchedOpsStressTest : public StressTest {
       Status s;
 
       switch (op) {
-        case Op::Put:
+        case Op::PutOrPutEntity:
         case Op::Merge: {
           ExpectedValue put_value;
-          put_value.Put(false /* pending */);
+          put_value.SyncPut(static_cast<uint32_t>(thread->rand.Uniform(
+              static_cast<int>(ExpectedValue::GetValueBaseMask()))));
           ryw_expected_values[k] = put_value;
 
+          const uint32_t value_base = put_value.GetValueBase();
+
           char value[100];
-          size_t sz =
-              GenerateValue(put_value.GetValueBase(), value, sizeof(value));
+          const size_t sz = GenerateValue(value_base, value, sizeof(value));
           const Slice v(value, sz);
 
-          if (op == Op::Put) {
-            s = txn->Put(cfh, k, v);
+          if (op == Op::PutOrPutEntity) {
+            if (FLAGS_use_put_entity_one_in > 0 &&
+                (value_base % FLAGS_use_put_entity_one_in) == 0) {
+              s = txn->PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+            } else {
+              s = txn->Put(cfh, k, v);
+            }
           } else {
             s = txn->Merge(cfh, k, v);
           }
@@ -2397,7 +2404,7 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         case Op::Delete: {
           ExpectedValue delete_value;
-          delete_value.Delete(false /* pending */);
+          delete_value.SyncDelete();
           ryw_expected_values[k] = delete_value;
 
           s = txn->Delete(cfh, k);
