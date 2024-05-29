@@ -91,7 +91,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   return Status::OK();
 }
 
-Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+Status DBImpl::GetSortedWalFiles(VectorWalPtr& files) {
   // Record tracked WALs as a (minimum) cross-check for directory scan
   std::vector<uint64_t> required_by_manifest;
 
@@ -152,11 +152,11 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   }
 
   if (s.ok()) {
-    size_t wal_size = files.size();
+    size_t wal_count = files.size();
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Number of log files %" ROCKSDB_PRIszt " (%" ROCKSDB_PRIszt
+                   "Number of WAL files %" ROCKSDB_PRIszt " (%" ROCKSDB_PRIszt
                    " required by manifest)",
-                   wal_size, required_by_manifest.size());
+                   wal_count, required_by_manifest.size());
 #ifndef NDEBUG
     std::ostringstream wal_names;
     for (const auto& wal : files) {
@@ -177,7 +177,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   return s;
 }
 
-Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
+Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_log_file) {
   uint64_t current_logfile_number;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -198,13 +198,13 @@ Status DBImpl::GetLiveFilesStorageInfo(
   // NOTE: This implementation was largely migrated from Checkpoint.
 
   Status s;
-  VectorLogPtr live_wal_files;
+  VectorWalPtr live_wal_files;
   bool flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
     if (opts.wal_size_for_flush == std::numeric_limits<uint64_t>::max()) {
       flush_memtable = false;
     } else if (opts.wal_size_for_flush > 0) {
-      // If the outstanding log files are small, we skip the flush.
+      // If the outstanding WAL files are small, we skip the flush.
       s = GetSortedWalFiles(live_wal_files);
 
       if (!s.ok()) {
@@ -399,11 +399,11 @@ Status DBImpl::GetLiveFilesStorageInfo(
     return s;
   }
 
-  size_t wal_size = live_wal_files.size();
+  size_t wal_count = live_wal_files.size();
   // Link WAL files. Copy exact size of last one because it is the only one
   // that has changes after the last flush.
   auto wal_dir = immutable_db_options_.GetWalDir();
-  for (size_t i = 0; s.ok() && i < wal_size; ++i) {
+  for (size_t i = 0; s.ok() && i < wal_count; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
         (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num)) {
       results.emplace_back();
@@ -418,7 +418,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
       // Trim the log either if its the last one, or log file recycling is
       // enabled. In the latter case, a hard link doesn't prevent the file
       // from being renamed and recycled. So we need to copy it instead.
-      info.trim_to_size = (i + 1 == wal_size) ||
+      info.trim_to_size = (i + 1 == wal_count) ||
                           (immutable_db_options_.recycle_log_file_num > 0);
       if (opts.include_checksum_info) {
         info.file_checksum_func_name = kUnknownFileChecksumFuncName;

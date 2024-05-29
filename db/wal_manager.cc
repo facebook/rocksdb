@@ -44,13 +44,13 @@ Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   return s;
 }
 
-Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
+Status WalManager::GetSortedWalFiles(VectorWalPtr& files) {
   // First get sorted files in db dir, then get sorted files from archived
   // dir, to avoid a race condition where a log file is moved to archived
   // dir in between.
   Status s;
   // list wal files in main db dir.
-  VectorLogPtr logs;
+  VectorWalPtr logs;
   s = GetSortedWalsOfType(wal_dir_, logs, kAliveLogFile);
   if (!s.ok()) {
     return s;
@@ -113,7 +113,7 @@ Status WalManager::GetUpdatesSince(
   //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.
 
-  std::unique_ptr<VectorLogPtr> wal_files(new VectorLogPtr);
+  std::unique_ptr<VectorWalPtr> wal_files(new VectorWalPtr);
   Status s = GetSortedWalFiles(*wal_files);
   if (!s.ok()) {
     return s;
@@ -249,7 +249,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   }
 
   size_t files_del_num = log_files_num - files_keep_num;
-  VectorLogPtr archived_logs;
+  VectorWalPtr archived_logs;
   s = GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
   if (!s.ok()) {
     ROCKS_LOG_WARN(db_options_.info_log,
@@ -291,7 +291,7 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
 }
 
 Status WalManager::GetSortedWalsOfType(const std::string& path,
-                                       VectorLogPtr& log_files,
+                                       VectorWalPtr& log_files,
                                        WalFileType log_type) {
   std::vector<std::string> all_files;
   const Status status = env_->GetChildren(path, &all_files);
@@ -338,20 +338,20 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       }
 
       log_files.emplace_back(
-          new LogFileImpl(number, log_type, sequence, size_bytes));
+          new WalFileImpl(number, log_type, sequence, size_bytes));
     }
   }
   std::sort(
       log_files.begin(), log_files.end(),
-      [](const std::unique_ptr<LogFile>& a, const std::unique_ptr<LogFile>& b) {
-        LogFileImpl* a_impl = static_cast_with_check<LogFileImpl>(a.get());
-        LogFileImpl* b_impl = static_cast_with_check<LogFileImpl>(b.get());
+      [](const std::unique_ptr<WalFile>& a, const std::unique_ptr<WalFile>& b) {
+        WalFileImpl* a_impl = static_cast_with_check<WalFileImpl>(a.get());
+        WalFileImpl* b_impl = static_cast_with_check<WalFileImpl>(b.get());
         return *a_impl < *b_impl;
       });
   return status;
 }
 
-Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
+Status WalManager::RetainProbableWalFiles(VectorWalPtr& all_logs,
                                           const SequenceNumber target) {
   int64_t start = 0;  // signed to avoid overflow when target is < first file.
   int64_t end = static_cast<int64_t>(all_logs.size()) - 1;
@@ -424,7 +424,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
 }
 
 Status WalManager::GetLiveWalFile(uint64_t number,
-                                  std::unique_ptr<LogFile>* log_file) {
+                                  std::unique_ptr<WalFile>* log_file) {
   if (!log_file) {
     return Status::InvalidArgument("log_file not preallocated.");
   }
@@ -442,7 +442,7 @@ Status WalManager::GetLiveWalFile(uint64_t number,
     return s;
   }
 
-  log_file->reset(new LogFileImpl(number, kAliveLogFile,
+  log_file->reset(new WalFileImpl(number, kAliveLogFile,
                                   0,  // SequenceNumber
                                   size_bytes));
 

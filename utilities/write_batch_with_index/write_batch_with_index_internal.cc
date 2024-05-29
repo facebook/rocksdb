@@ -36,6 +36,8 @@ BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
   assert(comparator_);
 }
 
+BaseDeltaIterator::~BaseDeltaIterator() = default;
+
 bool BaseDeltaIterator::Valid() const {
   return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid()) : false;
 }
