@@ -901,16 +901,13 @@ class NonBatchedOpsStressTest : public StressTest {
     assert(shared);
 
     assert(!rand_column_families.empty());
-    assert(!rand_keys.empty());
-
-    std::unique_ptr<MutexLock> lock(new MutexLock(
-        shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
-
     assert(rand_column_families[0] >= 0);
     assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
     assert(cfh);
+
+    assert(!rand_keys.empty());
 
     const std::string key = Key(rand_keys[0]);
 
