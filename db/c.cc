@@ -1947,6 +1947,10 @@ void rocksdb_iter_get_error(const rocksdb_iterator_t* iter, char** errptr) {
   SaveError(errptr, iter->rep->status());
 }
 
+void rocksdb_iter_refresh(const rocksdb_iterator_t* iter, char** errptr) {
+  SaveError(errptr, iter->rep->Refresh());
+}
+
 rocksdb_writebatch_t* rocksdb_writebatch_create() {
   return new rocksdb_writebatch_t;
 }
@@ -1955,6 +1959,15 @@ rocksdb_writebatch_t* rocksdb_writebatch_create_from(const char* rep,
                                                      size_t size) {
   rocksdb_writebatch_t* b = new rocksdb_writebatch_t;
   b->rep = WriteBatch(std::string(rep, size));
+  return b;
+}
+
+rocksdb_writebatch_t* rocksdb_writebatch_create_with_params(
+    size_t reserved_bytes, size_t max_bytes, size_t protection_bytes_per_key,
+    size_t default_cf_ts_sz) {
+  rocksdb_writebatch_t* b = new rocksdb_writebatch_t;
+  b->rep = WriteBatch(reserved_bytes, max_bytes, protection_bytes_per_key,
+                      default_cf_ts_sz);
   return b;
 }
 
@@ -2221,6 +2234,35 @@ rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create(
   b->rep = new WriteBatchWithIndex(BytewiseComparator(), reserved_bytes,
                                    overwrite_key);
   return b;
+}
+
+rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create_with_params(
+    rocksdb_comparator_t* backup_index_comparator, size_t reserved_bytes,
+    unsigned char overwrite_key, size_t max_bytes,
+    size_t protection_bytes_per_key) {
+  rocksdb_writebatch_wi_t* b = new rocksdb_writebatch_wi_t;
+  b->rep = new WriteBatchWithIndex(backup_index_comparator, reserved_bytes,
+                                   overwrite_key, max_bytes,
+                                   protection_bytes_per_key);
+  return b;
+}
+
+void rocksdb_writebatch_update_timestamps(
+    rocksdb_writebatch_t* wb, const char* ts, size_t tslen, void* state,
+    size_t (*get_ts_size)(void*, uint32_t), char** errptr) {
+  SaveError(errptr, wb->rep.UpdateTimestamps(
+                        Slice(ts, tslen), [&get_ts_size, &state](uint32_t cf) {
+                          return (*get_ts_size)(state, cf);
+                        }));
+}
+
+void rocksdb_writebatch_wi_update_timestamps(
+    rocksdb_writebatch_wi_t* wb, const char* ts, size_t tslen, void* state,
+    size_t (*get_ts_size)(void*, uint32_t), char** errptr) {
+  SaveError(errptr, wb->rep->GetWriteBatch()->UpdateTimestamps(
+                        Slice(ts, tslen), [&get_ts_size, &state](uint32_t cf) {
+                          return (*get_ts_size)(state, cf);
+                        }));
 }
 
 void rocksdb_writebatch_wi_destroy(rocksdb_writebatch_wi_t* b) {

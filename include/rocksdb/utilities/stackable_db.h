@@ -501,12 +501,12 @@ class StackableDB : public DB {
     return db_->GetFullHistoryTsLow(column_family, ts_low);
   }
 
-  Status GetSortedWalFiles(VectorLogPtr& files) override {
+  Status GetSortedWalFiles(VectorWalPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
 
   Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* current_log_file) override {
+      std::unique_ptr<WalFile>* current_log_file) override {
     return db_->GetCurrentWalFile(current_log_file);
   }
 
