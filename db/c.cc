@@ -1108,8 +1108,7 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family_with_import(
 }
 
 rocksdb_export_import_files_metadata_t*
-rocksdb_checkpoint_export_column_family(rocksdb_t* db,
-                                        rocksdb_checkpoint_t* checkpoint,
+rocksdb_checkpoint_export_column_family(rocksdb_checkpoint_t* checkpoint,
                                         rocksdb_column_family_handle_t* handle,
                                         const char* export_dir, char** errptr) {
   ExportImportFilesMetaData* metadata = nullptr;
@@ -5549,7 +5548,7 @@ uint64_t rocksdb_livefiles_deletions(const rocksdb_livefiles_t* lf, int index) {
 }
 
 void rocksdb_create_export_import_files_metadata(
-    rocksdb_t* db, const char* dbComparatorName, size_t dbComparatorNameLen,
+    const char* dbComparatorName, size_t dbComparatorNameLen,
     rocksdb_export_import_files_metadata_t** eifm) {
   const std::string str = std::string(dbComparatorName, dbComparatorNameLen);
   *eifm = new rocksdb_export_import_files_metadata_t();
@@ -5557,7 +5556,7 @@ void rocksdb_create_export_import_files_metadata(
 }
 
 void rocksdb_export_import_files_metadata_add_livefile(
-    rocksdb_t* db, rocksdb_export_import_files_metadata_t* eifm,
+    rocksdb_export_import_files_metadata_t* eifm,
     const char* columnFamilyName, size_t columnFamilyNameSize, 
     int level, uint64_t smallestSeqNo, uint64_t largestSeqNo, 
     const char* smallestKey, size_t smallestKeySize,
@@ -5638,8 +5637,7 @@ void rocksdb_export_import_files_metadata_add_livefile(
     *index = (int)(eifm->rep.files.size()) - 1;
 }
 
-void rocksdb_export_import_files_metadata_properties(rocksdb_t* db, 
-                                                     const rocksdb_export_import_files_metadata_t* eifm, 
+void rocksdb_export_import_files_metadata_properties(const rocksdb_export_import_files_metadata_t* eifm, 
                                                      const char** dbComparatorName, size_t* dbComparatorNameSize,
                                                      rocksdb_livefiles_t** lf, size_t* lfSize) {
     // ExportImportFilesMetadata
@@ -5652,7 +5650,7 @@ void rocksdb_export_import_files_metadata_properties(rocksdb_t* db,
     }
 }
 
-void rocksdb_livefiles_get_livefile_properties(rocksdb_t* db, const rocksdb_livefiles_t* lf, int index, 
+void rocksdb_livefiles_get_livefile_properties(const rocksdb_livefiles_t* lf, int index, 
                                                const char** columnFamilyName, size_t* columnFamilyNameSize,
                                                int* level, uint64_t* smallestSeqNo, uint64_t* largestSeqNo,
                                                const char** smallestKey, size_t* smallestKeySize, 

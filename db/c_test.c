@@ -1744,8 +1744,7 @@ int main(int argc, char** argv) {
     snprintf(exportPath, sizeof(exportPath), "%s/rocksdb_c_test-%d/exportdir",
              GetTempDir(), ((int)geteuid()));
     rocksdb_export_import_files_metadata_t* metadata =
-        rocksdb_checkpoint_export_column_family(db, checkpoint, cfh1, exportPath,
-                                                &err);
+        rocksdb_checkpoint_export_column_family(checkpoint, cfh1, exportPath, &err);
     CheckNoError(err);
 
     rocksdb_drop_column_family(db, cfh1, &err);
@@ -1795,10 +1794,10 @@ int main(int argc, char** argv) {
     size_t fileChecksumFuncNameSize = 0;
 
     rocksdb_export_import_files_metadata_properties(
-        db, metadata, &dbComparatorName, &dbComparatorNameSize, &plf, &lfSize);
+        metadata, &dbComparatorName, &dbComparatorNameSize, &plf, &lfSize);
     for (int idx = 0; idx < (int)lfSize; idx++) {
       rocksdb_livefiles_get_livefile_properties(
-          db, plf, idx, &columnFamilyNamePtr, &columnFamilyNameSize, &level,
+          plf, idx, &columnFamilyNamePtr, &columnFamilyNameSize, &level,
           &smallestSeqNo, &largestSeqNo, &smallestKeyPtr, &smallestKeySize,
           &largestKeyPtr, &largestKeySize, &numReadsSampled, &beingCompacted,
           &numEntries, &numDeletions, &oldestBlobFileNumber,
@@ -1814,10 +1813,10 @@ int main(int argc, char** argv) {
 
     int index = 0;
     rocksdb_export_import_files_metadata_t* metadata2;
-    rocksdb_create_export_import_files_metadata(db, 
-        dbComparatorName, dbComparatorNameSize, &metadata2);
+    rocksdb_create_export_import_files_metadata(dbComparatorName, 
+        dbComparatorNameSize, &metadata2);
     for (int idx2 = 0; idx2 < (int)lfSize; idx2++) {
-      rocksdb_export_import_files_metadata_add_livefile(db, metadata2,
+      rocksdb_export_import_files_metadata_add_livefile(metadata2,
                     columnFamilyNamePtr, columnFamilyNameSize, level,
                     smallestSeqNo, largestSeqNo, smallestKeyPtr, smallestKeySize,
                     largestKeyPtr, largestKeySize, numReadsSampled, beingCompacted,

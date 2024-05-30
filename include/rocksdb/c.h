@@ -427,17 +427,16 @@ rocksdb_create_column_family_with_import(
     const rocksdb_export_import_files_metadata_t* metadatas, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_export_import_files_metadata_t*
-rocksdb_checkpoint_export_column_family(rocksdb_t* db,
-                                        rocksdb_checkpoint_t* checkpoint,
+rocksdb_checkpoint_export_column_family(rocksdb_checkpoint_t* checkpoint,
                                         rocksdb_column_family_handle_t* handle,
                                         const char* export_dir, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_create_export_import_files_metadata(
-    rocksdb_t* db, const char* dbComparatorName, size_t dbComparatorNameLen,
+    const char* dbComparatorName, size_t dbComparatorNameLen,
     rocksdb_export_import_files_metadata_t** eifm);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_add_livefile(
-    rocksdb_t* db, rocksdb_export_import_files_metadata_t* eifm,
+    rocksdb_export_import_files_metadata_t* eifm,
     const char* columnFamilyName, size_t columnFamilyNameSize, int level,
     uint64_t smallestSeqNo, uint64_t largestSeqNo, const char* smallestKey,
     size_t smallestKeySize, const char* largestKey, size_t largestKeySize,
@@ -456,13 +455,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_add_livefil
     int* index);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_properties(
-    rocksdb_t* db,
     const rocksdb_export_import_files_metadata_t* eifm,
     const char** dbComparatorNamePtr, size_t* dbComparatorNameSize,
     rocksdb_livefiles_t** lfPtr, size_t* lfSize);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_get_livefile_properties(
-    rocksdb_t* db, const rocksdb_livefiles_t* lf, int index,
+    const rocksdb_livefiles_t* lf, int index,
     const char** columnFamilyName, size_t* columnFamilyNameSize, int* level, 
     uint64_t* smallestSeqNo, uint64_t* largestSeqNo, 
     const char** smallestKey, size_t* smallestKeySize, 
