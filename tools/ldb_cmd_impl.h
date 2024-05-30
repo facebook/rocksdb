@@ -620,6 +620,7 @@ class DBQuerierCommand : public LDBCommand {
   static const char* GET_CMD;
   static const char* PUT_CMD;
   static const char* DELETE_CMD;
+  static const char* COUNT_CMD;
 };
 
 class CheckConsistencyCommand : public LDBCommand {

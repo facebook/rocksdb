@@ -239,6 +239,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(class CompactionOptionsUniversal, compression_size_percent),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"max_read_amp",
+         {offsetof(class CompactionOptionsUniversal, max_read_amp),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"stop_style",
          {offsetof(class CompactionOptionsUniversal, stop_style),
           OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
@@ -1137,6 +1141,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "compaction_options_universal.compression_size_percent : %d",
                  compaction_options_universal.compression_size_percent);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.max_read_amp:  %d",
+                 compaction_options_universal.max_read_amp);
   ROCKS_LOG_INFO(log, "compaction_options_universal.stop_style : %d",
                  compaction_options_universal.stop_style);
   ROCKS_LOG_INFO(
