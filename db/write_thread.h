@@ -72,6 +72,12 @@ class WriteThread {
     // A state indicating that the thread may be waiting using StateMutex()
     // and StateCondVar()
     STATE_LOCKED_WAITING = 32,
+
+    // The state used to inform a waiting writer that it has become a
+    // caller to call some other waiting writers to write to memtable
+    // by calling SetMemWritersEachStride. After doing
+    // this, it will also write to memtable.
+    STATE_PARALLEL_MEMTABLE_CALLER = 64,
   };
 
   struct Writer;
@@ -324,9 +330,18 @@ class WriteThread {
   // Causes JoinBatchGroup to return STATE_PARALLEL_MEMTABLE_WRITER for all of
   // the non-leader members of this write batch group.  Sets Writer::sequence
   // before waking them up.
+  // If the size of write_group n is not small, the leader will call n^0.5
+  // members to be PARALLEL_MEMTABLE_CALLER in the write_group to help to set
+  // other's status parallel. This ensures that the cost to call SetState
+  // sequentially does not exceed 2(n^0.5).
   //
   // WriteGroup* write_group: Extra state used to coordinate the parallel add
   void LaunchParallelMemTableWriters(WriteGroup* write_group);
+
+  // One of the every stride=N number writer in the WriteGroup are set to the
+  // MemTableWriters, where N is equal to square of the total number of this
+  // write_group, and all of these MemTableWriters will write to memtable.
+  void SetMemWritersEachStride(Writer* w);
 
   // Reports the completion of w's batch to the parallel group leader, and
   // waits for the rest of the parallel batch to complete.  Returns true

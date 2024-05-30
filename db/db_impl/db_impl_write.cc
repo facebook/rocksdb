@@ -333,6 +333,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
+  if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_CALLER) {
+    write_thread_.SetMemWritersEachStride(&w);
+  }
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     // we are a non-leader in a parallel group
 
@@ -830,7 +833,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     // so we need to set its status to pass ASSERT_STATUS_CHECKED
     memtable_write_group.status.PermitUncheckedError();
   }
-
+  if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_CALLER) {
+    write_thread_.SetMemWritersEachStride(&w);
+  }
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     PERF_TIMER_STOP(write_pre_and_post_process_time);
     PERF_TIMER_FOR_WAIT_GUARD(write_memtable_time);
