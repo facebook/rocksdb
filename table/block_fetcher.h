@@ -153,7 +153,7 @@ class BlockFetcher {
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void ProcessTrailerIfPresent();
-  void ReadBlock(bool retry, FSAllocationPtr& fs_buf);
+  void ReadBlock(bool retry);
 
   void ReleaseFileSystemProvidedBuffer(FSReadRequest* read_req) {
     if (use_fs_scratch_) {
