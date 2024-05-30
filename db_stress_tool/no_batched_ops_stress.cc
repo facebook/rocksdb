@@ -901,15 +901,19 @@ class NonBatchedOpsStressTest : public StressTest {
     assert(shared);
 
     assert(!rand_column_families.empty());
-    assert(rand_column_families[0] >= 0);
-    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
-    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    const int column_family = rand_column_families[0];
+
+    assert(column_family >= 0);
+    assert(column_family < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[column_family];
     assert(cfh);
 
     assert(!rand_keys.empty());
 
-    const std::string key = Key(rand_keys[0]);
+    const int64_t key = rand_keys[0];
+    const std::string key_str = Key(key);
 
     PinnableWideColumns columns_from_db;
     PinnableAttributeGroups attribute_groups_from_db;
@@ -922,19 +926,25 @@ class NonBatchedOpsStressTest : public StressTest {
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
-    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+    const bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
+
+    const ExpectedValue pre_read_expected_value =
+        thread->shared->Get(column_family, key);
 
     Status s;
     if (FLAGS_use_attribute_group) {
       attribute_groups_from_db.emplace_back(cfh);
-      s = db_->GetEntity(read_opts_copy, key, &attribute_groups_from_db);
+      s = db_->GetEntity(read_opts_copy, key_str, &attribute_groups_from_db);
       if (s.ok()) {
         s = attribute_groups_from_db.back().status();
       }
     } else {
-      s = db_->GetEntity(read_opts_copy, cfh, key, &columns_from_db);
+      s = db_->GetEntity(read_opts_copy, cfh, key_str, &columns_from_db);
     }
+
+    const ExpectedValue post_read_expected_value =
+        thread->shared->Get(column_family, key);
 
     int error_count = 0;
 
@@ -965,36 +975,49 @@ class NonBatchedOpsStressTest : public StressTest {
             FLAGS_use_attribute_group
                 ? attribute_groups_from_db.back().columns()
                 : columns_from_db.columns();
-        ExpectedValue expected =
-            shared->Get(rand_column_families[0], rand_keys[0]);
         if (!VerifyWideColumns(columns)) {
           shared->SetVerificationFailure();
           fprintf(stderr,
                   "error : inconsistent columns returned by GetEntity for key "
                   "%s: %s\n",
-                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
-        } else if (ExpectedValueHelper::MustHaveNotExisted(expected,
-                                                           expected)) {
+                  StringToHex(key_str).c_str(),
+                  WideColumnsToHex(columns).c_str());
+        } else if (ExpectedValueHelper::MustHaveNotExisted(
+                       pre_read_expected_value, post_read_expected_value)) {
           shared->SetVerificationFailure();
           fprintf(
               stderr,
               "error : inconsistent values for key %s: GetEntity returns %s, "
               "expected state does not have the key.\n",
-              StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+              StringToHex(key_str).c_str(), WideColumnsToHex(columns).c_str());
+        } else {
+          const uint32_t value_base_from_db =
+              GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
+          if (!ExpectedValueHelper::InExpectedValueBaseRange(
+                  value_base_from_db, pre_read_expected_value,
+                  post_read_expected_value)) {
+            shared->SetVerificationFailure();
+            fprintf(
+                stderr,
+                "error : inconsistent values for key %s: GetEntity returns %s "
+                "with value base %d that falls out of expected state's value "
+                "base range.\n",
+                StringToHex(key_str).c_str(), WideColumnsToHex(columns).c_str(),
+                value_base_from_db);
+          }
         }
       }
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
 
       if (!FLAGS_skip_verifydb && !read_older_ts) {
-        ExpectedValue expected =
-            shared->Get(rand_column_families[0], rand_keys[0]);
-        if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+        if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                                 post_read_expected_value)) {
           shared->SetVerificationFailure();
           fprintf(stderr,
                   "error : inconsistent values for key %s: expected state has "
                   "the key, GetEntity returns NotFound.\n",
-                  StringToHex(key).c_str());
+                  StringToHex(key_str).c_str());
         }
       }
     } else {
