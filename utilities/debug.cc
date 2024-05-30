@@ -85,9 +85,21 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   ScopedArenaPtr<InternalIterator> iter(
       idb->NewInternalIterator(read_options, &arena, kMaxSequenceNumber, cfh));
 
-  if (!begin_key.empty()) {
+  const Comparator* ucmp = icmp.user_comparator();
+  size_t ts_sz = ucmp->timestamp_size();
+
+  Slice from_slice = begin_key;
+  bool has_begin = !begin_key.empty();
+  Slice end_slice = end_key;
+  bool has_end = !end_key.empty();
+  std::string begin_key_buf, end_key_buf;
+  auto [from, end] = MaybeAddTimestampsToRange(
+      has_begin ? &from_slice : nullptr, has_end ? &end_slice : nullptr, ts_sz,
+      &begin_key_buf, &end_key_buf);
+  if (has_begin) {
+    assert(from.has_value());
     InternalKey ikey;
-    ikey.SetMinPossibleForUserKey(begin_key);
+    ikey.SetMinPossibleForUserKey(from.value());
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
@@ -102,8 +114,8 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
       return pik_status;
     }
 
-    if (!end_key.empty() &&
-        icmp.user_comparator()->Compare(ikey.user_key, end_key) > 0) {
+    if (has_end && end.has_value() &&
+        icmp.user_comparator()->Compare(ikey.user_key, end.value()) > 0) {
       break;
     }
 

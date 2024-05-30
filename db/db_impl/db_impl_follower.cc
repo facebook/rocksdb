@@ -5,6 +5,7 @@
 
 #include "db/db_impl/db_impl_follower.h"
 
+#include <algorithm>
 #include <cinttypes>
 
 #include "db/arena_wrapped_db_iter.h"
