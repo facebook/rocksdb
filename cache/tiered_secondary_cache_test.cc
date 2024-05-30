@@ -887,7 +887,8 @@ TEST_F(DBTieredSecondaryCacheTest, FSBufferTest) {
                                  IODebugContext* dbg) override {
       class WrappedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
        public:
-        WrappedRandomAccessFile(std::unique_ptr<FSRandomAccessFile>& file)
+        explicit WrappedRandomAccessFile(
+            std::unique_ptr<FSRandomAccessFile>& file)
             : FSRandomAccessFileOwnerWrapper(std::move(file)) {}
 
         IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
