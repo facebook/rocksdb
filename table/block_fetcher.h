@@ -78,8 +78,6 @@ class BlockFetcher {
     }
   }
 
-  ~BlockFetcher();
-
   IOStatus ReadBlockContents();
   IOStatus ReadAsyncBlockContents();
 

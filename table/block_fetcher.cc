@@ -29,15 +29,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-BlockFetcher::~BlockFetcher() {
-  // If we successfully read the block into fs_buf_, and its
-  // compressed, and we haven't returned the compressed block to the caller,
-  // ensure that we keep fs_buf_ till destruction in case GetCompressedBlock()
-  // is called.
-  assert(!io_status_.ok() || compression_type_ == kNoCompression ||
-         !do_uncompress_ || !use_fs_scratch_ || fs_buf_);
-}
-
 inline void BlockFetcher::ProcessTrailerIfPresent() {
   if (footer_.GetBlockTrailerSize() > 0) {
     assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
