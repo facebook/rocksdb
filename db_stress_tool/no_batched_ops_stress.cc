@@ -1914,7 +1914,19 @@ class NonBatchedOpsStressTest : public StressTest {
       pre_read_expected_values.push_back(
           shared->Get(rand_column_family, i + lb));
     }
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
+    std::unique_ptr<Iterator> iter;
+    if (FLAGS_use_multi_cf_iterator) {
+      std::vector<ColumnFamilyHandle*> cfhs;
+      cfhs.reserve(rand_column_families.size());
+      for (auto cf_index : rand_column_families) {
+        cfhs.emplace_back(column_families_[cf_index]);
+      }
+      assert(!cfhs.empty());
+      iter = db_->NewCoalescingIterator(ro, cfhs);
+    } else {
+      iter = std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+    }
+
     for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
       post_read_expected_values.push_back(
           shared->Get(rand_column_family, i + lb));
