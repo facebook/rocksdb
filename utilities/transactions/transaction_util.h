@@ -43,7 +43,8 @@ class TransactionUtil {
       const std::string& key, SequenceNumber snap_seq,
       const std::string* const ts, bool cache_only,
       ReadCallback* snap_checker = nullptr,
-      SequenceNumber min_uncommitted = kMaxSequenceNumber);
+      SequenceNumber min_uncommitted = kMaxSequenceNumber,
+      bool enable_udt_validation = true);
 
   // For each key,SequenceNumber pair tracked by the LockTracker, this function
   // will verify there have been no writes to the key in the db since that
@@ -70,13 +71,15 @@ class TransactionUtil {
   //  seq > `snap_seq`: applicable to conflict
   //  `min_uncommitted` <= seq <= `snap_seq`: call `snap_checker` to determine.
   //
-  // If user-defined timestamp is enabled, a write conflict is detected if an
-  // operation for `key` with timestamp greater than `ts` exists.
+  // If user-defined timestamp is enabled and `enable_udt_validation` is set to
+  // true, a write conflict is detected if an operation for `key` with timestamp
+  // greater than `ts` exists.
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
                          const std::string& key, const std::string* const ts,
                          bool cache_only, ReadCallback* snap_checker = nullptr,
-                         SequenceNumber min_uncommitted = kMaxSequenceNumber);
+                         SequenceNumber min_uncommitted = kMaxSequenceNumber,
+                         bool enable_udt_validation = true);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

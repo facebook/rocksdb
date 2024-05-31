@@ -235,6 +235,11 @@ struct TransactionDBOptions {
                      const Slice& /*key*/)>
       rollback_deletion_type_callback;
 
+  // A flag to control for the whole DB whether user-defined timestamp based
+  // validation are enabled when applicable. Only WriteCommittedTxn support
+  // user-defined timestamps so this option only applies in this case.
+  bool enable_udt_validation = true;
+
  private:
   // 128 entries
   // Should the default value change, please also update wp_snapshot_cache_bits

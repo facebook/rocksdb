@@ -188,12 +188,19 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
       return s;
     }
   }
-
-  if (!do_validate && kMaxTxnTimestamp != read_timestamp_) {
+  bool enable_udt_validation =
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation;
+  if (!enable_udt_validation && kMaxTxnTimestamp != read_timestamp_) {
+    return Status::InvalidArgument(
+        "read_timestamp is set but timestamp validation is disabled for the "
+        "DB");
+  } else if (enable_udt_validation && !do_validate &&
+             kMaxTxnTimestamp != read_timestamp_) {
     return Status::InvalidArgument(
         "If do_validate is false then GetForUpdate with read_timestamp is not "
         "defined.");
-  } else if (do_validate && kMaxTxnTimestamp == read_timestamp_) {
+  } else if (enable_udt_validation && do_validate &&
+             kMaxTxnTimestamp == read_timestamp_) {
     return Status::InvalidArgument("read_timestamp must be set for validation");
   }
 
@@ -496,7 +503,8 @@ Status WriteCommittedTxn::SetReadTimestampForValidation(TxnTimestamp ts) {
 }
 
 Status WriteCommittedTxn::SetCommitTimestamp(TxnTimestamp ts) {
-  if (read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
+  if (txn_db_impl_->GetTxnDBOptions().enable_udt_validation &&
+      read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
     return Status::InvalidArgument(
         "Cannot commit at timestamp smaller than or equal to read timestamp");
   }
@@ -1207,7 +1215,10 @@ Status PessimisticTransaction::ValidateSnapshot(
 
   return TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
-      false /* cache_only */);
+      false /* cache_only */,
+      /* snap_checker */ nullptr,
+      /* min_uncommitted */ kMaxSequenceNumber,
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation);
 }
 
 bool PessimisticTransaction::TryStealingLocks() {
