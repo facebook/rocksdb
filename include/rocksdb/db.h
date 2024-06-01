@@ -28,6 +28,7 @@
 #include "rocksdb/thread_status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "rocksdb/user_write_callback.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -582,6 +583,15 @@ class DB {
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+
+  // Same as DB::Write, and takes a `UserWriteCallback` argument to allow
+  // users to plug in custom logic in callback functions during the write.
+  virtual Status WriteWithCallback(const WriteOptions& /*options*/,
+                                   WriteBatch* /*updates*/,
+                                   UserWriteCallback* /*user_write_cb*/) {
+    return Status::NotSupported(
+        "WriteWithCallback not implemented for this interface.");
+  }
 
   // If the column family specified by "column_family" contains an entry for
   // "key", return the corresponding value in "*value". If the entry is a plain
@@ -1831,7 +1841,7 @@ class DB {
                               bool flush_memtable = true) = 0;
 
   // Retrieve the sorted list of all wal files with earliest file first
-  virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
+  virtual Status GetSortedWalFiles(VectorWalPtr& files) = 0;
 
   // Retrieve information about the current wal file
   //
@@ -1841,7 +1851,7 @@ class DB {
   // Additionally, for the sake of optimization current_log_file->StartSequence
   // would always be set to 0
   virtual Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* current_log_file) = 0;
+      std::unique_ptr<WalFile>* current_log_file) = 0;
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:

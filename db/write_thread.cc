@@ -404,6 +404,8 @@ void WriteThread::JoinBatchGroup(Writer* w) {
 
   bool linked_as_leader = LinkOne(w, &newest_writer_);
 
+  w->CheckWriteEnqueuedCallback();
+
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
   }
@@ -428,6 +430,7 @@ void WriteThread::JoinBatchGroup(Writer* w) {
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:BeganWaiting", w);
     AwaitState(w,
                STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
+                   STATE_PARALLEL_MEMTABLE_CALLER |
                    STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
                &jbg_ctx);
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:DoneWaiting", w);
@@ -656,12 +659,57 @@ void WriteThread::ExitAsMemTableWriter(Writer* /*self*/,
   SetState(leader, STATE_COMPLETED);
 }
 
+void WriteThread::SetMemWritersEachStride(Writer* w) {
+  WriteGroup* write_group = w->write_group;
+  Writer* last_writer = write_group->last_writer;
+
+  // The stride is the same for each writer in write_group, so w will
+  // call the writers with the same number in write_group mod total size
+  size_t stride = static_cast<size_t>(std::sqrt(write_group->size));
+  size_t count = 0;
+  while (w) {
+    if (count++ % stride == 0) {
+      SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+    }
+    w = (w == last_writer) ? nullptr : w->link_newer;
+  }
+}
+
 void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
   assert(write_group != nullptr);
-  write_group->running.store(write_group->size);
-  for (auto w : *write_group) {
-    SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+  size_t group_size = write_group->size;
+  write_group->running.store(group_size);
+
+  // The minimum number to allow the group use parallel caller mode.
+  // The number must no lower than 3;
+  const size_t MinParallelSize = 20;
+
+  // The group_size is too small, and there is no need to have
+  // the parallel partial callers.
+  if (group_size < MinParallelSize) {
+    for (auto w : *write_group) {
+      SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+    }
+    return;
   }
+
+  // The stride is equal to std::sqrt(group_size) which can minimize
+  // the total number of leader SetSate.
+  // Set the leader itself STATE_PARALLEL_MEMTABLE_WRITER, and set
+  // (stride-1) writers to be STATE_PARALLEL_MEMTABLE_CALLER.
+  size_t stride = static_cast<size_t>(std::sqrt(group_size));
+  auto w = write_group->leader;
+  SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+
+  for (size_t i = 1; i < stride; i++) {
+    w = w->link_newer;
+    SetState(w, STATE_PARALLEL_MEMTABLE_CALLER);
+  }
+
+  // After setting all STATE_PARALLEL_MEMTABLE_CALLER, the leader also
+  // does the job as STATE_PARALLEL_MEMTABLE_CALLER.
+  w = w->link_newer;
+  SetMemWritersEachStride(w);
 }
 
 static WriteThread::AdaptationContext cpmtw_ctx(
@@ -788,8 +836,8 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     }
 
     AwaitState(leader,
-               STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_WRITER |
-                   STATE_COMPLETED,
+               STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_CALLER |
+                   STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
                &eabgl_ctx);
   } else {
     Writer* head = newest_writer_.load(std::memory_order_acquire);

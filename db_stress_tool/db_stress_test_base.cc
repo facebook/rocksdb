@@ -974,7 +974,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           // Verify no writes during LockWAL
           auto old_seqno = db_->GetLatestSequenceNumber();
           // And also that WAL is not changed during LockWAL()
-          std::unique_ptr<LogFile> old_wal;
+          std::unique_ptr<WalFile> old_wal;
           s = db_->GetCurrentWalFile(&old_wal);
           if (!s.ok()) {
             fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
@@ -985,7 +985,7 @@ void StressTest::OperateDb(ThreadState* thread) {
               std::this_thread::yield();
             } while (thread->rand.OneIn(2));
             // Current WAL and size should not have changed
-            std::unique_ptr<LogFile> new_wal;
+            std::unique_ptr<WalFile> new_wal;
             s = db_->GetCurrentWalFile(&new_wal);
             if (!s.ok()) {
               fprintf(stderr, "GetCurrentWalFile() failed: %s\n",
@@ -1425,15 +1425,28 @@ Status StressTest::TestIterate(ThreadState* thread,
     ro.iterate_lower_bound = &lower_bound;
   }
 
-  ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
-  assert(cfh);
+  std::unique_ptr<Iterator> iter;
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
+  if (FLAGS_use_multi_cf_iterator) {
+    std::vector<ColumnFamilyHandle*> cfhs;
+    cfhs.reserve(rand_column_families.size());
+    for (auto cf_index : rand_column_families) {
+      cfhs.emplace_back(column_families_[cf_index]);
+    }
+    assert(!cfhs.empty());
+    iter = db_->NewCoalescingIterator(ro, cfhs);
+  } else {
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+    iter = std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+  }
 
   std::vector<std::string> key_strs;
   if (thread->rand.OneIn(16)) {
     // Generate keys close to lower or upper bound of SST files.
-    key_strs = GetWhiteBoxKeys(thread, db_, cfh, rand_keys.size());
+    key_strs =
+        GetWhiteBoxKeys(thread, db_, column_families_[rand_column_families[0]],
+                        rand_keys.size());
   }
   if (key_strs.empty()) {
     // Use the random keys passed in.
@@ -1495,9 +1508,10 @@ Status StressTest::TestIterate(ThreadState* thread,
 
     const bool support_seek_first_or_last = expect_total_order;
 
-    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    // Write-prepared and Write-unprepared and multi-cf-iterator do not support
+    // Refresh() yet.
     if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0 /* write committed */) &&
-        thread->rand.OneIn(4)) {
+        !FLAGS_use_multi_cf_iterator && thread->rand.OneIn(4)) {
       Status s = iter->Refresh(snapshot_guard.snapshot());
       assert(s.ok());
       op_logs += "Refresh ";
@@ -1592,13 +1606,13 @@ Status StressTest::VerifyGetAllColumnFamilyMetaData() const {
 
 // Test the return status of GetSortedWalFiles.
 Status StressTest::VerifyGetSortedWalFiles() const {
-  VectorLogPtr log_ptr;
+  VectorWalPtr log_ptr;
   return db_->GetSortedWalFiles(log_ptr);
 }
 
 // Test the return status of GetCurrentWalFile.
 Status StressTest::VerifyGetCurrentWalFile() const {
-  std::unique_ptr<LogFile> cur_wal_file;
+  std::unique_ptr<WalFile> cur_wal_file;
   return db_->GetCurrentWalFile(&cur_wal_file);
 }
 

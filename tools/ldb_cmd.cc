@@ -60,6 +60,7 @@ const std::string LDBCommand::ARG_FS_URI = "fs_uri";
 const std::string LDBCommand::ARG_DB = "db";
 const std::string LDBCommand::ARG_PATH = "path";
 const std::string LDBCommand::ARG_SECONDARY_PATH = "secondary_path";
+const std::string LDBCommand::ARG_LEADER_PATH = "leader_path";
 const std::string LDBCommand::ARG_HEX = "hex";
 const std::string LDBCommand::ARG_KEY_HEX = "key_hex";
 const std::string LDBCommand::ARG_VALUE_HEX = "value_hex";
@@ -125,6 +126,9 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
                   bool is_value_hex, bool dump_uncompressed_blobs);
+
+Status EncodeUserProvidedTimestamp(const std::string& user_timestamp,
+                                   std::string* ts_buf);
 }  // namespace
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
@@ -137,6 +141,32 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   }
   return InitFromCmdLineArgs(args, options, ldb_options, column_families,
                              SelectCommand);
+}
+
+void LDBCommand::ParseSingleParam(const std::string& param,
+                                  ParsedParams& parsed_params,
+                                  std::vector<std::string>& cmd_tokens) {
+  const std::string OPTION_PREFIX = "--";
+
+  if (param[0] == '-' && param[1] == '-') {
+    std::vector<std::string> splits = StringSplit(param, '=');
+    // --option_name=option_value
+    if (splits.size() == 2) {
+      std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+      parsed_params.option_map[optionKey] = splits[1];
+    } else if (splits.size() == 1) {
+      // --flag_name
+      std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+      parsed_params.flags.push_back(optionKey);
+    } else {
+      // --option_name=option_value, option_value contains '='
+      std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
+      parsed_params.option_map[optionKey] =
+          param.substr(splits[0].length() + 1);
+    }
+  } else {
+    cmd_tokens.push_back(param);
+  }
 }
 
 /**
@@ -165,28 +195,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   // and their parameters.  For eg: put key1 value1 go into this vector.
   std::vector<std::string> cmdTokens;
 
-  const std::string OPTION_PREFIX = "--";
-
   for (const auto& arg : args) {
-    if (arg[0] == '-' && arg[1] == '-') {
-      std::vector<std::string> splits = StringSplit(arg, '=');
-      // --option_name=option_value
-      if (splits.size() == 2) {
-        std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-        parsed_params.option_map[optionKey] = splits[1];
-      } else if (splits.size() == 1) {
-        // --flag_name
-        std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-        parsed_params.flags.push_back(optionKey);
-      } else {
-        // --option_name=option_value, option_value contains '='
-        std::string optionKey = splits[0].substr(OPTION_PREFIX.size());
-        parsed_params.option_map[optionKey] =
-            arg.substr(splits[0].length() + 1);
-      }
-    } else {
-      cmdTokens.push_back(arg);
-    }
+    ParseSingleParam(arg, parsed_params, cmdTokens);
   }
 
   if (cmdTokens.size() < 1) {
@@ -429,6 +439,12 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
     secondary_path_ = itr->second;
   }
 
+  itr = options.find(ARG_LEADER_PATH);
+  leader_path_ = "";
+  if (itr != options.end()) {
+    leader_path_ = itr->second;
+  }
+
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
@@ -461,9 +477,9 @@ void LDBCommand::OpenDB() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "ldb doesn't support TTL DB with multiple column families");
     }
-    if (!secondary_path_.empty()) {
+    if (!secondary_path_.empty() || !leader_path_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
-          "Open as secondary is not supported for TTL DB yet.");
+          "Open as secondary or follower is not supported for TTL DB yet.");
     }
     if (is_read_only_) {
       st = DBWithTTL::Open(options_, db_path_, &db_ttl_, 0, true);
@@ -472,7 +488,11 @@ void LDBCommand::OpenDB() {
     }
     db_ = db_ttl_;
   } else {
-    if (is_read_only_ && secondary_path_.empty()) {
+    if (!secondary_path_.empty() && !leader_path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Cannot provide both secondary and leader paths");
+    }
+    if (is_read_only_ && secondary_path_.empty() && leader_path_.empty()) {
       if (column_families_.empty()) {
         st = DB::OpenForReadOnly(options_, db_path_, &db_);
       } else {
@@ -481,18 +501,27 @@ void LDBCommand::OpenDB() {
       }
     } else {
       if (column_families_.empty()) {
-        if (secondary_path_.empty()) {
+        if (secondary_path_.empty() && leader_path_.empty()) {
           st = DB::Open(options_, db_path_, &db_);
-        } else {
+        } else if (!secondary_path_.empty()) {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_, &db_);
+        } else {
+          std::unique_ptr<DB> dbptr;
+          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &dbptr);
+          db_ = dbptr.release();
         }
       } else {
-        if (secondary_path_.empty()) {
+        if (secondary_path_.empty() && leader_path_.empty()) {
           st = DB::Open(options_, db_path_, column_families_, &handles_opened,
                         &db_);
-        } else {
+        } else if (!secondary_path_.empty()) {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_,
                                    column_families_, &handles_opened, &db_);
+        } else {
+          std::unique_ptr<DB> dbptr;
+          st = DB::OpenAsFollower(options_, db_path_, leader_path_,
+                                  column_families_, &handles_opened, &dbptr);
+          db_ = dbptr.release();
         }
       }
     }
@@ -561,6 +590,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FS_URI,
                                   ARG_DB,
                                   ARG_SECONDARY_PATH,
+                                  ARG_LEADER_PATH,
                                   ARG_BLOOM_BITS,
                                   ARG_BLOCK_SIZE,
                                   ARG_AUTO_COMPACTION,
@@ -757,14 +787,10 @@ Status LDBCommand::MaybePopulateReadTimestamp(ColumnFamilyHandle* cfh,
         "column family does not enable user-defined timestamps while "
         "--read_timestamp is provided.");
   }
-  uint64_t int_timestamp;
-  std::istringstream iss(iter->second);
-  if (!(iss >> int_timestamp)) {
-    return Status::InvalidArgument(
-        "column family enables user-defined timestamp while --read_timestamp "
-        "is not a valid uint64 value.");
+  Status s = EncodeUserProvidedTimestamp(iter->second, &read_timestamp_);
+  if (!s.ok()) {
+    return s;
   }
-  EncodeU64Ts(int_timestamp, &read_timestamp_);
   *read_timestamp = read_timestamp_;
   ropts.timestamp = read_timestamp;
   return Status::OK();
@@ -3828,6 +3854,7 @@ const char* DBQuerierCommand::HELP_CMD = "help";
 const char* DBQuerierCommand::GET_CMD = "get";
 const char* DBQuerierCommand::PUT_CMD = "put";
 const char* DBQuerierCommand::DELETE_CMD = "delete";
+const char* DBQuerierCommand::COUNT_CMD = "count";
 
 DBQuerierCommand::DBQuerierCommand(
     const std::vector<std::string>& /*params*/,
@@ -3856,75 +3883,211 @@ void DBQuerierCommand::DoCommand() {
     return;
   }
 
-  ReadOptions read_options;
-  WriteOptions write_options;
-
   std::string line;
-  std::string key;
-  std::string value;
   Status s;
-  std::stringstream oss;
-  while (s.ok() && getline(std::cin, line, '\n')) {
+  ColumnFamilyHandle* cfh = GetCfHandle();
+  const Comparator* ucmp = cfh->GetComparator();
+  while ((s.ok() || s.IsNotFound() || s.IsInvalidArgument()) &&
+         getline(std::cin, line, '\n')) {
+    std::string key;
+    std::string timestamp;
+    std::string value;
+    // Reset to OK status before parsing and executing next user command.
+    s = Status::OK();
+    std::stringstream oss;
     // Parse line into std::vector<std::string>
     std::vector<std::string> tokens;
+    ParsedParams parsed_params;
     size_t pos = 0;
     while (true) {
       size_t pos2 = line.find(' ', pos);
+      std::string token =
+          line.substr(pos, (pos2 == std::string::npos) ? pos2 : (pos2 - pos));
+      ParseSingleParam(token, parsed_params, tokens);
       if (pos2 == std::string::npos) {
         break;
       }
-      tokens.push_back(line.substr(pos, pos2 - pos));
       pos = pos2 + 1;
     }
-    tokens.push_back(line.substr(pos));
+
+    if (tokens.empty() || !parsed_params.flags.empty()) {
+      fprintf(stdout, "Bad command\n");
+      continue;
+    }
 
     const std::string& cmd = tokens[0];
+    ReadOptions read_options;
+    WriteOptions write_options;
+    Slice read_timestamp;
 
     if (cmd == HELP_CMD) {
       fprintf(stdout,
-              "get <key>\n"
-              "put <key> <value>\n"
-              "delete <key>\n");
-    } else if (cmd == DELETE_CMD && tokens.size() == 2) {
+              "get <key> [--read_timestamp=<uint64_ts>]\n"
+              "put <key> [<write_timestamp>] <value>\n"
+              "delete <key> [<write_timestamp>]\n"
+              "count [--from=<start_key>] [--to=<end_key>] "
+              "[--read_timestamp=<uint64_ts>]\n");
+    } else if (cmd == DELETE_CMD && parsed_params.option_map.empty()) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
-      s = db_->Delete(write_options, GetCfHandle(), Slice(key));
-      if (s.ok()) {
-        fprintf(stdout, "Successfully deleted %s\n", tokens[1].c_str());
+      if (tokens.size() == 2) {
+        s = db_->Delete(write_options, cfh, Slice(key));
+      } else if (tokens.size() == 3) {
+        Status encode_s = EncodeUserProvidedTimestamp(tokens[2], &timestamp);
+        if (encode_s.ok()) {
+          s = db_->Delete(write_options, cfh, Slice(key), Slice(timestamp));
+        } else {
+          fprintf(stdout, "delete gets invalid argument: %s\n",
+                  encode_s.ToString().c_str());
+          continue;
+        }
       } else {
-        oss << "delete " << key << " failed: " << s.ToString();
+        fprintf(stdout, "delete gets invalid arguments\n");
+        continue;
       }
-    } else if (cmd == PUT_CMD && tokens.size() == 3) {
+      oss << "delete " << (is_key_hex_ ? StringToHex(key) : key);
+      if (!timestamp.empty()) {
+        oss << " write_ts: " << ucmp->TimestampToString(timestamp);
+      }
+      if (s.ok()) {
+        oss << " succeeded";
+      } else {
+        oss << " failed: " << s.ToString();
+      }
+      fprintf(stdout, "%s\n", oss.str().c_str());
+    } else if (cmd == PUT_CMD && parsed_params.option_map.empty()) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
-      value = (is_value_hex_ ? HexToString(tokens[2]) : tokens[2]);
-      s = db_->Put(write_options, GetCfHandle(), Slice(key), Slice(value));
-      if (s.ok()) {
-        fprintf(stdout, "Successfully put %s %s\n", tokens[1].c_str(),
-                tokens[2].c_str());
+      if (tokens.size() == 3) {
+        value = (is_value_hex_ ? HexToString(tokens[2]) : tokens[2]);
+        s = db_->Put(write_options, cfh, Slice(key), Slice(value));
+      } else if (tokens.size() == 4) {
+        value = (is_value_hex_ ? HexToString(tokens[3]) : tokens[3]);
+        Status encode_s = EncodeUserProvidedTimestamp(tokens[2], &timestamp);
+        if (encode_s.ok()) {
+          s = db_->Put(write_options, cfh, Slice(key), Slice(timestamp),
+                       Slice(value));
+        } else {
+          fprintf(stdout, "put gets invalid argument: %s\n",
+                  encode_s.ToString().c_str());
+          continue;
+        }
       } else {
-        oss << "put " << key << "=>" << value << " failed: " << s.ToString();
+        fprintf(stdout, "put gets invalid arguments\n");
+        continue;
       }
+
+      oss << "put " << (is_key_hex_ ? StringToHex(key) : key);
+      if (!timestamp.empty()) {
+        oss << " write_ts: " << ucmp->TimestampToString(timestamp);
+      }
+      oss << " => " << (is_value_hex_ ? StringToHex(value) : value);
+      if (s.ok()) {
+        oss << " succeeded";
+      } else {
+        oss << " failed: " << s.ToString();
+      }
+      fprintf(stdout, "%s\n", oss.str().c_str());
     } else if (cmd == GET_CMD && tokens.size() == 2) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
-      s = db_->Get(read_options, GetCfHandle(), Slice(key), &value);
+      bool bad_option = false;
+      for (auto& option : parsed_params.option_map) {
+        if (option.first == "read_timestamp") {
+          Status encode_s =
+              EncodeUserProvidedTimestamp(option.second, &timestamp);
+          if (!encode_s.ok()) {
+            fprintf(stdout, "get gets invalid argument: %s\n",
+                    encode_s.ToString().c_str());
+            bad_option = true;
+            break;
+          }
+          read_timestamp = timestamp;
+          read_options.timestamp = &read_timestamp;
+        } else {
+          fprintf(stdout, "get gets invalid arguments\n");
+          bad_option = true;
+          break;
+        }
+      }
+      if (bad_option) {
+        continue;
+      }
+      s = db_->Get(read_options, cfh, Slice(key), &value);
       if (s.ok()) {
-        // TODO: add read timestamp support in querier
         fprintf(stdout, "%s\n",
-                PrintKeyValue(key, "", value, is_key_hex_, is_value_hex_,
-                              GetCfHandle()->GetComparator())
+                PrintKeyValue(key, timestamp, value, is_key_hex_, is_value_hex_,
+                              ucmp)
                     .c_str());
       } else {
-        if (s.IsNotFound()) {
-          fprintf(stdout, "Not found %s\n", tokens[1].c_str());
-        } else {
-          oss << "get " << key << " error: " << s.ToString();
+        oss << "get " << (is_key_hex_ ? StringToHex(key) : key);
+        if (!timestamp.empty()) {
+          oss << " read_timestamp: " << ucmp->TimestampToString(timestamp);
         }
+        oss << " status: " << s.ToString();
+        fprintf(stdout, "%s\n", oss.str().c_str());
+      }
+    } else if (cmd == COUNT_CMD) {
+      std::string start_key;
+      std::string end_key;
+      bool bad_option = false;
+      for (auto& option : parsed_params.option_map) {
+        if (option.first == "from") {
+          start_key =
+              (is_key_hex_ ? HexToString(option.second) : option.second);
+        } else if (option.first == "to") {
+          end_key = (is_key_hex_ ? HexToString(option.second) : option.second);
+        } else if (option.first == "read_timestamp") {
+          Status encode_s =
+              EncodeUserProvidedTimestamp(option.second, &timestamp);
+          if (!encode_s.ok()) {
+            bad_option = true;
+            fprintf(stdout, "count gets invalid argument: %s\n",
+                    encode_s.ToString().c_str());
+            break;
+          }
+          read_timestamp = timestamp;
+          read_options.timestamp = &read_timestamp;
+        } else {
+          fprintf(stdout, "count gets invalid arguments\n");
+          bad_option = true;
+          break;
+        }
+      }
+      if (bad_option) {
+        continue;
+      }
+
+      Slice end_key_slice(end_key);
+      uint64_t count = 0;
+      if (!end_key.empty()) {
+        read_options.iterate_upper_bound = &end_key_slice;
+      }
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, cfh));
+      if (start_key.empty()) {
+        iter->SeekToFirst();
+      } else {
+        iter->Seek(start_key);
+      }
+      while (iter->status().ok() && iter->Valid()) {
+        count++;
+        iter->Next();
+      }
+      if (iter->status().ok()) {
+        fprintf(stdout, "%" PRIu64 "\n", count);
+      } else {
+        oss << "scan from "
+            << (is_key_hex_ ? StringToHex(start_key) : start_key);
+        if (!timestamp.empty()) {
+          oss << " read_timestamp: " << ucmp->TimestampToString(timestamp);
+        }
+        oss << " to " << (is_key_hex_ ? StringToHex(end_key) : end_key)
+            << " failed: " << iter->status().ToString();
+        fprintf(stdout, "%s\n", oss.str().c_str());
       }
     } else {
       fprintf(stdout, "Unknown command %s\n", line.c_str());
     }
   }
-  if (!s.ok()) {
-    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+  if (!(s.ok() || s.IsNotFound() || s.IsInvalidArgument())) {
+    exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
   }
 }
 
@@ -4260,6 +4423,18 @@ void DumpBlobFile(const std::string& filename, bool is_key_hex,
     fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
   }
 }
+
+Status EncodeUserProvidedTimestamp(const std::string& user_timestamp,
+                                   std::string* ts_buf) {
+  uint64_t int_timestamp;
+  std::istringstream iss(user_timestamp);
+  if (!(iss >> int_timestamp)) {
+    return Status::InvalidArgument(
+        "user provided timestamp is not a valid uint64 value.");
+  }
+  EncodeU64Ts(int_timestamp, ts_buf);
+  return Status::OK();
+}
 }  // namespace
 
 DBFileDumperCommand::DBFileDumperCommand(
@@ -4354,7 +4529,7 @@ void DBFileDumperCommand::DoCommand() {
 
   std::cout << "Write Ahead Log Files" << std::endl;
   std::cout << "==============================" << std::endl;
-  ROCKSDB_NAMESPACE::VectorLogPtr wal_files;
+  ROCKSDB_NAMESPACE::VectorWalPtr wal_files;
   s = db_->GetSortedWalFiles(wal_files);
   if (!s.ok()) {
     std::cerr << "Error when getting WAL files" << std::endl;

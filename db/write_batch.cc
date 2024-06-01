@@ -65,6 +65,7 @@
 #include "port/lang.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/system_clock.h"
+#include "util/aligned_storage.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
@@ -1900,7 +1901,7 @@ class MemTableInserter : public WriteBatch::Handler {
   // Make creation optional but do not incur
   // std::unique_ptr additional allocation
   using MemPostInfoMap = std::map<MemTable*, MemTablePostProcessInfo>;
-  using PostMapType = std::aligned_storage<sizeof(MemPostInfoMap)>::type;
+  using PostMapType = aligned_storage<MemPostInfoMap>::type;
   PostMapType mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
@@ -1914,7 +1915,7 @@ class MemTableInserter : public WriteBatch::Handler {
   bool write_before_prepare_;
   // Whether this batch was unprepared or not
   bool unprepared_batch_;
-  using DupDetector = std::aligned_storage<sizeof(DuplicateDetector)>::type;
+  using DupDetector = aligned_storage<DuplicateDetector>::type;
   DupDetector duplicate_detector_;
   bool dup_dectector_on_;
 
@@ -1922,7 +1923,7 @@ class MemTableInserter : public WriteBatch::Handler {
   bool hint_created_;
   // Hints for this batch
   using HintMap = std::unordered_map<MemTable*, void*>;
-  using HintMapType = std::aligned_storage<sizeof(HintMap)>::type;
+  using HintMapType = aligned_storage<HintMap>::type;
   HintMapType hint_;
 
   HintMap& GetHintMap() {
@@ -2549,11 +2550,6 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(ret_status.ok());
 
     if (db_ != nullptr) {
-      if (db_->immutable_db_options().row_cache) {
-        ret_status.PermitUncheckedError();
-        return Status::NotSupported(
-            "DeleteRange is not compatible with row cache.");
-      }
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();

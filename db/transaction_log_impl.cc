@@ -18,7 +18,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
-    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
+    std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
     const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
     : dir_(dir),
       options_(options),
@@ -44,7 +44,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
 }
 
 Status TransactionLogIteratorImpl::OpenLogFile(
-    const LogFile* log_file,
+    const WalFile* log_file,
     std::unique_ptr<SequentialFileReader>* file_reader) {
   FileSystemPtr fs(options_->fs, io_tracer_);
   std::unique_ptr<FSSequentialFile> file;
@@ -281,7 +281,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   current_status_ = Status::OK();
 }
 
-Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* log_file) {
+Status TransactionLogIteratorImpl::OpenLogReader(const WalFile* log_file) {
   std::unique_ptr<SequentialFileReader> file;
   Status s = OpenLogFile(log_file, &file);
   if (!s.ok()) {
