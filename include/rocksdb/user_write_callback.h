@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 // being written to the DB. It's intended for better synchronization between
 // concurrent writes. Note that these callbacks are in the write's critical path
 // It's desirable to keep them fast and minimum to not affect the write's
-// latency.
+// latency. These callbacks may be called in the context of a different thread.
 class UserWriteCallback {
  public:
   virtual ~UserWriteCallback() {}
