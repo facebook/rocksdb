@@ -57,6 +57,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
@@ -230,6 +231,10 @@ class DBImpl : public DB {
 
   using DB::Write;
   Status Write(const WriteOptions& options, WriteBatch* updates) override;
+
+  using DB::WriteWithCallback;
+  Status WriteWithCallback(const WriteOptions& options, WriteBatch* updates,
+                           UserWriteCallback* user_write_cb) override;
 
   using DB::Get;
   Status Get(const ReadOptions& _read_options,
@@ -688,7 +693,8 @@ class DBImpl : public DB {
   // thread to determine whether it is safe to perform the write.
   virtual Status WriteWithCallback(const WriteOptions& write_options,
                                    WriteBatch* my_batch,
-                                   WriteCallback* callback);
+                                   WriteCallback* callback,
+                                   UserWriteCallback* user_write_cb = nullptr);
 
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into the current
@@ -1497,6 +1503,7 @@ class DBImpl : public DB {
   // batch that does not have duplicate keys.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
+                   UserWriteCallback* user_write_cb = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
@@ -1505,6 +1512,7 @@ class DBImpl : public DB {
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
+                            UserWriteCallback* user_write_cb = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
@@ -1531,7 +1539,8 @@ class DBImpl : public DB {
   // marks start of a new sub-batch.
   Status WriteImplWALOnly(
       WriteThread* write_thread, const WriteOptions& options,
-      WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
+      WriteBatch* updates, WriteCallback* callback,
+      UserWriteCallback* user_write_cb, uint64_t* log_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
       const PublishLastSeq publish_last_seq, const bool disable_memtable);

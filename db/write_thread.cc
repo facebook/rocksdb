@@ -404,6 +404,8 @@ void WriteThread::JoinBatchGroup(Writer* w) {
 
   bool linked_as_leader = LinkOne(w, &newest_writer_);
 
+  w->CheckWriteEnqueuedCallback();
+
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
   }
