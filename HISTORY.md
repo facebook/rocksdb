@@ -1,6 +1,27 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.3.0 (05/17/2024)
+### New Features
+* Optimistic transactions and pessimistic transactions with the WriteCommitted policy now support the `GetEntity` API.
+* Added new `Iterator` property, "rocksdb.iterator.is-value-pinned", for checking whether the `Slice` returned by `Iterator::value()` can be used until the `Iterator` is destroyed.
+* Optimistic transactions and WriteCommitted pessimistic transactions now support the `MultiGetEntity` API.
+* Optimistic transactions and pessimistic transactions with the WriteCommitted policy now support the `PutEntity` API. Support for read APIs and other write policies (WritePrepared, WriteUnprepared) will be added later.
+
+### Public API Changes
+* Exposed block based metadata cache options via C API
+* Exposed compaction pri via c api.
+* Add a kAdmPolicyAllowAll option to TieredAdmissionPolicy that admits all blocks evicted from the primary block cache into the compressed secondary cache.
+
+### Behavior Changes
+* CompactRange() with change_level=true on a CF with FIFO compaction will return Status::NotSupported().
+* External file ingestion with FIFO compaction will always ingest to L0.
+
+### Bug Fixes
+* Fixed a bug for databases using `DBOptions::allow_2pc == true` (all `TransactionDB`s except `OptimisticTransactionDB`) that have exactly one column family. Due to a missing WAL sync, attempting to open the DB could have returned a `Status::Corruption` with a message like "SST file is ahead of WALs".
+* Fix a bug in CreateColumnFamilyWithImport() where if multiple CFs are imported, we were not resetting files' epoch number and L0 files can have overlapping key range but the same epoch number.
+* Fixed race conditions when `ColumnFamilyOptions::inplace_update_support == true` between user overwrites and reads on the same key.
+
 ## 9.2.0 (05/01/2024)
 ### New Features
 * Added two options `deadline` and `max_size_bytes` for CacheDumper to exit early
