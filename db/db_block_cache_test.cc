@@ -1378,7 +1378,7 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
         // Force some overlap with ordering
         ASSERT_OK(Put(Key((i * 7) % kNumDataBlocks),
                       Random::GetTLSInstance()->RandomBinaryString(
-                          table_options.block_size)));
+                          static_cast<int>(table_options.block_size))));
         if (i >= kNumDataBlocks - kNumFiles) {
           ASSERT_OK(Flush());
         }
