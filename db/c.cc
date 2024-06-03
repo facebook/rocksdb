@@ -237,6 +237,7 @@ struct rocksdb_livefile_t {
 };
 struct rocksdb_column_family_handle_t {
   ColumnFamilyHandle* rep;
+  bool immortal;  /* only true for default cf */
 };
 struct rocksdb_column_family_metadata_t {
   ColumnFamilyMetaData rep;
@@ -921,6 +922,7 @@ rocksdb_t* rocksdb_open_and_trim_history(
     rocksdb_column_family_handle_t* c_handle =
         new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
+    c_handle->immortal = false;
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
@@ -951,6 +953,7 @@ rocksdb_t* rocksdb_open_column_families(
     rocksdb_column_family_handle_t* c_handle =
         new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
+    c_handle->immortal = false;
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
@@ -986,6 +989,7 @@ rocksdb_t* rocksdb_open_column_families_with_ttl(
     rocksdb_column_family_handle_t* c_handle =
         new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
+    c_handle->immortal = false;
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
@@ -1019,6 +1023,7 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     rocksdb_column_family_handle_t* c_handle =
         new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
+    c_handle->immortal = false;
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
@@ -1050,6 +1055,7 @@ rocksdb_t* rocksdb_open_as_secondary_column_families(
     rocksdb_column_family_handle_t* c_handle =
         new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
+    c_handle->immortal = false;
     column_family_handles[i] = c_handle;
   }
   rocksdb_t* result = new rocksdb_t;
@@ -1087,6 +1093,7 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family(
   SaveError(errptr, db->rep->CreateColumnFamily(
                         ColumnFamilyOptions(column_family_options->rep),
                         std::string(column_family_name), &(handle->rep)));
+  handle->immortal = false;
   return handle;
 }
 
@@ -1165,6 +1172,7 @@ rocksdb_column_family_handle_t** rocksdb_create_column_families(
   for (size_t i = 0; i != handles.size(); ++i) {
     c_handles[i] = new rocksdb_column_family_handle_t;
     c_handles[i]->rep = handles[i];
+    c_handles[i]->immortal = false;
   }
 
   return c_handles;
@@ -1184,6 +1192,7 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family_with_ttl(
   SaveError(errptr, db_with_ttl->CreateColumnFamilyWithTtl(
                         ColumnFamilyOptions(column_family_options->rep),
                         std::string(column_family_name), &(handle->rep), ttl));
+  handle->immortal = false;
   return handle;
 }
 
@@ -1205,9 +1214,19 @@ char* rocksdb_column_family_handle_get_name(
   return CopyString(name);
 }
 
+rocksdb_column_family_handle_t* rocksdb_get_default_column_family_handle(
+    rocksdb_t* db) {
+  rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
+  handle->rep = db->rep->DefaultColumnFamily();
+  handle->immortal = true;
+  return handle;
+}
+
 void rocksdb_column_family_handle_destroy(
     rocksdb_column_family_handle_t* handle) {
-  delete handle->rep;
+  if (!handle->immortal) {
+    delete handle->rep;
+  }
   delete handle;
 }
 
@@ -6025,6 +6044,7 @@ rocksdb_column_family_handle_t* rocksdb_transactiondb_create_column_family(
   SaveError(errptr, txn_db->rep->CreateColumnFamily(
                         ColumnFamilyOptions(column_family_options->rep),
                         std::string(column_family_name), &(handle->rep)));
+  handle->immortal = false;
   return handle;
 }
 
@@ -6067,6 +6087,7 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
     rocksdb_column_family_handle_t* c_handle =
         new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
+    c_handle->immortal = false;
     column_family_handles[i] = c_handle;
   }
   rocksdb_transactiondb_t* result = new rocksdb_transactiondb_t;
@@ -6861,6 +6882,7 @@ rocksdb_optimistictransactiondb_open_column_families(
     rocksdb_column_family_handle_t* c_handle =
         new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
+    c_handle->immortal = false;
     column_family_handles[i] = c_handle;
   }
   rocksdb_optimistictransactiondb_t* result =

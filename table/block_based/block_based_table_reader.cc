@@ -844,6 +844,10 @@ Status BlockBasedTable::PrefetchTail(
   if (tail_size != 0) {
     tail_prefetch_size = tail_size;
   } else {
+    // Fallback for SST files, for which tail size is not recorded in the
+    // manifest. Eventually, this fallback might be removed, so it's
+    // better to make sure that such SST files get compacted.
+    // See https://github.com/facebook/rocksdb/issues/12664
     if (tail_prefetch_stats != nullptr) {
       // Multiple threads may get a 0 (no history) when running in parallel,
       // but it will get cleared after the first of them finishes.
@@ -858,14 +862,15 @@ Status BlockBasedTable::PrefetchTail(
       // properties, at which point we don't yet know the index type.
       tail_prefetch_size = prefetch_all || preload_all ? 512 * 1024 : 4 * 1024;
 
-      ROCKS_LOG_WARN(logger,
-                     "Tail prefetch size %zu is calculated based on heuristics",
-                     tail_prefetch_size);
-    } else {
       ROCKS_LOG_WARN(
           logger,
-          "Tail prefetch size %zu is calculated based on TailPrefetchStats",
-          tail_prefetch_size);
+          "[%s] Tail prefetch size %zu is calculated based on heuristics.",
+          file->file_name().c_str(), tail_prefetch_size);
+    } else {
+      ROCKS_LOG_WARN(logger,
+                     "[%s] Tail prefetch size %zu is calculated based on "
+                     "TailPrefetchStats.",
+                     file->file_name().c_str(), tail_prefetch_size);
     }
   }
   size_t prefetch_off;
