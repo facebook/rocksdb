@@ -901,15 +901,19 @@ class NonBatchedOpsStressTest : public StressTest {
     assert(shared);
 
     assert(!rand_column_families.empty());
-    assert(rand_column_families[0] >= 0);
-    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
-    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    const int column_family = rand_column_families[0];
+
+    assert(column_family >= 0);
+    assert(column_family < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[column_family];
     assert(cfh);
 
     assert(!rand_keys.empty());
 
-    const std::string key = Key(rand_keys[0]);
+    const int64_t key = rand_keys[0];
+    const std::string key_str = Key(key);
 
     PinnableWideColumns columns_from_db;
     PinnableAttributeGroups attribute_groups_from_db;
@@ -922,19 +926,25 @@ class NonBatchedOpsStressTest : public StressTest {
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
-    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+    const bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
+
+    const ExpectedValue pre_read_expected_value =
+        thread->shared->Get(column_family, key);
 
     Status s;
     if (FLAGS_use_attribute_group) {
       attribute_groups_from_db.emplace_back(cfh);
-      s = db_->GetEntity(read_opts_copy, key, &attribute_groups_from_db);
+      s = db_->GetEntity(read_opts_copy, key_str, &attribute_groups_from_db);
       if (s.ok()) {
         s = attribute_groups_from_db.back().status();
       }
     } else {
-      s = db_->GetEntity(read_opts_copy, cfh, key, &columns_from_db);
+      s = db_->GetEntity(read_opts_copy, cfh, key_str, &columns_from_db);
     }
+
+    const ExpectedValue post_read_expected_value =
+        thread->shared->Get(column_family, key);
 
     int error_count = 0;
 
@@ -965,36 +975,49 @@ class NonBatchedOpsStressTest : public StressTest {
             FLAGS_use_attribute_group
                 ? attribute_groups_from_db.back().columns()
                 : columns_from_db.columns();
-        ExpectedValue expected =
-            shared->Get(rand_column_families[0], rand_keys[0]);
         if (!VerifyWideColumns(columns)) {
           shared->SetVerificationFailure();
           fprintf(stderr,
                   "error : inconsistent columns returned by GetEntity for key "
                   "%s: %s\n",
-                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
-        } else if (ExpectedValueHelper::MustHaveNotExisted(expected,
-                                                           expected)) {
+                  StringToHex(key_str).c_str(),
+                  WideColumnsToHex(columns).c_str());
+        } else if (ExpectedValueHelper::MustHaveNotExisted(
+                       pre_read_expected_value, post_read_expected_value)) {
           shared->SetVerificationFailure();
           fprintf(
               stderr,
               "error : inconsistent values for key %s: GetEntity returns %s, "
               "expected state does not have the key.\n",
-              StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+              StringToHex(key_str).c_str(), WideColumnsToHex(columns).c_str());
+        } else {
+          const uint32_t value_base_from_db =
+              GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
+          if (!ExpectedValueHelper::InExpectedValueBaseRange(
+                  value_base_from_db, pre_read_expected_value,
+                  post_read_expected_value)) {
+            shared->SetVerificationFailure();
+            fprintf(
+                stderr,
+                "error : inconsistent values for key %s: GetEntity returns %s "
+                "with value base %d that falls out of expected state's value "
+                "base range.\n",
+                StringToHex(key_str).c_str(), WideColumnsToHex(columns).c_str(),
+                value_base_from_db);
+          }
         }
       }
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
 
       if (!FLAGS_skip_verifydb && !read_older_ts) {
-        ExpectedValue expected =
-            shared->Get(rand_column_families[0], rand_keys[0]);
-        if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+        if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                                 post_read_expected_value)) {
           shared->SetVerificationFailure();
           fprintf(stderr,
                   "error : inconsistent values for key %s: expected state has "
                   "the key, GetEntity returns NotFound.\n",
-                  StringToHex(key).c_str());
+                  StringToHex(key_str).c_str());
         }
       }
     } else {
@@ -1021,58 +1044,258 @@ class NonBatchedOpsStressTest : public StressTest {
     read_opts_copy.snapshot = snapshot_guard.snapshot();
 
     assert(!rand_column_families.empty());
-    assert(rand_column_families[0] >= 0);
-    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
-    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    const int column_family = rand_column_families[0];
+
+    assert(column_family >= 0);
+    assert(column_family < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[column_family];
     assert(cfh);
 
     assert(!rand_keys.empty());
 
     const size_t num_keys = rand_keys.size();
 
-    std::vector<std::string> keys(num_keys);
-    std::vector<Slice> key_slices(num_keys);
+    std::unique_ptr<Transaction> txn;
 
-    if (fault_fs_guard) {
-      fault_fs_guard->EnableErrorInjection();
-      SharedState::ignore_read_error = false;
+    if (FLAGS_use_txn) {
+      WriteOptions write_options;
+      if (FLAGS_rate_limit_auto_wal_flush) {
+        write_options.rate_limiter_priority = Env::IO_USER;
+      }
+
+      const Status s = NewTxn(write_options, &txn);
+      if (!s.ok()) {
+        fprintf(stderr, "NewTxn error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
+      }
     }
 
+    std::vector<std::string> keys(num_keys);
+    std::vector<Slice> key_slices(num_keys);
+    std::unordered_map<std::string, ExpectedValue> ryw_expected_values;
+
     for (size_t i = 0; i < num_keys; ++i) {
-      keys[i] = Key(rand_keys[i]);
+      const int64_t key = rand_keys[i];
+
+      keys[i] = Key(key);
       key_slices[i] = keys[i];
+
+      if (FLAGS_use_txn) {
+        MaybeAddKeyToTxnForRYW(thread, column_family, key, txn.get(),
+                               ryw_expected_values);
+      }
     }
 
     int error_count = 0;
 
-    auto handle_result = [](ThreadState* _thread, const Status& s,
-                            bool is_consistent, int err_count) {
-      if (!is_consistent) {
-        fprintf(stderr,
-                "TestMultiGetEntity%s error: results are not consistent\n",
-                FLAGS_use_attribute_group ? "(AttributeGroup)" : "");
-        _thread->stats.AddErrors(1);
-        // Fail fast to preserve the DB state
-        _thread->shared->SetVerificationFailure();
-      } else if (s.ok()) {
-        _thread->stats.AddGets(1, 1);
-      } else if (s.IsNotFound()) {
-        _thread->stats.AddGets(1, 0);
-      } else {
-        if (err_count == 0) {
-          fprintf(stderr, "MultiGetEntity%s error: %s\n",
-                  FLAGS_use_attribute_group ? "(AttributeGroup)" : "",
-                  s.ToString().c_str());
-          _thread->stats.AddErrors(1);
-        } else {
-          _thread->stats.AddVerifiedErrors(1);
+    auto verify_expected_errors = [&](auto get_status) {
+      assert(fault_fs_guard);
+
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+
+      if (error_count && !SharedState::ignore_read_error) {
+        int stat_nok = 0;
+        for (size_t i = 0; i < num_keys; ++i) {
+          const Status& s = get_status(i);
+          if (!s.ok() && !s.IsNotFound()) {
+            ++stat_nok;
+          }
+        }
+
+        if (stat_nok < error_count) {
+          // Grab mutex so multiple threads don't try to print the
+          // stack trace at the same time
+          assert(thread->shared);
+          MutexLock l(thread->shared->GetMutex());
+
+          fprintf(stderr, "Didn't get expected error from MultiGetEntity\n");
+          fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n",
+                  num_keys, error_count, stat_nok);
+          fprintf(stderr, "Call stack that injected the fault\n");
+          fault_fs_guard->PrintFaultBacktrace();
+          std::terminate();
         }
       }
     };
 
-    if (FLAGS_use_attribute_group) {
+    auto check_results = [&](auto get_columns, auto get_status,
+                             auto do_extra_check, auto call_get_entity) {
+      const bool check_get_entity =
+          !error_count && FLAGS_check_multiget_entity_consistency;
+
+      for (size_t i = 0; i < num_keys; ++i) {
+        const WideColumns& columns = get_columns(i);
+        const Status& s = get_status(i);
+
+        bool is_consistent = true;
+
+        if (s.ok() && !VerifyWideColumns(columns)) {
+          fprintf(
+              stderr,
+              "error : inconsistent columns returned by MultiGetEntity for key "
+              "%s: %s\n",
+              StringToHex(keys[i]).c_str(), WideColumnsToHex(columns).c_str());
+          is_consistent = false;
+        } else if (s.ok() || s.IsNotFound()) {
+          if (!do_extra_check(keys[i], columns, s)) {
+            is_consistent = false;
+          } else if (check_get_entity) {
+            PinnableWideColumns cmp_result;
+            ThreadStatusUtil::SetThreadOperation(
+                ThreadStatus::OperationType::OP_GETENTITY);
+            const Status cmp_s = call_get_entity(key_slices[i], &cmp_result);
+
+            if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
+              fprintf(stderr, "GetEntity error: %s\n",
+                      cmp_s.ToString().c_str());
+              is_consistent = false;
+            } else if (cmp_s.IsNotFound()) {
+              if (s.ok()) {
+                fprintf(
+                    stderr,
+                    "Inconsistent results for key %s: MultiGetEntity returned "
+                    "ok, GetEntity returned not found\n",
+                    StringToHex(keys[i]).c_str());
+                is_consistent = false;
+              }
+            } else {
+              assert(cmp_s.ok());
+
+              if (s.IsNotFound()) {
+                fprintf(
+                    stderr,
+                    "Inconsistent results for key %s: MultiGetEntity returned "
+                    "not found, GetEntity returned ok\n",
+                    StringToHex(keys[i]).c_str());
+                is_consistent = false;
+              } else {
+                assert(s.ok());
+
+                const WideColumns& cmp_columns = cmp_result.columns();
+
+                if (columns != cmp_columns) {
+                  fprintf(stderr,
+                          "Inconsistent results for key %s: MultiGetEntity "
+                          "returned "
+                          "%s, GetEntity returned %s\n",
+                          StringToHex(keys[i]).c_str(),
+                          WideColumnsToHex(columns).c_str(),
+                          WideColumnsToHex(cmp_columns).c_str());
+                  is_consistent = false;
+                }
+              }
+            }
+          }
+        }
+
+        if (!is_consistent) {
+          fprintf(stderr,
+                  "TestMultiGetEntity error: results are not consistent\n");
+          thread->stats.AddErrors(1);
+          // Fail fast to preserve the DB state
+          thread->shared->SetVerificationFailure();
+          break;
+        } else if (s.ok()) {
+          thread->stats.AddGets(1, 1);
+        } else if (s.IsNotFound()) {
+          thread->stats.AddGets(1, 0);
+        } else {
+          if (error_count == 0) {
+            fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
+            thread->stats.AddErrors(1);
+          } else {
+            thread->stats.AddVerifiedErrors(1);
+          }
+        }
+      }
+    };
+
+    if (FLAGS_use_txn) {
+      // Transactional/read-your-own-writes MultiGetEntity verification
+      std::vector<PinnableWideColumns> results(num_keys);
+      std::vector<Status> statuses(num_keys);
+
+      assert(txn);
+      txn->MultiGetEntity(read_opts_copy, cfh, num_keys, key_slices.data(),
+                          results.data(), statuses.data());
+
+      auto ryw_check = [&](const std::string& key, const WideColumns& columns,
+                           const Status& s) -> bool {
+        const auto it = ryw_expected_values.find(key);
+        if (it == ryw_expected_values.end()) {
+          return true;
+        }
+
+        const auto& ryw_expected_value = it->second;
+
+        if (s.ok()) {
+          if (ryw_expected_value.IsDeleted()) {
+            fprintf(
+                stderr,
+                "MultiGetEntity failed the read-your-own-write check for key "
+                "%s\n",
+                Slice(key).ToString(true).c_str());
+            fprintf(stderr,
+                    "MultiGetEntity returned ok, transaction has non-committed "
+                    "delete\n");
+            return false;
+          } else {
+            const uint32_t value_base = ryw_expected_value.GetValueBase();
+            char expected_value[100];
+            const size_t sz = GenerateValue(value_base, expected_value,
+                                            sizeof(expected_value));
+            const Slice expected_slice(expected_value, sz);
+            const WideColumns expected_columns =
+                GenerateExpectedWideColumns(value_base, expected_slice);
+
+            if (columns != expected_columns) {
+              fprintf(
+                  stderr,
+                  "MultiGetEntity failed the read-your-own-write check for key "
+                  "%s\n",
+                  Slice(key).ToString(true).c_str());
+              fprintf(stderr, "MultiGetEntity returned %s\n",
+                      WideColumnsToHex(columns).c_str());
+              fprintf(stderr, "Transaction has non-committed write %s\n",
+                      WideColumnsToHex(expected_columns).c_str());
+              return false;
+            }
+
+            return true;
+          }
+        }
+
+        assert(s.IsNotFound());
+        if (!ryw_expected_value.IsDeleted()) {
+          fprintf(stderr,
+                  "MultiGetEntity failed the read-your-own-write check for key "
+                  "%s\n",
+                  Slice(key).ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGetEntity returned not found, transaction has "
+                  "non-committed write\n");
+          return false;
+        }
+
+        return true;
+      };
+
+      check_results([&](size_t i) { return results[i].columns(); },
+                    [&](size_t i) { return statuses[i]; }, ryw_check,
+                    [&](const Slice& key, PinnableWideColumns* result) {
+                      return txn->GetEntity(read_opts_copy, cfh, key, result);
+                    });
+
+      txn->Rollback().PermitUncheckedError();
+    } else if (FLAGS_use_attribute_group) {
       // AttributeGroup MultiGetEntity verification
+
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableErrorInjection();
+        SharedState::ignore_read_error = false;
+      }
 
       std::vector<PinnableAttributeGroups> results;
       results.reserve(num_keys);
@@ -1081,110 +1304,32 @@ class NonBatchedOpsStressTest : public StressTest {
         attribute_groups.emplace_back(cfh);
         results.emplace_back(std::move(attribute_groups));
       }
+
       db_->MultiGetEntity(read_opts_copy, num_keys, key_slices.data(),
                           results.data());
 
       if (fault_fs_guard) {
-        error_count = fault_fs_guard->GetAndResetErrorCount();
+        verify_expected_errors(
+            [&](size_t i) { return results[i][0].status(); });
 
-        if (error_count && !SharedState::ignore_read_error) {
-          int stat_nok = 0;
-          for (size_t i = 0; i < num_keys; ++i) {
-            const Status& s = results[i][0].status();
-            if (!s.ok() && !s.IsNotFound()) {
-              stat_nok++;
-            }
-          }
-
-          if (stat_nok < error_count) {
-            // Grab mutex so multiple threads don't try to print the
-            // stack trace at the same time
-            assert(thread->shared);
-            MutexLock l(thread->shared->GetMutex());
-
-            fprintf(stderr,
-                    "Didn't get expected error from MultiGetEntity "
-                    "(AttributeGroup)\n");
-            fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n",
-                    num_keys, error_count, stat_nok);
-            fprintf(stderr, "Call stack that injected the fault\n");
-            fault_fs_guard->PrintFaultBacktrace();
-            std::terminate();
-          }
-        }
         fault_fs_guard->DisableErrorInjection();
       }
 
       // Compare against non-attribute-group GetEntity result
-      const bool check_get_entity =
-          !error_count && FLAGS_check_multiget_entity_consistency;
-
-      for (size_t i = 0; i < num_keys; ++i) {
-        assert(results[i].size() == 1);
-        const Status& s = results[i][0].status();
-
-        bool is_consistent = true;
-
-        if (s.ok() && !VerifyWideColumns(results[i][0].columns())) {
-          fprintf(stderr,
-                  "error : inconsistent columns returned by MultiGetEntity "
-                  "(AttributeGroup) for key "
-                  "%s: %s\n",
-                  StringToHex(keys[i]).c_str(),
-                  WideColumnsToHex(results[i][0].columns()).c_str());
-          is_consistent = false;
-        } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
-          PinnableWideColumns cmp_result;
-          ThreadStatusUtil::SetThreadOperation(
-              ThreadStatus::OperationType::OP_GETENTITY);
-          const Status cmp_s =
-              db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
-
-          if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
-            fprintf(stderr, "GetEntity error: %s\n", cmp_s.ToString().c_str());
-            is_consistent = false;
-          } else if (cmp_s.IsNotFound()) {
-            if (s.ok()) {
-              fprintf(stderr,
-                      "Inconsistent results for key %s: MultiGetEntity "
-                      "(AttributeGroup) returned "
-                      "ok, GetEntity returned not found\n",
-                      StringToHex(keys[i]).c_str());
-              is_consistent = false;
-            }
-          } else {
-            assert(cmp_s.ok());
-
-            if (s.IsNotFound()) {
-              fprintf(stderr,
-                      "Inconsistent results for key %s: MultiGetEntity "
-                      "(AttributeGroup) returned "
-                      "not found, GetEntity returned ok\n",
-                      StringToHex(keys[i]).c_str());
-              is_consistent = false;
-            } else {
-              assert(s.ok());
-
-              if (results[i][0].columns() != cmp_result.columns()) {
-                fprintf(stderr,
-                        "Inconsistent results for key %s: MultiGetEntity "
-                        "(AttributeGroup) returned "
-                        "%s, GetEntity returned %s\n",
-                        StringToHex(keys[i]).c_str(),
-                        WideColumnsToHex(results[i][0].columns()).c_str(),
-                        WideColumnsToHex(cmp_result.columns()).c_str());
-                is_consistent = false;
-              }
-            }
-          }
-        }
-        handle_result(thread, s, is_consistent, error_count);
-        if (!is_consistent) {
-          break;
-        }
-      }
+      check_results([&](size_t i) { return results[i][0].columns(); },
+                    [&](size_t i) { return results[i][0].status(); },
+                    [](const Slice& /* key */, const WideColumns& /* columns */,
+                       const Status& /* s */) { return true; },
+                    [&](const Slice& key, PinnableWideColumns* result) {
+                      return db_->GetEntity(read_opts_copy, cfh, key, result);
+                    });
     } else {
       // Non-AttributeGroup MultiGetEntity verification
+
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableErrorInjection();
+        SharedState::ignore_read_error = false;
+      }
 
       std::vector<PinnableWideColumns> results(num_keys);
       std::vector<Status> statuses(num_keys);
@@ -1193,100 +1338,18 @@ class NonBatchedOpsStressTest : public StressTest {
                           results.data(), statuses.data());
 
       if (fault_fs_guard) {
-        error_count = fault_fs_guard->GetAndResetErrorCount();
-
-        if (error_count && !SharedState::ignore_read_error) {
-          int stat_nok = 0;
-          for (const auto& s : statuses) {
-            if (!s.ok() && !s.IsNotFound()) {
-              stat_nok++;
-            }
-          }
-
-          if (stat_nok < error_count) {
-            // Grab mutex so multiple threads don't try to print the
-            // stack trace at the same time
-            assert(thread->shared);
-            MutexLock l(thread->shared->GetMutex());
-
-            fprintf(stderr, "Didn't get expected error from MultiGetEntity\n");
-            fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n",
-                    num_keys, error_count, stat_nok);
-            fprintf(stderr, "Call stack that injected the fault\n");
-            fault_fs_guard->PrintFaultBacktrace();
-            std::terminate();
-          }
-        }
+        verify_expected_errors([&](size_t i) { return statuses[i]; });
 
         fault_fs_guard->DisableErrorInjection();
       }
 
-      const bool check_get_entity =
-          !error_count && FLAGS_check_multiget_entity_consistency;
-
-      for (size_t i = 0; i < num_keys; ++i) {
-        const Status& s = statuses[i];
-
-        bool is_consistent = true;
-
-        if (s.ok() && !VerifyWideColumns(results[i].columns())) {
-          fprintf(
-              stderr,
-              "error : inconsistent columns returned by MultiGetEntity for key "
-              "%s: %s\n",
-              StringToHex(keys[i]).c_str(),
-              WideColumnsToHex(results[i].columns()).c_str());
-          is_consistent = false;
-        } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
-          PinnableWideColumns cmp_result;
-          ThreadStatusUtil::SetThreadOperation(
-              ThreadStatus::OperationType::OP_GETENTITY);
-          const Status cmp_s =
-              db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
-
-          if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
-            fprintf(stderr, "GetEntity error: %s\n", cmp_s.ToString().c_str());
-            is_consistent = false;
-          } else if (cmp_s.IsNotFound()) {
-            if (s.ok()) {
-              fprintf(
-                  stderr,
-                  "Inconsistent results for key %s: MultiGetEntity returned "
-                  "ok, GetEntity returned not found\n",
-                  StringToHex(keys[i]).c_str());
-              is_consistent = false;
-            }
-          } else {
-            assert(cmp_s.ok());
-
-            if (s.IsNotFound()) {
-              fprintf(
-                  stderr,
-                  "Inconsistent results for key %s: MultiGetEntity returned "
-                  "not found, GetEntity returned ok\n",
-                  StringToHex(keys[i]).c_str());
-              is_consistent = false;
-            } else {
-              assert(s.ok());
-
-              if (results[i] != cmp_result) {
-                fprintf(
-                    stderr,
-                    "Inconsistent results for key %s: MultiGetEntity returned "
-                    "%s, GetEntity returned %s\n",
-                    StringToHex(keys[i]).c_str(),
-                    WideColumnsToHex(results[i].columns()).c_str(),
-                    WideColumnsToHex(cmp_result.columns()).c_str());
-                is_consistent = false;
-              }
-            }
-          }
-        }
-        handle_result(thread, s, is_consistent, error_count);
-        if (!is_consistent) {
-          break;
-        }
-      }
+      check_results([&](size_t i) { return results[i].columns(); },
+                    [&](size_t i) { return statuses[i]; },
+                    [](const Slice& /* key */, const WideColumns& /* columns */,
+                       const Status& /* s */) { return true; },
+                    [&](const Slice& key, PinnableWideColumns* result) {
+                      return db_->GetEntity(read_opts_copy, cfh, key, result);
+                    });
     }
   }
 
@@ -1851,7 +1914,19 @@ class NonBatchedOpsStressTest : public StressTest {
       pre_read_expected_values.push_back(
           shared->Get(rand_column_family, i + lb));
     }
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
+    std::unique_ptr<Iterator> iter;
+    if (FLAGS_use_multi_cf_iterator) {
+      std::vector<ColumnFamilyHandle*> cfhs;
+      cfhs.reserve(rand_column_families.size());
+      for (auto cf_index : rand_column_families) {
+        cfhs.emplace_back(column_families_[cf_index]);
+      }
+      assert(!cfhs.empty());
+      iter = db_->NewCoalescingIterator(ro, cfhs);
+    } else {
+      iter = std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+    }
+
     for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
       post_read_expected_values.push_back(
           shared->Get(rand_column_family, i + lb));
@@ -2041,9 +2116,10 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
-    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    // Write-prepared/write-unprepared transactions and multi-CF iterator do not
+    // support Refresh() yet.
     if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0) &&
-        thread->rand.OneIn(2)) {
+        !FLAGS_use_multi_cf_iterator && thread->rand.OneIn(2)) {
       pre_read_expected_values.clear();
       post_read_expected_values.clear();
       // Refresh after forward/backward scan to allow higher chance of SV

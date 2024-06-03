@@ -1,1 +1,0 @@
-* Fixed a bug for databases using `DBOptions::allow_2pc == true` (all `TransactionDB`s except `OptimisticTransactionDB`) that have exactly one column family. Due to a missing WAL sync, attempting to open the DB could have returned a `Status::Corruption` with a message like "SST file is ahead of WALs".

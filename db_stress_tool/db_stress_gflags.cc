@@ -958,6 +958,9 @@ DEFINE_uint32(use_put_entity_one_in, 0,
 DEFINE_bool(use_attribute_group, false,
             "If set, use the attribute_group API to put/get entities");
 
+DEFINE_bool(use_multi_cf_iterator, false,
+            "If set, use the multi_cf_iterator for TestIterate");
+
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");
