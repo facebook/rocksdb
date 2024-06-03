@@ -312,6 +312,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         // logs_ could have changed while we were waiting.
         continue;
       }
+      // This WAL file is not live, so it's OK if we never sync the rest of it
+      // or if we close it *after* removing from `logs_`. If it's already
+      // closed, then it's been fully synced.
       logs_to_free_.push_back(log.ReleaseWriter());
       logs_.pop_front();
     }

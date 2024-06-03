@@ -1562,6 +1562,17 @@ bool DBImpl::WALBufferIsEmpty() {
   return res;
 }
 
+Status DBImpl::GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size) {
+  InstrumentedMutexLock l(&log_write_mutex_);
+  for (auto& log : logs_) {
+    auto* open_file = log.writer->file();
+    if (open_file) {
+      number_to_size[log.number] = open_file->GetFlushedSize();
+    }
+  }
+  return Status::OK();
+}
+
 Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
   WriteOptions write_options;
