@@ -647,7 +647,7 @@ TEST_F(FaultInjectionDBTest, SyncWALDuringDBClose) {
   Reopen(options);
   ASSERT_OK(Put("k1", "v1"));
   Close();
-  fault_fs->DropUnsyncedFileData();
+  ASSERT_OK(fault_fs->DropUnsyncedFileData());
   Reopen(options);
   ASSERT_EQ("NOT_FOUND", Get("k1"));
   Destroy(options);
