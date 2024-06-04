@@ -32,6 +32,17 @@ struct IngestedFileInfo {
   InternalKey smallest_internal_key;
   // Largest internal key in external file
   InternalKey largest_internal_key;
+  // NOTE: use below two fields for all `*Overlap*` types of checks instead of
+  // smallest_internal_key.user_key() and largest_internal_key.user_key().
+  // The smallest / largest user key contained in the file for key range checks.
+  // These could be different from smallest_internal_key.user_key(), and
+  // largest_internal_key.user_key() when user-defined timestamps are enabled,
+  // because the check is about making sure the user key without timestamps part
+  // does not overlap. To achieve that, the smallest user key will be updated
+  // with the maximum timestamp while the largest user key will be updated with
+  // the min timestamp. It's otherwise the same.
+  std::string start_ukey;
+  std::string limit_ukey;
   // Sequence number for keys in external file
   SequenceNumber original_seqno;
   // Offset of the global sequence number field in the file, will
