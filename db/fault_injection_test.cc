@@ -630,13 +630,13 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, kSyncWal, kEnd),
                       std::make_tuple(true, kSyncWal, kEnd)));
 
-class FaultInjectionFSTest : public DBTestBase {
+class FaultInjectionDBTest : public DBTestBase {
  public:
-  FaultInjectionFSTest()
+  FaultInjectionDBTest()
       : DBTestBase("fault_injection_fs_test", /*env_do_fsync=*/false) {}
 };
 
-TEST_F(FaultInjectionFSTest, SyncWALDuringDBClose) {
+TEST_F(FaultInjectionDBTest, SyncWALDuringDBClose) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs =
       std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fault_fs));
@@ -647,6 +647,7 @@ TEST_F(FaultInjectionFSTest, SyncWALDuringDBClose) {
   Reopen(options);
   ASSERT_OK(Put("k1", "v1"));
   Close();
+  ASSERT_OK(fault_fs->DropUnsyncedFileData());
   Reopen(options);
   ASSERT_EQ("NOT_FOUND", Get("k1"));
   Destroy(options);
@@ -658,6 +659,54 @@ TEST_F(FaultInjectionFSTest, SyncWALDuringDBClose) {
   Reopen(options);
   ASSERT_EQ("v1", Get("k1"));
   Destroy(options);
+}
+
+TEST(FaultInjectionFSTest, ReadUnsyncedData) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs =
+      std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  ASSERT_TRUE(fault_fs->ReadUnsyncedData());
+
+  uint32_t len = Random::GetTLSInstance()->Uniform(10000) + 1;
+  Random rnd(len);
+
+  // Create partially synced file
+  std::string f = test::PerThreadDBPath("read_unsynced.data");
+  std::string data = rnd.RandomString(len);
+  {
+    std::unique_ptr<FSWritableFile> w;
+    ASSERT_OK(fault_fs->NewWritableFile(f, {}, &w, nullptr));
+    uint32_t synced_len = rnd.Uniform(len + 1);
+    ASSERT_OK(w->Append(Slice(data.data(), synced_len), {}, nullptr));
+    ASSERT_OK(w->Sync({}, nullptr));
+    ASSERT_OK(w->Append(Slice(data.data() + synced_len, len - synced_len), {},
+                        nullptr));
+    // no sync here
+    ASSERT_OK(w->Close({}, nullptr));
+  }
+  // Test file size includes unsynced data
+  {
+    uint64_t file_size;
+    ASSERT_OK(fault_fs->GetFileSize(f, {}, &file_size, nullptr));
+    ASSERT_EQ(len, file_size);
+  }
+  // Test read file contents, with two reads that probably don't
+  // align with the unsynced split.
+  {
+    std::unique_ptr<FSSequentialFile> r;
+    ASSERT_OK(fault_fs->NewSequentialFile(f, {}, &r, nullptr));
+    uint32_t first_read_len = rnd.Uniform(len + 1);
+    Slice sl;
+    std::unique_ptr<char[]> scratch(new char[first_read_len]);
+    ASSERT_OK(r->Read(first_read_len, {}, &sl, scratch.get(), nullptr));
+    ASSERT_EQ(first_read_len, sl.size());
+    ASSERT_EQ(0, sl.compare(Slice(data.data(), first_read_len)));
+    uint32_t second_read_len = len - first_read_len;
+    scratch.reset(new char[second_read_len]);
+    ASSERT_OK(r->Read(second_read_len, {}, &sl, scratch.get(), nullptr));
+    ASSERT_EQ(second_read_len, sl.size());
+    ASSERT_EQ(0,
+              sl.compare(Slice(data.data() + first_read_len, second_read_len)));
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE
 
