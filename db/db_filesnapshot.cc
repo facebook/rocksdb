@@ -466,6 +466,11 @@ Status DBImpl::GetLiveFilesStorageInfo(
           // and force file copy instead of hard link
           info.size = it->second;
           info.trim_to_size = true;
+          // FIXME: this is needed as long as db_stress uses
+          // SetReadUnsyncedData(false), because it will only be able to
+          // copy the synced portion of the WAL, which under
+          // SetReadUnsyncedData(false) is given by the reported file size.
+          info.size = std::min(info.size, live_wal_files[i]->SizeFileBytes());
         }
       }
       if (opts.include_checksum_info) {

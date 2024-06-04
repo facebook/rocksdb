@@ -59,7 +59,10 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
       return io_s;
     }
     if (slice.size() == 0) {
-      return IOStatus::Corruption("file too small");
+      return IOStatus::Corruption(
+          "File smaller than expected for copy: " + source + " expecting " +
+          std::to_string(size) + " more bytes after " +
+          std::to_string(dest_writer->GetFileSize()));
     }
 
     io_s = dest_writer->Append(opts, slice);
@@ -226,7 +229,10 @@ IOStatus GenerateOneFileChecksum(
                                   io_s.ToString());
     }
     if (slice.size() == 0) {
-      return IOStatus::Corruption("file too small");
+      return IOStatus::Corruption(
+          "File smaller than expected for checksum: " + file_path +
+          " expecting " + std::to_string(size) + " more bytes after " +
+          std::to_string(offset));
     }
     checksum_generator->Update(slice.data(), slice.size());
     size -= slice.size();

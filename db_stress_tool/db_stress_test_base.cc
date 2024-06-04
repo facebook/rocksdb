@@ -1891,6 +1891,17 @@ Status StressTest::TestBackupRestore(
   if (!s.ok()) {
     from = "BackupEngine::Open";
   }
+  // FIXME: this is only needed as long as db_stress uses
+  // SetReadUnsyncedData(false), because it will only be able to
+  // copy the synced portion of the WAL. For correctness validation, that
+  // needs to include updates to the locked key.
+  if (s.ok()) {
+    s = db_->SyncWAL();
+    if (!s.ok()) {
+      from = "SyncWAL";
+    }
+  }
+
   if (s.ok()) {
     if (backup_opts.schema_version >= 2 && thread->rand.OneIn(2)) {
       TEST_BackupMetaSchemaOptions test_opts;
