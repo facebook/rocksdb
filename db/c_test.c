@@ -798,6 +798,10 @@ int main(int argc, char** argv) {
     rocksdb_delete(db, woptions, "foo", 3, &err);
     CheckNoError(err);
 
+    // get the identity before the backup
+    char* before_db_id = rocksdb_get_db_identity(db);
+    CheckCondition(strlen(before_db_id) == 36);
+
     rocksdb_close(db);
 
     rocksdb_destroy_db(options, dbname, &err);
@@ -818,6 +822,13 @@ int main(int argc, char** argv) {
 
     CheckGet(db, roptions, "foo", "hello");
 
+    // the db_identity after the backup is different
+    char* after_db_id = rocksdb_get_db_identity(db);
+    CheckCondition(strlen(after_db_id) == 36);
+    CheckCondition(strcmp(after_db_id, before_db_id) != 0);
+    Free(&before_db_id);
+    Free(&after_db_id);
+
     rocksdb_backup_engine_close(be);
   }
 
@@ -833,6 +844,13 @@ int main(int argc, char** argv) {
     rocksdb_checkpoint_create(checkpoint, dbcheckpointname, 0, &err);
     CheckNoError(err);
 
+    rocksdb_checkpoint_object_destroy(checkpoint);
+    checkpoint = NULL;
+
+    // get the identity before the checkpoint
+    char* before_db_id = rocksdb_get_db_identity(db);
+    CheckCondition(strlen(before_db_id) == 36);
+
     // start a new database from the checkpoint
     rocksdb_close(db);
     rocksdb_options_set_error_if_exists(options, 0);
@@ -841,12 +859,82 @@ int main(int argc, char** argv) {
 
     CheckGet(db, roptions, "foo", "hello");
 
-    rocksdb_checkpoint_object_destroy(checkpoint);
+    // the db_identity after the checkpoint is different
+    char* after_db_id = rocksdb_get_db_identity(db);
+    CheckCondition(strlen(after_db_id) == 36);
+    CheckCondition(strcmp(after_db_id, before_db_id) != 0);
+    Free(&before_db_id);
+    Free(&after_db_id);
 
     rocksdb_close(db);
     rocksdb_destroy_db(options, dbcheckpointname, &err);
     CheckNoError(err);
 
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_set_error_if_exists(options, 1);
+  }
+
+  StartPhase("checkpoint_db_id_in_manifest");
+  {
+    // create new DB with set_write_dbid_to_manifest=true
+    // db_identity is now the same across checkpoints
+    rocksdb_close(db);
+    db = NULL;
+
+    rocksdb_options_t* options_dbid_in_manifest = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(options_dbid_in_manifest, 1);
+
+    bool write_to_manifest =
+        rocksdb_options_get_write_dbid_to_manifest(options_dbid_in_manifest);
+    CheckCondition(!write_to_manifest);
+    rocksdb_options_set_write_dbid_to_manifest(options_dbid_in_manifest, true);
+    CheckCondition(!write_to_manifest);
+    write_to_manifest =
+        rocksdb_options_get_write_dbid_to_manifest(options_dbid_in_manifest);
+    CheckCondition(write_to_manifest);
+
+    db = rocksdb_open(options_dbid_in_manifest, dbbackupname, &err);
+    CheckNoError(err);
+
+    rocksdb_checkpoint_t* checkpoint =
+        rocksdb_checkpoint_object_create(db, &err);
+    CheckNoError(err);
+
+    rocksdb_checkpoint_create(checkpoint, dbcheckpointname, 0, &err);
+    CheckNoError(err);
+
+    rocksdb_checkpoint_object_destroy(checkpoint);
+    checkpoint = NULL;
+
+    // get the identity before the backup
+    char* before_db_id = rocksdb_get_db_identity(db);
+    CheckCondition(strlen(before_db_id) == 36);
+
+    // open the checkpoint
+    rocksdb_close(db);
+    rocksdb_destroy_db(options_dbid_in_manifest, dbbackupname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_error_if_exists(options_dbid_in_manifest, 0);
+    db = rocksdb_open(options_dbid_in_manifest, dbcheckpointname, &err);
+    CheckNoError(err);
+
+    // the db_identity after the checkpoint is the same
+    char* after_db_id = rocksdb_get_db_identity(db);
+    CheckCondition(strlen(after_db_id) == 36);
+    CheckCondition(strcmp(after_db_id, before_db_id) == 0);
+    Free(&before_db_id);
+    Free(&after_db_id);
+
+    rocksdb_close(db);
+    rocksdb_destroy_db(options_dbid_in_manifest, dbcheckpointname, &err);
+    CheckNoError(err);
+    rocksdb_options_destroy(options_dbid_in_manifest);
+    options_dbid_in_manifest = NULL;
+
+    // re-open the default database
+    rocksdb_options_set_error_if_exists(options, 0);
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
     rocksdb_options_set_error_if_exists(options, 1);
