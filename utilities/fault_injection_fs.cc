@@ -482,30 +482,31 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
 }
 
 void FaultInjectionTestFS::AddUnsyncedToRead(const std::string& fname,
-                                             size_t offset, size_t n,
+                                             size_t pos, size_t n,
                                              Slice* result, char* scratch) {
   // Should be checked prior
   assert(result->size() < n);
-  size_t offset_after = offset + result->size();
+  size_t pos_after = pos + result->size();
 
   MutexLock l(&mutex_);
   auto it = db_file_state_.find(fname);
   if (it != db_file_state_.end()) {
     auto& st = it->second;
-    if (st.pos_ > static_cast<ssize_t>(offset_after)) {
+    if (st.pos_ > static_cast<ssize_t>(pos_after)) {
       size_t remaining_requested = n - result->size();
       size_t to_copy = std::min(remaining_requested,
-                                static_cast<size_t>(st.pos_) - offset_after);
-      size_t buffer_offset =
-          offset_after -
-          static_cast<size_t>(std::max(st.pos_at_last_sync_, ssize_t{0}));
+                                static_cast<size_t>(st.pos_) - pos_after);
+      size_t buffer_offset = pos_after - static_cast<size_t>(std::max(
+                                             st.pos_at_last_sync_, ssize_t{0}));
       // Data might have been dropped from buffer
       if (st.buffer_.size() > buffer_offset) {
         to_copy = std::min(to_copy, st.buffer_.size() - buffer_offset);
         if (result->data() != scratch) {
+          // TODO: this will be needed when supporting random reads
+          // but not currently used
+          abort();
           // NOTE: might overlap
-          assert(false);
-          std::copy_n(result->data(), result->size(), scratch);
+          // std::copy_n(result->data(), result->size(), scratch);
         }
         std::copy_n(st.buffer_.data() + buffer_offset, to_copy,
                     scratch + result->size());
@@ -521,13 +522,13 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
   IOStatus s = target()->Read(n, options, result, scratch, dbg);
   if (s.ok()) {
     if (fs_->ShouldInjectRandomReadError()) {
-      offset_ += result->size();
+      read_pos_ += result->size();
       return IOStatus::IOError("injected seq read error");
     }
     if (fs_->ReadUnsyncedData() && result->size() < n) {
-      fs_->AddUnsyncedToRead(fname_, offset_, n, result, scratch);
+      fs_->AddUnsyncedToRead(fname_, read_pos_, n, result, scratch);
     }
-    offset_ += result->size();
+    read_pos_ += result->size();
   }
   return s;
 }
@@ -542,9 +543,7 @@ IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
     if (fs_->ShouldInjectRandomReadError()) {
       return IOStatus::IOError("injected seq positioned read error");
     }
-    if (fs_->ReadUnsyncedData() && result->size() < n) {
-      fs_->AddUnsyncedToRead(fname_, offset, n, result, scratch);
-    }
+    // TODO (low priority): fs_->ReadUnsyncedData()
   }
   return s;
 }

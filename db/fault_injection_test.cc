@@ -704,8 +704,6 @@ TEST(FaultInjectionFSTest, ReadUnsyncedData) {
     scratch.reset(new char[second_read_len]);
     ASSERT_OK(r->Read(second_read_len, {}, &sl, scratch.get(), nullptr));
     ASSERT_EQ(second_read_len, sl.size());
-    assert(sl.compare(Slice(data.data() + first_read_len, second_read_len)) ==
-           0);
     ASSERT_EQ(0,
               sl.compare(Slice(data.data() + first_read_len, second_read_len)));
   }
