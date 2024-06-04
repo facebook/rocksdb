@@ -200,7 +200,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         // Lower by upto 50% of usable block cache capacity
         adjustment = (adjustment * thread->rand.Uniform(50)) / 100;
         block_cache->SetCapacity(capacity - adjustment);
-        fprintf(stdout, "New cache capacity = %lu\n",
+        fprintf(stdout, "New cache capacity = %zu\n",
                 block_cache->GetCapacity());
         db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
         block_cache->SetCapacity(capacity);
