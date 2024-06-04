@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.3.1 (05/25/2024)
+### Bug Fixes
+* [internal only] Build script improvement
+
 ## 9.3.0 (05/17/2024)
 ### New Features
 * Optimistic transactions and pessimistic transactions with the WriteCommitted policy now support the `GetEntity` API.
