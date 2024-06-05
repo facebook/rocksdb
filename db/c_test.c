@@ -799,8 +799,9 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     // get the identity before the backup
-    char* before_db_id = rocksdb_get_db_identity(db);
-    CheckCondition(strlen(before_db_id) == 36);
+    size_t before_db_id_len = 0;
+    char* before_db_id = rocksdb_get_db_identity(db, &before_db_id_len);
+    CheckCondition(before_db_id_len == 36);
 
     rocksdb_close(db);
 
@@ -823,9 +824,10 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "foo", "hello");
 
     // the db_identity after the backup is different
-    char* after_db_id = rocksdb_get_db_identity(db);
-    CheckCondition(strlen(after_db_id) == 36);
-    CheckCondition(strcmp(after_db_id, before_db_id) != 0);
+    size_t after_db_id_len = 0;
+    char* after_db_id = rocksdb_get_db_identity(db, &after_db_id_len);
+    CheckCondition(after_db_id_len == 36);
+    CheckCondition(memcmp(after_db_id, before_db_id, after_db_id_len) != 0);
     Free(&before_db_id);
     Free(&after_db_id);
 
@@ -848,8 +850,9 @@ int main(int argc, char** argv) {
     checkpoint = NULL;
 
     // get the identity before the checkpoint
-    char* before_db_id = rocksdb_get_db_identity(db);
-    CheckCondition(strlen(before_db_id) == 36);
+    size_t before_db_id_len = 0;
+    char* before_db_id = rocksdb_get_db_identity(db, &before_db_id_len);
+    CheckCondition(before_db_id_len == 36);
 
     // start a new database from the checkpoint
     rocksdb_close(db);
@@ -860,9 +863,10 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "foo", "hello");
 
     // the db_identity after the checkpoint is different
-    char* after_db_id = rocksdb_get_db_identity(db);
-    CheckCondition(strlen(after_db_id) == 36);
-    CheckCondition(strcmp(after_db_id, before_db_id) != 0);
+    size_t after_db_id_len = 0;
+    char* after_db_id = rocksdb_get_db_identity(db, &after_db_id_len);
+    CheckCondition(after_db_id_len == 36);
+    CheckCondition(memcmp(after_db_id, before_db_id, after_db_id_len) != 0);
     Free(&before_db_id);
     Free(&after_db_id);
 
@@ -908,8 +912,9 @@ int main(int argc, char** argv) {
     checkpoint = NULL;
 
     // get the identity before the backup
-    char* before_db_id = rocksdb_get_db_identity(db);
-    CheckCondition(strlen(before_db_id) == 36);
+    size_t before_db_id_len = 0;
+    char* before_db_id = rocksdb_get_db_identity(db, &before_db_id_len);
+    CheckCondition(before_db_id_len == 36);
 
     // open the checkpoint
     rocksdb_close(db);
@@ -921,9 +926,10 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     // the db_identity after the checkpoint is the same
-    char* after_db_id = rocksdb_get_db_identity(db);
-    CheckCondition(strlen(after_db_id) == 36);
-    CheckCondition(strcmp(after_db_id, before_db_id) == 0);
+    size_t after_db_id_len = 0;
+    char* after_db_id = rocksdb_get_db_identity(db, &after_db_id_len);
+    CheckCondition(after_db_id_len == 36);
+    CheckCondition(memcmp(after_db_id, before_db_id, after_db_id_len) == 0);
     Free(&before_db_id);
     Free(&after_db_id);
 

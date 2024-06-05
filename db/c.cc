@@ -1393,15 +1393,16 @@ char* rocksdb_get_cf_with_ts(rocksdb_t* db,
   return result;
 }
 
-char* rocksdb_get_db_identity(rocksdb_t* db) {
-  std::string tmp;
-  Status s = db->rep->GetDbIdentity(tmp);
-  if (s.ok()) {
-    // ID is an ASCII GUID and we want NUL terminated string.
-    return strdup(tmp.c_str());
-  } else {
-    return NULL;
+char* rocksdb_get_db_identity(rocksdb_t* db, size_t* id_len) {
+  std::string identity_tmp;
+  Status s = db->rep->GetDbIdentity(identity_tmp);
+  if (!s.ok()) {
+    *id_len = 0;
+    return nullptr;
   }
+
+  *id_len = identity_tmp.size();
+  return CopyString(identity_tmp);
 }
 
 void rocksdb_multi_get(rocksdb_t* db, const rocksdb_readoptions_t* options,

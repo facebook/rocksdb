@@ -506,10 +506,11 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf_with_ts(
     size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr);
 
 /**
- * Returns a malloc()-ed NUL-terminated string with the DB identity. Returns
- * NULL if an error occurred.
+ * Returns a malloc() buffer with the DB identity, assigning the length to
+ * *id_len. Returns NULL if an error occurred.
  */
-extern ROCKSDB_LIBRARY_API char* rocksdb_get_db_identity(rocksdb_t* db);
+extern ROCKSDB_LIBRARY_API char* rocksdb_get_db_identity(rocksdb_t* db,
+                                                         size_t* id_len);
 
 // if values_list[i] == NULL and errs[i] == NULL,
 // then we got status.IsNotFound(), which we will not return.
