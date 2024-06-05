@@ -101,6 +101,14 @@ class Writer {
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
 
+  // Get current length of the log, excluding incomplete records at the
+  // tail, in bytes.
+  // Note: if `manual_wal_flush` is enabled, this value can include buffered
+  // data, which has not been flushed yet.
+  uint64_t get_latest_complete_record_offset() const {
+    return latest_complete_record_offset_.load(std::memory_order_acquire);
+  }
+
   uint64_t get_log_number() const { return log_number_; }
 
   IOStatus WriteBuffer(const WriteOptions& write_options);
@@ -114,6 +122,9 @@ class Writer {
  private:
   std::unique_ptr<WritableFileWriter> dest_;
   size_t block_offset_;  // Current offset in block
+  // Offset in the file, which corresponds to the end offset of the latest added
+  // record.
+  std::atomic<uint64_t> latest_complete_record_offset_;
   uint64_t log_number_;
   bool recycle_log_files_;
   int header_size_;

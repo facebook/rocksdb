@@ -25,6 +25,7 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                CompressionType compression_type)
     : dest_(std::move(dest)),
       block_offset_(0),
+      latest_complete_record_offset_(0),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
       // Header size varies depending on whether we are recycling or not.
@@ -155,6 +156,8 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
         type = recycle_log_files_ ? kRecyclableFirstType : kFirstType;
       } else if (end) {
         type = recycle_log_files_ ? kRecyclableLastType : kLastType;
+        TEST_SYNC_POINT("Writer::AddRecord:BeforeLastFragmentWrite1");
+        TEST_SYNC_POINT("Writer::AddRecord:BeforeLastFragmentWrite2");
       } else {
         type = recycle_log_files_ ? kRecyclableMiddleType : kMiddleType;
       }
@@ -169,6 +172,11 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
     if (!manual_flush_) {
       s = dest_->Flush(opts);
     }
+  }
+
+  if (s.ok()) {
+    latest_complete_record_offset_.store(dest_->GetFileSize(),
+                                         std::memory_order_release);
   }
 
   return s;
@@ -211,6 +219,9 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
     compressed_buffer_ =
         std::unique_ptr<char[]>(new char[max_output_buffer_len]);
     assert(compressed_buffer_);
+
+    latest_complete_record_offset_.store(dest_->GetFileSize(),
+                                         std::memory_order_release);
   } else {
     // Disable compression if the record could not be added.
     compression_type_ = kNoCompression;
@@ -260,8 +271,15 @@ IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
     block_offset_ = 0;
   }
 
-  return EmitPhysicalRecord(write_options, type, encoded.data(),
-                            encoded.size());
+  IOStatus s =
+      EmitPhysicalRecord(write_options, type, encoded.data(), encoded.size());
+
+  if (s.ok()) {
+    latest_complete_record_offset_.store(dest_->GetFileSize(),
+                                         std::memory_order_release);
+  }
+
+  return s;
 }
 
 bool Writer::BufferIsEmpty() { return dest_->BufferIsEmpty(); }
