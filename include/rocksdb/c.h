@@ -456,31 +456,31 @@ extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_add_livefil
 
 extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_properties(
     const rocksdb_export_import_files_metadata_t* eifm,
-    const char** dbComparatorNamePtr, size_t* dbComparatorNameSize,
+    char** dbComparatorNamePtr, size_t* dbComparatorNameSize,
     rocksdb_livefiles_t** lfPtr, size_t* lfSize);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_get_livefile_properties(
     const rocksdb_livefiles_t* lf, int index,
-    const char** columnFamilyName, size_t* columnFamilyNameSize, int* level, 
+    char** columnFamilyName, size_t* columnFamilyNameSize, int* level, 
     uint64_t* smallestSeqNo, uint64_t* largestSeqNo, 
-    const char** smallestKey, size_t* smallestKeySize, 
-    const char** largestKey, size_t* largestKeySize, 
+    char** smallestKey, size_t* smallestKeySize, 
+    char** largestKey, size_t* largestKeySize, 
     uint64_t* numReadsSampled, bool* beingCompacted, 
     uint64_t* numEntries, uint64_t* numDeletions, 
     uint64_t* oldestBlobFileNumber, uint64_t* oldestAncesterTime, 
     uint64_t* fileCreationTime, uint64_t* epochNumber, 
-    const char** smallestInternalKey, size_t* smallestInternalKeySize, 
-    const char** largestInternalKey, size_t* largestInternalKeySize, 
-    const char** fileName, size_t* fileNameSize,
-    const char** databasePath, size_t* databasePathSize,
-    const char** relativeFilename, size_t* relativeFilenameSize,
-    const char** directoryName, size_t* directoryNameSize, uint64_t* fileNumber,
+    char** smallestInternalKey, size_t* smallestInternalKeySize, 
+    char** largestInternalKey, size_t* largestInternalKeySize, 
+    char** fileName, size_t* fileNameSize,
+    char** databasePath, size_t* databasePathSize,
+    char** relativeFilename, size_t* relativeFilenameSize,
+    char** directoryName, size_t* directoryNameSize, uint64_t* fileNumber,
     uint64_t* fileType, size_t* size, uint64_t* temperature,
-    const char** fileChecksum, size_t* fileChecksumSize,
-    const char** fileChecksumFuncName, size_t* fileChecksumFuncNameSize);
+    char** fileChecksum, size_t* fileChecksumSize,
+    char** fileChecksumFuncName, size_t* fileChecksumFuncNameSize);
 
 extern ROCKSDB_LIBRARY_API rocksdb_import_column_family_options_t*
-rocksdb_import_column_family_options_create();
+rocksdb_import_column_family_options_create(void);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_import_column_family_options_destroy(
     rocksdb_import_column_family_options_t* opt);
