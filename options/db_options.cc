@@ -72,10 +72,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, avoid_flush_during_shutdown),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"avoid_sync_during_shutdown",
-         {offsetof(struct MutableDBOptions, avoid_sync_during_shutdown),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
         {"writable_file_max_buffer_size",
          {offsetof(struct MutableDBOptions, writable_file_max_buffer_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -994,7 +990,6 @@ MutableDBOptions::MutableDBOptions()
       max_background_compactions(-1),
       max_subcompactions(0),
       avoid_flush_during_shutdown(false),
-      avoid_sync_during_shutdown(true),
       writable_file_max_buffer_size(1024 * 1024),
       delayed_write_rate(2 * 1024U * 1024U),
       max_total_wal_size(0),
@@ -1014,7 +1009,6 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
-      avoid_sync_during_shutdown(options.avoid_sync_during_shutdown),
       writable_file_max_buffer_size(options.writable_file_max_buffer_size),
       delayed_write_rate(options.delayed_write_rate),
       max_total_wal_size(options.max_total_wal_size),
@@ -1040,8 +1034,6 @@ void MutableDBOptions::Dump(Logger* log) const {
                    max_subcompactions);
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",
                    avoid_flush_during_shutdown);
-  ROCKS_LOG_HEADER(log, "            Options.avoid_sync_during_shutdown: %d",
-                   avoid_sync_during_shutdown);
   ROCKS_LOG_HEADER(
       log, "          Options.writable_file_max_buffer_size: %" ROCKSDB_PRIszt,
       writable_file_max_buffer_size);
