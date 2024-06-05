@@ -20,10 +20,10 @@
 // NOTE that if FLAGS_test_batches_snapshots is set, the test will have
 // different behavior. See comment of the flag for details.
 
-#include "db_stress_tool/db_stress_shared_state.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -93,6 +93,10 @@ int db_stress_tool(int argc, char** argv) {
     // This will be overwritten in StressTest::Open() for open fault injection
     // and in RunStressTestImpl() for proper write fault injection setup.
     fault_fs_guard->SetFilesystemDirectWritable(true);
+    // FIXME: For some reason(s), db_stress currently relies on the WRONG
+    // semantic of reading only synced data from files currently open for
+    // write.
+    fault_fs_guard->SetReadUnsyncedData(false);
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
