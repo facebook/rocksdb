@@ -1134,7 +1134,7 @@ rocksdb_checkpoint_export_column_family(rocksdb_checkpoint_t* checkpoint,
   return c_metadata;
 }
 
-rocksdb_import_column_family_options_t* rocksdb_import_column_family_options_create() {
+rocksdb_import_column_family_options_t* rocksdb_import_column_family_options_create(void) {
   return new rocksdb_import_column_family_options_t;
 }
 
@@ -5699,11 +5699,11 @@ void rocksdb_export_import_files_metadata_add_livefile(
 }
 
 void rocksdb_export_import_files_metadata_properties(const rocksdb_export_import_files_metadata_t* eifm, 
-                                                     const char** dbComparatorName, size_t* dbComparatorNameSize,
+                                                     char** dbComparatorName, size_t* dbComparatorNameSize,
                                                      rocksdb_livefiles_t** lf, size_t* lfSize) {
     // ExportImportFilesMetadata
     *dbComparatorNameSize = eifm->rep.db_comparator_name.size();
-    *dbComparatorName = eifm->rep.db_comparator_name.data();
+    *dbComparatorName = (char *)eifm->rep.db_comparator_name.data();
     *lfSize = eifm->rep.files.size();
     *lf = new rocksdb_livefiles_t();
     for (size_t i = 0; i < eifm->rep.files.size(); i++) {
@@ -5712,36 +5712,36 @@ void rocksdb_export_import_files_metadata_properties(const rocksdb_export_import
 }
 
 void rocksdb_livefiles_get_livefile_properties(const rocksdb_livefiles_t* lf, int index, 
-                                               const char** columnFamilyName, size_t* columnFamilyNameSize,
+                                               char** columnFamilyName, size_t* columnFamilyNameSize,
                                                int* level, uint64_t* smallestSeqNo, uint64_t* largestSeqNo,
-                                               const char** smallestKey, size_t* smallestKeySize, 
-                                               const char** largestKey, size_t* largestKeySize, 
+                                               char** smallestKey, size_t* smallestKeySize, 
+                                               char** largestKey, size_t* largestKeySize, 
                                                uint64_t* numReadsSampled, bool* beingCompacted, 
                                                uint64_t* numEntries, uint64_t* numDeletions,
                                                uint64_t* oldestBlobFileNumber, uint64_t* oldestAncesterTime, 
                                                uint64_t* fileCreationTime, uint64_t* epochNumber, 
-                                               const char** smallestInternalKey, size_t* smallestInternalKeySize, 
-                                               const char** largestInternalKey, size_t* largestInternalKeySize, 
-                                               const char** fileName, size_t* fileNameSize, 
-                                               const char** databasePath, size_t* databasePathSize,
-                                               const char** relativeFilename, size_t* relativeFilenameSize, 
-                                               const char** directoryName, size_t* directoryNameSize,
+                                               char** smallestInternalKey, size_t* smallestInternalKeySize, 
+                                               char** largestInternalKey, size_t* largestInternalKeySize, 
+                                               char** fileName, size_t* fileNameSize, 
+                                               char** databasePath, size_t* databasePathSize,
+                                               char** relativeFilename, size_t* relativeFilenameSize, 
+                                               char** directoryName, size_t* directoryNameSize,
                                                uint64_t* fileNumber, uint64_t* fileType,
                                                size_t* size, uint64_t* temperature,
-                                               const char** fileChecksum, size_t* fileChecksumSize,
-                                               const char** fileChecksumFuncName, size_t* fileChecksumFuncNameSize) {
+                                               char** fileChecksum, size_t* fileChecksumSize,
+                                               char** fileChecksumFuncName, size_t* fileChecksumFuncNameSize) {
     // LiveFileMetaData
     *columnFamilyNameSize = lf->rep[index].column_family_name.size();
-    *columnFamilyName = lf->rep[index].column_family_name.data();
+    *columnFamilyName = (char *)lf->rep[index].column_family_name.data();
     *level = lf->rep[index].level;
 
     // SstFileMetaData
     *smallestSeqNo = lf->rep[index].smallest_seqno;
     *largestSeqNo = lf->rep[index].largest_seqno;
     *smallestKeySize = lf->rep[index].smallestkey.size();
-    *smallestKey = lf->rep[index].smallestkey.data();
+    *smallestKey = (char *)lf->rep[index].smallestkey.data();
     *largestKeySize = lf->rep[index].largestkey.size();
-    *largestKey = lf->rep[index].largestkey.data();
+    *largestKey = (char *)lf->rep[index].largestkey.data();
     *numReadsSampled = lf->rep[index].num_reads_sampled;
     *beingCompacted = lf->rep[index].being_compacted;
     *numEntries =  lf->rep[index].num_entries;
@@ -5751,27 +5751,27 @@ void rocksdb_livefiles_get_livefile_properties(const rocksdb_livefiles_t* lf, in
     *fileCreationTime = lf->rep[index].file_creation_time;
     *epochNumber = lf->rep[index].epoch_number;
     *smallestInternalKeySize = lf->rep[index].smallest.size();
-    *smallestInternalKey = lf->rep[index].smallest.data();
+    *smallestInternalKey = (char *)lf->rep[index].smallest.data();
     *largestInternalKeySize = lf->rep[index].largest.size();
-    *largestInternalKey = lf->rep[index].largest.data();
+    *largestInternalKey = (char *)lf->rep[index].largest.data();
     *fileNameSize = lf->rep[index].name.size();
-    *fileName = lf->rep[index].name.data();
+    *fileName = (char *)lf->rep[index].name.data();
     *databasePathSize = lf->rep[index].db_path.size();
-    *databasePath = lf->rep[index].db_path.data();
+    *databasePath = (char *)lf->rep[index].db_path.data();
 
     // FileStorageInfo
     *relativeFilenameSize = lf->rep[index].relative_filename.size();
-    *relativeFilename = lf->rep[index].relative_filename.data();
+    *relativeFilename = (char *)lf->rep[index].relative_filename.data();
     *directoryNameSize = lf->rep[index].directory.size();
-    *directoryName = lf->rep[index].directory.data();
+    *directoryName = (char *)lf->rep[index].directory.data();
     *fileNumber= lf->rep[index].file_number;
     *fileType = (uint64_t)(lf->rep[index].file_type);
     *size = lf->rep[index].size;
     *temperature = (uint64_t)(lf->rep[index].temperature);
     *fileChecksumSize = lf->rep[index].file_checksum.size();
-    *fileChecksum = lf->rep[index].file_checksum.data();
+    *fileChecksum = (char *)lf->rep[index].file_checksum.data();
     *fileChecksumFuncNameSize = lf->rep[index].file_checksum_func_name.size();
-    *fileChecksumFuncName = lf->rep[index].file_checksum_func_name.data();
+    *fileChecksumFuncName = (char *)lf->rep[index].file_checksum_func_name.data();
 }
 
 void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) { delete lf; }
