@@ -1550,6 +1550,7 @@ bool DBImpl::WALBufferIsEmpty() {
 }
 
 Status DBImpl::GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size) {
+  assert(number_to_size.empty());
   InstrumentedMutexLock l(&log_write_mutex_);
   for (auto& log : logs_) {
     auto* open_file = log.writer->file();
