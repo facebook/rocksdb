@@ -1797,7 +1797,7 @@ int main(int argc, char** argv) {
         metadata, &dbComparatorName, &dbComparatorNameSize, &plf, &lfSize);
     for (int idx = 0; idx < (int)lfSize; idx++) {
       rocksdb_livefiles_get_livefile_properties(
-          plf, idx, &columnFamilyNamePtr, &columnFamilyNameSize, &level,
+          db, plf, idx, &columnFamilyNamePtr, &columnFamilyNameSize, &level,
           &smallestSeqNo, &largestSeqNo, &smallestKeyPtr, &smallestKeySize,
           &largestKeyPtr, &largestKeySize, &numReadsSampled, &beingCompacted,
           &numEntries, &numDeletions, &oldestBlobFileNumber,
@@ -1816,7 +1816,7 @@ int main(int argc, char** argv) {
     rocksdb_create_export_import_files_metadata(dbComparatorName, 
         dbComparatorNameSize, &metadata2);
     for (int idx2 = 0; idx2 < (int)lfSize; idx2++) {
-      rocksdb_export_import_files_metadata_add_livefile(metadata2,
+      rocksdb_export_import_files_metadata_add_livefile(db, metadata2,
                     columnFamilyNamePtr, columnFamilyNameSize, level,
                     smallestSeqNo, largestSeqNo, smallestKeyPtr, smallestKeySize,
                     largestKeyPtr, largestKeySize, numReadsSampled, beingCompacted,

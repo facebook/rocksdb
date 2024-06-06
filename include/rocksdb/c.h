@@ -436,7 +436,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_create_export_import_files_metadata(
     rocksdb_export_import_files_metadata_t** eifm);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_add_livefile(
-    rocksdb_export_import_files_metadata_t* eifm,
+    rocksdb_t* db, rocksdb_export_import_files_metadata_t* eifm,
     const char* columnFamilyName, size_t columnFamilyNameSize, int level,
     uint64_t smallestSeqNo, uint64_t largestSeqNo, const char* smallestKey,
     size_t smallestKeySize, const char* largestKey, size_t largestKeySize,
@@ -460,7 +460,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_properties(
     rocksdb_livefiles_t** lfPtr, size_t* lfSize);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_get_livefile_properties(
-    const rocksdb_livefiles_t* lf, int index,
+    rocksdb_t* db, const rocksdb_livefiles_t* lf, int index,
     char** columnFamilyName, size_t* columnFamilyNameSize, int* level, 
     uint64_t* smallestSeqNo, uint64_t* largestSeqNo, 
     char** smallestKey, size_t* smallestKeySize, 

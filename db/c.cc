@@ -5617,7 +5617,7 @@ void rocksdb_create_export_import_files_metadata(
 }
 
 void rocksdb_export_import_files_metadata_add_livefile(
-    rocksdb_export_import_files_metadata_t* eifm,
+    rocksdb_t* db, rocksdb_export_import_files_metadata_t* eifm,
     const char* columnFamilyName, size_t columnFamilyNameSize, 
     int level, uint64_t smallestSeqNo, uint64_t largestSeqNo, 
     const char* smallestKey, size_t smallestKeySize,
@@ -5668,6 +5668,10 @@ void rocksdb_export_import_files_metadata_add_livefile(
     const std::string strLargestInternalKey =
         std::string(largestInternalKey, largestInternalKeySize);
     lf->largest = strLargestInternalKey;
+    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
+                   "[%s] Add LiveFile: Smallest Internal Key: (%s), Largest Internal Key: (%s)",
+                   lf->column_family_name.data(), lf->smallest.data(),
+                   lf->largest.data());
     const std::string strFileName = std::string(fileName, fileNameSize);
     lf->name = strFileName;
     const std::string strDatabasePath = std::string(databasePath, databasePathSize);
@@ -5711,7 +5715,7 @@ void rocksdb_export_import_files_metadata_properties(const rocksdb_export_import
     }
 }
 
-void rocksdb_livefiles_get_livefile_properties(const rocksdb_livefiles_t* lf, int index, 
+void rocksdb_livefiles_get_livefile_properties(rocksdb_t* db, const rocksdb_livefiles_t* lf, int index, 
                                                char** columnFamilyName, size_t* columnFamilyNameSize,
                                                int* level, uint64_t* smallestSeqNo, uint64_t* largestSeqNo,
                                                char** smallestKey, size_t* smallestKeySize, 
@@ -5754,6 +5758,10 @@ void rocksdb_livefiles_get_livefile_properties(const rocksdb_livefiles_t* lf, in
     *smallestInternalKey = (char *)lf->rep[index].smallest.data();
     *largestInternalKeySize = lf->rep[index].largest.size();
     *largestInternalKey = (char *)lf->rep[index].largest.data();
+    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
+                   "[%s] Get LiveFile: Smallest Internal Key: (%s), Largest Internal Key: (%s)",
+                   *columnFamilyName, *smallestInternalKey,
+                   *largestInternalKey);
     *fileNameSize = lf->rep[index].name.size();
     *fileName = (char *)lf->rep[index].name.data();
     *databasePathSize = lf->rep[index].db_path.size();
