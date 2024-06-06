@@ -626,19 +626,6 @@ Status DBImpl::CloseHelper() {
     job_context.Clean();
     mutex_.Lock();
   }
-  if (!mutable_db_options_.avoid_sync_during_shutdown && !logs_.empty()) {
-    mutex_.Unlock();
-    Status s = FlushWAL(true /* sync */);
-    mutex_.Lock();
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to flush and sync WALs with error -- %s",
-                     s.ToString().c_str());
-      if (ret.ok()) {
-        ret = s;
-      }
-    }
-  }
   {
     InstrumentedMutexLock lock(&log_write_mutex_);
     for (auto l : logs_to_free_) {

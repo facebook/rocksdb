@@ -1271,16 +1271,6 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
 
-  // By default RocksDB will not flush (if `manual_wal_flush` = true) and sync
-  // WAL on DB close even if there are unpersisted data (i.e. unflushed or
-  // unsynced WAL data). This can speed up DB close. Unpersisted data WILL BE
-  // LOST.
-  //
-  // DEFAULT: true
-  //
-  // Dynamically changeable through SetDBOptions() API.
-  bool avoid_sync_during_shutdown = true;
-
   // Set this option to true during creation of database if you want
   // to be able to ingest behind (call IngestExternalFile() skipping keys
   // that already exist, rather than overwriting matching keys).

@@ -272,7 +272,6 @@ default_params = {
     "WAL_size_limit_MB": lambda: random.choice([0, 1]),
     "strict_bytes_per_sync": lambda: random.choice([0, 1]),
     "avoid_flush_during_shutdown": lambda: random.choice([0, 1]),
-    "avoid_sync_during_shutdown": lambda: random.choice([0, 1]),
     "fill_cache": lambda: random.choice([0, 1]),
     "optimize_multiget_for_io": lambda: random.choice([0, 1]),
     "memtable_insert_hint_per_batch": lambda: random.choice([0, 1]),
@@ -738,12 +737,11 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-         # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
+        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
         # verification upon reopen. Currently reopen does not restore expected state
         # with potential data loss in mind like start of each `./db_stress` run.
         # Therefore it always expects no data loss.
-        if (dest_params.get("avoid_sync_during_shutdown") == 1):
-            dest_params["reopen"] = 0
+        dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.

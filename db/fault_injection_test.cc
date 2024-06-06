@@ -636,31 +636,6 @@ class FaultInjectionDBTest : public DBTestBase {
       : DBTestBase("fault_injection_fs_test", /*env_do_fsync=*/false) {}
 };
 
-TEST_F(FaultInjectionDBTest, SyncWALDuringDBClose) {
-  std::shared_ptr<FaultInjectionTestFS> fault_fs =
-      std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
-  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fault_fs));
-  Options options = CurrentOptions();
-  options.manual_wal_flush = true;
-  options.avoid_sync_during_shutdown = true;
-  options.env = env.get();
-  Reopen(options);
-  ASSERT_OK(Put("k1", "v1"));
-  Close();
-  ASSERT_OK(fault_fs->DropUnsyncedFileData());
-  Reopen(options);
-  ASSERT_EQ("NOT_FOUND", Get("k1"));
-  Destroy(options);
-
-  options.avoid_sync_during_shutdown = false;
-  Reopen(options);
-  ASSERT_OK(Put("k1", "v1"));
-  Close();
-  Reopen(options);
-  ASSERT_EQ("v1", Get("k1"));
-  Destroy(options);
-}
-
 TEST(FaultInjectionFSTest, ReadUnsyncedData) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs =
       std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
