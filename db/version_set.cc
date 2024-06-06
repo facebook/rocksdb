@@ -6432,7 +6432,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 // FileChecksumList which contains a map from file number to its checksum info.
 // If DB is not running, make sure call VersionSet::Recover() to load the file
 // metadata from Manifest to VersionSet before calling this function.
-Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+Status VersionSet::GetLiveFilesChecksumInfo(
+    FileChecksumList* checksum_list) const {
   // Clean the previously stored checksum information if any.
   Status s;
   if (checksum_list == nullptr) {
@@ -7156,7 +7157,8 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
   return Status::NotFound("File not present in any level");
 }
 
-void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
+void VersionSet::GetLiveFilesMetaData(
+    std::vector<LiveFileMetaData>* metadata) const {
   if (!metadata) {
     return;
   }

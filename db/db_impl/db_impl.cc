@@ -4975,12 +4975,13 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
   return status;
 }
 
-void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
+void DBImpl::GetLiveFilesMetaData(
+    std::vector<LiveFileMetaData>* metadata) const {
   InstrumentedMutexLock l(&mutex_);
   versions_->GetLiveFilesMetaData(metadata);
 }
 
-Status DBImpl::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+Status DBImpl::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) const {
   InstrumentedMutexLock l(&mutex_);
   return versions_->GetLiveFilesChecksumInfo(checksum_list);
 }

@@ -439,11 +439,11 @@ class DBImpl : public DB {
       const std::unordered_map<std::string, std::string>& options_map) override;
 
   using DB::NumberLevels;
-  int NumberLevels(ColumnFamilyHandle* column_family) override;
+  int NumberLevels(ColumnFamilyHandle* column_family) const override;
   using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override;
+  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) const override;
   using DB::Level0StopWriteTrigger;
-  int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) override;
+  int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) const override;
   const std::string& GetName() const override;
   Env* GetEnv() const override;
   FileSystem* GetFileSystem() const override;
@@ -514,7 +514,8 @@ class DBImpl : public DB {
   // be obsolete (but not obsolete to a pending Checkpoint) and not yet fully
   // synced.
   Status GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size);
-  Status GetCurrentWalFile(std::unique_ptr<WalFile>* current_log_file) override;
+  Status GetCurrentWalFile(
+      std::unique_ptr<WalFile>* current_log_file) const override;
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override;
 
   Status GetUpdatesSince(
@@ -526,9 +527,11 @@ class DBImpl : public DB {
                              const RangePtr* ranges, size_t n,
                              bool include_end = true);
 
-  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) override;
+  void GetLiveFilesMetaData(
+      std::vector<LiveFileMetaData>* metadata) const override;
 
-  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) override;
+  Status GetLiveFilesChecksumInfo(
+      FileChecksumList* checksum_list) const override;
 
   Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,

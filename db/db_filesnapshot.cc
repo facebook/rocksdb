@@ -177,7 +177,8 @@ Status DBImpl::GetSortedWalFiles(VectorWalPtr& files) {
   return s;
 }
 
-Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_log_file) {
+Status DBImpl::GetCurrentWalFile(
+    std::unique_ptr<WalFile>* current_log_file) const {
   uint64_t current_logfile_number;
   {
     InstrumentedMutexLock l(&mutex_);

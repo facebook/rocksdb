@@ -371,17 +371,17 @@ class StackableDB : public DB {
   }
 
   using DB::NumberLevels;
-  int NumberLevels(ColumnFamilyHandle* column_family) override {
+  int NumberLevels(ColumnFamilyHandle* column_family) const override {
     return db_->NumberLevels(column_family);
   }
 
   using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override {
+  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) const override {
     return db_->MaxMemCompactionLevel(column_family);
   }
 
   using DB::Level0StopWriteTrigger;
-  int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) override {
+  int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) const override {
     return db_->Level0StopWriteTrigger(column_family);
   }
 
@@ -422,11 +422,13 @@ class StackableDB : public DB {
 
   Status EnableFileDeletions() override { return db_->EnableFileDeletions(); }
 
-  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) override {
+  void GetLiveFilesMetaData(
+      std::vector<LiveFileMetaData>* metadata) const override {
     db_->GetLiveFilesMetaData(metadata);
   }
 
-  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) override {
+  Status GetLiveFilesChecksumInfo(
+      FileChecksumList* checksum_list) const override {
     return db_->GetLiveFilesChecksumInfo(checksum_list);
   }
 
@@ -506,7 +508,7 @@ class StackableDB : public DB {
   }
 
   Status GetCurrentWalFile(
-      std::unique_ptr<WalFile>* current_log_file) override {
+      std::unique_ptr<WalFile>* current_log_file) const override {
     return db_->GetCurrentWalFile(current_log_file);
   }
 

@@ -1308,7 +1308,7 @@ class VersionSet {
                                      int new_levels);
 
   // Get the checksum information of all live files
-  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
+  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) const;
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
@@ -1492,7 +1492,7 @@ class VersionSet {
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
   // This function doesn't support leveldb SST filenames
-  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) const;
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
     assert(table_cache_);

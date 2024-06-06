@@ -424,7 +424,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
 }
 
 Status WalManager::GetLiveWalFile(uint64_t number,
-                                  std::unique_ptr<WalFile>* log_file) {
+                                  std::unique_ptr<WalFile>* log_file) const {
   if (!log_file) {
     return Status::InvalidArgument("log_file not preallocated.");
   }

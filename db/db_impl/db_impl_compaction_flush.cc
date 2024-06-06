@@ -1894,16 +1894,16 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   return Status::OK();
 }
 
-int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
+int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) const {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   return cfh->cfd()->NumberLevels();
 }
 
-int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
+int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) const {
   return 0;
 }
 
-int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
+int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) const {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   InstrumentedMutexLock l(&mutex_);
   return cfh->cfd()

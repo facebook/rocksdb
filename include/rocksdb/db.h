@@ -1609,19 +1609,23 @@ class DB {
       const WaitForCompactOptions& /* wait_for_compact_options */) = 0;
 
   // Number of levels used for this DB.
-  virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
-  virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
+  virtual int NumberLevels(ColumnFamilyHandle* column_family) const = 0;
+  virtual int NumberLevels() const {
+    return NumberLevels(DefaultColumnFamily());
+  }
 
   // Maximum level to which a new compacted memtable is pushed if it
   // does not create overlap.
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) = 0;
-  virtual int MaxMemCompactionLevel() {
+  virtual int MaxMemCompactionLevel(
+      ColumnFamilyHandle* column_family) const = 0;
+  virtual int MaxMemCompactionLevel() const {
     return MaxMemCompactionLevel(DefaultColumnFamily());
   }
 
   // Number of files in level-0 that would stop writes.
-  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) = 0;
-  virtual int Level0StopWriteTrigger() {
+  virtual int Level0StopWriteTrigger(
+      ColumnFamilyHandle* column_family) const = 0;
+  virtual int Level0StopWriteTrigger() const {
     return Level0StopWriteTrigger(DefaultColumnFamily());
   }
 
@@ -1788,13 +1792,14 @@ class DB {
   // This builds a de-normalized form of GetAllColumnFamilyMetaData().
   // For information about all files in a DB, use GetLiveFilesStorageInfo().
   virtual void GetLiveFilesMetaData(
-      std::vector<LiveFileMetaData>* /*metadata*/) {}
+      std::vector<LiveFileMetaData>* /*metadata*/) const {}
 
   // Return a list of all table (SST) and blob files checksum info.
   // Note: This function might be of limited use because it cannot be
   // synchronized with other "live files" APIs. GetLiveFilesStorageInfo()
   // is recommended instead.
-  virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
+  virtual Status GetLiveFilesChecksumInfo(
+      FileChecksumList* checksum_list) const = 0;
 
   // Get information about all live files that make up a DB, for making
   // live copies (Checkpoint, backups, etc.) or other storage-related purposes.
@@ -1851,7 +1856,7 @@ class DB {
   // Additionally, for the sake of optimization current_log_file->StartSequence
   // would always be set to 0
   virtual Status GetCurrentWalFile(
-      std::unique_ptr<WalFile>* current_log_file) = 0;
+      std::unique_ptr<WalFile>* current_log_file) const = 0;
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:

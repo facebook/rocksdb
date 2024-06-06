@@ -161,7 +161,7 @@ class BlobDBImpl : public BlobDB {
 
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
                       bool flush_memtable = true) override;
-  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) override;
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) const override;
   Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;

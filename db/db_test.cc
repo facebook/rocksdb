@@ -3329,15 +3329,19 @@ class ModelDB : public DB {
   }
 
   using DB::NumberLevels;
-  int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
+  int NumberLevels(ColumnFamilyHandle* /*column_family*/) const override {
+    return 1;
+  }
 
   using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) override {
+  int MaxMemCompactionLevel(
+      ColumnFamilyHandle* /*column_family*/) const override {
     return 1;
   }
 
   using DB::Level0StopWriteTrigger;
-  int Level0StopWriteTrigger(ColumnFamilyHandle* /*column_family*/) override {
+  int Level0StopWriteTrigger(
+      ColumnFamilyHandle* /*column_family*/) const override {
     return -1;
   }
 
@@ -3377,7 +3381,7 @@ class ModelDB : public DB {
   }
 
   Status GetLiveFilesChecksumInfo(
-      FileChecksumList* /*checksum_list*/) override {
+      FileChecksumList* /*checksum_list*/) const override {
     return Status::OK();
   }
 
@@ -3392,7 +3396,7 @@ class ModelDB : public DB {
   }
 
   Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* /*current_log_file*/) override {
+      std::unique_ptr<LogFile>* /*current_log_file*/) const override {
     return Status::OK();
   }
 

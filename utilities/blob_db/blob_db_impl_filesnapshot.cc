@@ -80,7 +80,8 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
   return Status::OK();
 }
 
-void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
+void BlobDBImpl::GetLiveFilesMetaData(
+    std::vector<LiveFileMetaData>* metadata) const {
   // Path should be relative to db_name.
   assert(bdb_options_.path_relative);
   // Hold a lock in the beginning to avoid updates to base DB during the call
