@@ -1615,10 +1615,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_plain_table_factory(
     rocksdb_options_t*, uint32_t, int, double, size_t, size_t, char,
     unsigned char, unsigned char);
 
-extern ROCKSDB_LIBRARY_API bool rocksdb_options_get_write_dbid_to_manifest(
-    rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_write_dbid_to_manifest(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_dbid_to_manifest(
-    rocksdb_options_t*, bool);
+    rocksdb_options_t*, unsigned char);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_level_to_compress(
     rocksdb_options_t* opt, int level);

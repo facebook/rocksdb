@@ -3959,12 +3959,13 @@ void rocksdb_options_set_plain_table_factory(
   opt->rep.table_factory.reset(factory);
 }
 
-bool rocksdb_options_get_write_dbid_to_manifest(rocksdb_options_t* opt) {
+unsigned char rocksdb_options_get_write_dbid_to_manifest(
+    rocksdb_options_t* opt) {
   return opt->rep.write_dbid_to_manifest;
 }
 
-void rocksdb_options_set_write_dbid_to_manifest(rocksdb_options_t* opt,
-                                                bool write_dbid_to_manifest) {
+void rocksdb_options_set_write_dbid_to_manifest(
+    rocksdb_options_t* opt, unsigned char write_dbid_to_manifest) {
   opt->rep.write_dbid_to_manifest = write_dbid_to_manifest;
 }
 

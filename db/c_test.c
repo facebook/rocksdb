@@ -889,7 +889,7 @@ int main(int argc, char** argv) {
     rocksdb_options_t* options_dbid_in_manifest = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(options_dbid_in_manifest, 1);
 
-    bool write_to_manifest =
+    unsigned char write_to_manifest =
         rocksdb_options_get_write_dbid_to_manifest(options_dbid_in_manifest);
     CheckCondition(!write_to_manifest);
     rocksdb_options_set_write_dbid_to_manifest(options_dbid_in_manifest, true);
