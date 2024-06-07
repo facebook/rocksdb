@@ -1815,16 +1815,19 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
           wal.GetPreSyncSize() > 0) {
         synced_wals->AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
       }
-      // Check if the file has been closed, i.e wal.writer->file() == nullptr
-      // which can happen if log recycling is enabled, or if all the data in
-      // the log has been synced
+      // Reclaim closed WALs (wal.writer->file() == nullptr), and if we don't
+      // need to close before that (background_close_inactive_wals) we can
+      // opportunistically reclaim WALs that happen to be fully synced.
+      // (Probably not worth extra code and mutex release to opportunistically
+      // close WALs that became eligible since last holding the mutex.
+      // FindObsoleteFiles can take care of it.)
       if (wal.writer->file() == nullptr ||
-          wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize()) {
+          (immutable_db_options_.background_close_inactive_wals &&
+           wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize())) {
         // Fully synced
         logs_to_free_.push_back(wal.ReleaseWriter());
         it = logs_.erase(it);
       } else {
-        assert(wal.GetPreSyncSize() < wal.writer->file()->GetFlushedSize());
         wal.FinishSync();
         ++it;
       }

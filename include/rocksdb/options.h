@@ -1350,10 +1350,10 @@ struct DBOptions {
   // Set to true to re-instate an old behavior of keeping complete, synced WAL
   // files open for write until they are collected for deletion by a
   // background thread. This should not be needed unless there is a
-  // performance issue with file Close() separate from Sync(), but setting it
-  // to true can mean Checkpoint calling LinkFile on a WAL still open for
-  // write, which might be unsupported on some FileSystem implementations. As
-  // this is intended as a temporary kill switch, it is already DEPRECATED.
+  // performance issue with file Close(), but setting it to true means that
+  // Checkpoint might call LinkFile on a WAL still open for write, which might
+  // be unsupported on some FileSystem implementations. As this is intended as
+  // a temporary kill switch, it is already DEPRECATED.
   bool background_close_inactive_wals = false;
 
   // If true, RocksDB supports flushing multiple column families and committing
