@@ -5668,10 +5668,6 @@ void rocksdb_export_import_files_metadata_add_livefile(
     const std::string strLargestInternalKey =
         std::string(largestInternalKey, largestInternalKeySize);
     lf->largest = strLargestInternalKey;
-    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
-                   "[%s] Add LiveFile: Smallest Internal Key: (%s), Largest Internal Key: (%s)",
-                   lf->column_family_name.data(), lf->smallest.data(),
-                   lf->largest.data());
     const std::string strFileName = std::string(fileName, fileNameSize);
     lf->name = strFileName;
     const std::string strDatabasePath = std::string(databasePath, databasePathSize);
@@ -5694,6 +5690,11 @@ void rocksdb_export_import_files_metadata_add_livefile(
     const std::string strFileChecksumFuncName =
         std::string(fileChecksumFuncName, fileChecksumFuncNameSize);
     lf->file_checksum_func_name = strFileChecksumFuncName;
+
+    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
+                "[%s] Add LiveFile: Smallest Internal Key: (%s), Largest Internal Key: (%s)",
+                lf->relative_filename.data(), lf->smallest.data(),
+                lf->largest.data());
 
     // Add the LiveFileMetadata to the vector
     eifm->rep.files.push_back(*lf);
@@ -5758,10 +5759,6 @@ void rocksdb_livefiles_get_livefile_properties(rocksdb_t* db, const rocksdb_live
     *smallestInternalKey = (char *)lf->rep[index].smallest.data();
     *largestInternalKeySize = lf->rep[index].largest.size();
     *largestInternalKey = (char *)lf->rep[index].largest.data();
-    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
-                   "[%s] Get LiveFile: Smallest Internal Key: (%s), Largest Internal Key: (%s)",
-                   *columnFamilyName, *smallestInternalKey,
-                   *largestInternalKey);
     *fileNameSize = lf->rep[index].name.size();
     *fileName = (char *)lf->rep[index].name.data();
     *databasePathSize = lf->rep[index].db_path.size();
@@ -5780,6 +5777,12 @@ void rocksdb_livefiles_get_livefile_properties(rocksdb_t* db, const rocksdb_live
     *fileChecksum = (char *)lf->rep[index].file_checksum.data();
     *fileChecksumFuncNameSize = lf->rep[index].file_checksum_func_name.size();
     *fileChecksumFuncName = (char *)lf->rep[index].file_checksum_func_name.data();
+    
+    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
+                   "[%s] Get LiveFile: Smallest Internal Key: (%s), Largest "
+                   "Internal Key: (%s)",
+                   *relativeFilename, *smallestInternalKey,
+                   *largestInternalKey);
 }
 
 void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) { delete lf; }
