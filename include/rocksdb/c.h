@@ -505,6 +505,13 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf_with_ts(
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr);
 
+/**
+ * Returns a malloc() buffer with the DB identity, assigning the length to
+ * *id_len. Returns NULL if an error occurred.
+ */
+extern ROCKSDB_LIBRARY_API char* rocksdb_get_db_identity(rocksdb_t* db,
+                                                         size_t* id_len);
+
 // if values_list[i] == NULL and errs[i] == NULL,
 // then we got status.IsNotFound(), which we will not return.
 // all errors except status status.ok() and status.IsNotFound() are returned.
@@ -1607,6 +1614,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hash_link_list_rep(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_plain_table_factory(
     rocksdb_options_t*, uint32_t, int, double, size_t, size_t, char,
     unsigned char, unsigned char);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_write_dbid_to_manifest(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_dbid_to_manifest(
+    rocksdb_options_t*, unsigned char);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_level_to_compress(
     rocksdb_options_t* opt, int level);
