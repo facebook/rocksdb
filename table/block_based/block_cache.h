@@ -166,13 +166,19 @@ class UncacheAggressivenessAdvisor {
   }
   void Report(bool erased) { ++(erased ? useful_ : not_useful_); }
   bool ShouldContinue() {
-    return not_useful_ < allowance_ ||
-           1.0 * useful_ / (useful_ + not_useful_) >= threshold_;
+    if (not_useful_ < allowance_) {
+      return true;
+    } else {
+      // See UncacheAggressivenessAdvisor unit test
+      return (useful_ + 1.0) / (useful_ + not_useful_ - allowance_ + 1.5) >=
+             threshold_;
+    }
   }
 
  private:
-  // Minimum number of "not useful" to consider stopping, to allow sufficient
-  // evidence for checking the threshold
+  // Baseline minimum number of "not useful" to consider stopping, to allow
+  // sufficient evidence for checking the threshold. Actual minimum will be
+  // higher as threshold gets well below 1.0.
   int allowance_;
   // After allowance, stop if useful ratio is below this threshold
   double threshold_;

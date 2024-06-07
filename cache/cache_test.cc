@@ -18,6 +18,7 @@
 #include "cache/lru_cache.h"
 #include "cache/typed_cache.h"
 #include "port/stack_trace.h"
+#include "table/block_based/block_cache.h"
 #include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
@@ -1016,6 +1017,63 @@ INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
                         secondary_cache_test_util::GetTestingCacheTypes());
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
                         testing::Values(secondary_cache_test_util::kLRU));
+
+TEST(MiscBlockCacheTest, UncacheAggressivenessAdvisor) {
+  // Aggressiveness to a sequence of Report() calls (as string of 0s and 1s)
+  // exactly until the first ShouldContinue() == false.
+  const std::vector<std::pair<uint32_t, Slice>> expectedTraces{
+      // Aggressiveness 1 aborts on first unsuccessful erasure.
+      {1, "0"},
+      {1, "11111111111111111111110"},
+      // For sufficient evidence, aggressiveness 2 requires a minimum of two
+      // unsuccessful erasures.
+      {2, "00"},
+      {2, "0110"},
+      {2, "1100"},
+      {2, "011111111111111111111111111111111111111111111111111111111111111100"},
+      {2, "0111111111111111111111111111111111110"},
+      // For sufficient evidence, aggressiveness 3 and higher require a minimum
+      // of three unsuccessful erasures.
+      {3, "000"},
+      {3, "01010"},
+      {3, "111000"},
+      {3, "00111111111111111111111111111111111100"},
+      {3, "00111111111111111111110"},
+
+      {4, "000"},
+      {4, "01010"},
+      {4, "111000"},
+      {4, "001111111111111111111100"},
+      {4, "0011111111111110"},
+
+      {6, "000"},
+      {6, "01010"},
+      {6, "111000"},
+      {6, "00111111111111100"},
+      {6, "0011111110"},
+
+      // 69 -> 50% threshold, now up to minimum of 4
+      {69, "0000"},
+      {69, "010000"},
+      {69, "01010000"},
+      {69, "101010100010101000"},
+
+      // 230 -> 10% threshold, appropriately higher minimum
+      {230, "000000000000"},
+      {230, "0000000000010000000000"},
+      {230, "00000000000100000000010000000000"}};
+  for (const auto& [aggressiveness, t] : expectedTraces) {
+    SCOPED_TRACE("aggressiveness=" + std::to_string(aggressiveness) + " with " +
+                 t.ToString());
+    UncacheAggressivenessAdvisor uaa(aggressiveness);
+    for (size_t i = 0; i < t.size(); ++i) {
+      SCOPED_TRACE("i=" + std::to_string(i));
+      ASSERT_TRUE(uaa.ShouldContinue());
+      uaa.Report(t[i] & 1);
+    }
+    ASSERT_FALSE(uaa.ShouldContinue());
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 
