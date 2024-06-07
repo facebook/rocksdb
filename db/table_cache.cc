@@ -163,6 +163,11 @@ Status TableCache::GetTableReader(
   return s;
 }
 
+Cache::Handle* TableCache::Lookup(Cache* cache, uint64_t file_number) {
+  Slice key = GetSliceForFileNumber(&file_number);
+  return cache->Lookup(key);
+}
+
 Status TableCache::FindTable(
     const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator,
@@ -727,4 +732,14 @@ uint64_t TableCache::ApproximateSize(
 
   return result;
 }
+
+void TableCache::ReleaseObsolete(Cache* cache, Cache::Handle* h,
+                                 uint32_t uncache_aggressiveness) {
+  CacheInterface typed_cache(cache);
+  TypedHandle* table_handle = reinterpret_cast<TypedHandle*>(h);
+  TableReader* table_reader = typed_cache.Value(table_handle);
+  table_reader->MarkObsolete(uncache_aggressiveness);
+  typed_cache.ReleaseAndEraseIfLastRef(table_handle);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -167,6 +167,8 @@ class PartitionedFilterBlockReader
                          FilterManyFunction filter_function) const;
   Status CacheDependencies(const ReadOptions& ro, bool pin,
                            FilePrefetchBuffer* tail_prefetch_buffer) override;
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
 
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;

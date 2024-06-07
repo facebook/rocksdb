@@ -3,7 +3,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
-
+import math
 import os
 import random
 import shutil
@@ -148,6 +148,7 @@ default_params = {
          "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
          "tiered_auto_hyper_clock_cache"]
     ),
+    "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda

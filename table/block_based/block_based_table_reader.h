@@ -183,6 +183,8 @@ class BlockBasedTable : public TableReader {
   Status ApproximateKeyAnchors(const ReadOptions& read_options,
                                std::vector<Anchor>& anchors) override;
 
+  bool EraseFromCache(const BlockHandle& handle) const;
+
   bool TEST_BlockInCache(const BlockHandle& handle) const;
 
   // Returns true if the block for the specified key is in cache.
@@ -207,6 +209,8 @@ class BlockBasedTable : public TableReader {
 
   Status VerifyChecksum(const ReadOptions& readOptions,
                         TableReaderCaller caller) override;
+
+  void MarkObsolete(uint32_t uncache_aggressiveness) override;
 
   ~BlockBasedTable();
 
@@ -241,6 +245,8 @@ class BlockBasedTable : public TableReader {
         FilePrefetchBuffer* /* tail_prefetch_buffer */) {
       return Status::OK();
     }
+    virtual void EraseFromCacheBeforeDestruction(
+        uint32_t /*uncache_aggressiveness*/) {}
   };
 
   class IndexReaderCommon;
@@ -619,11 +625,7 @@ struct BlockBasedTable::Rep {
 
   std::shared_ptr<FragmentedRangeTombstoneList> fragmented_range_dels;
 
-  // FIXME
-  // If true, data blocks in this file are definitely ZSTD compressed. If false
-  // they might not be. When false we skip creating a ZSTD digested
-  // uncompression dictionary. Even if we get a false negative, things should
-  // still work, just not as quickly.
+  // Context for block cache CreateCallback
   BlockCreateContext create_context;
 
   // If global_seqno is used, all Keys in this file will have the same
@@ -671,6 +673,10 @@ struct BlockBasedTable::Rep {
   // partitioned filters), the `first_internal_key` in `IndexValue`, the
   // `end_key` for range deletion entries.
   const bool user_defined_timestamps_persisted;
+
+  // Set to >0 when the file is known to be obsolete and should have its block
+  // cache entries evicted on close.
+  uint32_t uncache_aggressiveness = 0;
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;

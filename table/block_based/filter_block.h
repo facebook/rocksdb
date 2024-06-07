@@ -169,6 +169,9 @@ class FilterBlockReader {
     return Status::OK();
   }
 
+  virtual void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) {}
+
   virtual bool RangeMayExist(const Slice* /*iterate_upper_bound*/,
                              const Slice& user_key_without_ts,
                              const SliceTransform* prefix_extractor,

@@ -42,6 +42,9 @@ class FilterBlockReaderCommon : public FilterBlockReader {
                      BlockCacheLookupContext* lookup_context,
                      const ReadOptions& read_options) override;
 
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
+
  protected:
   static Status ReadFilterBlock(const BlockBasedTable* table,
                                 FilePrefetchBuffer* prefetch_buffer,

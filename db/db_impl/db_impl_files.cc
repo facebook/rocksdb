@@ -413,12 +413,24 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   for (auto& file : state.sst_delete_files) {
-    if (!file.only_delete_metadata) {
-      candidate_files.emplace_back(
-          MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
-    }
-    if (file.metadata->table_reader_handle) {
-      table_cache_->Release(file.metadata->table_reader_handle);
+    auto* handle = file.metadata->table_reader_handle;
+    if (file.only_delete_metadata) {
+      if (handle) {
+        // Simply release handle of file that is not being deleted
+        table_cache_->Release(handle);
+      }
+    } else {
+      // File is being deleted (actually obsolete)
+      auto number = file.metadata->fd.GetNumber();
+      candidate_files.emplace_back(MakeTableFileName(number), file.path);
+      if (handle == nullptr) {
+        // For files not "pinned" in table cache
+        handle = TableCache::Lookup(table_cache_.get(), number);
+      }
+      if (handle) {
+        TableCache::ReleaseObsolete(table_cache_.get(), handle,
+                                    file.uncache_aggressiveness);
+      }
     }
     file.DeleteMetadata();
   }
@@ -580,8 +592,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     std::string fname;
     std::string dir_to_sync;
     if (type == kTableFile) {
-      // evict from cache
-      TableCache::Evict(table_cache_.get(), number);
       fname = MakeTableFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
     } else if (type == kBlobFile) {
