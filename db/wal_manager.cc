@@ -72,8 +72,8 @@ Status WalManager::GetSortedWalFiles(VectorWalPtr& files) {
       return s;
     }
   } else if (!exists.IsNotFound()) {
-    assert(s.IsIOError());
-    return s;
+    assert(s.ok());
+    return exists;
   }
 
   uint64_t latest_archived_log_number = 0;
@@ -173,7 +173,6 @@ void WalManager::PurgeObsoleteWALFiles() {
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log, "Can't get archive files: %s",
                     s.ToString().c_str());
-    assert(false);
     return;
   }
 
