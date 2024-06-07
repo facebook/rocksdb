@@ -381,7 +381,6 @@ DECLARE_uint64(WAL_ttl_seconds);
 DECLARE_uint64(WAL_size_limit_MB);
 DECLARE_bool(strict_bytes_per_sync);
 DECLARE_bool(avoid_flush_during_shutdown);
-DECLARE_bool(avoid_sync_during_shutdown);
 DECLARE_bool(fill_cache);
 DECLARE_bool(optimize_multiget_for_io);
 DECLARE_bool(memtable_insert_hint_per_batch);
@@ -418,6 +417,7 @@ DECLARE_bool(enable_memtable_insert_with_hint_prefix_extractor);
 DECLARE_bool(check_multiget_consistency);
 DECLARE_bool(check_multiget_entity_consistency);
 DECLARE_bool(inplace_update_support);
+DECLARE_uint32(uncache_aggressiveness);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

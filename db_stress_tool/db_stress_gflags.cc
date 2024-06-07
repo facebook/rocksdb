@@ -982,10 +982,6 @@ DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");
 
-DEFINE_bool(avoid_sync_during_shutdown,
-            ROCKSDB_NAMESPACE::Options().avoid_sync_during_shutdown,
-            "Options.avoid_sync_during_shutdown");
-
 DEFINE_uint64(max_write_batch_group_size_bytes,
               ROCKSDB_NAMESPACE::Options().max_write_batch_group_size_bytes,
               "Max write batch group size");
@@ -1410,4 +1406,11 @@ DEFINE_bool(check_multiget_entity_consistency, true,
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
             "Options.inplace_update_support");
+
+DEFINE_uint32(uncache_aggressiveness,
+              ROCKSDB_NAMESPACE::ColumnFamilyOptions().uncache_aggressiveness,
+              "Aggressiveness of erasing cache entries that are likely "
+              "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
+              "normal max");
+
 #endif  // GFLAGS

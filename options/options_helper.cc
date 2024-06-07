@@ -274,6 +274,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->last_level_temperature = moptions.last_level_temperature;
   cf_opts->default_write_temperature = moptions.default_write_temperature;
   cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
+  cf_opts->uncache_aggressiveness = moptions.uncache_aggressiveness;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
