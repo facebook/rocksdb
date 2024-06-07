@@ -538,6 +538,51 @@ Status PartitionedFilterBlockReader::CacheDependencies(
   return biter.status();
 }
 
+void PartitionedFilterBlockReader::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  // NOTE: essentially a copy of
+  // PartitionIndexReader::EraseFromCacheBeforeDestruction
+  if (uncache_aggressiveness > 0) {
+    CachableEntry<Block_kFilterPartitionIndex> top_level_block;
+
+    GetOrReadFilterBlock(/*no_io=*/true, /*get_context=*/nullptr,
+                         /*lookup_context=*/nullptr, &top_level_block,
+                         ReadOptions{})
+        .PermitUncheckedError();
+
+    if (!filter_map_.empty()) {
+      // All partitions present if any
+      for (auto& e : filter_map_) {
+        e.second.ResetEraseIfLastRef();
+      }
+    } else if (!top_level_block.IsEmpty()) {
+      IndexBlockIter biter;
+      const InternalKeyComparator* const comparator = internal_comparator();
+      Statistics* kNullStats = nullptr;
+      top_level_block.GetValue()->NewIndexIterator(
+          comparator->user_comparator(),
+          table()->get_rep()->get_global_seqno(
+              BlockType::kFilterPartitionIndex),
+          &biter, kNullStats, true /* total_order_seek */,
+          false /* have_first_key */, index_key_includes_seq(),
+          index_value_is_full(), false /* block_contents_pinned */,
+          user_defined_timestamps_persisted());
+
+      UncacheAggressivenessAdvisor advisor(uncache_aggressiveness);
+      for (biter.SeekToFirst(); biter.Valid() && advisor.ShouldContinue();
+           biter.Next()) {
+        bool erased = table()->EraseFromCache(biter.value().handle);
+        advisor.Report(erased);
+      }
+      biter.status().PermitUncheckedError();
+    }
+    top_level_block.ResetEraseIfLastRef();
+  }
+  // Might be needed to un-cache a pinned top-level block
+  FilterBlockReaderCommon<Block_kFilterPartitionIndex>::
+      EraseFromCacheBeforeDestruction(uncache_aggressiveness);
+}
+
 const InternalKeyComparator* PartitionedFilterBlockReader::internal_comparator()
     const {
   assert(table());

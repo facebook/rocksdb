@@ -165,6 +165,14 @@ class TableCache {
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
+  // Handles releasing, erasing, etc. of what should be the last reference
+  // to an obsolete file.
+  static void ReleaseObsolete(Cache* cache, Cache::Handle* handle,
+                              uint32_t uncache_aggressiveness);
+
+  // Return handle to an existing cache entry if there is one
+  static Cache::Handle* Lookup(Cache* cache, uint64_t file_number);
+
   // Find table reader
   // @param skip_filters Disables loading/accessing the filter block
   // @param level == -1 means not specified

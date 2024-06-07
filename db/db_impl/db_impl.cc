@@ -626,19 +626,6 @@ Status DBImpl::CloseHelper() {
     job_context.Clean();
     mutex_.Lock();
   }
-  if (!mutable_db_options_.avoid_sync_during_shutdown && !logs_.empty()) {
-    mutex_.Unlock();
-    Status s = FlushWAL(true /* sync */);
-    mutex_.Lock();
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to flush and sync WALs with error -- %s",
-                     s.ToString().c_str());
-      if (ret.ok()) {
-        ret = s;
-      }
-    }
-  }
   {
     InstrumentedMutexLock lock(&log_write_mutex_);
     for (auto l : logs_to_free_) {
@@ -1560,6 +1547,17 @@ bool DBImpl::WALBufferIsEmpty() {
   log::Writer* cur_log_writer = logs_.back().writer;
   auto res = cur_log_writer->BufferIsEmpty();
   return res;
+}
+
+Status DBImpl::GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size) {
+  InstrumentedMutexLock l(&log_write_mutex_);
+  for (auto& log : logs_) {
+    auto* open_file = log.writer->file();
+    if (open_file) {
+      number_to_size[log.number] = open_file->GetFlushedSize();
+    }
+  }
+  return Status::OK();
 }
 
 Status DBImpl::SyncWAL() {

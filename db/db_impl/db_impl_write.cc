@@ -2239,6 +2239,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
   memtable_info.num_entries = cfd->mem()->num_entries();
   memtable_info.num_deletes = cfd->mem()->num_deletes();
+  if (!cfd->ioptions()->persist_user_defined_timestamps &&
+      cfd->user_comparator()->timestamp_size() > 0) {
+    const Slice& newest_udt = cfd->mem()->GetNewestUDT();
+    memtable_info.newest_udt.assign(newest_udt.data(), newest_udt.size());
+  }
   // Log this later after lock release. It may be outdated, e.g., if background
   // flush happens before logging, but that should be ok.
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();

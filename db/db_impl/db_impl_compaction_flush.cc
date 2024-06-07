@@ -2240,6 +2240,23 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
   }
 }
 
+void DBImpl::NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
+                                          FlushReason flush_reason) {
+  if (immutable_db_options_.listeners.size() == 0U) {
+    return;
+  }
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::vector<ManualFlushInfo> info;
+  for (ColumnFamilyData* cfd : cfds) {
+    info.push_back({cfd->GetID(), cfd->GetName(), flush_reason});
+  }
+  for (const auto& listener : immutable_db_options_.listeners) {
+    listener->OnManualFlushScheduled(this, info);
+  }
+}
+
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason,
@@ -2356,6 +2373,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       }
     }
   }
+
+  NotifyOnManualFlushScheduled({cfd}, flush_reason);
   TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleFlush");
   TEST_SYNC_POINT("DBImpl::FlushMemTable:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
@@ -2500,6 +2519,7 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
   }
+  NotifyOnManualFlushScheduled(cfds, flush_reason);
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {

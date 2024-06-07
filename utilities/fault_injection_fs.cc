@@ -273,9 +273,6 @@ IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  if (fs_->IsFilesystemActive()) {
-    state_.pos_at_last_flush_ = state_.pos_;
-  }
   return IOStatus::OK();
 }
 
@@ -355,6 +352,7 @@ IOStatus TestFSRandomRWFile::Read(uint64_t offset, size_t n,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  // TODO (low priority): fs_->ReadUnsyncedData()
   return target_->Read(offset, n, options, result, scratch, dbg);
 }
 
@@ -399,6 +397,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
     return fs_->GetError();
   }
   IOStatus s = target_->Read(offset, n, options, result, scratch, dbg);
+  // TODO (low priority): fs_->ReadUnsyncedData()
   if (s.ok()) {
     s = fs_->InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
@@ -432,6 +431,7 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
       s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
     }
   }
+  // TODO (low priority): fs_->ReadUnsyncedData()
   if (!ret.ok()) {
     res.status = ret;
     cb(res, cb_arg);
@@ -459,6 +459,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
         /*need_count_increase=*/true,
         /*fault_injected=*/&this_injected_error);
     injected_error |= this_injected_error;
+    // TODO (low priority): fs_->ReadUnsyncedData()
   }
   if (s.ok()) {
     s = fs_->InjectThreadSpecificReadError(
@@ -479,12 +480,55 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
     return target_->GetUniqueId(id, max_size);
   }
 }
+
+void FaultInjectionTestFS::AddUnsyncedToRead(const std::string& fname,
+                                             size_t pos, size_t n,
+                                             Slice* result, char* scratch) {
+  // Should be checked prior
+  assert(result->size() < n);
+  size_t pos_after = pos + result->size();
+
+  MutexLock l(&mutex_);
+  auto it = db_file_state_.find(fname);
+  if (it != db_file_state_.end()) {
+    auto& st = it->second;
+    if (st.pos_ > static_cast<ssize_t>(pos_after)) {
+      size_t remaining_requested = n - result->size();
+      size_t to_copy = std::min(remaining_requested,
+                                static_cast<size_t>(st.pos_) - pos_after);
+      size_t buffer_offset = pos_after - static_cast<size_t>(std::max(
+                                             st.pos_at_last_sync_, ssize_t{0}));
+      // Data might have been dropped from buffer
+      if (st.buffer_.size() > buffer_offset) {
+        to_copy = std::min(to_copy, st.buffer_.size() - buffer_offset);
+        if (result->data() != scratch) {
+          // TODO: this will be needed when supporting random reads
+          // but not currently used
+          abort();
+          // NOTE: might overlap
+          // std::copy_n(result->data(), result->size(), scratch);
+        }
+        std::copy_n(st.buffer_.data() + buffer_offset, to_copy,
+                    scratch + result->size());
+        *result = Slice(scratch, result->size() + to_copy);
+      }
+    }
+  }
+}
+
 IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
                                     Slice* result, char* scratch,
                                     IODebugContext* dbg) {
   IOStatus s = target()->Read(n, options, result, scratch, dbg);
-  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("injected seq read error");
+  if (s.ok()) {
+    if (fs_->ShouldInjectRandomReadError()) {
+      read_pos_ += result->size();
+      return IOStatus::IOError("injected seq read error");
+    }
+    if (fs_->ReadUnsyncedData() && result->size() < n) {
+      fs_->AddUnsyncedToRead(fname_, read_pos_, n, result, scratch);
+    }
+    read_pos_ += result->size();
   }
   return s;
 }
@@ -495,8 +539,11 @@ IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                               IODebugContext* dbg) {
   IOStatus s =
       target()->PositionedRead(offset, n, options, result, scratch, dbg);
-  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("injected seq positioned read error");
+  if (s.ok()) {
+    if (fs_->ShouldInjectRandomReadError()) {
+      return IOStatus::IOError("injected seq positioned read error");
+    }
+    // TODO (low priority): fs_->ReadUnsyncedData()
   }
   return s;
 }
@@ -713,7 +760,7 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
   }
   IOStatus io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
-    result->reset(new TestFSSequentialFile(std::move(*result), this));
+    result->reset(new TestFSSequentialFile(std::move(*result), this, fname));
   }
   return io_s;
 }
@@ -738,6 +785,26 @@ IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
       if (!in_s.ok()) {
         return in_s;
       }
+    }
+  }
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::GetFileSize(const std::string& f,
+                                           const IOOptions& options,
+                                           uint64_t* file_size,
+                                           IODebugContext* dbg) {
+  // TODO: inject error, under what setting?
+  IOStatus io_s = target()->GetFileSize(f, options, file_size, dbg);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  if (ReadUnsyncedData()) {
+    // Need to report flushed size, not synced size
+    MutexLock l(&mutex_);
+    auto it = db_file_state_.find(f);
+    if (it != db_file_state_.end()) {
+      *file_size = it->second.pos_;
     }
   }
   return io_s;

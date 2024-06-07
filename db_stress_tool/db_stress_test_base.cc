@@ -1891,6 +1891,17 @@ Status StressTest::TestBackupRestore(
   if (!s.ok()) {
     from = "BackupEngine::Open";
   }
+  // FIXME: this is only needed as long as db_stress uses
+  // SetReadUnsyncedData(false), because it will only be able to
+  // copy the synced portion of the WAL. For correctness validation, that
+  // needs to include updates to the locked key.
+  if (s.ok()) {
+    s = db_->SyncWAL();
+    if (!s.ok()) {
+      from = "SyncWAL";
+    }
+  }
+
   if (s.ok()) {
     if (backup_opts.schema_version >= 2 && thread->rand.OneIn(2)) {
       TEST_BackupMetaSchemaOptions test_opts;
@@ -3854,7 +3865,6 @@ void InitializeOptionsFromFlags(
   options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
   options.strict_bytes_per_sync = FLAGS_strict_bytes_per_sync;
   options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;
-  options.avoid_sync_during_shutdown = FLAGS_avoid_sync_during_shutdown;
   options.dump_malloc_stats = FLAGS_dump_malloc_stats;
   options.stats_history_buffer_size = FLAGS_stats_history_buffer_size;
   options.skip_stats_update_on_db_open = FLAGS_skip_stats_update_on_db_open;
@@ -3881,6 +3891,7 @@ void InitializeOptionsFromFlags(
   options.lowest_used_cache_tier =
       static_cast<CacheTier>(FLAGS_lowest_used_cache_tier);
   options.inplace_update_support = FLAGS_inplace_update_support;
+  options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
 }
 
 void InitializeOptionsGeneral(

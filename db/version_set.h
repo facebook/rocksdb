@@ -797,16 +797,20 @@ struct ObsoleteFileInfo {
   // the file, usually because the file is trivial moved so two FileMetadata
   // is managing the file.
   bool only_delete_metadata = false;
+  // To apply to this file
+  uint32_t uncache_aggressiveness = 0;
 
   ObsoleteFileInfo() noexcept
       : metadata(nullptr), only_delete_metadata(false) {}
   ObsoleteFileInfo(FileMetaData* f, const std::string& file_path,
+                   uint32_t _uncache_aggressiveness,
                    std::shared_ptr<CacheReservationManager>
                        file_metadata_cache_res_mgr_arg = nullptr)
       : metadata(f),
         path(file_path),
-        only_delete_metadata(false),
-        file_metadata_cache_res_mgr(file_metadata_cache_res_mgr_arg) {}
+        uncache_aggressiveness(_uncache_aggressiveness),
+        file_metadata_cache_res_mgr(
+            std::move(file_metadata_cache_res_mgr_arg)) {}
 
   ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
   ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
@@ -816,9 +820,13 @@ struct ObsoleteFileInfo {
   }
 
   ObsoleteFileInfo& operator=(ObsoleteFileInfo&& rhs) noexcept {
-    path = std::move(rhs.path);
     metadata = rhs.metadata;
     rhs.metadata = nullptr;
+    path = std::move(rhs.path);
+    only_delete_metadata = rhs.only_delete_metadata;
+    rhs.only_delete_metadata = false;
+    uncache_aggressiveness = rhs.uncache_aggressiveness;
+    rhs.uncache_aggressiveness = 0;
     file_metadata_cache_res_mgr = rhs.file_metadata_cache_res_mgr;
     rhs.file_metadata_cache_res_mgr = nullptr;
 
@@ -1495,10 +1503,7 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
-    assert(table_cache_);
-
-    table_cache_->Erase(GetSliceForKey(&blob_file_number));
-
+    // TODO: Erase file from BlobFileCache?
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 
@@ -1676,6 +1681,8 @@ class VersionSet {
   // Current size of manifest file
   uint64_t manifest_file_size_;
 
+  // Obsolete files, or during DB shutdown any files not referenced by what's
+  // left of the in-memory LSM state.
   std::vector<ObsoleteFileInfo> obsolete_files_;
   std::vector<ObsoleteBlobFileInfo> obsolete_blob_files_;
   std::vector<std::string> obsolete_manifests_;

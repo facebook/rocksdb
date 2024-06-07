@@ -3358,10 +3358,59 @@ TEST_F(ExternalSSTFileWithTimestampTest, Basic) {
 
     ASSERT_OK(IngestExternalUDTFile({file4}));
 
+    for (int k = 200; k < 250; k++) {
+      VerifyValueAndTs(Key(k), EncodeAsUint64(k), Key(k) + "_val",
+                       EncodeAsUint64(k));
+    }
+
     // In UDT mode, any external file that can be successfully ingested also
     // should not overlap with the db. As a result, they can always get the
     // seq 0 assigned.
     ASSERT_EQ(db_->GetLatestSequenceNumber(), seq_num_before_ingestion);
+
+    // file5.sst (Key(200), ts = 199)
+    // While DB has (Key(200), ts = 200) => user key without timestamp overlaps
+    std::string file5 = sst_files_dir_ + "file5.sst";
+    ASSERT_OK(sst_file_writer.Open(file5));
+    ASSERT_OK(
+        sst_file_writer.Put(Key(200), EncodeAsUint64(199), Key(200) + "_val"));
+
+    ExternalSstFileInfo file5_info;
+    ASSERT_OK(sst_file_writer.Finish(&file5_info));
+    ASSERT_TRUE(IngestExternalUDTFile({file5}).IsInvalidArgument());
+
+    // file6.sst (Key(200), ts = 201)
+    // While DB has (Key(200), ts = 200) => user key without timestamp overlaps
+    std::string file6 = sst_files_dir_ + "file6.sst";
+    ASSERT_OK(sst_file_writer.Open(file6));
+    ASSERT_OK(
+        sst_file_writer.Put(Key(200), EncodeAsUint64(201), Key(0) + "_val"));
+
+    ExternalSstFileInfo file6_info;
+    ASSERT_OK(sst_file_writer.Finish(&file6_info));
+    ASSERT_TRUE(IngestExternalUDTFile({file6}).IsInvalidArgument());
+
+    // Check memtable overlap.
+    ASSERT_OK(dbfull()->Put(WriteOptions(), Key(250), EncodeAsUint64(250),
+                            Key(250) + "_val"));
+
+    std::string file7 = sst_files_dir_ + "file7.sst";
+    ASSERT_OK(sst_file_writer.Open(file7));
+    ASSERT_OK(
+        sst_file_writer.Put(Key(250), EncodeAsUint64(249), Key(250) + "_val2"));
+
+    ExternalSstFileInfo file7_info;
+    ASSERT_OK(sst_file_writer.Finish(&file7_info));
+    ASSERT_TRUE(IngestExternalUDTFile({file7}).IsInvalidArgument());
+
+    std::string file8 = sst_files_dir_ + "file8.sst";
+    ASSERT_OK(sst_file_writer.Open(file8));
+    ASSERT_OK(
+        sst_file_writer.Put(Key(250), EncodeAsUint64(251), Key(250) + "_val3"));
+
+    ExternalSstFileInfo file8_info;
+    ASSERT_OK(sst_file_writer.Finish(&file8_info));
+    ASSERT_TRUE(IngestExternalUDTFile({file8}).IsInvalidArgument());
 
     DestroyAndRecreateExternalSSTFilesDir();
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
