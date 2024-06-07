@@ -5692,7 +5692,7 @@ void rocksdb_export_import_files_metadata_add_livefile(
     lf->file_checksum_func_name = strFileChecksumFuncName;
 
     ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
-                "[%s] Add LiveFile: Smallest Internal Key: (%s), size (%u); Largest Internal Key: (%s), size (%u)",
+                "[%s] Add LiveFile: Smallest Internal Key: (%s), size (%i); Largest Internal Key: (%s), size (%i)",
                 lf->relative_filename.data(), smallestInternalKey, smallestInternalKeySize,
                 largestInternalKey, largestInternalKeySize);
 
@@ -5780,7 +5780,7 @@ void rocksdb_livefiles_get_livefile_properties(rocksdb_t* db, const rocksdb_live
     
     ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
                    "[%s] Get LiveFile: Smallest Internal Key: (%s), size: "
-                   "(%u), strlen (%u); Largest Internal Key: (%s), size (%u), strlen (%u)",
+                   "(%i), strlen (%i); Largest Internal Key: (%s), size (%i), strlen (%i)",
         *relativeFilename, *smallestInternalKey, *smallestInternalKeySize,
         strlen((char*)lf->rep[index].smallest.data()), *largestInternalKey,
         *largestInternalKeySize, strlen((char*)lf->rep[index].largest.data()));
