@@ -137,6 +137,7 @@ class BlockFetcher {
   bool for_compaction_ = false;
   bool use_fs_scratch_ = false;
   bool retry_corrupt_read_ = false;
+  FSAllocationPtr fs_buf_;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();
@@ -152,7 +153,7 @@ class BlockFetcher {
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void ProcessTrailerIfPresent();
-  void ReadBlock(bool retry, FSAllocationPtr& fs_buf);
+  void ReadBlock(bool retry);
 
   void ReleaseFileSystemProvidedBuffer(FSReadRequest* read_req) {
     if (use_fs_scratch_) {

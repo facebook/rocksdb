@@ -204,6 +204,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
     if (opts.wal_size_for_flush == std::numeric_limits<uint64_t>::max()) {
       flush_memtable = false;
     } else if (opts.wal_size_for_flush > 0) {
+      // FIXME: avoid querying the filesystem for current WAL state
       // If the outstanding WAL files are small, we skip the flush.
       s = GetSortedWalFiles(live_wal_files);
 
@@ -316,6 +317,8 @@ Status DBImpl::GetLiveFilesStorageInfo(
   const uint64_t options_number = versions_->options_file_number();
   const uint64_t options_size = versions_->options_file_size_;
   const uint64_t min_log_num = MinLogNumberToKeep();
+  // Ensure consistency with manifest for track_and_verify_wals_in_manifest
+  const uint64_t max_log_num = logfile_number_;
 
   mutex_.Unlock();
 
@@ -379,10 +382,13 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
 
   if (s.ok()) {
-    // To maximize the effectiveness of track_and_verify_wals_in_manifest,
-    // sync WAL when it is enabled.
-    s = FlushWAL(
-        immutable_db_options_.track_and_verify_wals_in_manifest /* sync */);
+    // FlushWAL is required to ensure we can physically copy everything
+    // logically written to the WAL. (Sync not strictly required for
+    // active WAL to be copied rather than hard linked, even when
+    // Checkpoint guarantees that the copied-to file is sync-ed. Plus we can't
+    // help track_and_verify_wals_in_manifest after manifest_size is
+    // already determined.)
+    s = FlushWAL(/*sync=*/false);
     if (s.IsNotSupported()) {  // read-only DB or similar
       s = Status::OK();
     }
@@ -391,8 +397,37 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
 
-  // If we have more than one column family, we also need to get WAL files.
+  // Even after WAL flush, there could be multiple WALs that are not
+  // fully synced. Although the output DB of a Checkpoint or Backup needs
+  // to be fully synced on return, we don't strictly need to sync this
+  // DB (the input DB). If we allow Checkpoint to hard link an inactive
+  // WAL that isn't fully synced, that could result in an unsufficiently
+  // sync-ed Checkpoint. Here we get the set of WALs that are potentially
+  // unsynced or still being written to, to prevent them from being hard
+  // linked. Enforcing max_log_num from above ensures any new WALs after
+  // GetOpenWalSizes() and before GetSortedWalFiles() are not included in
+  // the results.
+  // NOTE: we might still hard link a file that is open for writing, even
+  // if we don't do any more writes to it.
+  //
+  // In a step toward reducing unnecessary file metadata queries, we also
+  // get and use our known flushed sizes for those WALs.
+  // FIXME: eventually we should not be using filesystem queries at all for
+  // the required set of WAL files.
+  //
+  // However for recycled log files, we just copy the whole file,
+  // for better or worse.
+  //
+  std::map<uint64_t, uint64_t> open_wal_number_to_size;
+  bool recycling_log_files = immutable_db_options_.recycle_log_file_num > 0;
+  if (s.ok() && !recycling_log_files) {
+    s = GetOpenWalSizes(open_wal_number_to_size);
+  }
+
+  // [old comment] If we have more than one column family, we also need to get
+  // WAL files.
   if (s.ok()) {
+    // FIXME: avoid querying the filesystem for current WAL state
     s = GetSortedWalFiles(live_wal_files);
   }
   if (!s.ok()) {
@@ -405,7 +440,8 @@ Status DBImpl::GetLiveFilesStorageInfo(
   auto wal_dir = immutable_db_options_.GetWalDir();
   for (size_t i = 0; s.ok() && i < wal_count; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num)) {
+        (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num) &&
+        live_wal_files[i]->LogNumber() <= max_log_num) {
       results.emplace_back();
       LiveFileStorageInfo& info = results.back();
       auto f = live_wal_files[i]->PathName();
@@ -414,12 +450,29 @@ Status DBImpl::GetLiveFilesStorageInfo(
       info.directory = wal_dir;
       info.file_number = live_wal_files[i]->LogNumber();
       info.file_type = kWalFile;
-      info.size = live_wal_files[i]->SizeFileBytes();
-      // Trim the log either if its the last one, or log file recycling is
-      // enabled. In the latter case, a hard link doesn't prevent the file
-      // from being renamed and recycled. So we need to copy it instead.
-      info.trim_to_size = (i + 1 == wal_count) ||
-                          (immutable_db_options_.recycle_log_file_num > 0);
+      if (recycling_log_files) {
+        info.size = live_wal_files[i]->SizeFileBytes();
+        // Recyclable WAL files must be copied instead of hard linked
+        info.trim_to_size = true;
+      } else {
+        auto it = open_wal_number_to_size.find(info.file_number);
+        if (it == open_wal_number_to_size.end()) {
+          // Known fully synced and no future writes (in part from
+          // max_log_num check). Ok to hard link
+          info.size = live_wal_files[i]->SizeFileBytes();
+          assert(!info.trim_to_size);
+        } else {
+          // Marked as (possibly) still open -> use our known flushed size
+          // and force file copy instead of hard link
+          info.size = it->second;
+          info.trim_to_size = true;
+          // FIXME: this is needed as long as db_stress uses
+          // SetReadUnsyncedData(false), because it will only be able to
+          // copy the synced portion of the WAL, which under
+          // SetReadUnsyncedData(false) is given by the reported file size.
+          info.size = std::min(info.size, live_wal_files[i]->SizeFileBytes());
+        }
+      }
       if (opts.include_checksum_info) {
         info.file_checksum_func_name = kUnknownFileChecksumFuncName;
         info.file_checksum = kUnknownFileChecksum;

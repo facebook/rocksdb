@@ -256,6 +256,8 @@ class WritableFileWriter {
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(const IOOptions& opts, bool use_fsync);
 
+  // Size including unflushed data written to this writer. If the next op is
+  // a successful Close, the file size will be this.
   uint64_t GetFileSize() const {
     return filesize_.load(std::memory_order_acquire);
   }

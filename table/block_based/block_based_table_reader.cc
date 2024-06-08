@@ -135,7 +135,47 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
-BlockBasedTable::~BlockBasedTable() { delete rep_; }
+BlockBasedTable::~BlockBasedTable() {
+  if (rep_->uncache_aggressiveness > 0 && rep_->table_options.block_cache) {
+    if (rep_->filter) {
+      rep_->filter->EraseFromCacheBeforeDestruction(
+          rep_->uncache_aggressiveness);
+    }
+    if (rep_->index_reader) {
+      {
+        // TODO: Also uncache data blocks known after any gaps in partitioned
+        // index. Right now the iterator errors out as soon as there's an
+        // index partition not in cache.
+        IndexBlockIter iiter_on_stack;
+        ReadOptions ropts;
+        ropts.read_tier = kBlockCacheTier;  // No I/O
+        auto iiter = NewIndexIterator(
+            ropts, /*disable_prefix_seek=*/false, &iiter_on_stack,
+            /*get_context=*/nullptr, /*lookup_context=*/nullptr);
+        std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+        if (iiter != &iiter_on_stack) {
+          iiter_unique_ptr.reset(iiter);
+        }
+        // Un-cache the data blocks the index iterator with tell us about
+        // without I/O. (NOTE: It's extremely unlikely that a data block
+        // will be in block cache without the index block pointing to it
+        // also in block cache.)
+        UncacheAggressivenessAdvisor advisor(rep_->uncache_aggressiveness);
+        for (iiter->SeekToFirst(); iiter->Valid() && advisor.ShouldContinue();
+             iiter->Next()) {
+          bool erased = EraseFromCache(iiter->value().handle);
+          advisor.Report(erased);
+        }
+        iiter->status().PermitUncheckedError();
+      }
+
+      // Un-cache the index block(s)
+      rep_->index_reader->EraseFromCacheBeforeDestruction(
+          rep_->uncache_aggressiveness);
+    }
+  }
+  delete rep_;
+}
 
 namespace {
 // Read the block identified by "handle" from "file".
@@ -844,6 +884,10 @@ Status BlockBasedTable::PrefetchTail(
   if (tail_size != 0) {
     tail_prefetch_size = tail_size;
   } else {
+    // Fallback for SST files, for which tail size is not recorded in the
+    // manifest. Eventually, this fallback might be removed, so it's
+    // better to make sure that such SST files get compacted.
+    // See https://github.com/facebook/rocksdb/issues/12664
     if (tail_prefetch_stats != nullptr) {
       // Multiple threads may get a 0 (no history) when running in parallel,
       // but it will get cleared after the first of them finishes.
@@ -858,14 +902,15 @@ Status BlockBasedTable::PrefetchTail(
       // properties, at which point we don't yet know the index type.
       tail_prefetch_size = prefetch_all || preload_all ? 512 * 1024 : 4 * 1024;
 
-      ROCKS_LOG_WARN(logger,
-                     "Tail prefetch size %zu is calculated based on heuristics",
-                     tail_prefetch_size);
-    } else {
       ROCKS_LOG_WARN(
           logger,
-          "Tail prefetch size %zu is calculated based on TailPrefetchStats",
-          tail_prefetch_size);
+          "[%s] Tail prefetch size %zu is calculated based on heuristics.",
+          file->file_name().c_str(), tail_prefetch_size);
+    } else {
+      ROCKS_LOG_WARN(logger,
+                     "[%s] Tail prefetch size %zu is calculated based on "
+                     "TailPrefetchStats.",
+                     file->file_name().c_str(), tail_prefetch_size);
     }
   }
   size_t prefetch_off;
@@ -2663,6 +2708,24 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
   return s;
 }
 
+bool BlockBasedTable::EraseFromCache(const BlockHandle& handle) const {
+  assert(rep_ != nullptr);
+
+  Cache* const cache = rep_->table_options.block_cache.get();
+  if (cache == nullptr) {
+    return false;
+  }
+
+  CacheKey key = GetCacheKey(rep_->base_cache_key, handle);
+
+  Cache::Handle* const cache_handle = cache->Lookup(key.AsSlice());
+  if (cache_handle == nullptr) {
+    return false;
+  }
+
+  return cache->Release(cache_handle, /*erase_if_last_ref=*/true);
+}
+
 bool BlockBasedTable::TEST_BlockInCache(const BlockHandle& handle) const {
   assert(rep_ != nullptr);
 
@@ -3230,6 +3293,10 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
 
   out_stream << "  ASCII  " << res_key << ": " << res_value << "\n";
   out_stream << "  ------\n";
+}
+
+void BlockBasedTable::MarkObsolete(uint32_t uncache_aggressiveness) {
+  rep_->uncache_aggressiveness = uncache_aggressiveness;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -36,16 +36,12 @@ struct FSFileState {
   std::string filename_;
   ssize_t pos_;
   ssize_t pos_at_last_sync_;
-  ssize_t pos_at_last_flush_;
   std::string buffer_;
 
   explicit FSFileState(const std::string& filename)
-      : filename_(filename),
-        pos_(-1),
-        pos_at_last_sync_(-1),
-        pos_at_last_flush_(-1) {}
+      : filename_(filename), pos_(-1), pos_at_last_sync_(-1) {}
 
-  FSFileState() : pos_(-1), pos_at_last_sync_(-1), pos_at_last_flush_(-1) {}
+  FSFileState() : pos_(-1), pos_at_last_sync_(-1) {}
 
   bool IsFullySynced() const { return pos_ <= 0 || pos_ == pos_at_last_sync_; }
 
@@ -163,8 +159,10 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
 class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
  public:
   explicit TestFSSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
-                                FaultInjectionTestFS* fs)
-      : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
+                                FaultInjectionTestFS* fs, std::string fname)
+      : FSSequentialFileOwnerWrapper(std::move(f)),
+        fs_(fs),
+        fname_(std::move(fname)) {}
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override;
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
@@ -173,13 +171,15 @@ class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
 
  private:
   FaultInjectionTestFS* fs_;
+  std::string fname_;
+  size_t read_pos_ = 0;
 };
 
 class TestFSDirectory : public FSDirectory {
  public:
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
                            FSDirectory* dir)
-      : fs_(fs), dirname_(dirname), dir_(dir) {}
+      : fs_(fs), dirname_(std::move(dirname)), dir_(dir) {}
   ~TestFSDirectory() {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
@@ -202,6 +202,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
+        read_unsynced_data_(true),
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)),
         enable_write_error_injection_(false),
         enable_metadata_write_error_injection_(false),
@@ -253,6 +254,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   IOStatus DeleteFile(const std::string& f, const IOOptions& options,
                       IODebugContext* dbg) override;
 
+  IOStatus GetFileSize(const std::string& f, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override;
   IOStatus RenameFile(const std::string& s, const std::string& t,
                       const IOOptions& options, IODebugContext* dbg) override;
 
@@ -347,6 +350,21 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     filesystem_writable_ = writable;
   }
+  // In places (e.g. GetSortedWals()) RocksDB relies on querying the file size
+  // or even reading the contents of files currently open for writing, and
+  // as in POSIX semantics, expects to see the flushed size and contents
+  // regardless of what has been synced. FaultInjectionTestFS historically
+  // did not emulate this behavior, only showing synced data from such read
+  // operations. (Different from FaultInjectionTestEnv--sigh.) Calling this
+  // function with false restores this historical behavior for testing
+  // stability, but use of this semantics must be phased out as it is
+  // inconsistent with expected FileSystem semantics. In other words, this
+  // functionality is DEPRECATED. Intended to be set after construction and
+  // unchanged (not thread safe).
+  void SetReadUnsyncedData(bool read_unsynced_data) {
+    read_unsynced_data_ = read_unsynced_data;
+  }
+  bool ReadUnsyncedData() const { return read_unsynced_data_; }
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
   IOStatus GetError() { return error_; }
@@ -530,6 +548,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // saved callstack
   void PrintFaultBacktrace();
 
+  void AddUnsyncedToRead(const std::string& fname, size_t offset, size_t n,
+                         Slice* result, char* scratch);
+
  private:
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
@@ -543,6 +564,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool filesystem_active_;    // Record flushes, syncs, writes
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
                               // to underlying FS for writable files
+  bool read_unsynced_data_;   // See SetReadUnsyncedData()
   IOStatus error_;
 
   enum ErrorType : int {

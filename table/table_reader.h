@@ -188,6 +188,13 @@ class TableReader {
                                 TableReaderCaller /*caller*/) {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
+
+  // Tell the reader that the file should now be obsolete, e.g. as a hint
+  // to delete relevant cache entries on destruction. (It might not be safe
+  // to "unpin" cache entries until destruction time.)
+  virtual void MarkObsolete(uint32_t /*uncache_aggressiveness*/) {
+    // no-op as default
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1425,15 +1425,28 @@ Status StressTest::TestIterate(ThreadState* thread,
     ro.iterate_lower_bound = &lower_bound;
   }
 
-  ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
-  assert(cfh);
+  std::unique_ptr<Iterator> iter;
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
+  if (FLAGS_use_multi_cf_iterator) {
+    std::vector<ColumnFamilyHandle*> cfhs;
+    cfhs.reserve(rand_column_families.size());
+    for (auto cf_index : rand_column_families) {
+      cfhs.emplace_back(column_families_[cf_index]);
+    }
+    assert(!cfhs.empty());
+    iter = db_->NewCoalescingIterator(ro, cfhs);
+  } else {
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+    iter = std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+  }
 
   std::vector<std::string> key_strs;
   if (thread->rand.OneIn(16)) {
     // Generate keys close to lower or upper bound of SST files.
-    key_strs = GetWhiteBoxKeys(thread, db_, cfh, rand_keys.size());
+    key_strs =
+        GetWhiteBoxKeys(thread, db_, column_families_[rand_column_families[0]],
+                        rand_keys.size());
   }
   if (key_strs.empty()) {
     // Use the random keys passed in.
@@ -1495,9 +1508,10 @@ Status StressTest::TestIterate(ThreadState* thread,
 
     const bool support_seek_first_or_last = expect_total_order;
 
-    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    // Write-prepared and Write-unprepared and multi-cf-iterator do not support
+    // Refresh() yet.
     if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0 /* write committed */) &&
-        thread->rand.OneIn(4)) {
+        !FLAGS_use_multi_cf_iterator && thread->rand.OneIn(4)) {
       Status s = iter->Refresh(snapshot_guard.snapshot());
       assert(s.ok());
       op_logs += "Refresh ";
@@ -1877,6 +1891,17 @@ Status StressTest::TestBackupRestore(
   if (!s.ok()) {
     from = "BackupEngine::Open";
   }
+  // FIXME: this is only needed as long as db_stress uses
+  // SetReadUnsyncedData(false), because it will only be able to
+  // copy the synced portion of the WAL. For correctness validation, that
+  // needs to include updates to the locked key.
+  if (s.ok()) {
+    s = db_->SyncWAL();
+    if (!s.ok()) {
+      from = "SyncWAL";
+    }
+  }
+
   if (s.ok()) {
     if (backup_opts.schema_version >= 2 && thread->rand.OneIn(2)) {
       TEST_BackupMetaSchemaOptions test_opts;
@@ -3840,7 +3865,6 @@ void InitializeOptionsFromFlags(
   options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
   options.strict_bytes_per_sync = FLAGS_strict_bytes_per_sync;
   options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;
-  options.avoid_sync_during_shutdown = FLAGS_avoid_sync_during_shutdown;
   options.dump_malloc_stats = FLAGS_dump_malloc_stats;
   options.stats_history_buffer_size = FLAGS_stats_history_buffer_size;
   options.skip_stats_update_on_db_open = FLAGS_skip_stats_update_on_db_open;
@@ -3867,6 +3891,7 @@ void InitializeOptionsFromFlags(
   options.lowest_used_cache_tier =
       static_cast<CacheTier>(FLAGS_lowest_used_cache_tier);
   options.inplace_update_support = FLAGS_inplace_update_support;
+  options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
 }
 
 void InitializeOptionsGeneral(

@@ -857,10 +857,14 @@ Version::~Version() {
       f->refs--;
       if (f->refs <= 0) {
         assert(cfd_ != nullptr);
+        // When not in the process of closing the DB, we'll have a superversion
+        // to get current mutable options from
+        auto* sv = cfd_->GetSuperVersion();
         uint32_t path_id = f->fd.GetPathId();
         assert(path_id < cfd_->ioptions()->cf_paths.size());
         vset_->obsolete_files_.emplace_back(
             f, cfd_->ioptions()->cf_paths[path_id].path,
+            sv ? sv->mutable_cf_options.uncache_aggressiveness : 0,
             cfd_->GetFileMetadataCacheReservationManager());
       }
     }
@@ -5197,6 +5201,10 @@ VersionSet::~VersionSet() {
   column_family_set_.reset();
   for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
+      // NOTE: DB is shutting down, so file is probably not obsolete, just
+      // no longer referenced by Versions in memory.
+      // For more context, see comment on "table_cache_->EraseUnRefEntries()"
+      // in DBImpl::CloseHelper().
       table_cache_->Release(file.metadata->table_reader_handle);
       TableCache::Evict(table_cache_, file.metadata->fd.GetNumber());
     }
