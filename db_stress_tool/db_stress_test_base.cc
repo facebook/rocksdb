@@ -3398,6 +3398,27 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   column_families_.clear();
 
+  // Currently reopen does not restore expected state
+  // with potential data loss in mind like the first open before
+  // crash-recovery verification does. Therefore it always expects no data loss
+  // and we should ensure no data loss in testing.
+  // TODO(hx235): eliminate the FlushWAL(true /* sync */)/SyncWAL() below
+  if (!FLAGS_disable_wal) {
+    Status s;
+    if (FLAGS_manual_wal_flush_one_in > 0) {
+      s = db_->FlushWAL(/*sync=*/true);
+    } else {
+      s = db_->SyncWAL();
+    }
+    if (!s.ok()) {
+      fprintf(stderr,
+              "Error persisting WAL data which is needed before reopening the "
+              "DB: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+
   if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
     if (!s.ok()) {
