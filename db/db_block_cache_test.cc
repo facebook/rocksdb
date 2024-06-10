@@ -1345,11 +1345,14 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
     for (uint32_t ua : {0, 1, 2, 10000}) {
       SCOPED_TRACE("ua=" + std::to_string(ua));
 
+      BlockBasedTableOptions table_options;
       Options options = CurrentOptions();
       options.uncache_aggressiveness = ua;
       options.create_if_missing = true;
       options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-      BlockBasedTableOptions table_options;
+      // Don't allow background operations to keep Versions referenced
+      options.stats_dump_period_sec = 0;
+      options.stats_persist_period_sec = 0;
 
       const size_t capacity = size_t{1} << 25;
       const int num_shard_bits = 0;  // 1 shard
