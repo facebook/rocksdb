@@ -3976,7 +3976,8 @@ unsigned char rocksdb_options_get_track_and_verify_wals_in_manifest(
 
 void rocksdb_options_set_track_and_verify_wals_in_manifest(
     rocksdb_options_t* opt, unsigned char track_and_verify_wals_in_manifest) {
-  opt->rep.track_and_verify_wals_in_manifest = track_and_verify_wals_in_manifest;
+  opt->rep.track_and_verify_wals_in_manifest =
+      track_and_verify_wals_in_manifest;
 }
 
 void rocksdb_options_set_max_successive_merges(rocksdb_options_t* opt,
