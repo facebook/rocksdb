@@ -582,10 +582,10 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   const bool kSkipFilters = true;
   const bool kImmortal = true;
   ASSERT_OK(ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
-                         internal_comparator,
-                         0 /* block_protection_bytes_per_key */, !kSkipFilters,
-                         !kImmortal, level_),
+      TableReaderOptions(
+          ioptions, moptions.prefix_extractor, soptions, internal_comparator,
+          0 /* block_protection_bytes_per_key */,
+          /*ignore_seqno_in_file=*/false, !kSkipFilters, !kImmortal, level_),
       std::move(file_reader), sink->contents().size(), &table_reader));
   // Search using Get()
   ReadOptions ro;

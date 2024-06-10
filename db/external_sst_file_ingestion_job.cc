@@ -44,9 +44,12 @@ Status ExternalSstFileIngestionJob::Prepare(
       return status;
     }
 
+    // Files from a live DB may have a different column family ID,
+    // so we let it pass here.
     if (file_to_ingest.cf_id !=
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
-        file_to_ingest.cf_id != cfd_->GetID()) {
+        file_to_ingest.cf_id != cfd_->GetID() &&
+        !ingestion_options_.from_live_db) {
       return Status::InvalidArgument(
           "External file column family id don't match");
     }
@@ -474,7 +477,8 @@ Status ExternalSstFileIngestionJob::Run() {
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),
         f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size,
-        f.user_defined_timestamps_persisted);
+        f.user_defined_timestamps_persisted,
+        /*ignore_seqno_in_file=*/ingestion_options_.from_live_db);
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -623,8 +627,10 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     DeleteInternalFiles();
     consumed_seqno_count_ = 0;
     files_overlap_ = false;
-  } else if (status.ok() && ingestion_options_.move_files) {
+  } else if (status.ok() && ingestion_options_.move_files &&
+             !ingestion_options_.from_live_db) {
     // The files were moved and added successfully, remove original file links
+    // If files are from a live DB, we should not remove them.
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
       if (!s.ok()) {
@@ -681,6 +687,7 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
           sv->mutable_cf_options.block_protection_bytes_per_key,
+          /*ignore_seqno_in_file=*/false,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,
@@ -704,9 +711,16 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
   // Get table version
   auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
   if (version_iter == uprops.end()) {
-    return Status::Corruption("External file version not found");
+    if (!ingestion_options_.from_live_db) {
+      return Status::Corruption("External file version not found");
+    } else {
+      // 0 is special version for when a file from live DB does not have the
+      // version table property
+      file_to_ingest->version = 0;
+    }
+  } else {
+    file_to_ingest->version = DecodeFixed32(version_iter->second.c_str());
   }
-  file_to_ingest->version = DecodeFixed32(version_iter->second.c_str());
 
   auto seqno_iter = uprops.find(ExternalSstFilePropertyNames::kGlobalSeqno);
   if (file_to_ingest->version == 2) {
@@ -733,8 +747,15 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
       return Status::InvalidArgument(
           "External SST file V1 does not support global seqno");
     }
+  } else if (file_to_ingest->version == 0) {
+    // from_live_db is true
+    assert(seqno_iter == uprops.end());
+    file_to_ingest->original_seqno = 0;
+    file_to_ingest->global_seqno_offset = 0;
   } else {
-    return Status::InvalidArgument("External file version is not supported");
+    return Status::InvalidArgument("External file version " +
+                                   std::to_string(file_to_ingest->version) +
+                                   " is not supported");
   }
 
   file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);

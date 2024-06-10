@@ -255,6 +255,11 @@ bool VersionEdit::EncodeTo(std::string* dst,
       char p = static_cast<char>(0);
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
+    if (f.ignore_seqno_in_file) {
+      PutVarint32(dst, NewFileCustomTag::kIgnoreSeqnoInFile);
+      char p = static_cast<char>(1);
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
+    }
 
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
@@ -452,6 +457,12 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "user-defined timestamps persisted field wrong size";
           }
           f.user_defined_timestamps_persisted = (field[0] == 1);
+          break;
+        case kIgnoreSeqnoInFile:
+          if (field.size() != 1) {
+            return "ignore_seqno_in_file field wrong size";
+          }
+          f.ignore_seqno_in_file = field[0] == 1;
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -923,6 +934,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.tail_size);
     r.append(" User-defined timestamps persisted: ");
     r.append(f.user_defined_timestamps_persisted ? "true" : "false");
+    r.append(" Ignore seqno in file: ");
+    r.append(f.ignore_seqno_in_file ? "true" : "false");
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -1041,6 +1054,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "TailSize" << f.tail_size;
       jw << "UserDefinedTimestampsPersisted"
          << f.user_defined_timestamps_persisted;
+      jw << "IgnoreSeqnoInFile" << f.ignore_seqno_in_file;
       jw.EndArrayedObject();
     }
 
