@@ -104,6 +104,7 @@ default_params = {
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
+    "ingest_live_db_file_one_in": random.choice([0, 3]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),

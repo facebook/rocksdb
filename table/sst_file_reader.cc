@@ -66,6 +66,7 @@ Status SstFileReader::Open(const std::string& file_path) {
         r->ioptions, r->moptions.prefix_extractor, r->soptions,
         r->ioptions.internal_comparator,
         r->moptions.block_protection_bytes_per_key,
+        /*ignore_seqno_in_file=*/false,
         /*skip_filters*/ false, /*immortal*/ false,
         /*force_direct_prefetch*/ false, /*level*/ -1,
         /*block_cache_tracer*/ nullptr,

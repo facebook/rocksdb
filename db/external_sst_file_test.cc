@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <functional>
+#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -3719,10 +3720,7 @@ TEST_F(ExternalSSTFileWithTimestampTest, TimestampsNotPersistedBasic) {
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
-                        testing::Values(std::make_tuple(false, false),
-                                        std::make_tuple(false, true),
-                                        std::make_tuple(true, false),
-                                        std::make_tuple(true, true)));
+                        testing::Combine(testing::Bool(), testing::Bool()));
 
 INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
                         ExternSSTFileLinkFailFallbackTest,
@@ -3730,6 +3728,422 @@ INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
                                         std::make_tuple(true, true),
                                         std::make_tuple(false, false)));
 
+class IngestLiveDBFileTest
+    : public ExternalSSTFileTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  IngestLiveDBFileTest() {
+    ingest_opts.from_live_db = true;
+    ingest_opts.move_files = std::get<0>(GetParam());
+    ingest_opts.verify_checksums_before_ingest = std::get<1>(GetParam());
+  }
+
+ protected:
+  IngestExternalFileOptions ingest_opts;
+  const int kNumKeys = 50;
+};
+
+INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestLiveDBFileTest,
+                        testing::Combine(testing::Bool(), testing::Bool()));
+
+TEST_P(IngestLiveDBFileTest, NewManifest) {
+  // When writing current state of files to a new MANIFEST,
+  // it should preserve the global sequence number of ingested live db files.
+  do {
+    SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
+    Options options = CurrentOptions();
+    CreateAndReopenWithCF({"toto"}, options);
+
+    // Generate a file to ingest in default CF
+    for (int k = 0; k < kNumKeys; ++k) {
+      ASSERT_OK(Put(Key(k), "val_" + Key(k)));
+      ASSERT_OK(Put(1, Key(k), "cf1_" + Key(k)));
+    }
+    ASSERT_OK(Flush());
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, handles_[0], nullptr, nullptr));
+    std::vector<LiveFileMetaData> live_meta;
+    db_->GetLiveFilesMetaData(&live_meta);
+    ASSERT_EQ(1, live_meta.size());
+    ASSERT_EQ(live_meta[0].largest_seqno, 0);
+
+    ASSERT_OK(Flush(1));
+    ASSERT_OK(db_->IngestExternalFile(
+        handles_[1],
+        {live_meta[0].directory + "/" + live_meta[0].relative_filename},
+        ingest_opts));
+    // Will write DB state to a new MANIFEST during open.
+    ASSERT_OK(TryReopenWithColumnFamilies({"default", "toto"}, options));
+    // read from new MANIFEST
+    ASSERT_OK(TryReopenWithColumnFamilies({"default", "toto"}, options));
+
+    // If global seqno is not used for the ingested file, keys in it have seqno
+    // 0 and will be dropped during compaction.
+    ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+    std::string val;
+    for (int k = 0; k < kNumKeys; ++k) {
+      ASSERT_OK(db_->Get(ReadOptions(), handles_[1], Key(k), &val));
+      ASSERT_EQ(val, "val_" + Key(k));
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
+}
+
+TEST_P(IngestLiveDBFileTest, Basic) {
+  do {
+    SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
+    Options options = CurrentOptions();
+    BlockBasedTableOptions table_options;
+    table_options.index_type =
+        BlockBasedTableOptions::kBinarySearchWithFirstKey;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    CreateAndReopenWithCF({"toto"}, options);
+
+    // Generate a file to ingest in default CF
+    for (int k = 0; k < kNumKeys; ++k) {
+      ASSERT_OK(Put(Key(k), "val_" + std::to_string(k)));
+      ASSERT_OK(Put(1, Key(k), "base_" + std::to_string(k)));
+    }
+    const Snapshot* snapshot = db_->GetSnapshot();
+    ASSERT_OK(Flush());
+
+    // Case 1. Ingest a file with non-zero seqno and a file boundary key has
+    // non-zero seqno, this should fail.
+    //
+    // To get the largest internal key of a file, need to get FileMetaData.
+    std::vector<std::vector<FileMetaData>> metadata;
+    dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &metadata,
+                                    nullptr);
+    const FileMetaData& file = metadata[0][0];
+    ValueType vtype;
+    SequenceNumber seq;
+    UnPackSequenceAndType(ExtractInternalKeyFooter(file.largest.Encode()), &seq,
+                          &vtype);
+    ASSERT_GE(seq, 0);
+
+    std::vector<LiveFileMetaData> live_meta;
+    db_->GetLiveFilesMetaData(&live_meta);
+    ASSERT_EQ(1, live_meta.size());
+    ASSERT_GT(live_meta[0].largest_seqno, 0);
+    std::string ingest_file_path =
+        live_meta[0].directory + "/" + live_meta[0].relative_filename;
+    Status s =
+        db_->IngestExternalFile(handles_[1], {ingest_file_path}, ingest_opts);
+    ASSERT_NOK(s);
+
+    // Case 2. Ingest a file with zero seqno into a different CF in the same
+    // DB, this should succeed.
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, handles_[0], nullptr, nullptr));
+    live_meta.clear();
+    db_->GetLiveFilesMetaData(&live_meta);
+    ASSERT_EQ(1, live_meta.size());
+    ASSERT_EQ(live_meta[0].largest_seqno, 0);
+    ingest_file_path =
+        live_meta[0].directory + "/" + live_meta[0].relative_filename;
+    s = db_->IngestExternalFile(handles_[1], {ingest_file_path}, ingest_opts);
+    ASSERT_OK(s);
+    {
+      // Verify target CF state after ingestion.
+      std::unique_ptr<Iterator> iter{
+          db_->NewIterator(ReadOptions(), handles_[1])};
+      // Use snapshot to validate that ingested file has a higher sequence
+      // number assigned.
+      ReadOptions ro;
+      ro.snapshot = snapshot;
+      std::unique_ptr<Iterator> snapshot_iter{
+          db_->NewIterator(ro, handles_[1])};
+      iter->SeekToFirst();
+      snapshot_iter->SeekToFirst();
+      for (int k = 0; k < kNumKeys; ++k, iter->Next(), snapshot_iter->Next()) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key(), Key(k));
+        ASSERT_EQ(iter->value(), "val_" + std::to_string(k));
+
+        ASSERT_TRUE(snapshot_iter->Valid());
+        ASSERT_EQ(snapshot_iter->key(), Key(k));
+        ASSERT_EQ(snapshot_iter->value(), "base_" + std::to_string(k));
+      }
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_FALSE(snapshot_iter->Valid());
+      ASSERT_OK(snapshot_iter->status());
+    }
+    db_->ReleaseSnapshot(snapshot);
+
+    // Case 3. Ingest file with zero seqno into a different DB.
+    std::string db2_path = test::PerThreadDBPath("DB2");
+    Options db2_options;
+    db2_options.create_if_missing = true;
+    DB* db2 = nullptr;
+    ASSERT_OK(DB::Open(db2_options, db2_path, &db2));
+    snapshot = db2->GetSnapshot();
+    ASSERT_OK(db2->IngestExternalFile({ingest_file_path}, ingest_opts));
+    {
+      std::string value;
+      ReadOptions ro_with_snapshot;
+      ro_with_snapshot.snapshot = snapshot;
+      ReadOptions ro;
+      for (int k = 0; k < kNumKeys; ++k) {
+        ASSERT_OK(db2->Get(ro, Key(k), &value));
+        ASSERT_EQ(value, "val_" + std::to_string(k));
+        ASSERT_TRUE(db2->Get(ro_with_snapshot, Key(k), &value).IsNotFound());
+      }
+    }
+    db2->ReleaseSnapshot(snapshot);
+
+    // Case 4: db2 compacts away the ingested file. Reopen db_, it should not
+    // lose the SST file even if it was ingested into another DB and the file
+    // is deleted(unlinked) by that DB.
+    WriteOptions wo;
+    // Overwrites half of the keys for verification in case 5 below.
+    for (int k = 0; k < kNumKeys / 2; ++k) {
+      ASSERT_OK(db2->Put(wo, Key(k), "val_db2" + std::to_string(k)));
+    }
+    ASSERT_OK(db2->CompactRange(cro, nullptr, nullptr));
+    // If a file is missing, open will fail.
+    ASSERT_OK(TryReopenWithColumnFamilies({"default", "toto"}, options));
+
+    // Case 5: Ingest file back to db_, which has varying options configs.
+    live_meta.clear();
+    db2->GetLiveFilesMetaData(&live_meta);
+    ASSERT_EQ(1, live_meta.size());
+    ASSERT_EQ(live_meta[0].largest_seqno, 0);
+    ingest_file_path =
+        live_meta[0].directory + "/" + live_meta[0].relative_filename;
+    ASSERT_OK(db_->IngestExternalFile({ingest_file_path}, ingest_opts));
+    delete db2;
+    ASSERT_OK(DestroyDB(db2_path, db2_options));
+    {
+      // Verify db_ state
+      ReadOptions ro;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+      iter->SeekToFirst();
+      for (int k = 0; k < kNumKeys; ++k, iter->Next()) {
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key(), Key(k));
+        if (k < kNumKeys / 2) {
+          ASSERT_EQ(iter->value(), "val_db2" + std::to_string(k));
+        } else {
+          ASSERT_EQ(iter->value(), "val_" + std::to_string(k));
+        }
+      }
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
+}
+
+TEST_P(IngestLiveDBFileTest, FailureCase) {
+  // Try to ingest overlapping data with ingestion options that should
+  // fail the ingestion.
+  do {
+    SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
+
+    Options options = CurrentOptions();
+    CreateAndReopenWithCF({"toto"}, options);
+    for (int k = 49; k < 100; ++k) {
+      ASSERT_OK(Put(1, Key(k), "cf1_" + Key(k)));
+    }
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+    std::vector<LiveFileMetaData> live_meta;
+    db_->GetLiveFilesMetaData(&live_meta);
+    ASSERT_EQ(live_meta.size(), 1);
+    ASSERT_EQ(0, live_meta[0].largest_seqno = 0);
+    std::vector<std::string> to_ingest_files;
+    to_ingest_files.emplace_back(live_meta[0].directory + "/" +
+                                 live_meta[0].relative_filename);
+
+    for (int k = 0; k < 50; ++k) {
+      ASSERT_OK(Put(Key(k), "default_cf_" + Key(k)));
+    }
+    ingest_opts.from_live_db = false;
+    ASSERT_NOK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
+    ingest_opts.from_live_db = true;
+    ingest_opts.allow_blocking_flush = false;
+    ASSERT_NOK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
+    ingest_opts.allow_blocking_flush = true;
+    ingest_opts.allow_global_seqno = false;
+    ASSERT_NOK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
+    ingest_opts.allow_global_seqno = true;
+    if (options.compaction_style != kCompactionStyleUniversal) {
+      // FIXME: after fixing ingestion with universal compaction, currently
+      //  will always ingest into L0.
+      ingest_opts.fail_if_not_bottommost_level = true;
+      ASSERT_NOK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
+      ingest_opts.fail_if_not_bottommost_level = false;
+    }
+    ingest_opts.write_global_seqno = true;
+    ASSERT_NOK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
+    ingest_opts.write_global_seqno = false;
+    ASSERT_OK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
+    std::string val;
+    for (int k = 0; k < 100; ++k) {
+      ASSERT_OK(db_->Get(ReadOptions(), Key(k), &val));
+      if (k < 49) {
+        ASSERT_EQ(val, "default_cf_" + Key(k));
+      } else {
+        ASSERT_EQ(val, "cf1_" + Key(k));
+      }
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
+}
+
+// For SST files from live db, we only support ingestion if all keys have
+// zero sequence number. However, without scanning the input file, we can
+// only check their boundary keys. This test shows that a file with some key
+// with non-zero sequence number could be incorrectly ingested.
+//
+// To support ingesting such files, our code base needs to be able to handle
+// duplicate keys with the same user key and sequence number. The block
+// look up path assumes there is no duplicate key which also has to change.
+// TEST_F(IngestLiveDBFileTest, NonZeroSeqnoAtNonBoundaryKey) {
+//   Options options = CurrentOptions();
+//   CreateAndReopenWithCF({"toto"}, options);
+//
+//   ASSERT_OK(Put(Key(1), "val1"));
+//   ASSERT_OK(Put(Key(3), "val3"));
+//   const Snapshot* snapshot = db_->GetSnapshot();
+//   ASSERT_OK(Put(Key(2), "val2"));
+//   ASSERT_OK(Flush());
+//   CompactRangeOptions cro;
+//    cro.bottommost_level_compaction =
+//    BottommostLevelCompaction::kForceOptimized;
+//    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+//    ASSERT_EQ("0,1", FilesPerLevel());
+//
+//   std::vector<std::vector<FileMetaData>> metadata;
+//    dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &metadata,
+//                                    nullptr);
+//    ASSERT_EQ(1, metadata[1].size());
+//    const FileMetaData& file = metadata[1][0];
+//    ValueType vtype;
+//    SequenceNumber seq;
+//    UnPackSequenceAndType(ExtractInternalKeyFooter(file.largest.Encode()),
+//    &seq,
+//                          &vtype);
+//    ASSERT_EQ(seq, 0);
+//     UnPackSequenceAndType(ExtractInternalKeyFooter(file.smallest.Encode()),
+//     &seq,
+//                          &vtype);
+//    ASSERT_EQ(seq, 0);
+//
+//    std::vector<LiveFileMetaData> live_meta;
+//    db_->GetLiveFilesMetaData(&live_meta);
+//    ASSERT_EQ(1, live_meta.size());
+//    ASSERT_GT(live_meta[0].largest_seqno, 0);
+//    std::vector<std::string> file_to_ingest{live_meta[0].directory + "/" +
+//    live_meta[0].relative_filename}; IngestExternalFileOptions ingest_opts;
+//    ingest_opts.from_live_db = true;
+//    // FIXME: should return non-ok status
+//    ASSERT_NOK(db_->IngestExternalFile(handles_[1], file_to_ingest,
+//    ingest_opts)); db_->ReleaseSnapshot(snapshot);
+//}
+
+class IngestLiveDBFileTest2
+    : public ExternalSSTFileTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
+ public:
+  IngestLiveDBFileTest2() = default;
+};
+
+INSTANTIATE_TEST_CASE_P(VaryingOptions, IngestLiveDBFileTest2,
+                        testing::Combine(testing::Bool(), testing::Bool(),
+                                         testing::Bool(), testing::Bool()));
+
+TEST_P(IngestLiveDBFileTest2, NotOverlapWithDB) {
+  // Use a separate column family to sort some data, and then ingest into
+  // another column family (stress test covers ingesting into a separate DB).
+  // The data to be ingested does not overlap with existing data.
+  IngestExternalFileOptions ingest_opts;
+  ingest_opts.from_live_db = true;
+  ingest_opts.snapshot_consistency = std::get<0>(GetParam());
+  ingest_opts.allow_global_seqno = std::get<1>(GetParam());
+  ingest_opts.allow_blocking_flush = std::get<2>(GetParam());
+  ingest_opts.fail_if_not_bottommost_level = std::get<3>(GetParam());
+
+  do {
+    SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
+    Options options = CurrentOptions();
+    // vector memtable for temp CF does not support concurrent write
+    options.allow_concurrent_memtable_write = false;
+    CreateAndReopenWithCF({"toto"}, options);
+
+    // non-empty bottommost level
+    WriteOptions wo;
+    for (int k = 0; k < 50; ++k) {
+      ASSERT_OK(db_->Put(wo, handles_[1], Key(k), "base_val_" + Key(k)));
+    }
+    ASSERT_OK(Flush());
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+    // non-empty memtable
+    for (int k = 50; k < 100; ++k) {
+      ASSERT_OK(db_->Put(wo, handles_[1], Key(k), "base_val_" + Key(k)));
+    }
+
+    // load external data to sort, generate multiple files
+    Options temp_cf_opts;
+    ColumnFamilyHandle* temp_cfh;
+    temp_cf_opts.target_file_size_base = 4 << 10;
+    temp_cf_opts.memtable_factory.reset(new VectorRepFactory());
+    temp_cf_opts.allow_concurrent_memtable_write = false;
+    temp_cf_opts.compaction_style = kCompactionStyleUniversal;
+    ASSERT_OK(db_->CreateColumnFamily(temp_cf_opts, "temp_cf", &temp_cfh));
+
+    Random rnd(301);
+    std::vector<std::string> expected_value;
+    expected_value.resize(100);
+    // Out of order insertion
+    for (int k = 99; k >= 0; --k) {
+      expected_value[k] = rnd.RandomString(200);
+      ASSERT_OK(db_->Put(wo, temp_cfh, Key(k + 1000), expected_value[k]));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions(), temp_cfh));
+    ASSERT_OK(db_->CompactRange(cro, temp_cfh, nullptr, nullptr));
+    std::vector<std::string> sst_file_paths;
+    ColumnFamilyMetaData cf_meta;
+    db_->GetColumnFamilyMetaData(temp_cfh, &cf_meta);
+    ASSERT_GT(cf_meta.file_count, 1);
+    for (const auto& level_meta : cf_meta.levels) {
+      if (level_meta.level + 1 < temp_cf_opts.num_levels) {
+        ASSERT_EQ(0, level_meta.files.size());
+      } else {
+        ASSERT_GT(level_meta.files.size(), 1);
+        for (const auto& meta : level_meta.files) {
+          ASSERT_EQ(0, meta.largest_seqno);
+          sst_file_paths.emplace_back(meta.directory + "/" +
+                                      meta.relative_filename);
+        }
+      }
+    }
+
+    // ingest into base CF
+    ASSERT_OK(
+        db_->IngestExternalFile(handles_[1], sst_file_paths, ingest_opts));
+    ASSERT_OK(db_->DropColumnFamily(temp_cfh));
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(temp_cfh));
+
+    // verify state of the base CF
+    temp_cfh = nullptr;
+    ReadOptions ro;
+    std::string val;
+    for (int k = 0; k < 100; ++k) {
+      ASSERT_OK(db_->Get(ro, handles_[1], Key(k), &val));
+      ASSERT_EQ(val, "base_val_" + Key(k));
+      ASSERT_OK(db_->Get(ro, handles_[1], Key(1000 + k), &val));
+      ASSERT_EQ(val, expected_value[k]);
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

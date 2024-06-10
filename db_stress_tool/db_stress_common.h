@@ -208,6 +208,7 @@ DECLARE_int32(backup_one_in);
 DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
+DECLARE_int32(ingest_live_db_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);

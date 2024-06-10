@@ -392,7 +392,8 @@ class CompactionJobTestBase : public testing::Test {
         versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
         kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
         /*compensated_range_deletion_size=*/0, /*tail_size=*/0,
-        /*user_defined_timestamps_persisted=*/true);
+        /*user_defined_timestamps_persisted=*/true,
+        /*ignore_seqno_in_file=*/false);
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
@@ -461,7 +462,8 @@ class CompactionJobTestBase : public testing::Test {
           read_opts,
           TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
                              cfd_->internal_comparator(),
-                             0 /* block_protection_bytes_per_key */),
+                             0 /* block_protection_bytes_per_key */,
+                             /*ignore_seqno_in_file=*/false),
           std::move(freader), file_size, &table_reader, false);
       ASSERT_OK(s);
       assert(table_reader);

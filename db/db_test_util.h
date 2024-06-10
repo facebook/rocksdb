@@ -1041,6 +1041,7 @@ class DBTestBase : public testing::Test {
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kUnorderedWrite,
+    kBlockBasedTableWithBinarySearchWithFirstKeyIndex,
     // This must be the last line
     kEnd,
   };

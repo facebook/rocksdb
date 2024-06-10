@@ -478,14 +478,19 @@ bool IsFeatureSupported(const TableProperties& table_properties,
 }
 
 // Caller has to ensure seqno is not nullptr.
+// Set *seqno to the global sequence number for reading this file.
+// @param `ignore_seqno_in_file` uses file's largest seqno as global sequence
+// number when the file is not created by SstFileWriter.
 Status GetGlobalSequenceNumber(const TableProperties& table_properties,
                                SequenceNumber largest_seqno,
-                               SequenceNumber* seqno) {
+                               SequenceNumber* seqno,
+                               bool ignore_seqno_in_file) {
   const auto& props = table_properties.user_collected_properties;
   const auto version_pos = props.find(ExternalSstFilePropertyNames::kVersion);
   const auto seqno_pos = props.find(ExternalSstFilePropertyNames::kGlobalSeqno);
 
   *seqno = kDisableGlobalSequenceNumber;
+  uint32_t version = 0;
   if (version_pos == props.end()) {
     if (seqno_pos != props.end()) {
       std::array<char, 200> msg_buf;
@@ -496,11 +501,21 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
           seqno_pos->second.c_str());
       return Status::Corruption(msg_buf.data());
     }
-    return Status::OK();
+    if (!ignore_seqno_in_file) {
+      return Status::OK();
+    }
+  } else {
+    version = DecodeFixed32(version_pos->second.c_str());
+    if (version > 2) {
+      return Status::Corruption(
+          ("External file version " + std::to_string(version) +
+           " is not supported. The field is likely corrupted."));
+    }
   }
 
-  uint32_t version = DecodeFixed32(version_pos->second.c_str());
-  if (version < 2) {
+  // 0 is for no version. 1 and 2 are supported versions.
+  assert(version <= 2);
+  if (version == 1) {
     if (seqno_pos != props.end() || version != 1) {
       std::array<char, 200> msg_buf;
       // This is a v1 external sst file, global_seqno is not supported.
@@ -613,7 +628,7 @@ Status BlockBasedTable::Open(
     const EnvOptions& env_options, const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    uint8_t block_protection_bytes_per_key,
+    uint8_t block_protection_bytes_per_key, bool ignore_seqno_in_file,
     std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
@@ -730,7 +745,8 @@ Status BlockBasedTable::Open(
   // Populates table_properties and some fields that depend on it,
   // such as index_type.
   s = new_table->ReadPropertiesBlock(ro, prefetch_buffer.get(),
-                                     metaindex_iter.get(), largest_seqno);
+                                     metaindex_iter.get(), largest_seqno,
+                                     ignore_seqno_in_file);
   if (!s.ok()) {
     return s;
   }
@@ -955,9 +971,11 @@ Status BlockBasedTable::PrefetchTail(
   return s;
 }
 
-Status BlockBasedTable::ReadPropertiesBlock(
-    const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
-    InternalIterator* meta_iter, const SequenceNumber largest_seqno) {
+Status BlockBasedTable::ReadPropertiesBlock(const ReadOptions& ro,
+                                            FilePrefetchBuffer* prefetch_buffer,
+                                            InternalIterator* meta_iter,
+                                            const SequenceNumber largest_seqno,
+                                            bool ignore_seqno_in_file) {
   Status s;
   BlockHandle handle;
   s = FindOptionalMetaBlock(meta_iter, kPropertiesBlockName, &handle);
@@ -1041,7 +1059,7 @@ Status BlockBasedTable::ReadPropertiesBlock(
         rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
 
     s = GetGlobalSequenceNumber(*(rep_->table_properties), largest_seqno,
-                                &(rep_->global_seqno));
+                                &(rep_->global_seqno), ignore_seqno_in_file);
     if (!s.ok()) {
       ROCKS_LOG_ERROR(rep_->ioptions.logger, "%s", s.ToString().c_str());
     }

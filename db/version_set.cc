@@ -6687,15 +6687,15 @@ Status VersionSet::WriteCurrentStateToManifest(
         for (const auto& f : level_files) {
           assert(f);
 
-          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
-                       f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction, f->temperature,
-                       f->oldest_blob_file_number, f->oldest_ancester_time,
-                       f->file_creation_time, f->epoch_number, f->file_checksum,
-                       f->file_checksum_func_name, f->unique_id,
-                       f->compensated_range_deletion_size, f->tail_size,
-                       f->user_defined_timestamps_persisted);
+          edit.AddFile(
+              level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
+              f->smallest, f->largest, f->fd.smallest_seqno,
+              f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
+              f->oldest_blob_file_number, f->oldest_ancester_time,
+              f->file_creation_time, f->epoch_number, f->file_checksum,
+              f->file_checksum_func_name, f->unique_id,
+              f->compensated_range_deletion_size, f->tail_size,
+              f->user_defined_timestamps_persisted, f->ignore_seqno_in_file);
         }
       }
 

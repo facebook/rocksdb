@@ -5814,6 +5814,11 @@ Status DBImpl::IngestExternalFiles(
             "timestamps enabled doesn't support ingest behind.");
       }
     }
+    if (ingest_opts.from_live_db && ingest_opts.write_global_seqno) {
+      return Status::NotSupported(
+          "write_global_seqno is deprecated and does not work with "
+          "from_live_db.");
+    }
   }
 
   // TODO (yanqin) maybe handle the case in which column_families have

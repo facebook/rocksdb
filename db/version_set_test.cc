@@ -53,7 +53,7 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, false);
     files_.push_back(f);
   }
 
@@ -169,7 +169,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kNullUniqueId64x2, compensated_range_deletion_size, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, false);
     vstorage_.AddFile(level, f);
   }
 
@@ -1397,7 +1397,7 @@ class VersionSetTestBase {
           file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
           Temperature::kUnknown, 0, 0, 0, info.epoch_number,
           kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-          0, 0, /* user_defined_timestamps_persisted */ true);
+          0, 0, /* user_defined_timestamps_persisted */ true, false);
     }
   }
 
@@ -3996,7 +3996,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, false);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -4058,7 +4058,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, false);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
