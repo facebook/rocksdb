@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <functional>
-#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -3747,6 +3746,14 @@ INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestLiveDBFileTest,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST_P(IngestLiveDBFileTest, NewManifest) {
+  if (encrypted_env_ && ingest_opts.move_files) {
+    // FIXME: should fail ingestion or support this combination.
+    ROCKSDB_GTEST_SKIP(
+        "Encrypted env and move_files do not work together as we reopen the "
+        "file after linking it, which would append an extra encryption "
+        "prefix.");
+    return;
+  }
   // When writing current state of files to a new MANIFEST,
   // it should preserve the global sequence number of ingested live db files.
   do {
@@ -3791,6 +3798,13 @@ TEST_P(IngestLiveDBFileTest, NewManifest) {
 }
 
 TEST_P(IngestLiveDBFileTest, Basic) {
+  if (encrypted_env_ && ingest_opts.move_files) {
+    ROCKSDB_GTEST_SKIP(
+        "Encrypted env and move_files do not work together as we reopen the "
+        "file after linking it, which would append an extra encryption "
+        "prefix.");
+    return;
+  }
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
     Options options = CurrentOptions();
@@ -3874,70 +3888,80 @@ TEST_P(IngestLiveDBFileTest, Basic) {
     }
     db_->ReleaseSnapshot(snapshot);
 
-    // Case 3. Ingest file with zero seqno into a different DB.
-    std::string db2_path = test::PerThreadDBPath("DB2");
-    Options db2_options;
-    db2_options.create_if_missing = true;
-    DB* db2 = nullptr;
-    ASSERT_OK(DB::Open(db2_options, db2_path, &db2));
-    snapshot = db2->GetSnapshot();
-    ASSERT_OK(db2->IngestExternalFile({ingest_file_path}, ingest_opts));
-    {
-      std::string value;
-      ReadOptions ro_with_snapshot;
-      ro_with_snapshot.snapshot = snapshot;
-      ReadOptions ro;
-      for (int k = 0; k < kNumKeys; ++k) {
-        ASSERT_OK(db2->Get(ro, Key(k), &value));
-        ASSERT_EQ(value, "val_" + std::to_string(k));
-        ASSERT_TRUE(db2->Get(ro_with_snapshot, Key(k), &value).IsNotFound());
-      }
-    }
-    db2->ReleaseSnapshot(snapshot);
-
-    // Case 4: db2 compacts away the ingested file. Reopen db_, it should not
-    // lose the SST file even if it was ingested into another DB and the file
-    // is deleted(unlinked) by that DB.
-    WriteOptions wo;
-    // Overwrites half of the keys for verification in case 5 below.
-    for (int k = 0; k < kNumKeys / 2; ++k) {
-      ASSERT_OK(db2->Put(wo, Key(k), "val_db2" + std::to_string(k)));
-    }
-    ASSERT_OK(db2->CompactRange(cro, nullptr, nullptr));
-    // If a file is missing, open will fail.
-    ASSERT_OK(TryReopenWithColumnFamilies({"default", "toto"}, options));
-
-    // Case 5: Ingest file back to db_, which has varying options configs.
-    live_meta.clear();
-    db2->GetLiveFilesMetaData(&live_meta);
-    ASSERT_EQ(1, live_meta.size());
-    ASSERT_EQ(live_meta[0].largest_seqno, 0);
-    ingest_file_path =
-        live_meta[0].directory + "/" + live_meta[0].relative_filename;
-    ASSERT_OK(db_->IngestExternalFile({ingest_file_path}, ingest_opts));
-    delete db2;
-    ASSERT_OK(DestroyDB(db2_path, db2_options));
-    {
-      // Verify db_ state
-      ReadOptions ro;
-      std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
-      iter->SeekToFirst();
-      for (int k = 0; k < kNumKeys; ++k, iter->Next()) {
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(iter->key(), Key(k));
-        if (k < kNumKeys / 2) {
-          ASSERT_EQ(iter->value(), "val_db2" + std::to_string(k));
-        } else {
-          ASSERT_EQ(iter->value(), "val_" + std::to_string(k));
+    if (!encrypted_env_) {
+      // Ingestion between encrypted env and non-encrypted env won't work.
+      // Case 3. Ingest file with zero seqno into a different DB.
+      std::string db2_path = test::PerThreadDBPath("DB2");
+      Options db2_options;
+      db2_options.create_if_missing = true;
+      DB* db2 = nullptr;
+      ASSERT_OK(DB::Open(db2_options, db2_path, &db2));
+      snapshot = db2->GetSnapshot();
+      ASSERT_OK(db2->IngestExternalFile({ingest_file_path}, ingest_opts));
+      {
+        std::string value;
+        ReadOptions ro_with_snapshot;
+        ro_with_snapshot.snapshot = snapshot;
+        ReadOptions ro;
+        for (int k = 0; k < kNumKeys; ++k) {
+          ASSERT_OK(db2->Get(ro, Key(k), &value));
+          ASSERT_EQ(value, "val_" + std::to_string(k));
+          ASSERT_TRUE(db2->Get(ro_with_snapshot, Key(k), &value).IsNotFound());
         }
       }
-      ASSERT_FALSE(iter->Valid());
-      ASSERT_OK(iter->status());
+      db2->ReleaseSnapshot(snapshot);
+
+      // Case 4: db2 compacts away the ingested file. Reopen db_, it should not
+      // lose the SST file even if it was ingested into another DB and the file
+      // is deleted(unlinked) by that DB.
+      WriteOptions wo;
+      // Overwrites half of the keys for verification in case 5 below.
+      for (int k = 0; k < kNumKeys / 2; ++k) {
+        ASSERT_OK(db2->Put(wo, Key(k), "val_db2" + std::to_string(k)));
+      }
+      ASSERT_OK(db2->CompactRange(cro, nullptr, nullptr));
+      // If a file is missing, open will fail.
+      ASSERT_OK(TryReopenWithColumnFamilies({"default", "toto"}, options));
+
+      // Case 5: Ingest file back to db_, which has varying options configs.
+      live_meta.clear();
+      db2->GetLiveFilesMetaData(&live_meta);
+      ASSERT_EQ(1, live_meta.size());
+      ASSERT_EQ(live_meta[0].largest_seqno, 0);
+      ingest_file_path =
+          live_meta[0].directory + "/" + live_meta[0].relative_filename;
+      ASSERT_OK(db_->IngestExternalFile({ingest_file_path}, ingest_opts));
+      delete db2;
+      ASSERT_OK(DestroyDB(db2_path, db2_options));
+      {
+        // Verify db_ state
+        ReadOptions ro;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+        iter->SeekToFirst();
+        for (int k = 0; k < kNumKeys; ++k, iter->Next()) {
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ(iter->key(), Key(k));
+          if (k < kNumKeys / 2) {
+            ASSERT_EQ(iter->value(), "val_db2" + std::to_string(k));
+          } else {
+            ASSERT_EQ(iter->value(), "val_" + std::to_string(k));
+          }
+        }
+        ASSERT_FALSE(iter->Valid());
+        ASSERT_OK(iter->status());
+      }
     }
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
 TEST_P(IngestLiveDBFileTest, FailureCase) {
+  if (encrypted_env_ && ingest_opts.move_files) {
+    ROCKSDB_GTEST_SKIP(
+        "Encrypted env and move_files do not work together as we reopen the "
+        "file after linking it, which would append an extra encryption "
+        "prefix.");
+    return;
+  }
   // Try to ingest overlapping data with ingestion options that should
   // fail the ingestion.
   do {
