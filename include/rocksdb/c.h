@@ -1620,6 +1620,12 @@ rocksdb_options_get_write_dbid_to_manifest(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_dbid_to_manifest(
     rocksdb_options_t*, unsigned char);
 
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_track_and_verify_wals_in_manifest(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_track_and_verify_wals_in_manifest(rocksdb_options_t*,
+                                                      unsigned char);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_level_to_compress(
     rocksdb_options_t* opt, int level);
 
