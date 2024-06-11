@@ -1434,7 +1434,7 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
 
       size_t alt_baseline_count = cache->GetOccupancyCount();
       size_t alt_baseline_usage = cache->GetUsage();
-      stats->Reset();
+      ASSERT_OK(stats->Reset());
       // We aren't generally cleaning up cache entries on DB::Close, especially
       // because someone might just re-open the same DB.
       Reopen(options);
@@ -1475,7 +1475,7 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
       ASSERT_GE(cache->GetUsage(),
                 alt_baseline_usage + kNumDataBlocks * table_options.block_size);
 
-      stats->Reset();
+      ASSERT_OK(stats->Reset());
 
       // Make trivial move
       {
