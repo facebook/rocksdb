@@ -1628,6 +1628,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
   RecordTick(stats_, WAL_FILE_SYNCED);
   IOOptions opts;
   IOStatus io_s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  std::list<log::Writer*> wals_internally_closed;
   if (io_s.ok()) {
     for (log::Writer* log : wals_to_sync) {
       if (job_context) {
@@ -1662,7 +1663,8 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
         if (error_recovery_in_prog) {
           log->file()->reset_seen_error();
         }
-        io_s = log->Close(write_options);
+        io_s = log->file()->Close(opts);
+        wals_internally_closed.push_back(log);
         if (!io_s.ok()) {
           break;
         }
@@ -1691,6 +1693,12 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
   }
   {
     InstrumentedMutexLock l(&log_write_mutex_);
+    for (auto* wal : wals_internally_closed) {
+      // We can only modify the state of log::Writer under the mutex
+      bool was_closed = wal->PublishIfClosed();
+      assert(was_closed);
+      (void)was_closed;
+    }
     if (io_s.ok()) {
       MarkLogsSynced(up_to_number, need_wal_dir_sync, synced_wals);
     } else {

@@ -324,9 +324,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         log_write_mutex_.Unlock();
         // TODO: maybe check the return value of Close.
         // TODO: plumb Env::IOActivity, Env::IOPriority
-        auto s = log.writer->Close({});
+        auto s = log.writer->file()->Close({});
         s.PermitUncheckedError();
         log_write_mutex_.Lock();
+        log.writer->PublishIfClosed();
         assert(&log == &logs_.front());
         log.FinishSync();
         log_sync_cv_.SignalAll();
