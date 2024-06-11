@@ -2169,9 +2169,11 @@ class BlockCachePropertyAggregator : public IntPropertyAggregator {
   }
 
   uint64_t Aggregate() const override {
-    return std::accumulate(
-        block_cache_properties_.cbegin(), block_cache_properties_.cend(), 0,
-        [](uint64_t sum, const auto& p) { return sum + p.second; });
+    uint64_t sum = 0;
+    for (const auto& p : block_cache_properties_) {
+      sum += p.second;
+    }
+    return sum;
   }
 
  private:
