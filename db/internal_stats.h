@@ -432,7 +432,7 @@ class InternalStats {
     explicit CompactionStatsFull() : stats(), penultimate_level_stats() {}
 
     explicit CompactionStatsFull(CompactionReason reason, int c)
-        : stats(reason, c), penultimate_level_stats(reason, c){}
+        : stats(reason, c), penultimate_level_stats(reason, c) {}
 
     uint64_t TotalBytesWritten() const {
       uint64_t bytes_written = stats.bytes_written + stats.bytes_written_blob;
@@ -873,5 +873,24 @@ class InternalStats {
   uint64_t started_at_;
 };
 
+// IntPropertyAggregator aggregates an integer property across all column
+// families.
+class IntPropertyAggregator {
+ public:
+  IntPropertyAggregator() {}
+  virtual ~IntPropertyAggregator() {}
+
+  IntPropertyAggregator(const IntPropertyAggregator&) = delete;
+  void operator=(const IntPropertyAggregator&) = delete;
+
+  // Add a column family's property value to the aggregator.
+  virtual void Add(ColumnFamilyData* cfd, uint64_t value) = 0;
+
+  // Get the aggregated value.
+  virtual uint64_t Aggregate() const = 0;
+};
+
+std::unique_ptr<IntPropertyAggregator> CreateIntPropertyAggregator(
+    const Slice& property);
 
 }  // namespace ROCKSDB_NAMESPACE

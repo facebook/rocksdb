@@ -4519,8 +4519,11 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
   if (property_info == nullptr || property_info->handle_int == nullptr) {
     return false;
   }
+  auto aggregator = CreateIntPropertyAggregator(property);
+  if (aggregator == nullptr) {
+    return false;
+  }
 
-  uint64_t sum = 0;
   bool ret = true;
   {
     // Needs mutex to protect the list of column families.
@@ -4534,14 +4537,14 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
       // GetIntPropertyInternal may release db mutex and re-acquire it.
       mutex_.AssertHeld();
       if (ret) {
-        sum += value;
+        aggregator->Add(cfd, value);
       } else {
         ret = false;
         break;
       }
     }
   }
-  *aggregated_value = sum;
+  *aggregated_value = aggregator->Aggregate();
   return ret;
 }
 

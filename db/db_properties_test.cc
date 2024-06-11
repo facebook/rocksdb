@@ -192,6 +192,49 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
   }
 }
 
+TEST_F(DBPropertiesTest, AggregateBlockCacheProperty) {
+  constexpr size_t kCapacity = 1000;
+  LRUCacheOptions co;
+  co.capacity = kCapacity;
+  co.num_shard_bits = 0;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto block_cache = NewLRUCache(co);
+
+  // All columns families share the same block cache.
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_opt;
+  table_opt.no_block_cache = false;
+  table_opt.block_cache = block_cache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_opt));
+
+  CreateAndReopenWithCF({"one", "two", "three", "four"}, options);
+
+  // Insert unpinned block to the cache
+  constexpr size_t kSize1 = 100;
+  ASSERT_OK(block_cache->Insert("block1", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize1));
+  // Insert pinned block to the cache
+  constexpr size_t kSize2 = 200;
+  Cache::Handle* block2 = nullptr;
+  ASSERT_OK(block_cache->Insert("block2", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize2, &block2));
+
+  uint64_t value;
+  ASSERT_TRUE(db_->GetAggregatedIntProperty(DB::Properties::kBlockCacheCapacity,
+                                            &value));
+  ASSERT_EQ(value, kCapacity);
+
+  ASSERT_TRUE(
+      db_->GetAggregatedIntProperty(DB::Properties::kBlockCacheUsage, &value));
+  ASSERT_EQ(value, kSize1 + kSize2);
+
+  ASSERT_TRUE(db_->GetAggregatedIntProperty(
+      DB::Properties::kBlockCachePinnedUsage, &value));
+  ASSERT_EQ(value, kSize2);
+
+  block_cache->Release(block2);
+}
+
 namespace {
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {
   ASSERT_EQ(a == 0U, b == 0U);
@@ -1082,7 +1125,6 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   // in values (ratio is 12.846 as of 4/19/2016).
   ASSERT_GT(CompressionRatioAtLevel(1), 10.0);
 }
-
 
 class CountingUserTblPropCollector : public TablePropertiesCollector {
  public:
@@ -2365,7 +2407,6 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
     EXPECT_EQ("NOT_FOUND", PopMetaIndexKey(meta_iter.get()));
   } while (ChangeOptions());
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE
 
