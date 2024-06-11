@@ -803,7 +803,7 @@ IOStatus FaultInjectionTestFS::GetFileSize(const std::string& f,
     // Need to report flushed size, not synced size
     MutexLock l(&mutex_);
     auto it = db_file_state_.find(f);
-    if (it != db_file_state_.end()) {
+    if (it != db_file_state_.end() && it->second.pos_ > 0) {
       *file_size = it->second.pos_;
     }
   }
