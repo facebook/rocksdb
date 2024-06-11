@@ -85,7 +85,7 @@ Status VerifySstFileChecksumInternal(const Options& options,
   auto reader_options = TableReaderOptions(
       ioptions, options.prefix_extractor, env_options, internal_comparator,
       options.block_protection_bytes_per_key,
-      /*ignore_seqno_in_file=*/false, false /* skip_filters */, !kImmortal,
+      /*_ignore_seqno_in_file=*/false, false /* skip_filters */, !kImmortal,
       false /* force_direct_prefetch */, -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
   s = ioptions.table_factory->NewTableReader(

@@ -163,7 +163,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
     const MutableCFOptions moptions(options_);
     TableReaderOptions table_reader_options = TableReaderOptions(
         ioptions, moptions.prefix_extractor, foptions, comparator,
-        0 /* block_protection_bytes_per_key */, /*ignore_seqno_in_file=*/false,
+        0 /* block_protection_bytes_per_key */, /*_ignore_seqno_in_file=*/false,
         false /* _skip_filters */, false /* _immortal */,
         false /* _force_direct_prefetch */, -1 /* _level */,
         nullptr /* _block_cache_tracer */,

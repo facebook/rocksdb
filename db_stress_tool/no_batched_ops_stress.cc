@@ -1912,7 +1912,7 @@ class NonBatchedOpsStressTest : public StressTest {
       DB* _db = nullptr;
       s = DB::Open(options, tmp_db_path, &_db);
       ProcessStatus(thread->shared, "TestIngestExternalFile - Open", s, false);
-      assert(s.ok());
+      assert(_db);
       tmp_db.reset(_db);
     } else {
       if (db_stress_env->FileExists(sst_filename).ok()) {
