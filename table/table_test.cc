@@ -444,7 +444,7 @@ class TableConstructor : public Constructor {
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                            *last_internal_comparator_,
                            0 /* block_protection_bytes_per_key */,
-                           /*ignore_seqno_in_file=*/false,
+                           /*_ignore_seqno_in_file=*/false,
                            /*skip_filters*/ false,
                            /*immortal*/ false, false, level_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
@@ -5319,7 +5319,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     options.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
                            ikc, 0 /* block_protection_bytes_per_key */,
-                           /*ignore_seqno_in_file=*/false),
+                           /*_ignore_seqno_in_file=*/false),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(

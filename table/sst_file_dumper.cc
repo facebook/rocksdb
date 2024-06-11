@@ -173,7 +173,7 @@ Status SstFileDumper::NewTableReader(
     std::unique_ptr<TableReader>* /*table_reader*/) {
   auto t_opt = TableReaderOptions(
       ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
-      0 /* block_protection_bytes_per_key */, /*ignore_seqno_in_file=*/false,
+      0 /* block_protection_bytes_per_key */, /*_ignore_seqno_in_file=*/false,
       false /* skip_filters */, false /* immortal */,
       true /* force_direct_prefetch */, -1 /* level */,
       nullptr /* block_cache_tracer */, 0 /* max_file_size_for_l0_meta_pin */,
