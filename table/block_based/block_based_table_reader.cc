@@ -136,10 +136,10 @@ extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
 BlockBasedTable::~BlockBasedTable() {
-  if (rep_->uncache_aggressiveness > 0 && rep_->table_options.block_cache) {
+  auto ua = rep_->uncache_aggressiveness.LoadRelaxed();
+  if (ua > 0 && rep_->table_options.block_cache) {
     if (rep_->filter) {
-      rep_->filter->EraseFromCacheBeforeDestruction(
-          rep_->uncache_aggressiveness);
+      rep_->filter->EraseFromCacheBeforeDestruction(ua);
     }
     if (rep_->index_reader) {
       {
@@ -160,7 +160,7 @@ BlockBasedTable::~BlockBasedTable() {
         // without I/O. (NOTE: It's extremely unlikely that a data block
         // will be in block cache without the index block pointing to it
         // also in block cache.)
-        UncacheAggressivenessAdvisor advisor(rep_->uncache_aggressiveness);
+        UncacheAggressivenessAdvisor advisor(ua);
         for (iiter->SeekToFirst(); iiter->Valid() && advisor.ShouldContinue();
              iiter->Next()) {
           bool erased = EraseFromCache(iiter->value().handle);
@@ -170,8 +170,7 @@ BlockBasedTable::~BlockBasedTable() {
       }
 
       // Un-cache the index block(s)
-      rep_->index_reader->EraseFromCacheBeforeDestruction(
-          rep_->uncache_aggressiveness);
+      rep_->index_reader->EraseFromCacheBeforeDestruction(ua);
     }
   }
   delete rep_;
@@ -3296,7 +3295,7 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
 }
 
 void BlockBasedTable::MarkObsolete(uint32_t uncache_aggressiveness) {
-  rep_->uncache_aggressiveness = uncache_aggressiveness;
+  rep_->uncache_aggressiveness.StoreRelaxed(uncache_aggressiveness);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
