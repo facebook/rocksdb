@@ -37,6 +37,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
       if (!s.ok()) {
         return;
       }
+      EnforceReadOpts::UsedIO();
       s = rep->file->Prefetch(opts, offset, len + compaction_readahead_size_);
       if (s.ok()) {
         readahead_limit_ = offset + len + compaction_readahead_size_;

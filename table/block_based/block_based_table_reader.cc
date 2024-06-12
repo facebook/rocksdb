@@ -138,6 +138,9 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 BlockBasedTable::~BlockBasedTable() {
   auto ua = rep_->uncache_aggressiveness.LoadRelaxed();
   if (ua > 0 && rep_->table_options.block_cache) {
+    ReadOptions ropts;
+    ropts.read_tier = kBlockCacheTier;  // No I/O
+    EnforceReadOpts enforce(ropts);
     if (rep_->filter) {
       rep_->filter->EraseFromCacheBeforeDestruction(ua);
     }
@@ -147,8 +150,6 @@ BlockBasedTable::~BlockBasedTable() {
         // index. Right now the iterator errors out as soon as there's an
         // index partition not in cache.
         IndexBlockIter iiter_on_stack;
-        ReadOptions ropts;
-        ropts.read_tier = kBlockCacheTier;  // No I/O
         auto iiter = NewIndexIterator(
             ropts, /*disable_prefix_seek=*/false, &iiter_on_stack,
             /*get_context=*/nullptr, /*lookup_context=*/nullptr);
@@ -194,6 +195,7 @@ Status ReadAndParseBlockFromFile(
     MemoryAllocator* memory_allocator, bool for_compaction, bool async_read) {
   assert(result);
 
+  EnforceReadOpts enforce(options);
   BlockContents contents;
   BlockFetcher block_fetcher(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
@@ -1520,6 +1522,7 @@ InternalIteratorBase<IndexValue>* BlockBasedTable::NewIndexIterator(
     BlockCacheLookupContext* lookup_context) const {
   assert(rep_ != nullptr);
   assert(rep_->index_reader != nullptr);
+  EnforceReadOpts enforce(read_options);
 
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
@@ -1622,6 +1625,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     BlockContents* contents, bool async_read,
     bool use_block_cache_for_lookup) const {
+  EnforceReadOpts enforce(ro);
   assert(out_parsed_block != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   BlockCacheInterface<TBlocklike> block_cache{
