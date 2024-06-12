@@ -6442,7 +6442,7 @@ class TxnDBWritePolicyJni {
   }
 };
 
-// The portal class for org.rocksdb.ValueType
+// The portal class for org.rocksdb.EntryType
 class EntryTypeJni {
  public:
   static jbyte toJavaEntryType(const ROCKSDB_NAMESPACE::EntryType& entry_type) {
