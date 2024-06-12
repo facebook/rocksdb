@@ -34,16 +34,18 @@ class FaultInjectionTestFS;
 
 struct FSFileState {
   std::string filename_;
-  ssize_t pos_;
+  ssize_t pos_at_last_append_;
   ssize_t pos_at_last_sync_;
   std::string buffer_;
 
   explicit FSFileState(const std::string& filename)
-      : filename_(filename), pos_(-1), pos_at_last_sync_(-1) {}
+      : filename_(filename), pos_at_last_append_(-1), pos_at_last_sync_(-1) {}
 
-  FSFileState() : pos_(-1), pos_at_last_sync_(-1) {}
+  FSFileState() : pos_at_last_append_(-1), pos_at_last_sync_(-1) {}
 
-  bool IsFullySynced() const { return pos_ <= 0 || pos_ == pos_at_last_sync_; }
+  bool IsFullySynced() const {
+    return pos_at_last_append_ <= 0 || pos_at_last_append_ == pos_at_last_sync_;
+  }
 
   IOStatus DropUnsyncedData();
 
@@ -65,9 +67,7 @@ class TestFSWritableFile : public FSWritableFile {
                   const DataVerificationInfo& verification_info,
                   IODebugContext* dbg) override;
   IOStatus Truncate(uint64_t size, const IOOptions& options,
-                    IODebugContext* dbg) override {
-    return target_->Truncate(size, options, dbg);
-  }
+                    IODebugContext* dbg) override;
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) override;
   IOStatus Flush(const IOOptions&, IODebugContext*) override;
   IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
@@ -76,9 +76,7 @@ class TestFSWritableFile : public FSWritableFile {
   bool IsSyncThreadSafe() const override { return true; }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
-                            IODebugContext* dbg) override {
-    return target_->PositionedAppend(data, offset, options, dbg);
-  }
+                            IODebugContext* dbg) override;
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             const DataVerificationInfo& verification_info,

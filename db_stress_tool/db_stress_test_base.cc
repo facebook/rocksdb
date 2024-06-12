@@ -997,12 +997,7 @@ void StressTest::OperateDb(ThreadState* thread) {
                         " to %" PRIu64 "\n",
                         old_wal->LogNumber(), new_wal->LogNumber());
               }
-              // FIXME: FaultInjectionTestFS does not report file sizes that
-              // reflect what has been flushed. Either that needs to be fixed
-              // or GetSortedWals/GetLiveWalFile need to stop relying on
-              // asking the FS for sizes.
-              if (!fault_fs_guard &&
-                  old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
+              if (old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
                 fprintf(stderr,
                         "Failed: WAL %" PRIu64
                         " size changed during LockWAL(): %" PRIu64
@@ -1950,17 +1945,6 @@ Status StressTest::TestBackupRestore(
     s = db_->FlushWAL(/*sync=*/false);
     if (!s.ok()) {
       from = "FlushWAL";
-    }
-  }
-
-  // FIXME: this is only needed as long as db_stress uses
-  // SetReadUnsyncedData(false), because it will only be able to
-  // copy the synced portion of the WAL. For correctness validation, that
-  // needs to include updates to the locked key.
-  if (s.ok()) {
-    s = db_->SyncWAL();
-    if (!s.ok()) {
-      from = "SyncWAL";
     }
   }
 
