@@ -25,11 +25,11 @@ public enum EntryType {
   }
 
   public static EntryType getEntryType(final byte value) {
-    for (EntryType entryType : EntryType.values()) {
+    for (final EntryType entryType : EntryType.values()) {
       if (value == entryType.value) {
         return entryType;
       }
     }
-    throw new IllegalArgumentException("Invalid ValueType byte " + value);
+    throw new IllegalArgumentException("Invalid EntryType byte " + value);
   }
 }

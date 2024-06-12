@@ -220,15 +220,15 @@ public class SstFileReaderTest {
     }
   }
 
-  private void assertInternalKey(final Options options, ParsedEntryInfo parsedEntryInfo,
-      byte[] internalKey, String expectedUserKey, EntryType expectedEntryType) {
+  private void assertInternalKey(final Options options, final ParsedEntryInfo parsedEntryInfo,
+    final byte[] internalKey, final String expectedUserKey, final EntryType expectedEntryType) {
     parsedEntryInfo.parseEntry(options, internalKey);
     assertThat(expectedUserKey.getBytes()).isEqualTo(parsedEntryInfo.getUserKey());
     assertEquals(expectedEntryType, parsedEntryInfo.getEntryType());
   }
 
-  private void seekTableIterator(
-      SstFileReaderIterator iterator, ByteBuffer userKey, ByteBuffer internalKey, Options options) {
+  private void seekTableIterator(final SstFileReaderIterator iterator, final ByteBuffer userKey,
+                                 final ByteBuffer internalKey, final Options options) {
     int len = TypeUtil.getInternalKey(userKey, internalKey, options);
     assertEquals(len, internalKey.limit());
     iterator.seek(internalKey);
@@ -237,8 +237,8 @@ public class SstFileReaderTest {
     internalKey.clear();
   }
 
-  private void seekTableIteratorForPrev(
-      SstFileReaderIterator iterator, ByteBuffer userKey, ByteBuffer internalKey, Options options) {
+  private void seekTableIteratorForPrev(final SstFileReaderIterator iterator, final ByteBuffer userKey,
+    final ByteBuffer internalKey, final Options options) {
     int len = TypeUtil.getInternalKeyForPrev(userKey, internalKey, options);
     assertEquals(len, internalKey.limit());
     iterator.seekForPrev(internalKey);

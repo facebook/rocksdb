@@ -134,9 +134,7 @@ jbyteArray JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyJni(
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
   jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
   if (jkey == nullptr) {
-    jclass oom_class = env->FindClass("/java/lang/OutOfMemoryError");
-    env->ThrowNew(oom_class,
-                  "Memory allocation failed in RocksDB JNI function");
+    ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env, "Memory allocation failed in RocksDB JNI function");
     return nullptr;
   }
   ROCKSDB_NAMESPACE::JniUtil::copyToIndirect(
@@ -264,9 +262,7 @@ jbyteArray JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyForPrevJni(
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
   jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
   if (jkey == nullptr) {
-    jclass oom_class = env->FindClass("/java/lang/OutOfMemoryError");
-    env->ThrowNew(oom_class,
-                  "Memory allocation failed in RocksDB JNI function");
+    ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env, "Memory allocation failed in RocksDB JNI function");
     return nullptr;
   }
   ROCKSDB_NAMESPACE::JniUtil::copyToIndirect(

@@ -10,14 +10,14 @@ import java.nio.ByteBuffer;
  * Util class to get internal key for seeking from user key.
  */
 public class TypeUtil {
-  public static byte[] getInternalKey(byte[] userKey, Options options) {
+  public static byte[] getInternalKey(final byte[] userKey, final Options options) {
     if (options == null || userKey == null) {
       throw new IllegalArgumentException("ByteBuffer and options parameters must not be null");
     }
     return getInternalKeyJni(userKey, userKey.length, options.getNativeHandle());
   }
 
-  public static int getInternalKey(ByteBuffer userKey, ByteBuffer internalKey, Options options) {
+  public static int getInternalKey(final ByteBuffer userKey, final ByteBuffer internalKey, final Options options) {
     int result;
     if (options == null || userKey == null || internalKey == null) {
       throw new IllegalArgumentException("ByteBuffer and options parameters must not be null");
@@ -49,7 +49,7 @@ public class TypeUtil {
     return result;
   }
 
-  public static byte[] getInternalKeyForPrev(byte[] userKey, Options options) {
+  public static byte[] getInternalKeyForPrev(final byte[] userKey, final Options options) {
     if (options == null || userKey == null) {
       throw new IllegalArgumentException("Byte array and options parameters must not be null");
     }
@@ -57,7 +57,7 @@ public class TypeUtil {
   }
 
   public static int getInternalKeyForPrev(
-      ByteBuffer userKey, ByteBuffer internalKey, Options options) {
+      final ByteBuffer userKey, final ByteBuffer internalKey, final Options options) {
     if (options == null || userKey == null || internalKey == null) {
       throw new IllegalArgumentException("ByteBuffer and options parameters must not be null");
     }
@@ -89,33 +89,33 @@ public class TypeUtil {
     return result;
   }
 
-  private static native int getInternalKeyDirect0(ByteBuffer userKey, int userKeyOffset,
+  private static native int getInternalKeyDirect0(final ByteBuffer userKey, final int userKeyOffset,
       int userKeyLen, ByteBuffer internalKey, int internalKeyOffset, int internalKeyLen,
       long optionsHandle);
-  private static native int getInternalKeyByteArray0(byte[] userKey, int userKeyOffset,
-      int userKeyLen, ByteBuffer internalKey, int internalKeyOffset, int internalKeyLen,
-      long optionsHandle);
-  private static native int getInternalKeyDirect1(ByteBuffer userKey, int userKeyOffset,
-      int userKeyLen, byte[] internalKey, int internalKeyOffset, int internalKeyLen,
-      long optionsHandle);
-  private static native int getInternalKeyByteArray1(byte[] userKey, int userKeyOffset,
-      int userKeyLen, byte[] internalKey, int internalKeyOffset, int internalKeyLen,
-      long optionsHandle);
+  private static native int getInternalKeyByteArray0(final byte[] userKey, final int userKeyOffset,
+      final int userKeyLen, final ByteBuffer internalKey, final int internalKeyOffset, final int internalKeyLen,
+      final long optionsHandle);
+  private static native int getInternalKeyDirect1(final ByteBuffer userKey, final int userKeyOffset,
+      final int userKeyLen, final byte[] internalKey, final int internalKeyOffset, final int internalKeyLen,
+      final long optionsHandle);
+  private static native int getInternalKeyByteArray1(final byte[] userKey, final int userKeyOffset,
+      final int userKeyLen, final byte[] internalKey, final int internalKeyOffset, final int internalKeyLen,
+      final long optionsHandle);
   private static native byte[] getInternalKeyJni(
-      byte[] userKey, int userKeyLen, long optionsHandle);
+      final byte[] userKey, final int userKeyLen, final long optionsHandle);
 
-  private static native int getInternalKeyDirectForPrev0(ByteBuffer userKey, int userKeyOffset,
-      int userKeyLen, ByteBuffer internalKey, int internalKeyOffset, int internalKeyLen,
-      long optionsHandle);
-  private static native int getInternalKeyByteArrayForPrev0(byte[] userKey, int userKeyOffset,
-      int userKeyLen, ByteBuffer internalKey, int internalKeyOffset, int internalKeyLen,
-      long optionsHandle);
-  private static native int getInternalKeyDirectForPrev1(ByteBuffer userKey, int userKeyOffset,
-      int userKeyLen, byte[] internalKey, int internalKeyOffset, int internalKeyLen,
-      long optionsHandle);
-  private static native int getInternalKeyByteArrayForPrev1(byte[] userKey, int userKeyOffset,
-      int userKeyLen, byte[] internalKey, int internalKeyOffset, int internalKeyLen,
-      long optionsHandle);
+  private static native int getInternalKeyDirectForPrev0(final ByteBuffer userKey, final int userKeyOffset,
+      final int userKeyLen, final ByteBuffer internalKey, final int internalKeyOffset, final int internalKeyLen,
+      final long optionsHandle);
+  private static native int getInternalKeyByteArrayForPrev0(final byte[] userKey, final int userKeyOffset,
+      final int userKeyLen, final ByteBuffer internalKey, final int internalKeyOffset, final int internalKeyLen,
+      final long optionsHandle);
+  private static native int getInternalKeyDirectForPrev1(final ByteBuffer userKey, final int userKeyOffset,
+      final int userKeyLen, final byte[] internalKey, final int internalKeyOffset, final int internalKeyLen,
+      final long optionsHandle);
+  private static native int getInternalKeyByteArrayForPrev1(final byte[] userKey, final int userKeyOffset,
+      final int userKeyLen, final byte[] internalKey, final int internalKeyOffset, final int internalKeyLen,
+      final long optionsHandle);
   private static native byte[] getInternalKeyForPrevJni(
-      byte[] userKey, int userKeyLen, long optionsHandle);
+      final byte[] userKey, final int userKeyLen, final long optionsHandle);
 }

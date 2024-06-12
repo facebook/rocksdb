@@ -1,3 +1,8 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 import java.nio.ByteBuffer;
@@ -15,20 +20,34 @@ public class ParsedEntryInfo extends RocksObject {
     disposeInternalJni(handle);
   }
 
+  /**
+   * Returns the entryType of record in the sstFile.
+   */
   public EntryType getEntryType() {
     assert (isOwningHandle());
     return EntryType.getEntryType(getEntryTypeJni(nativeHandle_));
   }
 
+  /**
+   * Returns the sequence number of the record in the sstFile.
+   */
   public long getSequenceNumber() {
     return getSequenceNumberJni(nativeHandle_);
   }
 
+  /**
+   * Returns the user key of the record in the sstFile.
+   */
   public byte[] getUserKey() {
     assert (isOwningHandle());
     return userKeyJni(nativeHandle_);
   }
 
+  /**
+   *
+   * @param key Byte buffer to write the user key into.
+   * @return length of the key.
+   */
   public int userKey(final ByteBuffer key) {
     if (key == null) {
       throw new IllegalArgumentException("ByteBuffer parameters must not be null");
@@ -45,7 +64,12 @@ public class ParsedEntryInfo extends RocksObject {
     return result;
   }
 
-  public void parseEntry(Options options, byte[] internalKey) {
+  /**
+   * Parses internal key to get initialize the values in this class.
+   * @param options options used while writing the sst file.
+   * @param internalKey byte array containing the internal key.
+   */
+  public final void parseEntry(Options options, byte[] internalKey) {
     if (options == null || internalKey == null) {
       throw new IllegalArgumentException("ByteBuffer and options parameters must not be null");
     }
@@ -53,7 +77,12 @@ public class ParsedEntryInfo extends RocksObject {
     parseEntry(nativeHandle_, options.getNativeHandle(), internalKey, internalKey.length);
   }
 
-  public void parseEntry(Options options, final ByteBuffer internalKey) {
+  /**
+   * Parses internal key to get initialize the values in this class.
+   * @param options options used while writing the sst file.
+   * @param internalKey ByteBuffer containing the internal key.
+   */
+  public final void parseEntry(Options options, final ByteBuffer internalKey) {
     if (options == null || internalKey == null) {
       throw new IllegalArgumentException("ByteBuffer and options parameters must not be null");
     }
