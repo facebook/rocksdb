@@ -78,15 +78,10 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             index_value_is_full(), false /* block_contents_pinned */,
             user_defined_timestamps_persisted()));
   } else {
-    ReadOptions ro;
-    ro.fill_cache = read_options.fill_cache;
-    ro.deadline = read_options.deadline;
-    ro.io_timeout = read_options.io_timeout;
-    ro.adaptive_readahead = read_options.adaptive_readahead;
-    ro.async_io = read_options.async_io;
-    ro.rate_limiter_priority = read_options.rate_limiter_priority;
-    ro.verify_checksums = read_options.verify_checksums;
-    ro.io_activity = read_options.io_activity;
+    ReadOptions ro{read_options};
+    // FIXME? Possible regression seen in prefetch_test if this field is
+    // propagated
+    ro.readahead_size = ReadOptions{}.readahead_size;
 
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
