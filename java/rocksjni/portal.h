@@ -2483,7 +2483,6 @@ class JniUtil {
    * Copies values from jbyte array to slice and performs op on the slice.
    * for example WriteBatch->Delete
    *
-   * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
    * from `op` and used for RocksDB->Delete etc.
    */
   static void k_op_indirect(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
@@ -2496,9 +2495,8 @@ class JniUtil {
     }
     const std::unique_ptr<char[]> target(new char[jkey_len]);
     if (target == nullptr) {
-      jclass oom_class = env->FindClass("java/lang/OutOfMemoryError");
-      env->ThrowNew(oom_class,
-                    "Memory allocation failed in RocksDB JNI function");
+      ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env,
+           "Memory allocation failed in RocksDB JNI function");
       return;
     }
     env->GetByteArrayRegion(jkey, jkey_off, jkey_len,
