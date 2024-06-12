@@ -1565,9 +1565,8 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   Status s;
   CachableEntry<UncompressionDict> uncompression_dict;
   if (rep_->uncompression_dict_reader) {
-    const bool no_io = (ro.read_tier == kBlockCacheTier);
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        /* prefetch_buffer= */ nullptr, ro, no_io, ro.verify_checksums,
+        /* prefetch_buffer= */ nullptr, ro,
         /* get_context= */ nullptr, /* lookup_context= */ nullptr,
         &uncompression_dict);
     if (!s.ok()) {
@@ -3085,10 +3084,8 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   if (rep_->uncompression_dict_reader) {
     CachableEntry<UncompressionDict> uncompression_dict;
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        nullptr /* prefetch_buffer */, ro, false /* no_io */,
-        false, /* verify_checksums */
-        nullptr /* get_context */, nullptr /* lookup_context */,
-        &uncompression_dict);
+        nullptr /* prefetch_buffer */, ro, nullptr /* get_context */,
+        nullptr /* lookup_context */, &uncompression_dict);
     if (!s.ok()) {
       return s;
     }

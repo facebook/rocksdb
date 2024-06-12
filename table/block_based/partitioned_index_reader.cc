@@ -47,9 +47,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     const ReadOptions& read_options, bool /* disable_prefix_seek */,
     IndexBlockIter* iter, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
-  const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s = GetOrReadIndexBlock(no_io, get_context, lookup_context,
+  const Status s = GetOrReadIndexBlock(get_context, lookup_context,
                                        &index_block, read_options);
   if (!s.ok()) {
     if (iter != nullptr) {
@@ -125,8 +124,8 @@ Status PartitionIndexReader::CacheDependencies(
 
   CachableEntry<Block> index_block;
   {
-    Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
-                                   &lookup_context, &index_block, ro);
+    Status s = GetOrReadIndexBlock(nullptr /* get_context */, &lookup_context,
+                                   &index_block, ro);
     if (!s.ok()) {
       return s;
     }
@@ -225,9 +224,10 @@ void PartitionIndexReader::EraseFromCacheBeforeDestruction(
   if (uncache_aggressiveness > 0) {
     CachableEntry<Block> top_level_block;
 
-    GetOrReadIndexBlock(/*no_io=*/true, /*get_context=*/nullptr,
-                        /*lookup_context=*/nullptr, &top_level_block,
-                        ReadOptions{})
+    ReadOptions ro_no_io;
+    ro_no_io.read_tier = ReadTier::kBlockCacheTier;
+    GetOrReadIndexBlock(/*get_context=*/nullptr,
+                        /*lookup_context=*/nullptr, &top_level_block, ro_no_io)
         .PermitUncheckedError();
 
     if (!partition_map_.empty()) {
