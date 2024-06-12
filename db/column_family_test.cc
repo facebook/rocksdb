@@ -3179,6 +3179,8 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
+  // When this option is removed, the test will need re-engineering
+  db_options_.background_close_inactive_wals = true;
   column_family_options_.memtable_factory.reset(
       test::NewSpecialSkipListFactory(2));
   Open();
@@ -3231,6 +3233,8 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
+  // When this option is removed, the test will need re-engineering
+  db_options_.background_close_inactive_wals = true;
   column_family_options_.memtable_factory.reset(
       test::NewSpecialSkipListFactory(2));
   Open();
@@ -3288,6 +3292,8 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
+  // When this option is removed, the test will need re-engineering
+  db_options_.background_close_inactive_wals = true;
   column_family_options_.memtable_factory.reset(
       test::NewSpecialSkipListFactory(3));
   column_family_options_.level0_file_num_compaction_trigger = 2;
