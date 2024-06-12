@@ -42,9 +42,8 @@ void JNICALL Java_org_rocksdb_ParsedEntryInfo_parseEntry(
       reinterpret_cast<ROCKSDB_NAMESPACE::ParsedEntryInfo *>(handle);
   jbyte *target = env->GetByteArrayElements(jtarget, nullptr);
   if (target == nullptr) {
-    jclass oom_class = env->FindClass("java/lang/OutOfMemoryError");
-    env->ThrowNew(oom_class,
-                  "Memory allocation failed in RocksDB JNI function");
+    ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env,
+           "Memory allocation failed in RocksDB JNI function");
     return;
   }
   ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char *>(target), len);
@@ -137,9 +136,7 @@ jbyteArray JNICALL Java_org_rocksdb_ParsedEntryInfo_userKeyJni(JNIEnv *env,
   jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
   if (jkey == nullptr) {
     // exception thrown: OutOfMemoryError
-    jclass oom_class = env->FindClass("java/lang/OutOfMemoryError");
-    env->ThrowNew(oom_class,
-                  "Memory allocation failed in RocksDB JNI function");
+    ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env, "Memory allocation failed in RocksDB JNI function");
     return nullptr;
   }
   ROCKSDB_NAMESPACE::JniUtil::copyToIndirect(
