@@ -33,6 +33,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/atomic.h"
 #include "util/coro_utils.h"
 #include "util/hash_containers.h"
 
@@ -675,8 +676,11 @@ struct BlockBasedTable::Rep {
   const bool user_defined_timestamps_persisted;
 
   // Set to >0 when the file is known to be obsolete and should have its block
-  // cache entries evicted on close.
-  uint32_t uncache_aggressiveness = 0;
+  // cache entries evicted on close. NOTE: when the file becomes obsolete,
+  // there could be multiple table cache references that all mark this file as
+  // obsolete. An atomic resolves the race quite reasonably. Even in the rare
+  // case of such a race, they will most likely be storing the same value.
+  RelaxedAtomic<uint32_t> uncache_aggressiveness{0};
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;
