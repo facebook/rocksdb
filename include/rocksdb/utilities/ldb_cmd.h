@@ -35,6 +35,7 @@ class LDBCommand {
   static const std::string ARG_DB;
   static const std::string ARG_PATH;
   static const std::string ARG_SECONDARY_PATH;
+  static const std::string ARG_LEADER_PATH;
   static const std::string ARG_HEX;
   static const std::string ARG_KEY_HEX;
   static const std::string ARG_VALUE_HEX;
@@ -82,6 +83,10 @@ class LDBCommand {
   };
 
   static LDBCommand* SelectCommand(const ParsedParams& parsed_parms);
+
+  static void ParseSingleParam(const std::string& param,
+                               ParsedParams& parsed_params,
+                               std::vector<std::string>& cmd_tokens);
 
   static LDBCommand* InitFromCmdLineArgs(
       const std::vector<std::string>& args, const Options& options,
@@ -156,10 +161,12 @@ class LDBCommand {
   // with this secondary path. When running against a database opened by
   // another process, ldb wll leave the source directory completely intact.
   std::string secondary_path_;
+  std::string leader_path_;
   std::string column_family_name_;
   DB* db_;
   DBWithTTL* db_ttl_;
   std::map<std::string, ColumnFamilyHandle*> cf_handles_;
+  std::map<uint32_t, const Comparator*> ucmps_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -224,17 +231,19 @@ class LDBCommand {
   ColumnFamilyHandle* GetCfHandle();
 
   static std::string PrintKeyValue(const std::string& key,
+                                   const std::string& timestamp,
                                    const std::string& value, bool is_key_hex,
-                                   bool is_value_hex);
+                                   bool is_value_hex, const Comparator* ucmp);
 
   static std::string PrintKeyValue(const std::string& key,
-                                   const std::string& value, bool is_hex);
+                                   const std::string& timestamp,
+                                   const std::string& value, bool is_hex,
+                                   const Comparator* ucmp);
 
-  static std::string PrintKeyValueOrWideColumns(const Slice& key,
-                                                const Slice& value,
-                                                const WideColumns& wide_columns,
-                                                bool is_key_hex,
-                                                bool is_value_hex);
+  static std::string PrintKeyValueOrWideColumns(
+      const Slice& key, const Slice& timestamp, const Slice& value,
+      const WideColumns& wide_columns, bool is_key_hex, bool is_value_hex,
+      const Comparator* ucmp);
 
   /**
    * Return true if the specified flag is present in the specified flags vector

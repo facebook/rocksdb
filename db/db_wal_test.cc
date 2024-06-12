@@ -270,8 +270,10 @@ TEST_F(DBWALTest, SyncWALNotWaitWrite) {
   ASSERT_OK(Put("foo3", "bar3"));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
-      {"SpecialEnv::WalFile::Append:1", "DBWALTest::SyncWALNotWaitWrite:1"},
-      {"DBWALTest::SyncWALNotWaitWrite:2", "SpecialEnv::WalFile::Append:2"},
+      {"SpecialEnv::SpecialWalFile::Append:1",
+       "DBWALTest::SyncWALNotWaitWrite:1"},
+      {"DBWALTest::SyncWALNotWaitWrite:2",
+       "SpecialEnv::SpecialWalFile::Append:2"},
   });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 

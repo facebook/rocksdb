@@ -369,7 +369,7 @@ class WALDumperCommand : public LDBCommand {
                    const std::map<std::string, std::string>& options,
                    const std::vector<std::string>& flags);
 
-  bool NoDBOpen() override { return true; }
+  bool NoDBOpen() override { return no_db_open_; }
 
   static void Help(std::string& ret);
 
@@ -380,6 +380,7 @@ class WALDumperCommand : public LDBCommand {
   std::string wal_file_;
   bool print_values_;
   bool is_write_committed_;  // default will be set to true
+  bool no_db_open_ = true;
 
   static const std::string ARG_WAL_FILE;
   static const std::string ARG_WRITE_COMMITTED;
@@ -619,6 +620,7 @@ class DBQuerierCommand : public LDBCommand {
   static const char* GET_CMD;
   static const char* PUT_CMD;
   static const char* DELETE_CMD;
+  static const char* COUNT_CMD;
 };
 
 class CheckConsistencyCommand : public LDBCommand {

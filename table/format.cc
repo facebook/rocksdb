@@ -487,7 +487,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                               file->file_name());
   }
 
-  std::string footer_buf;
+  std::array<char, Footer::kMaxEncodedLength + 1> footer_buf;
   AlignedBuf internal_buf;
   Slice footer_input;
   uint64_t read_offset = (file_size > Footer::kMaxEncodedLength)
@@ -508,7 +508,6 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, nullptr, &internal_buf);
     } else {
-      footer_buf.reserve(Footer::kMaxEncodedLength);
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, footer_buf.data(), nullptr);
     }

@@ -38,7 +38,7 @@ class BaseDeltaIterator : public Iterator {
                     WBWIIteratorImpl* delta_iterator,
                     const Comparator* comparator);
 
-  ~BaseDeltaIterator() override {}
+  ~BaseDeltaIterator() override;
 
   bool Valid() const override;
   void SeekToFirst() override;

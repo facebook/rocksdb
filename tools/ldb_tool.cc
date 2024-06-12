@@ -28,6 +28,9 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_SECONDARY_PATH +
              "=<secondary_path> to open DB as secondary instance. Operations "
              "not supported in secondary instance will fail.\n\n");
+  ret.append("  --" + LDBCommand::ARG_LEADER_PATH +
+             "=<leader_path> to open DB as a follower instance. Operations "
+             "not supported in follower instance will fail.\n\n");
   ret.append(
       "The following optional parameters control if keys/values are "
       "input/output as hex or as plain strings:\n");

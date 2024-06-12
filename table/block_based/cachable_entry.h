@@ -78,7 +78,7 @@ class CachableEntry {
       return *this;
     }
 
-    ReleaseResource();
+    ReleaseResource(/*erase_if_last_ref=*/false);
 
     value_ = rhs.value_;
     cache_ = rhs.cache_;
@@ -95,7 +95,7 @@ class CachableEntry {
     return *this;
   }
 
-  ~CachableEntry() { ReleaseResource(); }
+  ~CachableEntry() { ReleaseResource(/*erase_if_last_ref=*/false); }
 
   bool IsEmpty() const {
     return value_ == nullptr && cache_ == nullptr && cache_handle_ == nullptr &&
@@ -114,7 +114,12 @@ class CachableEntry {
   bool GetOwnValue() const { return own_value_; }
 
   void Reset() {
-    ReleaseResource();
+    ReleaseResource(/*erase_if_last_ref=*/false);
+    ResetFields();
+  }
+
+  void ResetEraseIfLastRef() {
+    ReleaseResource(/*erase_if_last_ref=*/true);
     ResetFields();
   }
 
@@ -200,10 +205,10 @@ class CachableEntry {
   }
 
  private:
-  void ReleaseResource() noexcept {
+  void ReleaseResource(bool erase_if_last_ref) noexcept {
     if (LIKELY(cache_handle_ != nullptr)) {
       assert(cache_ != nullptr);
-      cache_->Release(cache_handle_);
+      cache_->Release(cache_handle_, erase_if_last_ref);
     } else if (own_value_) {
       delete value_;
     }

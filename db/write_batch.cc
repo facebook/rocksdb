@@ -65,6 +65,7 @@
 #include "port/lang.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/system_clock.h"
+#include "util/aligned_storage.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
@@ -1900,7 +1901,7 @@ class MemTableInserter : public WriteBatch::Handler {
   // Make creation optional but do not incur
   // std::unique_ptr additional allocation
   using MemPostInfoMap = std::map<MemTable*, MemTablePostProcessInfo>;
-  using PostMapType = std::aligned_storage<sizeof(MemPostInfoMap)>::type;
+  using PostMapType = aligned_storage<MemPostInfoMap>::type;
   PostMapType mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
@@ -1914,7 +1915,7 @@ class MemTableInserter : public WriteBatch::Handler {
   bool write_before_prepare_;
   // Whether this batch was unprepared or not
   bool unprepared_batch_;
-  using DupDetector = std::aligned_storage<sizeof(DuplicateDetector)>::type;
+  using DupDetector = aligned_storage<DuplicateDetector>::type;
   DupDetector duplicate_detector_;
   bool dup_dectector_on_;
 
@@ -1922,7 +1923,7 @@ class MemTableInserter : public WriteBatch::Handler {
   bool hint_created_;
   // Hints for this batch
   using HintMap = std::unordered_map<MemTable*, void*>;
-  using HintMapType = std::aligned_storage<sizeof(HintMap)>::type;
+  using HintMapType = aligned_storage<HintMap>::type;
   HintMapType hint_;
 
   HintMap& GetHintMap() {
@@ -2124,12 +2125,12 @@ class MemTableInserter : public WriteBatch::Handler {
   template <typename RebuildTxnOp>
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
                    const Slice& value, ValueType value_type,
-                   RebuildTxnOp rebuildTxnOp,
+                   RebuildTxnOp rebuild_txn_op,
                    const ProtectionInfoKVOS64* kv_prot_info) {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
-      return rebuildTxnOp(rebuilding_trx_, column_family_id, key, value);
+      return rebuild_txn_op(rebuilding_trx_, column_family_id, key, value);
       // else insert the values to the memtable right away
     }
 
@@ -2141,7 +2142,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // need to keep track of the keys for upcoming rollback/commit.
         // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
         ret_status =
-            rebuildTxnOp(rebuilding_trx_, column_family_id, key, value);
+            rebuild_txn_op(rebuilding_trx_, column_family_id, key, value);
         if (ret_status.ok()) {
           MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
         }
@@ -2265,7 +2266,8 @@ class MemTableInserter : public WriteBatch::Handler {
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
-      ret_status = rebuildTxnOp(rebuilding_trx_, column_family_id, key, value);
+      ret_status =
+          rebuild_txn_op(rebuilding_trx_, column_family_id, key, value);
     }
     return ret_status;
   }
@@ -2275,8 +2277,8 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
     Status ret_status;
 
-    auto rebuildTxnOp = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
-                           const Slice& k, const Slice& v) -> Status {
+    auto rebuild_txn_op = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
+                             const Slice& k, const Slice& v) -> Status {
       return WriteBatchInternal::Put(rebuilding_trx, cf_id, k, v);
     };
 
@@ -2285,10 +2287,10 @@ class MemTableInserter : public WriteBatch::Handler {
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
-                             rebuildTxnOp, &mem_kv_prot_info);
+                             rebuild_txn_op, &mem_kv_prot_info);
     } else {
       ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
-                             rebuildTxnOp, nullptr /* kv_prot_info */);
+                             rebuild_txn_op, nullptr /* kv_prot_info */);
     }
     // TODO: this assumes that if TryAgain status is returned to the caller,
     // the operation is actually tried again. The proper way to do this is to
@@ -2308,21 +2310,21 @@ class MemTableInserter : public WriteBatch::Handler {
     Slice packed_value =
         PackValueAndWriteTime(value, unix_write_time, &value_buf);
 
-    auto rebuildTxnOp = [](WriteBatch* /* rebuilding_trx */,
-                           uint32_t /* cf_id */, const Slice& /* k */,
-                           const Slice& /* v */) -> Status {
+    auto rebuild_txn_op = [](WriteBatch* /* rebuilding_trx */,
+                             uint32_t /* cf_id */, const Slice& /* k */,
+                             const Slice& /* v */) -> Status {
       return Status::NotSupported();
     };
 
     if (kv_prot_info != nullptr) {
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-      ret_status =
-          PutCFImpl(column_family_id, key, packed_value,
-                    kTypeValuePreferredSeqno, rebuildTxnOp, &mem_kv_prot_info);
+      ret_status = PutCFImpl(column_family_id, key, packed_value,
+                             kTypeValuePreferredSeqno, rebuild_txn_op,
+                             &mem_kv_prot_info);
     } else {
       ret_status = PutCFImpl(column_family_id, key, packed_value,
-                             kTypeValuePreferredSeqno, rebuildTxnOp,
+                             kTypeValuePreferredSeqno, rebuild_txn_op,
                              nullptr /* kv_prot_info */);
     }
 
@@ -2342,8 +2344,8 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status s;
 
-    auto rebuildTxnOp = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
-                           const Slice& k, Slice entity) -> Status {
+    auto rebuild_txn_op = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
+                             const Slice& k, Slice entity) -> Status {
       WideColumns columns;
       const Status st = WideColumnSerialization::Deserialize(entity, columns);
       if (!st.ok()) {
@@ -2358,10 +2360,10 @@ class MemTableInserter : public WriteBatch::Handler {
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
-                    rebuildTxnOp, &mem_kv_prot_info);
+                    rebuild_txn_op, &mem_kv_prot_info);
     } else {
       s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
-                    rebuildTxnOp,
+                    rebuild_txn_op,
                     /* kv_prot_info */ nullptr);
     }
 
@@ -2548,11 +2550,6 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(ret_status.ok());
 
     if (db_ != nullptr) {
-      if (db_->immutable_db_options().row_cache) {
-        ret_status.PermitUncheckedError();
-        return Status::NotSupported(
-            "DeleteRange is not compatible with row cache.");
-      }
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
@@ -2806,9 +2803,9 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
     Status ret_status;
 
-    auto rebuildTxnOp = [](WriteBatch* /* rebuilding_trx */,
-                           uint32_t /* cf_id */, const Slice& /* k */,
-                           const Slice& /* v */) -> Status {
+    auto rebuild_txn_op = [](WriteBatch* /* rebuilding_trx */,
+                             uint32_t /* cf_id */, const Slice& /* k */,
+                             const Slice& /* v */) -> Status {
       return Status::NotSupported();
     };
 
@@ -2818,10 +2815,10 @@ class MemTableInserter : public WriteBatch::Handler {
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       // Same as PutCF except for value type.
       ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                             rebuildTxnOp, &mem_kv_prot_info);
+                             rebuild_txn_op, &mem_kv_prot_info);
     } else {
       ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                             rebuildTxnOp, nullptr /* kv_prot_info */);
+                             rebuild_txn_op, nullptr /* kv_prot_info */);
     }
     if (UNLIKELY(ret_status.IsTryAgain())) {
       DecrementProtectionInfoIdxForTryAgain();

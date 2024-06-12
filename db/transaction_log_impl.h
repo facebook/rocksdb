@@ -19,9 +19,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class LogFileImpl : public LogFile {
+class WalFileImpl : public WalFile {
  public:
-  LogFileImpl(uint64_t logNum, WalFileType logType, SequenceNumber startSeq,
+  WalFileImpl(uint64_t logNum, WalFileType logType, SequenceNumber startSeq,
               uint64_t sizeBytes)
       : logNumber_(logNum),
         type_(logType),
@@ -43,7 +43,7 @@ class LogFileImpl : public LogFile {
 
   uint64_t SizeFileBytes() const override { return sizeFileBytes_; }
 
-  bool operator<(const LogFile& that) const {
+  bool operator<(const WalFile& that) const {
     return LogNumber() < that.LogNumber();
   }
 
@@ -60,7 +60,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const std::string& dir, const ImmutableDBOptions* options,
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
-      std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
+      std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
       const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer);
 
   bool Valid() override;
@@ -77,7 +77,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   const TransactionLogIterator::ReadOptions read_options_;
   const EnvOptions& soptions_;
   SequenceNumber starting_sequence_number_;
-  std::unique_ptr<VectorLogPtr> files_;
+  std::unique_ptr<VectorWalPtr> files_;
   // Used only to get latest seq. num
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
@@ -92,7 +92,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   std::unique_ptr<WriteBatch> current_batch_;
   std::unique_ptr<log::Reader> current_log_reader_;
   std::string scratch_;
-  Status OpenLogFile(const LogFile* log_file,
+  Status OpenLogFile(const WalFile* log_file,
                      std::unique_ptr<SequentialFileReader>* file);
 
   struct LogReporter : public log::Reader::Reporter {
@@ -123,6 +123,6 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   bool IsBatchExpected(const WriteBatch* batch, SequenceNumber expected_seq);
   // Update current batch if a continuous batch is found.
   void UpdateCurrentWriteBatch(const Slice& record);
-  Status OpenLogReader(const LogFile* file);
+  Status OpenLogReader(const WalFile* file);
 };
 }  // namespace ROCKSDB_NAMESPACE

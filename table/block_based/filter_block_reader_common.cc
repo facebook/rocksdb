@@ -155,6 +155,18 @@ bool FilterBlockReaderCommon<TBlocklike>::IsFilterCompatible(
   }
 }
 
+template <typename TBlocklike>
+void FilterBlockReaderCommon<TBlocklike>::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  if (uncache_aggressiveness > 0) {
+    if (filter_block_.IsCached()) {
+      filter_block_.ResetEraseIfLastRef();
+    } else {
+      table()->EraseFromCache(table()->get_rep()->filter_handle);
+    }
+  }
+}
+
 // Explicitly instantiate templates for both "blocklike" types we use.
 // This makes it possible to keep the template definitions in the .cc file.
 template class FilterBlockReaderCommon<Block_kFilterPartitionIndex>;

@@ -3,7 +3,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
-
+import math
 import os
 import random
 import shutil
@@ -148,11 +148,13 @@ default_params = {
          "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
          "tiered_auto_hyper_clock_cache"]
     ),
+    "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
+    "use_multi_cf_iterator": 0, # TODO(jaykorean) - re-enable this after fixing the test
     # 999 -> use Bloom API
     "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
     "value_size_mult": 32,
@@ -271,7 +273,6 @@ default_params = {
     "WAL_size_limit_MB": lambda: random.choice([0, 1]),
     "strict_bytes_per_sync": lambda: random.choice([0, 1]),
     "avoid_flush_during_shutdown": lambda: random.choice([0, 1]),
-    "avoid_sync_during_shutdown": lambda: random.choice([0, 1]),
     "fill_cache": lambda: random.choice([0, 1]),
     "optimize_multiget_for_io": lambda: random.choice([0, 1]),
     "memtable_insert_hint_per_batch": lambda: random.choice([0, 1]),
@@ -312,6 +313,7 @@ default_params = {
     "check_multiget_consistency": lambda: random.choice([0, 0, 0, 1]),
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
+    "universal_max_read_amp": lambda : random.choice([-1] * 3 + [0, 4, 10]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -493,8 +495,6 @@ txn_params = {
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with TransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
@@ -508,8 +508,6 @@ optimistic_txn_params = {
     "occ_validation_policy": random.randint(0, 1),
     "share_occ_lock_buckets": random.randint(0, 1),
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with OptimisticTransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
@@ -740,12 +738,6 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-         # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
-        # verification upon reopen. Currently reopen does not restore expected state
-        # with potential data loss in mind like start of each `./db_stress` run.
-        # Therefore it always expects no data loss.
-        if (dest_params.get("avoid_sync_during_shutdown") == 1):
-            dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
@@ -798,9 +790,12 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
+        # Wide-column pessimistic transaction APIs are initially supported for
+        # WriteCommitted only
+        dest_params["use_put_entity_one_in"] = 0
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0

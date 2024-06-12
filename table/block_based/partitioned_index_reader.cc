@@ -223,4 +223,47 @@ Status PartitionIndexReader::CacheDependencies(
   return s;
 }
 
+void PartitionIndexReader::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  // NOTE: essentially a copy of
+  // PartitionedFilterBlockReader::EraseFromCacheBeforeDestruction
+  if (uncache_aggressiveness > 0) {
+    CachableEntry<Block> top_level_block;
+
+    GetOrReadIndexBlock(/*no_io=*/true, /*get_context=*/nullptr,
+                        /*lookup_context=*/nullptr, &top_level_block,
+                        ReadOptions{})
+        .PermitUncheckedError();
+
+    if (!partition_map_.empty()) {
+      // All partitions present if any
+      for (auto& e : partition_map_) {
+        e.second.ResetEraseIfLastRef();
+      }
+    } else if (!top_level_block.IsEmpty()) {
+      IndexBlockIter biter;
+      const InternalKeyComparator* const comparator = internal_comparator();
+      Statistics* kNullStats = nullptr;
+      top_level_block.GetValue()->NewIndexIterator(
+          comparator->user_comparator(),
+          table()->get_rep()->get_global_seqno(BlockType::kIndex), &biter,
+          kNullStats, true /* total_order_seek */, index_has_first_key(),
+          index_key_includes_seq(), index_value_is_full(),
+          false /* block_contents_pinned */,
+          user_defined_timestamps_persisted());
+
+      UncacheAggressivenessAdvisor advisor(uncache_aggressiveness);
+      for (biter.SeekToFirst(); biter.Valid() && advisor.ShouldContinue();
+           biter.Next()) {
+        bool erased = table()->EraseFromCache(biter.value().handle);
+        advisor.Report(erased);
+      }
+      biter.status().PermitUncheckedError();
+    }
+    top_level_block.ResetEraseIfLastRef();
+  }
+  // Might be needed to un-cache a pinned top-level block
+  BlockBasedTable::IndexReaderCommon::EraseFromCacheBeforeDestruction(
+      uncache_aggressiveness);
+}
 }  // namespace ROCKSDB_NAMESPACE

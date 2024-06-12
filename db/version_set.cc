@@ -857,10 +857,14 @@ Version::~Version() {
       f->refs--;
       if (f->refs <= 0) {
         assert(cfd_ != nullptr);
+        // When not in the process of closing the DB, we'll have a superversion
+        // to get current mutable options from
+        auto* sv = cfd_->GetSuperVersion();
         uint32_t path_id = f->fd.GetPathId();
         assert(path_id < cfd_->ioptions()->cf_paths.size());
         vset_->obsolete_files_.emplace_back(
             f, cfd_->ioptions()->cf_paths[path_id].path,
+            sv ? sv->mutable_cf_options.uncache_aggressiveness : 0,
             cfd_->GetFileMetadataCacheReservationManager());
       }
     }
@@ -3501,6 +3505,10 @@ void VersionStorageInfo::ComputeCompactionScore(
           score = kScoreForNeedCompaction;
         }
       } else {
+        // For universal compaction, if a user configures `max_read_amp`, then
+        // the score may be a false positive signal.
+        // `level0_file_num_compaction_trigger` is used as a trigger to check
+        // if there is any compaction work to do.
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
         if (compaction_style_ == kCompactionStyleLevel && num_levels() > 1) {
@@ -5188,13 +5196,21 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
 }
 
 VersionSet::~VersionSet() {
-  // we need to delete column_family_set_ because its destructor depends on
-  // VersionSet
+  // Must clean up column families to make all files "obsolete"
   column_family_set_.reset();
+
   for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
-      table_cache_->Release(file.metadata->table_reader_handle);
-      TableCache::Evict(table_cache_, file.metadata->fd.GetNumber());
+      // NOTE: DB is shutting down, so file is probably not obsolete, just
+      // no longer referenced by Versions in memory.
+      // For more context, see comment on "table_cache_->EraseUnRefEntries()"
+      // in DBImpl::CloseHelper().
+      // Using uncache_aggressiveness=0 overrides any previous marking to
+      // attempt to uncache the file's blocks (which after cleaning up
+      // column families could cause use-after-free)
+      TableCache::ReleaseObsolete(table_cache_,
+                                  file.metadata->table_reader_handle,
+                                  /*uncache_aggressiveness=*/0);
     }
     file.DeleteMetadata();
   }

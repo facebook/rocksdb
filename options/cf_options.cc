@@ -239,6 +239,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(class CompactionOptionsUniversal, compression_size_percent),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"max_read_amp",
+         {offsetof(class CompactionOptionsUniversal, max_read_amp),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"stop_style",
          {offsetof(class CompactionOptionsUniversal, stop_style),
           OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
@@ -517,6 +521,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"bottommost_file_compaction_delay",
          {offsetof(struct MutableCFOptions, bottommost_file_compaction_delay),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"uncache_aggressiveness",
+         {offsetof(struct MutableCFOptions, uncache_aggressiveness),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"block_protection_bytes_per_key",
@@ -1118,11 +1126,12 @@ void MutableCFOptions::Dump(Logger* log) const {
                  report_bg_io_stats);
   ROCKS_LOG_INFO(log, "                              compression: %d",
                  static_cast<int>(compression));
-  ROCKS_LOG_INFO(log,
-                 "                       experimental_mempurge_threshold: %f",
+  ROCKS_LOG_INFO(log, "          experimental_mempurge_threshold: %f",
                  experimental_mempurge_threshold);
   ROCKS_LOG_INFO(log, "         bottommost_file_compaction_delay: %" PRIu32,
                  bottommost_file_compaction_delay);
+  ROCKS_LOG_INFO(log, "                   uncache_aggressiveness: %" PRIu32,
+                 uncache_aggressiveness);
 
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
@@ -1137,6 +1146,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "compaction_options_universal.compression_size_percent : %d",
                  compaction_options_universal.compression_size_percent);
+  ROCKS_LOG_INFO(log, "compaction_options_universal.max_read_amp:  %d",
+                 compaction_options_universal.max_read_amp);
   ROCKS_LOG_INFO(log, "compaction_options_universal.stop_style : %d",
                  compaction_options_universal.stop_style);
   ROCKS_LOG_INFO(
