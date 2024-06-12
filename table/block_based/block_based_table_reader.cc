@@ -633,6 +633,8 @@ Status BlockBasedTable::Open(
 
   // From read_options, retain deadline, io_timeout, rate_limiter_priority, and
   // verify_checksums. In future, we may retain more options.
+  // TODO: audit more ReadOptions and do this in a way that brings attention
+  // on new ReadOptions?
   ReadOptions ro;
   ro.deadline = read_options.deadline;
   ro.io_timeout = read_options.io_timeout;
@@ -2857,11 +2859,8 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const ReadOptions& read_options,
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  ro.io_activity = read_options.io_activity;
   auto index_iter =
-      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
+      NewIndexIterator(read_options, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
@@ -2904,11 +2903,8 @@ uint64_t BlockBasedTable::ApproximateSize(const ReadOptions& read_options,
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  ro.io_activity = read_options.io_activity;
   auto index_iter =
-      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
+      NewIndexIterator(read_options, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
