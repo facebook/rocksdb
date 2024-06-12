@@ -1339,6 +1339,14 @@ TEST_P(DBBlockCacheTypeTest, AddRedundantStats) {
   EXPECT_EQ(3, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
 }
 
+namespace {
+std::string AltKey(int i) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "altkey%06d", i);
+  return std::string(buf);
+}
+}  // namespace
+
 TEST_P(DBBlockCacheTypeTest, Uncache) {
   for (bool partitioned : {false, true}) {
     SCOPED_TRACE("partitioned=" + std::to_string(partitioned));
@@ -1349,10 +1357,11 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
       Options options = CurrentOptions();
       options.uncache_aggressiveness = ua;
       options.create_if_missing = true;
-      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
       // Don't allow background operations to keep Versions referenced
       options.stats_dump_period_sec = 0;
       options.stats_persist_period_sec = 0;
+      auto stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics = stats;
 
       const size_t capacity = size_t{1} << 25;
       const int num_shard_bits = 0;  // 1 shard
@@ -1401,6 +1410,8 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
       // Combine into one file, making the originals obsolete
       ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
 
+      ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
       for (int i = 0; i < kNumDataBlocks; i++) {
         ASSERT_NE(Get(Key(i)), "NOT_FOUND");
       }
@@ -1420,6 +1431,75 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
         EXPECT_LT(cache->GetUsage(),
                   kNumDataBlocks * table_options.block_size * 2U);
       }
+
+      size_t alt_baseline_count = cache->GetOccupancyCount();
+      size_t alt_baseline_usage = cache->GetUsage();
+      ASSERT_OK(stats->Reset());
+      // We aren't generally cleaning up cache entries on DB::Close, especially
+      // because someone might just re-open the same DB.
+      Reopen(options);
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+      }
+
+      EXPECT_EQ(cache->GetOccupancyCount(), alt_baseline_count);
+      EXPECT_EQ(cache->GetUsage(), alt_baseline_usage);
+
+      // Check for unnecessary unncessary cache churn
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_ADD), 0U);
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_MISS), 0U);
+      ASSERT_GT(stats->getTickerCount(BLOCK_CACHE_HIT), 0U);
+
+      // And now do a similar test as above except with trivial moves, making
+      // sure that we aren't falsely uncaching in that case, which would cause
+      // unnecessary cache misses. Using AltKey instead of Key to avoid
+      // interference.
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        // No overlap
+        ASSERT_OK(
+            Put(AltKey(i), Random::GetTLSInstance()->RandomBinaryString(
+                               static_cast<int>(table_options.block_size))));
+        if (i >= kNumDataBlocks - kNumFiles) {
+          ASSERT_OK(Flush());
+        }
+      }
+      ASSERT_EQ(int{kNumFiles}, NumTableFilesAtLevel(0));
+
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(AltKey(i)), "NOT_FOUND");
+      }
+
+      ASSERT_EQ(cache->GetOccupancyCount(),
+                alt_baseline_count + kNumDataBlocks +
+                    meta_blocks_per_file * kNumFiles);
+      ASSERT_GE(cache->GetUsage(),
+                alt_baseline_usage + kNumDataBlocks * table_options.block_size);
+
+      ASSERT_OK(stats->Reset());
+
+      // Make trivial move
+      {
+        auto a = AltKey(0);
+        auto b = AltKey(kNumDataBlocks);
+        Slice slice_a{a};
+        Slice slice_b{b};
+        ASSERT_OK(db_->CompactRange({}, &slice_a, &slice_b));
+      }
+      ASSERT_EQ(/*old*/ 1 + /*new*/ int{kNumFiles}, NumTableFilesAtLevel(1));
+
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(AltKey(i)), "NOT_FOUND");
+      }
+
+      // Should be the same if trivial move
+      ASSERT_EQ(cache->GetOccupancyCount(),
+                alt_baseline_count + kNumDataBlocks +
+                    meta_blocks_per_file * kNumFiles);
+
+      // Check for unnecessary unncessary cache churn
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_ADD), 0U);
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_MISS), 0U);
+      ASSERT_GT(stats->getTickerCount(BLOCK_CACHE_HIT), 0U);
     }
   }
 }

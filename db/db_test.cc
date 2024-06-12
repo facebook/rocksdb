@@ -6353,6 +6353,8 @@ TEST_F(DBTest, PromoteL0) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.write_buffer_size = 10 * 1024 * 1024;
+  // Exercise what was a use-after-free (ASAN failure) under ~VersionSet()
+  options.uncache_aggressiveness = 300;
   DestroyAndReopen(options);
 
   // non overlapping ranges
