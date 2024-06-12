@@ -461,9 +461,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             uncompression_dict_status =
                 rep_->uncompression_dict_reader
                     ->GetOrReadUncompressionDictionary(
-                        nullptr /* prefetch_buffer */, read_options, no_io,
-                        read_options.verify_checksums, get_context,
-                        &metadata_lookup_context, &uncompression_dict);
+                        nullptr /* prefetch_buffer */, read_options,
+                        get_context, &metadata_lookup_context,
+                        &uncompression_dict);
             uncompression_dict_inited = true;
           }
 
