@@ -165,6 +165,9 @@ jobjectArray MultiGetJNIValues::byteArrays(
       // retain this behaviour. To change it, we need to do the following:
       // ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s[i]);
       // return nullptr;
+    } else if (s[i].code() == ROCKSDB_NAMESPACE::Status::Code::kCorruption) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s[i]);
+      return nullptr;
     }
   }
   return jresults;
