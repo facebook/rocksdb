@@ -469,14 +469,12 @@ class BlockBasedTable : public TableReader {
                            std::unique_ptr<IndexReader>* index_reader);
 
   bool FullFilterKeyMayMatch(FilterBlockReader* filter, const Slice& user_key,
-                             const bool no_io,
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
                              const ReadOptions& read_options) const;
 
   void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
-                              const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context,
                               const ReadOptions& read_options) const;

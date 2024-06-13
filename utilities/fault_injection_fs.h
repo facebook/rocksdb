@@ -203,6 +203,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         filesystem_active_(true),
         filesystem_writable_(false),
         read_unsynced_data_(true),
+        allow_link_open_file_(false),
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)),
         enable_write_error_injection_(false),
         enable_metadata_write_error_injection_(false),
@@ -365,6 +366,14 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     read_unsynced_data_ = read_unsynced_data;
   }
   bool ReadUnsyncedData() const { return read_unsynced_data_; }
+
+  // FaultInjectionTestFS normally includes a hygiene check for FileSystem
+  // implementations that only support LinkFile() on closed files (not open
+  // for write). Setting this to true bypasses the check.
+  void SetAllowLinkOpenFile(bool allow_link_open_file = true) {
+    allow_link_open_file_ = allow_link_open_file;
+  }
+
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
   IOStatus GetError() { return error_; }
@@ -565,6 +574,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
                               // to underlying FS for writable files
   bool read_unsynced_data_;   // See SetReadUnsyncedData()
+  bool allow_link_open_file_;  // See SetAllowLinkOpenFile()
   IOStatus error_;
 
   enum ErrorType : int {

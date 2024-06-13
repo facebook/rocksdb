@@ -38,7 +38,7 @@ class FilterBlockReaderCommon : public FilterBlockReader {
                      const SliceTransform* prefix_extractor,
                      const Comparator* comparator,
                      const Slice* const const_ikey_ptr, bool* filter_checked,
-                     bool need_upper_bound_check, bool no_io,
+                     bool need_upper_bound_check,
                      BlockCacheLookupContext* lookup_context,
                      const ReadOptions& read_options) override;
 
@@ -58,7 +58,7 @@ class FilterBlockReaderCommon : public FilterBlockReader {
   bool whole_key_filtering() const;
   bool cache_filter_blocks() const;
 
-  Status GetOrReadFilterBlock(bool no_io, GetContext* get_context,
+  Status GetOrReadFilterBlock(GetContext* get_context,
                               BlockCacheLookupContext* lookup_context,
                               CachableEntry<TBlocklike>* filter_block,
                               const ReadOptions& read_options) const;
