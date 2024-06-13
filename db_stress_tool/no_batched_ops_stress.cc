@@ -1884,6 +1884,9 @@ class NonBatchedOpsStressTest : public StressTest {
       ro.total_order_seek = true;
     }
 
+    bool expect_total_order = ro.total_order_seek || ro.auto_prefix_mode ||
+                              options_.prefix_extractor.get() == nullptr;
+
     std::string read_ts_str;
     Slice read_ts;
     if (FLAGS_user_timestamp_size > 0) {
@@ -1915,7 +1918,7 @@ class NonBatchedOpsStressTest : public StressTest {
           shared->Get(rand_column_family, i + lb));
     }
     std::unique_ptr<Iterator> iter;
-    if (FLAGS_use_multi_cf_iterator) {
+    if (FLAGS_use_multi_cf_iterator && expect_total_order) {
       std::vector<ColumnFamilyHandle*> cfhs;
       cfhs.reserve(rand_column_families.size());
       for (auto cf_index : rand_column_families) {
