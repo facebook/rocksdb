@@ -1375,6 +1375,10 @@ class NonBatchedOpsStressTest : public StressTest {
       // For half of the time, set the upper bound to the next prefix
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
+      if (FLAGS_use_sqfc_for_range_queries) {
+        ro_copy.table_filter =
+            sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
+      }
     }
 
     std::string read_ts_str;
@@ -1901,6 +1905,13 @@ class NonBatchedOpsStressTest : public StressTest {
       // that do not have expected state updated and may not be parseable by
       // GetIntVal().
       ro.iterate_upper_bound = &max_key_slice;
+    }
+    std::string ub_str, lb_str;
+    if (FLAGS_use_sqfc_for_range_queries) {
+      ub_str = Key(ub);
+      lb_str = Key(lb);
+      ro.table_filter =
+          sqfc_factory_->GetTableFilterForRangeQuery(lb_str, ub_str);
     }
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_family];

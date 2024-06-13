@@ -749,6 +749,10 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   ropts.iterate_upper_bound = &iter_ub;
   ropts.rate_limiter_priority =
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+  if (FLAGS_use_sqfc_for_range_queries) {
+    ropts.table_filter =
+        sqfc_factory_->GetTableFilterForRangeQuery(old_sk_prefix, iter_ub);
+  }
   it = txn->GetIterator(ropts);
 
   assert(it);
@@ -1107,6 +1111,10 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     ropts.snapshot = snapshot;
     ropts.total_order_seek = true;
     ropts.iterate_upper_bound = &iter_ub;
+    if (FLAGS_use_sqfc_for_range_queries) {
+      ropts.table_filter =
+          sqfc_factory_->GetTableFilterForRangeQuery(start_key, iter_ub);
+    }
 
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
     for (it->Seek(start_key); it->Valid(); it->Next()) {
@@ -1615,6 +1623,10 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
     ropts.iterate_lower_bound = &pk_lb;
     ropts.iterate_upper_bound = &pk_ub;
     ropts.total_order_seek = true;
+    if (FLAGS_use_sqfc_for_range_queries) {
+      ropts.table_filter =
+          sqfc_factory_->GetTableFilterForRangeQuery(pk_lb, pk_ub);
+    }
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
 
     for (it->SeekToFirst(); it->Valid(); it->Next()) {

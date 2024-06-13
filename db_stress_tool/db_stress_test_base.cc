@@ -18,6 +18,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "db_stress_tool/db_stress_filters.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "options/options_parser.h"
@@ -89,6 +90,14 @@ StressTest::StressTest()
       fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
       exit(1);
     }
+  }
+
+  Status s = DbStressSqfcManager().MakeSharedFactory(
+      FLAGS_sqfc_name, FLAGS_sqfc_version, &sqfc_factory_);
+  if (!s.ok()) {
+    fprintf(stderr, "Error initializing SstQueryFilterConfig: %s\n",
+            s.ToString().c_str());
+    exit(1);
   }
 }
 
@@ -1405,8 +1414,8 @@ Status StressTest::TestIterate(ThreadState* thread,
   }
   std::string upper_bound_str;
   Slice upper_bound;
-  if (thread->rand.OneIn(16)) {
-    // With a 1/16 chance, set an iterator upper bound.
+  // Prefer no bound with no range query filtering; prefer bound with it
+  if (FLAGS_use_sqfc_for_range_queries ^ thread->rand.OneIn(16)) {
     // Note: upper_bound can be smaller than the seek key.
     const int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
     upper_bound_str = Key(rand_upper_key);
@@ -1416,13 +1425,18 @@ Status StressTest::TestIterate(ThreadState* thread,
 
   std::string lower_bound_str;
   Slice lower_bound;
-  if (thread->rand.OneIn(16)) {
-    // With a 1/16 chance, enable iterator lower bound.
+  if (FLAGS_use_sqfc_for_range_queries ^ thread->rand.OneIn(16)) {
     // Note: lower_bound can be greater than the seek key.
     const int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
     lower_bound_str = Key(rand_lower_key);
     lower_bound = Slice(lower_bound_str);
     ro.iterate_lower_bound = &lower_bound;
+  }
+
+  if (FLAGS_use_sqfc_for_range_queries && ro.iterate_upper_bound &&
+      ro.iterate_lower_bound) {
+    ro.table_filter = sqfc_factory_->GetTableFilterForRangeQuery(
+        *ro.iterate_lower_bound, *ro.iterate_upper_bound);
   }
 
   std::unique_ptr<Iterator> iter;
@@ -1463,8 +1477,10 @@ Status StressTest::TestIterate(ThreadState* thread,
       op_logs = "(cleared...)\n";
     }
 
-    if (ro.iterate_upper_bound != nullptr && thread->rand.OneIn(2)) {
+    if (!FLAGS_use_sqfc_for_range_queries &&
+        ro.iterate_upper_bound != nullptr && thread->rand.OneIn(2)) {
       // With a 1/2 chance, change the upper bound.
+      // Not compatible with sqfc range filter.
       // It is possible that it is changed before first use, but there is no
       // problem with that.
       const int64_t rand_upper_key =
@@ -1472,8 +1488,10 @@ Status StressTest::TestIterate(ThreadState* thread,
       upper_bound_str = Key(rand_upper_key);
       upper_bound = Slice(upper_bound_str);
     }
-    if (ro.iterate_lower_bound != nullptr && thread->rand.OneIn(4)) {
+    if (!FLAGS_use_sqfc_for_range_queries &&
+        ro.iterate_lower_bound != nullptr && thread->rand.OneIn(4)) {
       // With a 1/4 chance, change the lower bound.
+      // Not compatible with sqfc range filter.
       // It is possible that it is changed before first use, but there is no
       // problem with that.
       const int64_t rand_lower_key =
@@ -3045,7 +3063,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   if (!InitializeOptionsFromFile(options_)) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
-  InitializeOptionsGeneral(cache_, filter_policy_, options_);
+  InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
 
   if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
     fprintf(stderr,
@@ -3928,6 +3946,7 @@ void InitializeOptionsFromFlags(
 void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
     const std::shared_ptr<const FilterPolicy>& filter_policy,
+    const std::shared_ptr<SstQueryFilterConfigsManager::Factory>& sqfc_factory,
     Options& options) {
   options.create_missing_column_families = true;
   options.create_if_missing = true;
@@ -4001,6 +4020,10 @@ void InitializeOptionsGeneral(
 
   options.table_properties_collector_factories.emplace_back(
       std::make_shared<DbStressTablePropertiesCollectorFactory>());
+
+  if (sqfc_factory && !sqfc_factory->GetConfigs().IsEmptyNotFound()) {
+    options.table_properties_collector_factories.emplace_back(sqfc_factory);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

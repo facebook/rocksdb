@@ -746,6 +746,10 @@ class CfConsistencyStressTest : public StressTest {
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
+      if (FLAGS_use_sqfc_for_range_queries) {
+        ro_copy.table_filter =
+            sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
+      }
     }
 
     ColumnFamilyHandle* const cfh =
