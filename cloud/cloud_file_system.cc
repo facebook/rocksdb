@@ -125,6 +125,14 @@ BucketOptions::BucketOptions() {
       "ROCKSDB_CLOUD_TEST_REGION", "ROCKSDB_CLOUD_REGION", &region_);
 }
 
+void BucketOptions::SetName() {
+  if (bucket_.empty()) {
+    name_.clear();
+  } else {
+    name_ = prefix_ + bucket_;
+  }
+}
+
 void BucketOptions::SetBucketName(const std::string& bucket,
                                   const std::string& prefix) {
   if (!prefix.empty()) {
@@ -132,11 +140,12 @@ void BucketOptions::SetBucketName(const std::string& bucket,
   }
 
   bucket_ = bucket;
-  if (bucket_.empty()) {
-    name_.clear();
-  } else {
-    name_ = prefix_ + bucket_;
-  }
+  SetName();
+}
+
+void BucketOptions::SetBucketPrefix(std::string prefix) {
+  prefix_ = std::move(prefix);
+  SetName();
 }
 
 // Initializes the bucket properties

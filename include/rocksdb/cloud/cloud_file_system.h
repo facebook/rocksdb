@@ -129,12 +129,16 @@ class BucketOptions {
   std::string object_;  // The object path for the bucket
   std::string region_;  // The region for the bucket
   std::string name_;    // The name of the bucket (prefix_ + bucket_)
+
+  void SetName();
+
  public:
   BucketOptions();
   // Sets the name of the bucket to be the new bucket name.
   // If prefix is specified, the new bucket name will be [prefix][bucket]
   // If no prefix is specified, the bucket name will use the existing prefix
   void SetBucketName(const std::string& bucket, const std::string& prefix = "");
+  void SetBucketPrefix(std::string prefix);
   const std::string& GetBucketPrefix() const { return prefix_; }
   const std::string& GetBucketName(bool full = true) const {
     if (full) {
