@@ -79,20 +79,24 @@ TEST_F(CoalescingIteratorTest, InvalidArguments) {
   {
     // Multi-CF-Iterator can't work with manual prefix iteration
     options = CurrentOptions(options);
+    DestroyAndReopen(options);
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
     bbto.whole_key_filtering = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(2));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
+    CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
 
     ReadOptions ro;
     ro.auto_prefix_mode = false;
     ro.total_order_seek = false;
-    std::unique_ptr<Iterator> iter =
-        db_->NewCoalescingIterator(ReadOptions(), handles_);
+    std::unique_ptr<Iterator> iter = db_->NewCoalescingIterator(ro, handles_);
     ASSERT_NOK(iter->status());
     ASSERT_TRUE(iter->status().IsInvalidArgument());
+    ASSERT_EQ(
+        "Invalid argument: Manual Prefix Iteration is not allowed in "
+        "MultiCfIterator",
+        iter->status().ToString());
   }
 }
 
