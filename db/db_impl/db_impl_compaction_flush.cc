@@ -101,12 +101,17 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   // alleviated if we continue with the flush instead of postponing it.
   const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
 
-  // Taking the status of the active Memtable into consideration so that we are
-  // not just checking if DB is currently already in write stall mode.
-  int mem_to_flush = cfd->mem()->ApproximateMemoryUsageFast() >=
-                             cfd->mem()->write_buffer_size() / 2
-                         ? 1
-                         : 0;
+  // Use the same criteria as WaitUntilFlushWouldNotStallWrites does w.r.t
+  // defining what a write stall is about to happen means. If this uses a
+  // stricter criteria, for example, a write stall is about to happen if the
+  // last memtable is 10% full, there is a possibility that manual flush could
+  // be waiting in `WaitUntilFlushWouldNotStallWrites` with the incorrect
+  // expectation that others will clear up the excessive memtables and
+  // eventually let it proceed. The others in this case won't start clearing
+  // until the last memtable is 10% full. To avoid that scenario, the criteria
+  // this uses should be the same or less strict than
+  // `WaitUntilFlushWouldNotStallWrites` does.
+  int mem_to_flush = cfd->mem()->IsEmpty() ? 0 : 1;
   WriteStallCondition write_stall =
       ColumnFamilyData::GetWriteStallConditionAndCause(
           cfd->imm()->NumNotFlushed() + mem_to_flush, /*num_l0_files=*/0,
@@ -2677,6 +2682,8 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
       // mode due to pending compaction bytes, but that's less common
       // No extra immutable Memtable will be created if the current Memtable is
       // empty.
+      // NOTE: If this ever changes, check the write stall condition criteria
+      // in `ShouldRescheduleFlushRequestToRetainUDT` and make them in sync.
       int mem_to_flush = cfd->mem()->IsEmpty() ? 0 : 1;
       write_stall_condition = ColumnFamilyData::GetWriteStallConditionAndCause(
                                   cfd->imm()->NumNotFlushed() + mem_to_flush,
