@@ -562,6 +562,7 @@ static bool SaveError(char** errptr, const Status& s) {
   return true;
 }
 
+// Copies str to a new malloc()-ed buffer. The buffer is not NUL terminated.
 static char* CopyString(const std::string& str) {
   char* result = reinterpret_cast<char*>(malloc(sizeof(char) * str.size()));
   memcpy(result, str.data(), sizeof(char) * str.size());
@@ -1460,6 +1461,18 @@ char* rocksdb_get_cf_with_ts(rocksdb_t* db,
     }
   }
   return result;
+}
+
+char* rocksdb_get_db_identity(rocksdb_t* db, size_t* id_len) {
+  std::string identity_tmp;
+  Status s = db->rep->GetDbIdentity(identity_tmp);
+  if (!s.ok()) {
+    *id_len = 0;
+    return nullptr;
+  }
+
+  *id_len = identity_tmp.size();
+  return CopyString(identity_tmp);
 }
 
 void rocksdb_multi_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
@@ -4016,6 +4029,27 @@ void rocksdb_options_set_plain_table_factory(
   opt->rep.table_factory.reset(factory);
 }
 
+unsigned char rocksdb_options_get_write_dbid_to_manifest(
+    rocksdb_options_t* opt) {
+  return opt->rep.write_dbid_to_manifest;
+}
+
+void rocksdb_options_set_write_dbid_to_manifest(
+    rocksdb_options_t* opt, unsigned char write_dbid_to_manifest) {
+  opt->rep.write_dbid_to_manifest = write_dbid_to_manifest;
+}
+
+unsigned char rocksdb_options_get_track_and_verify_wals_in_manifest(
+    rocksdb_options_t* opt) {
+  return opt->rep.track_and_verify_wals_in_manifest;
+}
+
+void rocksdb_options_set_track_and_verify_wals_in_manifest(
+    rocksdb_options_t* opt, unsigned char track_and_verify_wals_in_manifest) {
+  opt->rep.track_and_verify_wals_in_manifest =
+      track_and_verify_wals_in_manifest;
+}
+
 void rocksdb_options_set_max_successive_merges(rocksdb_options_t* opt,
                                                size_t v) {
   opt->rep.max_successive_merges = v;
@@ -4395,13 +4429,8 @@ void rocksdb_perfcontext_destroy(rocksdb_perfcontext_t* context) {
 
 /*
 TODO:
-DB::OpenForReadOnly
-DB::KeyMayExist
 DB::GetOptions
 DB::GetSortedWalFiles
-DB::GetLatestSequenceNumber
-DB::GetUpdatesSince
-DB::GetDbIdentity
 DB::RunManualCompaction
 custom cache
 table_properties_collectors

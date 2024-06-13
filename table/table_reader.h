@@ -191,7 +191,9 @@ class TableReader {
 
   // Tell the reader that the file should now be obsolete, e.g. as a hint
   // to delete relevant cache entries on destruction. (It might not be safe
-  // to "unpin" cache entries until destruction time.)
+  // to "unpin" cache entries until destruction time.) NOTE: must be thread
+  // safe because multiple table cache references might all mark this file as
+  // obsolete when they are released (the last of which destroys this reader).
   virtual void MarkObsolete(uint32_t /*uncache_aggressiveness*/) {
     // no-op as default
   }

@@ -123,7 +123,7 @@ FullFilterBlockReader::FullFilterBlockReader(
     CachableEntry<ParsedFullFilterBlock>&& filter_block)
     : FilterBlockReaderCommon(t, std::move(filter_block)) {}
 
-bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
+bool FullFilterBlockReader::KeyMayMatch(const Slice& key,
                                         const Slice* const /*const_ikey_ptr*/,
                                         GetContext* get_context,
                                         BlockCacheLookupContext* lookup_context,
@@ -131,7 +131,7 @@ bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
   if (!whole_key_filtering()) {
     return true;
   }
-  return MayMatch(key, no_io, get_context, lookup_context, read_options);
+  return MayMatch(key, get_context, lookup_context, read_options);
 }
 
 std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
@@ -162,19 +162,19 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(
-    const Slice& prefix, const bool no_io,
-    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
-  return MayMatch(prefix, no_io, get_context, lookup_context, read_options);
+    const Slice& prefix, const Slice* const /*const_ikey_ptr*/,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
+  return MayMatch(prefix, get_context, lookup_context, read_options);
 }
 
-bool FullFilterBlockReader::MayMatch(const Slice& entry, bool no_io,
+bool FullFilterBlockReader::MayMatch(const Slice& entry,
                                      GetContext* get_context,
                                      BlockCacheLookupContext* lookup_context,
                                      const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
+  const Status s = GetOrReadFilterBlock(get_context, lookup_context,
                                         &filter_block, read_options);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
@@ -199,32 +199,30 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry, bool no_io,
 }
 
 void FullFilterBlockReader::KeysMayMatch(
-    MultiGetRange* range, const bool no_io,
-    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
+    MultiGetRange* range, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
   if (!whole_key_filtering()) {
     // Simply return. Don't skip any key - consider all keys as likely to be
     // present
     return;
   }
-  MayMatch(range, no_io, nullptr, lookup_context, read_options);
+  MayMatch(range, nullptr, lookup_context, read_options);
 }
 
 void FullFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
-    const bool no_io, BlockCacheLookupContext* lookup_context,
-    const ReadOptions& read_options) {
-  MayMatch(range, no_io, prefix_extractor, lookup_context, read_options);
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
+  MayMatch(range, prefix_extractor, lookup_context, read_options);
 }
 
-void FullFilterBlockReader::MayMatch(MultiGetRange* range, bool no_io,
+void FullFilterBlockReader::MayMatch(MultiGetRange* range,
                                      const SliceTransform* prefix_extractor,
                                      BlockCacheLookupContext* lookup_context,
                                      const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s =
-      GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
-                           &filter_block, read_options);
+  const Status s = GetOrReadFilterBlock(
+      range->begin()->get_context, lookup_context, &filter_block, read_options);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return;

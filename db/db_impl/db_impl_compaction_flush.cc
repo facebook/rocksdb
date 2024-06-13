@@ -87,6 +87,9 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   mutex_.AssertHeld();
   assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
   ColumnFamilyData* cfd = flush_req.cfd_to_max_mem_id_to_persist.begin()->first;
+  if (cfd->GetAndClearFlushSkipReschedule()) {
+    return false;
+  }
   uint64_t max_memtable_id =
       flush_req.cfd_to_max_mem_id_to_persist.begin()->second;
   if (cfd->IsDropped() ||
@@ -2361,7 +2364,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         }
       }
       for (const auto& req : flush_reqs) {
-        SchedulePendingFlush(req);
+        assert(req.cfd_to_max_mem_id_to_persist.size() == 1);
+        ColumnFamilyData* loop_cfd =
+            req.cfd_to_max_mem_id_to_persist.begin()->first;
+        bool already_queued_for_flush = loop_cfd->queued_for_flush();
+        bool flush_req_enqueued = SchedulePendingFlush(req);
+        if (already_queued_for_flush || flush_req_enqueued) {
+          loop_cfd->SetFlushSkipReschedule();
+        }
       }
       MaybeScheduleFlushOrCompaction();
     }
@@ -2577,7 +2587,9 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
           flush_reason,
           {{cfd,
             std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
-      SchedulePendingFlush(flush_req);
+      if (SchedulePendingFlush(flush_req)) {
+        cfd->SetFlushSkipReschedule();
+      };
     }
   }
   MaybeScheduleFlushOrCompaction();
@@ -2983,13 +2995,14 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
   return cfd;
 }
 
-void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
+bool DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
   mutex_.AssertHeld();
+  bool enqueued = false;
   if (reject_new_background_jobs_) {
-    return;
+    return enqueued;
   }
   if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
-    return;
+    return enqueued;
   }
   if (!immutable_db_options_.atomic_flush) {
     // For the non-atomic flush case, we never schedule multiple column
@@ -3004,6 +3017,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
       cfd->set_queued_for_flush(true);
       ++unscheduled_flushes_;
       flush_queue_.push_back(flush_req);
+      enqueued = true;
     }
   } else {
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
@@ -3012,7 +3026,9 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
     }
     ++unscheduled_flushes_;
     flush_queue_.push_back(flush_req);
+    enqueued = true;
   }
+  return enqueued;
 }
 
 void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {

@@ -401,7 +401,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   // fully synced. Although the output DB of a Checkpoint or Backup needs
   // to be fully synced on return, we don't strictly need to sync this
   // DB (the input DB). If we allow Checkpoint to hard link an inactive
-  // WAL that isn't fully synced, that could result in an unsufficiently
+  // WAL that isn't fully synced, that could result in an insufficiently
   // sync-ed Checkpoint. Here we get the set of WALs that are potentially
   // unsynced or still being written to, to prevent them from being hard
   // linked. Enforcing max_log_num from above ensures any new WALs after
