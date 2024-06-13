@@ -83,7 +83,7 @@ class KVException : public std::exception {
 
   KVException(jint code) : kCode_(code){};
 
-  virtual const char* what() const throw() {
+  virtual const char* what() const noexcept {
     return "Exception raised by JNI. There may be a Java exception in the "
            "JNIEnv. Please check!";
   }
