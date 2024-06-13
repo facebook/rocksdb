@@ -3946,6 +3946,16 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
     return error_iterator_func(
         Status::InvalidArgument("No Column Family was provided"));
   }
+  if (!_read_options.total_order_seek && !_read_options.auto_prefix_mode) {
+    for (auto* column_family : column_families) {
+      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+      auto cfd = cfh->cfd();
+      if (cfd->GetLatestCFOptions().prefix_extractor != nullptr) {
+        return error_iterator_func(Status::InvalidArgument(
+            "Manual Prefix Iteration is not allowed in MultiCfIterator"));
+      }
+    }
+  }
   const Comparator* first_comparator = column_families[0]->GetComparator();
   for (size_t i = 1; i < column_families.size(); ++i) {
     const Comparator* cf_comparator = column_families[i]->GetComparator();

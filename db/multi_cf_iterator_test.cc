@@ -76,6 +76,24 @@ TEST_F(CoalescingIteratorTest, InvalidArguments) {
     ASSERT_NOK(iter_with_no_cf->status());
     ASSERT_TRUE(iter_with_no_cf->status().IsInvalidArgument());
   }
+  {
+    // Multi-CF-Iterator can't work with manual prefix iteration
+    options = CurrentOptions(options);
+    BlockBasedTableOptions bbto;
+    bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    bbto.whole_key_filtering = true;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+
+    ReadOptions ro;
+    ro.auto_prefix_mode = false;
+    ro.total_order_seek = false;
+    std::unique_ptr<Iterator> iter =
+        db_->NewCoalescingIterator(ReadOptions(), handles_);
+    ASSERT_NOK(iter->status());
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
 }
 
 TEST_F(CoalescingIteratorTest, SimpleValues) {

@@ -1427,7 +1427,7 @@ Status StressTest::TestIterate(ThreadState* thread,
 
   std::unique_ptr<Iterator> iter;
 
-  if (FLAGS_use_multi_cf_iterator) {
+  if (FLAGS_use_multi_cf_iterator && expect_total_order) {
     std::vector<ColumnFamilyHandle*> cfhs;
     cfhs.reserve(rand_column_families.size());
     for (auto cf_index : rand_column_families) {
