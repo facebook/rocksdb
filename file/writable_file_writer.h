@@ -278,7 +278,9 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
-  bool BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+  bool BufferIsEmpty() const { return buf_.CurrentSize() == 0; }
+
+  bool IsClosed() const { return writable_file_.get() == nullptr; }
 
   void TEST_SetFileChecksumGenerator(
       FileChecksumGenerator* checksum_generator) {

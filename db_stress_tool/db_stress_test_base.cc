@@ -1891,6 +1891,16 @@ Status StressTest::TestBackupRestore(
   if (!s.ok()) {
     from = "BackupEngine::Open";
   }
+
+  if (s.ok() && FLAGS_manual_wal_flush_one_in > 0) {
+    // To avoid missing buffered WAL data during backup and cause false-positive
+    // inconsistent values between original DB and restored DB
+    s = db_->FlushWAL(/*sync=*/false);
+    if (!s.ok()) {
+      from = "FlushWAL";
+    }
+  }
+
   // FIXME: this is only needed as long as db_stress uses
   // SetReadUnsyncedData(false), because it will only be able to
   // copy the synced portion of the WAL. For correctness validation, that

@@ -633,6 +633,8 @@ Status BlockBasedTable::Open(
 
   // From read_options, retain deadline, io_timeout, rate_limiter_priority, and
   // verify_checksums. In future, we may retain more options.
+  // TODO: audit more ReadOptions and do this in a way that brings attention
+  // on new ReadOptions?
   ReadOptions ro;
   ro.deadline = read_options.deadline;
   ro.io_timeout = read_options.io_timeout;
@@ -1565,9 +1567,8 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   Status s;
   CachableEntry<UncompressionDict> uncompression_dict;
   if (rep_->uncompression_dict_reader) {
-    const bool no_io = (ro.read_tier == kBlockCacheTier);
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        /* prefetch_buffer= */ nullptr, ro, no_io, ro.verify_checksums,
+        /* prefetch_buffer= */ nullptr, ro,
         /* get_context= */ nullptr, /* lookup_context= */ nullptr,
         &uncompression_dict);
     if (!s.ok()) {
@@ -2854,11 +2855,8 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const ReadOptions& read_options,
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  ro.io_activity = read_options.io_activity;
   auto index_iter =
-      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
+      NewIndexIterator(read_options, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
@@ -2901,11 +2899,8 @@ uint64_t BlockBasedTable::ApproximateSize(const ReadOptions& read_options,
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  ro.io_activity = read_options.io_activity;
   auto index_iter =
-      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
+      NewIndexIterator(read_options, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
@@ -3081,10 +3076,8 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   if (rep_->uncompression_dict_reader) {
     CachableEntry<UncompressionDict> uncompression_dict;
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        nullptr /* prefetch_buffer */, ro, false /* no_io */,
-        false, /* verify_checksums */
-        nullptr /* get_context */, nullptr /* lookup_context */,
-        &uncompression_dict);
+        nullptr /* prefetch_buffer */, ro, nullptr /* get_context */,
+        nullptr /* lookup_context */, &uncompression_dict);
     if (!s.ok()) {
       return s;
     }

@@ -17,6 +17,7 @@
 #include "utilities/fault_injection_fs.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <functional>
 #include <utility>
 
@@ -886,6 +887,12 @@ IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
   if (io_s.ok()) {
     {
       MutexLock l(&mutex_);
+      if (!allow_link_open_file_ &&
+          open_managed_files_.find(s) != open_managed_files_.end()) {
+        fprintf(stderr, "Attempt to LinkFile while open for write: %s\n",
+                s.c_str());
+        abort();
+      }
       if (db_file_state_.find(s) != db_file_state_.end()) {
         db_file_state_[t] = db_file_state_[s];
       }
