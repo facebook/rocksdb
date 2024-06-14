@@ -3755,7 +3755,9 @@ TEST_P(IngestLiveDBFileTest, NewManifest) {
     return;
   }
   // When writing current state of files to a new MANIFEST,
-  // it should preserve the global sequence number of ingested live db files.
+  // it should record that reading from this file should use a global
+  // sequence number (See NewFileCustomTag::kIgnoreSeqnoInFile). Here we test
+  // that this filed is recorded correctly.
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
     Options options = CurrentOptions();
@@ -3786,8 +3788,9 @@ TEST_P(IngestLiveDBFileTest, NewManifest) {
     // read from new MANIFEST
     ASSERT_OK(TryReopenWithColumnFamilies({"default", "toto"}, options));
 
-    // If global seqno is not used for the ingested file, keys in it have seqno
-    // 0 and will be dropped during compaction.
+    // If the ingested file is treated like a regular file without global
+    // sequence number, then, since all keys in it have seqno 0, they will be
+    // incorrectly dropped during compaction.
     ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
     std::string val;
     for (int k = 0; k < kNumKeys; ++k) {

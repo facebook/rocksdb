@@ -506,7 +506,7 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
     }
   } else {
     version = DecodeFixed32(version_pos->second.c_str());
-    if (version > 2) {
+    if (version != 2 && version != 1) {
       return Status::Corruption(
           ("External file version " + std::to_string(version) +
            " is not supported. The field is likely corrupted."));
@@ -514,9 +514,8 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   }
 
   // 0 is for no version. 1 and 2 are supported versions.
-  assert(version <= 2);
   if (version == 1) {
-    if (seqno_pos != props.end() || version != 1) {
+    if (seqno_pos != props.end()) {
       std::array<char, 200> msg_buf;
       // This is a v1 external sst file, global_seqno is not supported.
       snprintf(msg_buf.data(), msg_buf.max_size(),
@@ -528,6 +527,7 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
     return Status::OK();
   }
 
+  assert(version == 2 || (ignore_seqno_in_file && version == 0));
   // Since we have a plan to deprecate global_seqno, we do not return failure
   // if seqno_pos == props.end(). We rely on version_pos to detect whether the
   // SST is external.
