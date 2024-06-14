@@ -962,7 +962,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
     auto write_controller = column_family_set_->write_controller_;
 
     std::shared_ptr<WriteController> cf_write_controller = column_family_set_->write_controllers_[id_];
-    std::cout << "[TGRIGGS_LOG] CFID=" << id_ << ", wc addr = " << cf_write_controller.get() << std::endl;
+    // std::cout << "[TGRIGGS_LOG] CFID=" << id_ << ", wc addr = " << cf_write_controller.get() << std::endl;
     
     uint64_t compaction_needed_bytes =
         vstorage->estimated_compaction_needed_bytes();

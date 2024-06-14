@@ -42,7 +42,7 @@ size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
   return bytes;
 }
 
-// Pending request
+// Pending request.
 struct MultiTenantRateLimiter::Req {
   explicit Req(int64_t _bytes, port::Mutex* _mu)
       : request_bytes(_bytes), bytes(_bytes), cv(_mu) {}
@@ -51,10 +51,27 @@ struct MultiTenantRateLimiter::Req {
   port::CondVar cv;
 };
 
+// Key for map tracking pending requests.
+struct MultiTenantRateLimiter::ReqKey {
+  int client_id;
+  Env::IOPriority priority;
+
+  // Constructor with initializer list using this-> to avoid shadowing warning
+  ReqKey(int c_id, Env::IOPriority pri) 
+    : client_id(c_id), priority(pri) {}
+
+  bool operator<(const ReqKey& other) const {
+    if (client_id != other.client_id) {
+      return client_id < other.client_id;
+    }
+    return priority < other.priority;
+  }
+};
+
 MultiTenantRateLimiter::MultiTenantRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
     RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock,
-    bool auto_tuned, int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec)
+    bool auto_tuned, int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec, int num_clients)
     : RateLimiter(mode),
       refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
@@ -66,21 +83,28 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
       stop_(false),
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
-      // available_bytes_(0),
       next_refill_us_(NowMicrosMonotonicLocked()),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       wait_until_refill_pending_(false),
-      available_bytes_arr_{},
+      num_clients_(num_clients),
       read_rate_bytes_per_sec_(read_rate_bytes_per_sec) {
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
   }
-  for (int i = 0; i < kTGNumClients; ++i) {
-    calls_per_client_[i] = 0;
-    available_bytes_arr_[i] = 0;
+  for (int i = 0; i < num_clients; ++i) {
+    calls_per_client_.push_back(0);
+    available_bytes_.push_back(0);
   }
+
+  for (int c_id = 0; c_id < num_clients; ++c_id) {
+    for (int pri = Env::IO_LOW; pri < Env::IO_TOTAL; ++pri) {
+      ReqKey key(c_id, static_cast<Env::IOPriority>(pri));
+      request_queue_map_[key] = std::deque<Req*>();
+    }
+  }
+
   std::cout << "[TGRIGGS_LOG] rate_bytes_per_sec_ = " << rate_bytes_per_sec_ << std::endl;
 
   if (read_rate_bytes_per_sec_ > 0) {
@@ -90,7 +114,8 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
         10,                // Fairness (default)
         rocksdb::RateLimiter::Mode::kReadsOnly, // Apply only to reads
         false,              // Disable auto-tuning
-        /* read_rate_limit = */ 0
+        /* read_rate_limit = */ 0,
+        num_clients = num_clients
     );
   }
 }
@@ -173,33 +198,33 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
-  auto& thread_metadata = TG_GetThreadMetadata();
+  // auto& thread_metadata = TG_GetThreadMetadata();
+  int client_id = TG_GetThreadMetadata().client_id;
 
-  if (thread_metadata.client_id == 0) {
+  if (client_id == 0) {
     // TGprintStackTrace();
   }
 
-  if (thread_metadata.client_id == -2) {
+  if (client_id == -2) {
     std::cout << "[TGRIGGS_LOG] bad input" << std::endl;
     return;
   }
 
   // Extract client ID from thread-local metadata.
-  int client_id = TG_GetThreadMetadata().client_id;
 
   // Flush - don't block them (for now)
   // TODO:
   //    Idea: give support for splitting across certain clients
-  if (thread_metadata.client_id == -1) {
+  if (client_id == -1) {
     // std::cout << "[TGRIGGS_LOG] un-set client id" << std::endl;
 
-    // Assiggn flushes to client 1 (effectively 0)
+    // Assign flushes to client 1 (effectively 0)
     client_id = 1;
     // return;
   }
 
   // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
-  calls_per_client_[thread_metadata.client_id]++;
+  calls_per_client_[client_id]++;
   if (total_calls_++ >= 1000) {
     total_calls_ = 0;
     std::cout << "[TGRIGGS_LOG] RL calls per-clients for ";
@@ -224,17 +249,17 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   if (stop_) {
     // It is now in the clean-up of ~MultiTenantRateLimiter().
     // Therefore any new incoming request will exit from here
-    // and not get satiesfied.
+    // and not get satisfied.
     return;
   }
 
   ++total_requests_[pri];
 
   // Draw from per-client token buckets.
-  if (available_bytes_arr_[client_id] > 0) {
-    int64_t bytes_through = std::min(available_bytes_arr_[client_id], bytes);
+  if (available_bytes_[client_id] > 0) {
+    int64_t bytes_through = std::min(available_bytes_[client_id], bytes);
     total_bytes_through_[pri] += bytes_through;
-    available_bytes_arr_[client_id] -= bytes_through;
+    available_bytes_[client_id] -= bytes_through;
     bytes -= bytes_through;
   } 
 
@@ -247,7 +272,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   Req req(bytes, &request_mutex_);
 
   // std::cout << "[TGRIGGS_LOG] Pushing back for client,pri,bytes: " << client_id << "," << pri << "," << bytes << std::endl;
-  multi_tenant_queue_[client_id][pri].push_back(&req);
+  request_queue_map_[ReqKey(client_id, pri)].push_back(&req);
   // queue_[pri].push_back(&r);
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
                            &request_mutex_);
@@ -283,10 +308,9 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // If there is any remaining requests, make sure there exists at least
       // one candidate is awake for future duties by signaling a front request
       // of a queue.
-      for (int i = 0; i < kTGNumClients; ++i) {
-        for (int j = Env::IO_TOTAL - 1; j >= Env::IO_LOW; --j) {
-          auto& queue = multi_tenant_queue_[i][j];
-          // auto& queue = queue_[i];
+      for (int c_id = 0; c_id < num_clients_; ++c_id) {
+        for (int priority = Env::IO_TOTAL - 1; priority >= Env::IO_LOW; --priority) {
+          auto& queue = request_queue_map_[ReqKey(c_id, static_cast<Env::IOPriority>(priority))];
           if (!queue.empty()) {
             queue.front()->cv.Signal();
             break;
@@ -365,6 +389,7 @@ MultiTenantRateLimiter::GeneratePriorityIterationOrderLocked() {
 // 2) for compaction: belongs to single client_id
 // 3) for flush: belongs to MULTIPLE client_id's, draw from each?? even if goes below zero??
 //     a) idea: never block flush (except behind user requests) even if tokens are out
+//     b) then give negative tokens? 
 // 4) how to refresh tokens?
 void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   TEST_SYNC_POINT_CALLBACK(
@@ -372,7 +397,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
 
   // Carry over the left over quota from the last period
-  // TODO: don't understand how this ^^ is happening?
+  // TODO: don't understand how this ^^ is happening in the code below??
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
 
@@ -381,22 +406,24 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   // available_bytes_ = refill_bytes_per_period;
 
   // TODO: allow weighting of different clients.
-  for (int i = 0; i < kTGNumClients; ++i) {
-    available_bytes_arr_[i] = refill_bytes_per_period;
+  for (int c_id = 0; c_id < num_clients_; ++c_id) {
+    available_bytes_[c_id] = refill_bytes_per_period;
   }
 
-  int client_order[kTGNumClients] = {0, 1, 2, 3, 4};
-  std::random_shuffle(std::begin(client_order), std::end(client_order));
+  // Random shuffle client order.
+  std::vector<int> client_order(num_clients_);
+  std::iota(client_order.begin(), client_order.end(), 0);
+  std::random_shuffle(client_order.begin(), client_order.end());
 
-  // Logic
-  // 1) iterate through each client (in random order)
+  // 1) iterate through each client
   // 2) for each client, do strict priority order from IO_USER to IO_LOW
-  for (int i = 0; i < kTGNumClients; ++i) {
-    for (int j = Env::IO_TOTAL - 1; j >= Env::IO_LOW; --j) {
-      auto* queue = &multi_tenant_queue_[client_order[i]][j];
+  for (int c_id = 0; c_id < num_clients_; ++c_id) {
+    for (int priority = Env::IO_TOTAL - 1; priority >= Env::IO_LOW; --priority) {
+      auto* queue = &request_queue_map_[ReqKey(c_id, static_cast<Env::IOPriority>(priority))];
       while (!queue->empty()) {
+        int client_id = client_order[c_id];
         auto* next_req = queue->front();
-        if (available_bytes_arr_[client_order[i]] < next_req->request_bytes) {
+        if (available_bytes_[client_id] < next_req->request_bytes) {
           // Grant partial request_bytes even if request is for more than
           // `available_bytes_`, which can happen in a few situations:
           //
@@ -404,13 +431,13 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
           // - The rate was dynamically reduced while requests were already
           //   enqueued
           // - The burst size was explicitly set to be larger than the refill size
-          next_req->request_bytes -= available_bytes_arr_[client_order[i]];
-          available_bytes_arr_[client_order[i]] = 0;
+          next_req->request_bytes -= available_bytes_[client_id];
+          available_bytes_[client_id] = 0;
           break;
         }
-        available_bytes_arr_[client_order[i]] -= next_req->request_bytes;
+        available_bytes_[client_id] -= next_req->request_bytes;
         next_req->request_bytes = 0;
-        total_bytes_through_[j] += next_req->bytes;
+        total_bytes_through_[priority] += next_req->bytes;
         // std::cout << "[TGRIGGS_LOG] Popping client,pri: " << i << "," << j << std::endl;
         queue->pop_front();
 
@@ -468,13 +495,15 @@ RateLimiter* NewMultiTenantRateLimiter(
     int32_t fairness /* = 10 */,
     RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */,
     bool auto_tuned /* = false */, int64_t single_burst_bytes /* = 0 */,
-    int64_t read_rate_bytes_per_sec /* = 0 */) {
+    int64_t read_rate_bytes_per_sec /* = 0 */,
+    int num_clients /* = 1 */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
   std::unique_ptr<RateLimiter> limiter(new MultiTenantRateLimiter(
       rate_bytes_per_sec, refill_period_us, fairness, mode,
-      SystemClock::Default(), auto_tuned, single_burst_bytes, read_rate_bytes_per_sec));
+      SystemClock::Default(), auto_tuned, single_burst_bytes, read_rate_bytes_per_sec,
+      num_clients));
   return limiter.release();
 }
 

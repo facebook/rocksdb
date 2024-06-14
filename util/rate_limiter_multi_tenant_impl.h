@@ -24,27 +24,25 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// TODO(tgriggs): fix this
-static const int kTGNumClients = 5;
-
 class MultiTenantRateLimiter : public RateLimiter {
  public:
   MultiTenantRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
                      int32_t fairness, RateLimiter::Mode mode,
                      const std::shared_ptr<SystemClock>& clock, bool auto_tuned,
-                     int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec);
+                     int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec,
+                     int num_clients);
 
   virtual ~MultiTenantRateLimiter();
 
-  // This API allows user to dynamically change rate limiter's bytes per second.
+  // Permits dynamically change rate limiter's bytes per second.
   void SetBytesPerSecond(int64_t bytes_per_second) override;
 
   Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
 
   // Request for token to write bytes. If this request can not be satisfied,
-  // the call is blocked. Caller is responsible to make sure
-  // bytes <= GetSingleBurstBytes() and bytes >= 0. Negative bytes
-  // passed in will be rounded up to 0.
+  // the call is blocked. Caller is responsible to make sure 
+  // bytes <= GetSingleBurstBytes(). Negative bytes passed in will be
+  // rounded up to 0.
   using RateLimiter::Request;
   void Request(const int64_t bytes, const Env::IOPriority pri,
                Statistics* stats) override;
@@ -151,15 +149,21 @@ class MultiTenantRateLimiter : public RateLimiter {
   Random rnd_;
 
   struct Req;
+  struct ReqKey;
+
+  // TODO: remove this?
   std::deque<Req*> queue_[Env::IO_TOTAL];
 
   bool wait_until_refill_pending_;
 
   // Multi-tenant extensions
-  int64_t available_bytes_arr_[kTGNumClients];
-  std::array<std::array<std::deque<Req*>, Env::IO_TOTAL>, kTGNumClients> multi_tenant_queue_;
+  int num_clients_;
+  std::vector<int64_t> available_bytes_;
 
-  int calls_per_client_[kTGNumClients];
+  std::map<ReqKey, std::deque<Req*>> request_queue_map_;
+
+  std::vector<int64_t> calls_per_client_;
+
   int total_calls_;
 
   RateLimiter* read_rate_limiter_ = nullptr;
