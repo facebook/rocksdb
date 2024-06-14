@@ -572,6 +572,10 @@ class ColumnFamilyData {
   // of its files (if missing)
   void RecoverEpochNumbers();
 
+  int GetUnflushedMemTableCountForWriteStallCheck() const {
+    return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
+  }
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
