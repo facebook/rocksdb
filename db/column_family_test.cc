@@ -3916,9 +3916,6 @@ TEST_F(ManualFlushSkipRetainUDTTest, BulkLoading) {
 }
 
 TEST_F(ManualFlushSkipRetainUDTTest, AutomaticFlushQueued) {
-  // TODO(yuzhangyu): this is where the write for no write stall happens.
-  // We need to sovle that and remove this.
-  column_family_options_.max_write_buffer_number = 3;
   Open();
   ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
 
@@ -3926,10 +3923,13 @@ TEST_F(ManualFlushSkipRetainUDTTest, AutomaticFlushQueued) {
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
   CheckEffectiveCutoffTime(0);
 
-  ASSERT_OK(Put(0, "foo", EncodeAsUint64(2), "v2"));
+  // Default `max_write_buffer_number=2` used, writing another memtable can get
+  // automatic flush to proceed because of memory pressure. Not doing that so
+  // we can test automatic flush gets to proceed because of an ongoing manual
+  // flush attempt.
   ASSERT_OK(Flush(0));
-  CheckEffectiveCutoffTime(3);
-  CheckAutomaticFlushRetainUDT(4);
+  CheckEffectiveCutoffTime(2);
+  CheckAutomaticFlushRetainUDT(3);
 
   Close();
 }
