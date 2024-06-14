@@ -137,6 +137,51 @@ class DBIOFailureTest : public DBTestBase {
   DBIOFailureTest() : DBTestBase("db_io_failure_test", /*env_do_fsync=*/true) {}
 };
 
+class StorageExtender : public rocksdb::EventListener {
+ public:
+  StorageExtender(SpecialEnv* env) : env_(env) {}
+  SpecialEnv* env_;
+  void OnErrorRecoveryBegin(rocksdb::BackgroundErrorReason /*reason*/,
+                            rocksdb::Status bg_error, bool* /*auto_recovery*/
+  ) {
+    if (bg_error.IsNoSpace()) {
+      env_->no_space_.store(false, std::memory_order_release);
+    }
+  }
+
+  virtual void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& /*info*/) {
+    TEST_SYNC_POINT("DBIOFailureTest::NoSpaceOnWriteWalAndRecovery recovered");
+  }
+};
+
+TEST_F(DBIOFailureTest, NoSpaceOnWriteWalAndRecovery) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.listeners.push_back(std::make_shared<StorageExtender>(env_));
+  Reopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBIOFailureTest::NoSpaceOnWriteWalAndRecovery recovered",
+        "DBIOFailureTest::NoSpaceOnWriteWalAndRecovery retry"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteBatch wb;
+  for (int i = 0; i < 1024 * 5; ++i) {
+    wb.Put(Key(i), Key(i) + "value");
+  }
+
+  env_->no_space_.store(true, std::memory_order_release);
+  WriteOptions wo;
+  Status s = dbfull()->Write(wo, &wb);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_TRUE(s.IsNoSpace());
+
+  TEST_SYNC_POINT("DBIOFailureTest::NoSpaceOnWriteWalAndRecovery retry");
+  s = dbfull()->Write(wo, &wb);
+  ASSERT_TRUE(s.ok());
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 // Check that number of files does not grow when writes are dropped
 TEST_F(DBIOFailureTest, DropWrites) {
   do {
