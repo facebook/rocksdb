@@ -1409,6 +1409,7 @@ TEST_P(DBBlockCacheTypeTest, Uncache) {
 
       // Combine into one file, making the originals obsolete
       ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 
       ASSERT_EQ(1, NumTableFilesAtLevel(1));
 
