@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
+import org.hamcrest.Description;
+import org.hamcrest.TypeSafeMatcher;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -47,11 +49,22 @@ public class MultiGetCorruptionTest {
     createCorruptedDatabase();
     try (Options options = new Options().setCreateIfMissing(true).setParanoidChecks(true);
          RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
-      // exception.expect(RocksDBException.class);
+      exception.expect(RocksDBException.class);
+      exception.expect(new TypeSafeMatcher<RocksDBException>() {
+        @Override
+        protected boolean matchesSafely(RocksDBException e) {
+          return e.getStatus().getCode() == Status.Code.Corruption;
+        }
+
+        @Override
+        public void describeTo(Description description) {
+          description.appendText("Status.Code is not equal to Corruption");
+        }
+      });
+
       List<byte[]> keys = new ArrayList<>();
       keys.add(KEY);
-      List<byte[]> result = db.multiGetAsList(keys);
-      assertThat(result).isNotNull();
+      db.multiGetAsList(keys);
     }
   }
 
