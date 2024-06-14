@@ -3946,16 +3946,6 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
     return error_iterator_func(
         Status::InvalidArgument("No Column Family was provided"));
   }
-  if (!_read_options.total_order_seek && !_read_options.auto_prefix_mode) {
-    for (auto* column_family : column_families) {
-      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-      auto cfd = cfh->cfd();
-      if (cfd->GetLatestCFOptions().prefix_extractor != nullptr) {
-        return error_iterator_func(Status::InvalidArgument(
-            "Manual Prefix Iteration is not allowed in MultiCfIterator"));
-      }
-    }
-  }
   const Comparator* first_comparator = column_families[0]->GetComparator();
   for (size_t i = 1; i < column_families.size(); ++i) {
     const Comparator* cf_comparator = column_families[i]->GetComparator();
@@ -3965,8 +3955,11 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
           "Different comparators are being used across CFs"));
     }
   }
+  // MultiCfIterator assumes that all child iterators are at valid key at all
+  // times. Manual Prefix Iteration cannot be allowed in the child iterators.
   std::vector<Iterator*> child_iterators;
-  Status s = NewIterators(_read_options, column_families, &child_iterators);
+  Status s = NewIterators(_read_options, column_families, &child_iterators,
+                          /*disallow_manual_prefix_iteration*/ true);
   if (!s.ok()) {
     return error_iterator_func(s);
   }
@@ -3978,7 +3971,7 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
 Status DBImpl::NewIterators(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
-    std::vector<Iterator*>* iterators) {
+    std::vector<Iterator*>* iterators, bool disallow_manual_prefix_iteration) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return Status::InvalidArgument(
@@ -4032,6 +4025,19 @@ Status DBImpl::NewIterators(
   }
 
   assert(cf_sv_pairs.size() == column_families.size());
+
+  if (disallow_manual_prefix_iteration && !read_options.total_order_seek &&
+      !read_options.auto_prefix_mode) {
+    for (const auto& cf_sv_pair : cf_sv_pairs) {
+      if (cf_sv_pair.super_version->mutable_cf_options.prefix_extractor !=
+          nullptr) {
+        return Status::InvalidArgument(
+            "Manual prefix iteration is not allowed. Consider auto_prefix_mode "
+            "or set total_order_seek = true");
+      }
+    }
+  }
+
   if (read_options.tailing) {
     for (const auto& cf_sv_pair : cf_sv_pairs) {
       auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,

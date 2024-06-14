@@ -118,7 +118,8 @@ class BlobDBImpl : public BlobDB {
   Status NewIterators(
       const ReadOptions& /*read_options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_families*/,
-      std::vector<Iterator*>* /*iterators*/) override {
+      std::vector<Iterator*>* /*iterators*/,
+      bool /*disallow_manual_prefix_iteration*/) override {
     return Status::NotSupported("Not implemented");
   }
 

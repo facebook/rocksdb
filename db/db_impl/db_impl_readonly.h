@@ -36,7 +36,8 @@ class DBImplReadOnly : public DBImpl {
 
   Status NewIterators(const ReadOptions& options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
-                      std::vector<Iterator*>* iterators) override;
+                      std::vector<Iterator*>* iterators,
+                      bool disallow_manual_prefix_iteration) override;
 
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,

@@ -436,7 +436,7 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& _read_options,
 Status WritePreparedTxnDB::NewIterators(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
-    std::vector<Iterator*>* iterators) {
+    std::vector<Iterator*>* iterators, bool disallow_manual_prefix_iteration) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return Status::InvalidArgument(
@@ -469,12 +469,25 @@ Status WritePreparedTxnDB::NewIterators(
   }
   iterators->clear();
   iterators->reserve(column_families.size());
+
+  const bool check_manual_prefix_iter = disallow_manual_prefix_iteration &&
+                                        !read_options.total_order_seek &&
+                                        !read_options.auto_prefix_mode;
+
   for (auto* column_family : column_families) {
     auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     auto* cfd = cfh->cfd();
     auto* state =
         new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
+
+    if (check_manual_prefix_iter &&
+        super_version->mutable_cf_options.prefix_extractor != nullptr) {
+      iterators->clear();
+      return Status::InvalidArgument(
+          "Manual prefix iteration is not allowed. Consider auto_prefix_mode "
+          "or set total_order_seek = true");
+    }
     auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfh, super_version,
                                               snapshot_seq, &state->callback,
                                               expose_blob_index, allow_refresh);

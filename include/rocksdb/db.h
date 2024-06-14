@@ -1002,10 +1002,15 @@ class DB {
   // Returns iterators from a consistent database state across multiple
   // column families. Iterators are heap allocated and need to be deleted
   // before the db is deleted
+  //
+  // if disallow_manual_prefix_iteration is set, manual prefix iteration
+  // https://github.com/facebook/rocksdb/wiki/Prefix-Seek#manual-prefix-iterating
+  // is not allowed and Status::InvalidArgument() is returned
   virtual Status NewIterators(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators) = 0;
+      std::vector<Iterator*>* iterators,
+      bool disallow_manual_prefix_iteration = false) = 0;
 
   // EXPERIMENTAL
   // Return a cross-column-family iterator from a consistent database state.

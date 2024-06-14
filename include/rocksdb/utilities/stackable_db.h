@@ -267,8 +267,10 @@ class StackableDB : public DB {
 
   Status NewIterators(const ReadOptions& options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
-                      std::vector<Iterator*>* iterators) override {
-    return db_->NewIterators(options, column_families, iterators);
+                      std::vector<Iterator*>* iterators,
+                      bool disallow_manual_prefix_iteration) override {
+    return db_->NewIterators(options, column_families, iterators,
+                             disallow_manual_prefix_iteration);
   }
 
   using DB::NewCoalescingIterator;

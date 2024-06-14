@@ -94,8 +94,8 @@ TEST_F(CoalescingIteratorTest, InvalidArguments) {
     ASSERT_NOK(iter->status());
     ASSERT_TRUE(iter->status().IsInvalidArgument());
     ASSERT_EQ(
-        "Invalid argument: Manual Prefix Iteration is not allowed in "
-        "MultiCfIterator",
+        "Invalid argument: Manual prefix iteration is not allowed. Consider "
+        "auto_prefix_mode or set total_order_seek = true",
         iter->status().ToString());
   }
 }

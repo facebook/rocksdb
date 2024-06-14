@@ -187,7 +187,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
 Status DBImplReadOnly::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
-    std::vector<Iterator*>* iterators) {
+    std::vector<Iterator*>* iterators, bool disallow_manual_prefix_iteration) {
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
@@ -220,21 +220,32 @@ Status DBImplReadOnly::NewIterators(
 
   autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;
 
+  const bool check_manual_prefix_iter = disallow_manual_prefix_iteration &&
+                                        !read_options.total_order_seek &&
+                                        !read_options.auto_prefix_mode;
+
   const bool check_read_ts =
       read_options.timestamp && read_options.timestamp->size() > 0;
+
   for (auto cfh : column_families) {
     auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     cfd_to_sv.emplace_back(cfd, sv);
-    if (check_read_ts) {
-      const Status s =
-          FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
-      if (!s.ok()) {
-        for (auto prev_entry : cfd_to_sv) {
-          std::get<1>(prev_entry)->Unref();
-        }
-        return s;
+    Status s;
+    if (check_manual_prefix_iter &&
+        sv->mutable_cf_options.prefix_extractor != nullptr) {
+      s = Status::InvalidArgument(
+          "Manual prefix iteration is not allowed. Consider auto_prefix_mode "
+          "or set total_order_seek = true");
+    }
+    if (s.ok() && check_read_ts) {
+      s = FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+    }
+    if (!s.ok()) {
+      for (auto prev_entry : cfd_to_sv) {
+        std::get<1>(prev_entry)->Unref();
       }
+      return s;
     }
   }
   assert(cfd_to_sv.size() == column_families.size());

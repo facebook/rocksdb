@@ -99,7 +99,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   using DB::NewIterators;
   Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
-                      std::vector<Iterator*>* iterators) override;
+                      std::vector<Iterator*>* iterators,
+                      bool disallow_manual_prefix_iteration) override;
 
   // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq.

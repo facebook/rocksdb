@@ -358,7 +358,8 @@ class DBImpl : public DB {
                         ColumnFamilyHandle* column_family) override;
   Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
-                      std::vector<Iterator*>* iterators) override;
+                      std::vector<Iterator*>* iterators,
+                      bool disallow_manual_prefix_iteration) override;
 
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
