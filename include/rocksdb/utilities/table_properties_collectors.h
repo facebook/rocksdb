@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "rocksdb/table_properties.h"
-#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -87,83 +86,37 @@ NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
                                      double deletion_ratio = 0);
 
 // A factory of a table property collector that marks a SST file as
-// need-compaction when for the tiering use case, it observes, at least "D" data
-// entries that are already eligible to be placed on the last level but are not
-// yet on the last level. "D" is the compaction trigger threshold set via the
-// initial construction or later via `SetCompactionTrigger` API.
-// When tiering is disabled for a column family, no observation is made, the SST
-// file won't be marked as need-compaction either.
+// need-compaction when for the tiering use case, it observes, among all the
+// data entries, the ratio of entries that are already eligible to be placed on
+// the last level but are not yet on the last level is equal to or higher than
+// the configured `compaction_trigger_ratio_`.
+// 1) Setting the ratio to be equal to or smaller than 0 disables this collector
+// 2) Setting the ratio to be within (0, 1] will write the number of
+//     observed eligible entries into a user property and marks a file as
+//     need-compaction when aforementioned condition is met.
+// 3) Setting the ratio to be higher than 1 can be used to just writes the user
+//    table property, and not mark any file as need compaction.
+// For a column family that does not enable tiering feature, even if an
+// effective configuration is provided, this collector is still disabled.
 class CompactForTieringCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  // @param enabled. Whether to enable the collectors to observe and mark files
-  // as need compaction.
-  // @param compaction_triggers. Mapping from column family id to compaction
-  // trigger. Not set it for a column family, or set the compaction trigger to 0
-  // effectively will only collect stats and write a user property in sst file
-  // Set it to something other than 0 will also mark the file as need compaction
-  // if the number of observed eligible entries is equal to or higher than the
-  // trigger.
-  // No observation will be made if a column family that does not enable
-  // tiering, regardless of the configured compaction trigger.
-  CompactForTieringCollectorFactory(
-      const std::map<uint32_t, size_t>& compaction_triggers, bool enabled);
+  // @param compaction_trigger_ratio: the triggering threshold for the ratio of
+  // eligible entries to the total number of entries. See class documentation
+  // for what entry is eligible.
+  CompactForTieringCollectorFactory(double compaction_trigger_ratio);
 
   ~CompactForTieringCollectorFactory() {}
 
   TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) override;
 
-  // Update the value of existing compaction triggers or add compaction triggers
-  // for new column families.
-  void SetCompactionTriggers(
-      const std::map<uint32_t, size_t>& compaction_triggers) {
-    WriteLock _(&rwlock_);
-    for (const auto& [cf_id, compaction_trigger] : compaction_triggers) {
-      auto iter = compaction_triggers_.find(cf_id);
-      if (iter == compaction_triggers_.end()) {
-        compaction_triggers_.emplace(cf_id, compaction_trigger);
-      } else {
-        iter->second = compaction_trigger;
-      }
-    }
+  void SetCompactionTriggerRatio(double new_ratio) {
+    compaction_trigger_ratio_.store(new_ratio);
   }
 
-  // Update the value of existing compaction trigger or add one for a new
-  // column family.
-  void SetCompactionTrigger(uint32_t cf_id, size_t compaction_trigger) {
-    WriteLock _(&rwlock_);
-    auto iter = compaction_triggers_.find(cf_id);
-    if (iter == compaction_triggers_.end()) {
-      compaction_triggers_.emplace(cf_id, compaction_trigger);
-    } else {
-      iter->second = compaction_trigger;
-    }
-  }
-
-  const std::map<uint32_t, size_t>& GetCompactionTriggers() const {
-    ReadLock _(&rwlock_);
-    return compaction_triggers_;
-  }
-
-  size_t GetCompactionTrigger(uint32_t cf_id) const {
-    ReadLock _(&rwlock_);
-    auto iter = compaction_triggers_.find(cf_id);
-    if (iter == compaction_triggers_.end()) {
-      return 0;
-    }
-    return iter->second;
-  }
-
-  // To support dynamically enable / disable all the collectors.
-  void SetEnabled(bool enabled) {
-    WriteLock _(&rwlock_);
-    enabled_ = enabled;
-  }
-
-  bool GetEnabled() const {
-    ReadLock _(&rwlock_);
-    return enabled_;
+  double GetCompactionTriggerRatio() const {
+    return compaction_trigger_ratio_.load();
   }
 
   static const char* kClassName() { return "CompactForTieringCollector"; }
@@ -172,12 +125,9 @@ class CompactForTieringCollectorFactory
   std::string ToString() const override;
 
  private:
-  mutable port::RWMutex rwlock_;  // synchronization mutex
-  std::map<uint32_t, size_t> compaction_triggers_;
-  bool enabled_;
+  std::atomic<double> compaction_trigger_ratio_;
 };
 
 std::shared_ptr<CompactForTieringCollectorFactory>
-NewCompactForTieringCollectorFactory(
-    const std::map<uint32_t, size_t>& compaction_triggers, bool enabled);
+NewCompactForTieringCollectorFactory(double compaction_trigger_ratio);
 }  // namespace ROCKSDB_NAMESPACE

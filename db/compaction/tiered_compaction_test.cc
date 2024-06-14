@@ -1753,8 +1753,7 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   std::shared_ptr<TablePropertiesCollectorFactory> factory;
   std::string id = CompactForTieringCollectorFactory::kClassName();
   ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
-      config_options, "compaction_triggers=0:50; enabled=true; id=" + id,
-      &factory));
+      config_options, "compaction_trigger_ratio=0.4; id=" + id, &factory));
   auto collector_factory =
       factory->CheckedCast<CompactForTieringCollectorFactory>();
   options.table_properties_collector_factories.push_back(factory);
@@ -1791,7 +1790,7 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 
-  collector_factory->SetCompactionTrigger(0, 51);
+  collector_factory->SetCompactionTriggerRatio(1.1);
   for (int i = kNumKeys / 2; i < kNumKeys * 3 / 4; i++) {
     ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
   }
@@ -1800,8 +1799,7 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("2,0,0,0,0,0,1", FilesPerLevel());
 
-  collector_factory->SetCompactionTrigger(0, 50);
-  collector_factory->SetEnabled(false);
+  collector_factory->SetCompactionTriggerRatio(0);
   for (int i = kNumKeys * 3 / 4; i < kNumKeys; i++) {
     ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
   }

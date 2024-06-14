@@ -99,7 +99,7 @@ struct TableReaderOptions {
   bool user_defined_timestamps_persisted;
 };
 
-struct TableBuilderOptions {
+struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   TableBuilderOptions(
       const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
       const ReadOptions& _read_options, const WriteOptions& _write_options,
@@ -116,7 +116,10 @@ struct TableBuilderOptions {
       const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0,
       const SequenceNumber _last_level_inclusive_max_seqno_threshold =
           kMaxSequenceNumber)
-      : ioptions(_ioptions),
+      : TablePropertiesCollectorFactory::Context(
+            _column_family_id, _level, _ioptions.num_levels,
+            _last_level_inclusive_max_seqno_threshold),
+        ioptions(_ioptions),
         moptions(_moptions),
         read_options(_read_options),
         write_options(_write_options),
@@ -124,19 +127,15 @@ struct TableBuilderOptions {
         internal_tbl_prop_coll_factories(_internal_tbl_prop_coll_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        column_family_id(_column_family_id),
         column_family_name(_column_family_name),
         oldest_key_time(_oldest_key_time),
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
         db_session_id(_db_session_id),
-        level_at_creation(_level),
         is_bottommost(_is_bottommost),
         reason(_reason),
-        cur_file_num(_cur_file_num),
-        last_level_inclusive_max_seqno_threshold(
-            _last_level_inclusive_max_seqno_threshold) {}
+        cur_file_num(_cur_file_num) {}
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
@@ -146,7 +145,6 @@ struct TableBuilderOptions {
   const InternalTblPropCollFactories* internal_tbl_prop_coll_factories;
   const CompressionType compression_type;
   const CompressionOptions& compression_opts;
-  const uint32_t column_family_id;
   const std::string& column_family_name;
   const int64_t oldest_key_time;
   const uint64_t target_file_size;
@@ -154,7 +152,6 @@ struct TableBuilderOptions {
   const std::string db_id;
   const std::string db_session_id;
   // BEGIN for FilterBuildingContext
-  const int level_at_creation;
   const bool is_bottommost;
   const TableFileCreationReason reason;
   // END for FilterBuildingContext
@@ -164,12 +161,6 @@ struct TableBuilderOptions {
   // in the table options of the ioptions.table_factory
   bool skip_filters = false;
   const uint64_t cur_file_num;
-
-  // When tiering is enabled, this is the current maximum seqno threshold below
-  // which data is considered old enough to be placed on the last level. The
-  // default value with maximum sequence number indicate tiering is disabled.
-  const SequenceNumber last_level_inclusive_max_seqno_threshold =
-      kMaxSequenceNumber;
 };
 
 // TableBuilder provides the interface used to build a Table

@@ -211,10 +211,7 @@ static int RegisterTablePropertiesCollectorFactories(
         // By default, create a `CompactForTieringCollectorFactory` that is
         // disabled. Users will need to call corresponding setters to enable
         // the factory.
-        std::map<uint32_t, size_t> compaction_triggers;
-        bool dark_mode = true;
-        guard->reset(new CompactForTieringCollectorFactory(compaction_triggers,
-                                                           dark_mode));
+        guard->reset(new CompactForTieringCollectorFactory(0));
         return guard->get();
       });
   return 1;

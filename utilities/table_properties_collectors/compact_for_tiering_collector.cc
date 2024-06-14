@@ -23,25 +23,19 @@ const std::string
         "rocksdb.eligible.last.level.entries";
 
 CompactForTieringCollector::CompactForTieringCollector(
-    int level_at_creation, int num_levels,
     SequenceNumber last_level_inclusive_max_seqno_threshold,
-    size_t compaction_trigger, bool enabled)
-    : level_at_creation_(level_at_creation),
-      num_levels_(num_levels),
-      last_level_inclusive_max_seqno_threshold_(
+    double compaction_trigger_ratio)
+    : last_level_inclusive_max_seqno_threshold_(
           last_level_inclusive_max_seqno_threshold),
-      compaction_trigger_(compaction_trigger),
-      enabled_(enabled) {}
+      compaction_trigger_ratio_(compaction_trigger_ratio) {
+  assert(last_level_inclusive_max_seqno_threshold_ != kMaxSequenceNumber);
+}
 
 Status CompactForTieringCollector::AddUserKey(const Slice& /*key*/,
                                               const Slice& value,
                                               EntryType type,
                                               SequenceNumber seq,
                                               uint64_t /*file_size*/) {
-  if (!enabled_ || level_at_creation_ == num_levels_ - 1 ||
-      last_level_inclusive_max_seqno_threshold_ == kMaxSequenceNumber) {
-    return Status::OK();
-  }
   SequenceNumber seq_for_check = seq;
   if (type == kEntryTimedPut) {
     seq_for_check = ParsePackedValueForSeqno(value);
@@ -49,22 +43,25 @@ Status CompactForTieringCollector::AddUserKey(const Slice& /*key*/,
   if (seq_for_check < last_level_inclusive_max_seqno_threshold_) {
     last_level_eligible_entries_counter_++;
   }
+  total_entries_counter_ += 1;
   return Status::OK();
 }
 
 Status CompactForTieringCollector::Finish(UserCollectedProperties* properties) {
   assert(!finish_called_);
-  if (compaction_trigger_ != 0 &&
-      last_level_eligible_entries_counter_ >= compaction_trigger_) {
+  assert(compaction_trigger_ratio_ > 0);
+  if (last_level_eligible_entries_counter_ >=
+      compaction_trigger_ratio_ * total_entries_counter_) {
+    assert(compaction_trigger_ratio_ <= 1);
     need_compaction_ = true;
   }
-  finish_called_ = true;
   if (last_level_eligible_entries_counter_ > 0) {
     *properties = UserCollectedProperties{
         {kNumEligibleLastLevelEntriesPropertyName,
          std::to_string(last_level_eligible_entries_counter_)},
     };
   }
+  finish_called_ = true;
   return Status::OK();
 }
 
@@ -82,6 +79,7 @@ bool CompactForTieringCollector::NeedCompact() const {
 
 void CompactForTieringCollector::Reset() {
   last_level_eligible_entries_counter_ = 0;
+  total_entries_counter_ = 0;
   finish_called_ = false;
   need_compaction_ = false;
 }
@@ -89,53 +87,34 @@ void CompactForTieringCollector::Reset() {
 TablePropertiesCollector*
 CompactForTieringCollectorFactory::CreateTablePropertiesCollector(
     TablePropertiesCollectorFactory::Context context) {
-  uint64_t compaction_trigger = GetCompactionTrigger(context.column_family_id);
+  double compaction_trigger_ratio = GetCompactionTriggerRatio();
+  if (compaction_trigger_ratio <= 0 ||
+      context.level_at_creation == context.num_levels - 1 ||
+      context.last_level_inclusive_max_seqno_threshold == kMaxSequenceNumber) {
+    return nullptr;
+  }
   return new CompactForTieringCollector(
-      context.level_at_creation, context.num_levels,
-      context.last_level_inclusive_max_seqno_threshold, compaction_trigger,
-      enabled_);
+      context.last_level_inclusive_max_seqno_threshold,
+      compaction_trigger_ratio);
 }
 
 static std::unordered_map<std::string, OptionTypeInfo>
     on_compact_for_tiering_type_info = {
-        {"compaction_triggers",
+        {"compaction_trigger_ratio",
          {0, OptionType::kUnknown, OptionVerificationType::kNormal,
           OptionTypeFlags::kCompareNever | OptionTypeFlags::kMutable,
           [](const ConfigOptions&, const std::string&, const std::string& value,
              void* addr) {
             auto* factory =
                 static_cast<CompactForTieringCollectorFactory*>(addr);
-            factory->SetCompactionTriggers(ParseUint32MapToSizeT(value));
+            factory->SetCompactionTriggerRatio(ParseDouble(value));
             return Status::OK();
           },
           [](const ConfigOptions&, const std::string&, const void* addr,
              std::string* value) {
             const auto* factory =
                 static_cast<const CompactForTieringCollectorFactory*>(addr);
-            SerializeUint32MapToSizeT(
-                const_cast<CompactForTieringCollectorFactory*>(factory)
-                    ->GetCompactionTriggers(),
-                value);
-            return Status::OK();
-          },
-          nullptr}},
-        {"enabled",
-         {0, OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kCompareNever | OptionTypeFlags::kMutable,
-          [](const ConfigOptions&, const std::string&, const std::string& value,
-             void* addr) {
-            auto* factory =
-                static_cast<CompactForTieringCollectorFactory*>(addr);
-            factory->SetEnabled(ParseBoolean("", value));
-            return Status::OK();
-          },
-          [](const ConfigOptions&, const std::string&, const void* addr,
-             std::string* value) {
-            const auto* factory =
-                static_cast<const CompactForTieringCollectorFactory*>(addr);
-            *value = std::to_string(
-                const_cast<CompactForTieringCollectorFactory*>(factory)
-                    ->GetEnabled());
+            *value = std::to_string(factory->GetCompactionTriggerRatio());
             return Status::OK();
           },
           nullptr}},
@@ -143,35 +122,25 @@ static std::unordered_map<std::string, OptionTypeInfo>
 };
 
 CompactForTieringCollectorFactory::CompactForTieringCollectorFactory(
-    const std::map<uint32_t, size_t>& compaction_triggers, bool enabled)
-    : compaction_triggers_(compaction_triggers), enabled_(enabled) {
+    double compaction_trigger_ratio)
+    : compaction_trigger_ratio_(compaction_trigger_ratio) {
   RegisterOptions("", this, &on_compact_for_tiering_type_info);
 }
 
 std::string CompactForTieringCollectorFactory::ToString() const {
   std::ostringstream cfg;
-  cfg << Name() << ", compaction triggers: {";
-  bool first_entry = true;
-  for (const auto& [cf_id, compaction_trigger] : compaction_triggers_) {
-    if (first_entry) {
-      first_entry = false;
-    } else {
-      cfg << ", ";
-    }
-    cfg << "(column family id: " << cf_id
-        << ", compaction trigger: " << compaction_trigger << ")";
-  }
-  cfg << "}, enabled: " << (enabled_ ? "true" : "false") << std::endl;
+  cfg << Name()
+      << ", compaction trigger ratio:" << compaction_trigger_ratio_.load()
+      << std::endl;
   return cfg.str();
 }
 
 std::shared_ptr<CompactForTieringCollectorFactory>
-NewCompactForTieringCollectorFactory(
-    const std::map<uint32_t, size_t>& compaction_triggers, bool enabled) {
+NewCompactForTieringCollectorFactory(double compaction_trigger_ratio) {
   return std::make_shared<CompactForTieringCollectorFactory>(
-      compaction_triggers, enabled);
+      compaction_trigger_ratio);
   return std::shared_ptr<CompactForTieringCollectorFactory>(
-      new CompactForTieringCollectorFactory(compaction_triggers, enabled));
+      new CompactForTieringCollectorFactory(compaction_trigger_ratio));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

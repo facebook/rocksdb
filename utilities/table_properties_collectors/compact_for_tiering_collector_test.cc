@@ -28,28 +28,12 @@ TEST(CompactForTieringCollector, NotEnabled) {
   context.level_at_creation = 1;
   context.num_levels = 6;
   context.last_level_inclusive_max_seqno_threshold = 50;
-  const size_t kTotalEntries = 100;
 
-  // When not enabled, collectors are no op.
-  {
-    for (size_t compaction_trigger : {0, 50, 100}) {
-      auto factory = NewCompactForTieringCollectorFactory(
-          {{1, compaction_trigger}}, /*enabled=*/false);
-      std::unique_ptr<TablePropertiesCollector> collector(
-          factory->CreateTablePropertiesCollector(context));
-      for (size_t i = 0; i < kTotalEntries; i++) {
-        ASSERT_OK(collector->AddUserKey("hello", "rocksdb", kEntryPut, i, 0));
-        ASSERT_FALSE(collector->NeedCompact());
-      }
-      UserCollectedProperties user_properties;
-      ASSERT_OK(collector->Finish(&user_properties));
-      ASSERT_EQ(
-          user_properties.find(CompactForTieringCollector::
-                                   kNumEligibleLastLevelEntriesPropertyName),
-          user_properties.end());
-      ASSERT_FALSE(collector->NeedCompact());
-    }
-  }
+  // Set compaction trigger ratio to 0 to disable it. No collector created.
+  auto factory = NewCompactForTieringCollectorFactory(0);
+  std::unique_ptr<TablePropertiesCollector> collector(
+      factory->CreateTablePropertiesCollector(context));
+  ASSERT_EQ(nullptr, collector);
 }
 
 TEST(CompactForTieringCollector, TieringDisabled) {
@@ -58,28 +42,15 @@ TEST(CompactForTieringCollector, TieringDisabled) {
   context.level_at_creation = 1;
   context.num_levels = 6;
   context.last_level_inclusive_max_seqno_threshold = kMaxSequenceNumber;
-  const size_t kTotalEntries = 100;
 
-  // Tiering is disabled on the column family. No stats related to tiering is
-  // collected, nor will the file be marked for need compaction regardless of
-  // the configured compaction trigger (likely mistakenly).
+  // Tiering is disabled on the column family. No collector created.
   {
-    for (size_t compaction_trigger : {0, 50, 100}) {
-      auto factory = NewCompactForTieringCollectorFactory(
-          {{1, compaction_trigger}}, /*enabled=*/true);
+    for (double compaction_trigger_ratio : {0.0, 0.1, 1.0, 1.5}) {
+      auto factory =
+          NewCompactForTieringCollectorFactory(compaction_trigger_ratio);
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
-      for (size_t i = 0; i < kTotalEntries; i++) {
-        ASSERT_OK(collector->AddUserKey("hello", "rocksdb", kEntryPut, i, 0));
-        ASSERT_FALSE(collector->NeedCompact());
-      }
-      UserCollectedProperties user_properties;
-      ASSERT_OK(collector->Finish(&user_properties));
-      ASSERT_EQ(
-          user_properties.find(CompactForTieringCollector::
-                                   kNumEligibleLastLevelEntriesPropertyName),
-          user_properties.end());
-      ASSERT_FALSE(collector->NeedCompact());
+      ASSERT_EQ(nullptr, collector);
     }
   }
 }
@@ -90,79 +61,20 @@ TEST(CompactForTieringCollector, LastLevelFile) {
   context.level_at_creation = 5;
   context.num_levels = 6;
   context.last_level_inclusive_max_seqno_threshold = 50;
-  const size_t kTotalEntries = 100;
 
-  // No stats are collected for a file that is already on the last level, nor
-  // will the file be marked as need compaction.
+  // No collector created for a file that is already on the last level.
   {
-    for (size_t compaction_trigger : {0, 50, 100}) {
-      auto factory = NewCompactForTieringCollectorFactory(
-          {{1, compaction_trigger}}, /*enabled=*/true);
+    for (double compaction_trigger_ratio : {0.0, 0.1, 1.0, 1.5}) {
+      auto factory =
+          NewCompactForTieringCollectorFactory(compaction_trigger_ratio);
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
-      for (size_t i = 0; i < kTotalEntries; i++) {
-        ASSERT_OK(collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
-        ASSERT_FALSE(collector->NeedCompact());
-      }
-      UserCollectedProperties user_properties;
-      ASSERT_OK(collector->Finish(&user_properties));
-      ASSERT_EQ(
-          user_properties.find(CompactForTieringCollector::
-                                   kNumEligibleLastLevelEntriesPropertyName),
-          user_properties.end());
-      ASSERT_FALSE(collector->NeedCompact());
+      ASSERT_EQ(nullptr, collector);
     }
   }
 }
 
-TEST(CompactForTieringCollector, CompactionTriggerNotSet) {
-  TablePropertiesCollectorFactory::Context context;
-  context.column_family_id = 1;
-  context.level_at_creation = 1;
-  context.num_levels = 6;
-  context.last_level_inclusive_max_seqno_threshold = 50;
-  const size_t kTotalEntries = 100;
-
-  // No compaction trigger explicitly set for this column family.
-  auto factory =
-      NewCompactForTieringCollectorFactory({{2, 15}}, /*enabled=*/true);
-  {
-    std::unique_ptr<TablePropertiesCollector> collector(
-        factory->CreateTablePropertiesCollector(context));
-    for (size_t i = 0; i < kTotalEntries; i++) {
-      ASSERT_OK(collector->AddUserKey("hello", "rocksdb", kEntryPut, i, 0));
-      ASSERT_FALSE(collector->NeedCompact());
-    }
-    // User property written to sst file, file not marked for compaction.
-    UserCollectedProperties user_properties;
-    ASSERT_OK(collector->Finish(&user_properties));
-    ASSERT_EQ(std::to_string(50),
-              user_properties[CompactForTieringCollector::
-                                  kNumEligibleLastLevelEntriesPropertyName]);
-    ASSERT_FALSE(collector->NeedCompact());
-  }
-
-  // Compaction trigger explicitly set to 0.
-  factory->SetCompactionTrigger(1, 0);
-  {
-    std::unique_ptr<TablePropertiesCollector> collector(
-        factory->CreateTablePropertiesCollector(context));
-    for (size_t i = 0; i < kTotalEntries; i++) {
-      ASSERT_OK(collector->AddUserKey("hello", "rocksdb", kEntryPut, i, 0));
-      ASSERT_FALSE(collector->NeedCompact());
-    }
-
-    // User property written to sst file, file not marked for compaction.
-    UserCollectedProperties user_properties;
-    ASSERT_OK(collector->Finish(&user_properties));
-    ASSERT_EQ(std::to_string(50),
-              user_properties[CompactForTieringCollector::
-                                  kNumEligibleLastLevelEntriesPropertyName]);
-    ASSERT_FALSE(collector->NeedCompact());
-  }
-}
-
-TEST(CompactForTieringCollector, MarkForCompaction) {
+TEST(CompactForTieringCollector, CollectorEnabled) {
   TablePropertiesCollectorFactory::Context context;
   context.column_family_id = 1;
   context.level_at_creation = 1;
@@ -171,9 +83,9 @@ TEST(CompactForTieringCollector, MarkForCompaction) {
   const size_t kTotalEntries = 100;
 
   {
-    for (size_t compaction_trigger : {0, 1, 50, 100}) {
-      auto factory = NewCompactForTieringCollectorFactory(
-          {{1, compaction_trigger}}, /*enabled=*/true);
+    for (double compaction_trigger_ratio : {0.1, 0.33333333, 0.5, 1.0, 1.5}) {
+      auto factory =
+          NewCompactForTieringCollectorFactory(compaction_trigger_ratio);
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
       for (size_t i = 0; i < kTotalEntries; i++) {
@@ -185,7 +97,7 @@ TEST(CompactForTieringCollector, MarkForCompaction) {
       ASSERT_EQ(user_properties[CompactForTieringCollector::
                                     kNumEligibleLastLevelEntriesPropertyName],
                 std::to_string(50));
-      if (compaction_trigger == 0 || compaction_trigger > 50) {
+      if (compaction_trigger_ratio > 0.5) {
         ASSERT_FALSE(collector->NeedCompact());
       } else {
         ASSERT_TRUE(collector->NeedCompact());
@@ -202,8 +114,7 @@ TEST(CompactForTieringCollector, TimedPutEntries) {
   context.last_level_inclusive_max_seqno_threshold = 50;
   const size_t kTotalEntries = 100;
 
-  auto factory =
-      NewCompactForTieringCollectorFactory({{1, 50}}, /*enabled=*/true);
+  auto factory = NewCompactForTieringCollectorFactory(0.1);
   std::unique_ptr<TablePropertiesCollector> collector(
       factory->CreateTablePropertiesCollector(context));
   for (size_t i = 0; i < kTotalEntries; i++) {

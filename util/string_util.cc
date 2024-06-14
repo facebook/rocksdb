@@ -450,44 +450,6 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
   return true;
 }
 
-std::map<uint32_t, size_t> ParseUint32MapToSizeT(const std::string& value) {
-  std::map<uint32_t, size_t> result;
-  size_t start = 0;
-
-  auto parse_add_entry = [&](const std::string& str) {
-    size_t end = str.find(":", 0);
-    result.emplace(ParseUint32(str.substr(0, end)),
-                   ParseSizeT(str.substr(end + 1)));
-  };
-
-  while (start < value.size()) {
-    size_t end = value.find(",", start);
-    if (end == std::string::npos) {
-      parse_add_entry(value.substr(start));
-      break;
-    } else {
-      parse_add_entry(value.substr(start, end - start));
-      start = end + 1;
-    }
-  }
-  return result;
-}
-
-bool SerializeUint32MapToSizeT(const std::map<uint32_t, size_t>& mapping,
-                               std::string* value) {
-  size_t i = 0;
-  for (auto iter = mapping.begin(); iter != mapping.end(); iter++) {
-    if (i > 0) {
-      *value += ",";
-    }
-    *value += std::to_string(iter->first);
-    *value += ":";
-    *value += std::to_string(iter->second);
-    i += 1;
-  }
-  return true;
-}
-
 int ParseTimeStringToSeconds(const std::string& value) {
   int hours, minutes;
   char colon;

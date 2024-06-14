@@ -166,6 +166,16 @@ class TablePropertiesCollectorFactory : public Customizable {
     static const uint32_t kUnknownColumnFamily;
     static const int kUnknownLevelAtCreation = -1;
     static const int kUnknownNumLevels = -1;
+
+    Context() {}
+
+    Context(uint32_t _column_family_id, int _level_at_creation, int _num_levels,
+            SequenceNumber _last_level_inclusive_max_seqno_threshold)
+        : column_family_id(_column_family_id),
+          level_at_creation(_level_at_creation),
+          num_levels(_num_levels),
+          last_level_inclusive_max_seqno_threshold(
+              _last_level_inclusive_max_seqno_threshold) {}
   };
 
   ~TablePropertiesCollectorFactory() override {}
