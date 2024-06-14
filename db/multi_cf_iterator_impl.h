@@ -198,8 +198,15 @@ class MultiCfIteratorImpl {
 
   template <typename BinaryHeap, typename AdvanceFuncType>
   void AdvanceIterator(BinaryHeap& heap, AdvanceFuncType advance_func) {
-    assert(!heap.empty());
     reset_func_();
+    // It is possible for one or more child iters are at invalid keys due to
+    // manual prefix iteration. For such cases, we consider the result of the
+    // multi-cf-iter is also undefined.
+    // https://github.com/facebook/rocksdb/wiki/Prefix-Seek#manual-prefix-iterating
+    // for details about manual prefix iteration
+    if (heap.empty()) {
+      return;
+    }
 
     // 1. Keep the top iterator (by popping it from the heap)
     // 2. Make sure all others have iterated past the top iterator key slice
