@@ -111,10 +111,10 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   // until the last memtable is 10% full. To avoid that scenario, the criteria
   // this uses should be the same or less strict than
   // `WaitUntilFlushWouldNotStallWrites` does.
-  int mem_to_flush = cfd->mem()->IsEmpty() ? 0 : 1;
   WriteStallCondition write_stall =
       ColumnFamilyData::GetWriteStallConditionAndCause(
-          cfd->imm()->NumNotFlushed() + mem_to_flush, /*num_l0_files=*/0,
+          cfd->GetUnflushedMemTableCountForWriteStallCheck(),
+          /*num_l0_files=*/0,
           /*num_compaction_needed_bytes=*/0, mutable_cf_options,
           *cfd->ioptions())
           .first;
@@ -2682,15 +2682,13 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
       // mode due to pending compaction bytes, but that's less common
       // No extra immutable Memtable will be created if the current Memtable is
       // empty.
-      // NOTE: If this ever changes, check the write stall condition criteria
-      // in `ShouldRescheduleFlushRequestToRetainUDT` and make them in sync.
-      int mem_to_flush = cfd->mem()->IsEmpty() ? 0 : 1;
-      write_stall_condition = ColumnFamilyData::GetWriteStallConditionAndCause(
-                                  cfd->imm()->NumNotFlushed() + mem_to_flush,
-                                  vstorage->l0_delay_trigger_count() + 1,
-                                  vstorage->estimated_compaction_needed_bytes(),
-                                  mutable_cf_options, *cfd->ioptions())
-                                  .first;
+      write_stall_condition =
+          ColumnFamilyData::GetWriteStallConditionAndCause(
+              cfd->GetUnflushedMemTableCountForWriteStallCheck(),
+              vstorage->l0_delay_trigger_count() + 1,
+              vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,
+              *cfd->ioptions())
+              .first;
     } while (write_stall_condition != WriteStallCondition::kNormal);
   }
   return Status::OK();
