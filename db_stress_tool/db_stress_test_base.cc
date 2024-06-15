@@ -1291,7 +1291,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_DBITERATOR);
-          if (FLAGS_use_attribute_group) {
+          if (FLAGS_use_multi_cf_iterator && FLAGS_use_attribute_group) {
             TestIterateAttributeGroups(thread, read_opts, rand_column_families,
                                        rand_keys);
           } else {
