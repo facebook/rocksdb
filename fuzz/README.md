@@ -157,9 +157,6 @@ operations {
 The above crash can be reproduced by `./sst_file_writer_fuzzer ./crash-a1460be302d09b548e61787178d9edaa40aea467`,
 so you can debug the crash.
 
-## Future Work
+## OSS-Fuzz
 
-According to [OSS-Fuzz](https://github.com/google/oss-fuzz),
-`as of June 2020, OSS-Fuzz has found over 20,000 bugs in 300 open source projects.`
-
-RocksDB can join OSS-Fuzz together with other open source projects such as sqlite.
+The RocksDB project is also found in [OSS-Fuzz](https://github.com/google/oss-fuzz/blob/master/projects/rocksdb/project.yaml).
