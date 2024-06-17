@@ -395,6 +395,16 @@ bool VerifyWideColumns(const WideColumns& columns) {
   return VerifyWideColumns(value_of_default, columns);
 }
 
+bool VerifyIteratorAttributeGroups(
+    const IteratorAttributeGroups& attribute_groups) {
+  for (const auto& attribute_group : attribute_groups) {
+    if (!VerifyWideColumns(attribute_group.columns())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;

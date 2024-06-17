@@ -55,22 +55,6 @@ class Iterator : public IteratorBase {
     return kNoWideColumns;
   }
 
-  // If supported, the DB state that the iterator reads from is updated to
-  // the latest state. The iterator will be invalidated after the call.
-  // Regardless of whether the iterator was created/refreshed previously
-  // with or without a snapshot, the iterator will be reading the
-  // latest DB state after this call.
-  // Note that you will need to call a Seek*() function to get the iterator
-  // back into a valid state before calling a function that assumes the
-  // state is already valid, like Next().
-  virtual Status Refresh() { return Refresh(nullptr); }
-
-  // Similar to Refresh() but the iterator will be reading the latest DB state
-  // under the given snapshot.
-  virtual Status Refresh(const class Snapshot*) {
-    return Status::NotSupported("Refresh() is not supported");
-  }
-
   // Property "rocksdb.iterator.is-key-pinned":
   //   If returning "1", this means that the Slice returned by key() is valid
   //   as long as the iterator is not deleted.

@@ -169,6 +169,20 @@ class StressTest {
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
 
+  // Given a key K, this creates an attribute group iterator which scans to K
+  // and then does a random sequence of Next/Prev operations. Called only when
+  // use_attribute_group=1
+  virtual Status TestIterateAttributeGroups(
+      ThreadState* thread, const ReadOptions& read_opts,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys);
+
+  template <typename IterType, typename NewIterFunc, typename VerifyFunc>
+  Status TestIterateImpl(ThreadState* thread, const ReadOptions& read_opts,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys,
+                         NewIterFunc new_iter_func, VerifyFunc verify_func);
+
   virtual Status TestIterateAgainstExpected(
       ThreadState* /* thread */, const ReadOptions& /* read_opts */,
       const std::vector<int>& /* rand_column_families */,
@@ -192,10 +206,12 @@ class StressTest {
   // diverged = true if the two iterator is already diverged.
   // True if verification passed, false if not.
   // op_logs is the information to print when validation fails.
+  template <typename IterType, typename VerifyFuncType>
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
-                      const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
+                      const ReadOptions& ro, IterType* iter, Iterator* cmp_iter,
                       LastIterateOp op, const Slice& seek_key,
-                      const std::string& op_logs, bool* diverged);
+                      const std::string& op_logs, VerifyFuncType verifyFunc,
+                      bool* diverged);
 
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
