@@ -2180,6 +2180,7 @@ struct IngestExternalFileOptions {
   // XXX: "bottommost" is obsolete/confusing terminology to refer to last level
   bool fail_if_not_bottommost_level = false;
 
+  // EXPERIMENTAL
   // Indicate that files being ingested are all from some live DB.
   // If set to true, ingestion will
   // - not delete original files,
