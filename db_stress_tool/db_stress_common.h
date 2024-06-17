@@ -764,6 +764,8 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                         const Slice& slice);
 bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
 bool VerifyWideColumns(const WideColumns& columns);
+bool VerifyIteratorAttributeGroups(
+    const IteratorAttributeGroups& attribute_groups);
 
 AttributeGroups GenerateAttributeGroups(
     const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
