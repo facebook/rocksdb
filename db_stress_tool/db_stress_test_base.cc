@@ -1030,6 +1030,10 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      if (thread->rand.OneInOpt(FLAGS_get_update_since_one_in)) {
+        TestGetUpdatesSince(thread);
+      }
+
       int rand_column_family = thread->rand.Next() % FLAGS_column_families;
       ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 
@@ -2494,6 +2498,80 @@ Status StressTest::TestGetPropertiesOfAllTables() const {
   return db_->GetPropertiesOfAllTables(&props);
 }
 
+void StressTest::TestGetUpdatesSince(ThreadState* thread) {
+  Status s = db_->DisableFileDeletions();
+  if (!s.ok()) {
+    return;
+  }
+
+  const SequenceNumber since_seq =
+      thread->rand.Next64() % (db_->GetLatestSequenceNumber() + 1);
+  std::unique_ptr<TransactionLogIterator> iter;
+
+  s = db_->GetUpdatesSince(since_seq, &iter);
+
+  if (!s.ok()) {
+    fprintf(stderr,
+            "Failed to call GetUpdatesSince(): %s with specified "
+            "seq num: %" PRIu64 "\n",
+            s.ToString().c_str(), since_seq);
+    thread->shared->SafeTerminate();
+  }
+
+  if (!iter->status().ok()) {
+    fprintf(stderr,
+            "Iterator with non-ok status returned by "
+            "GetUpdatesSince(): %s \n",
+            iter->status().ToString().c_str());
+    thread->shared->SafeTerminate();
+  } else if (!iter->Valid()) {
+    return;
+  }
+
+  BatchResult res = iter->GetBatch();
+  SequenceNumber last_seqno = res.sequence;
+  iter->Next();
+
+  while (iter->status().ok() && iter->Valid()) {
+    res = iter->GetBatch();
+    if (res.sequence <= last_seqno) {
+      fprintf(stderr,
+              "Found a batch result of non-increasing seq num %" PRIu64
+              " from previous scan. Previous batch of seq num: %" PRIu64
+              ", current batch of seq num: %" PRIu64
+              ". The iterator used was returned from GetUpdatesSince() with "
+              "specified "
+              "seq num: %" PRIu64 "\n",
+              res.sequence, last_seqno, res.sequence, since_seq);
+      thread->shared->SafeTerminate();
+    }
+    last_seqno = res.sequence;
+    iter->Next();
+  }
+
+  // `TryAgain()` is allowed as it might happens when new writes happen between
+  // calling `GetLatestSequenceNumber()` above and `iter->Next()`
+  if (!iter->status().ok() && !iter->status().IsTryAgain()) {
+    fprintf(stderr,
+            "Iterator with non-ok status returned by "
+            "GetUpdatesSince(): %s with specified "
+            "seq num: %" PRIu64
+            ". Last returned write batch has starting seq num %" PRIu64 "\n",
+            iter->status().ToString().c_str(), since_seq, last_seqno);
+    thread->shared->SafeTerminate();
+  }
+
+  s = db_->EnableFileDeletions();
+  if (!s.ok()) {
+    fprintf(stderr,
+            "Enable file deletions at the end of testing "
+            "GetUpdatesSince() with specified seq num: %" PRIu64
+            " failed: %s \n",
+            since_seq, iter->status().ToString().c_str());
+    thread->shared->SafeTerminate();
+  }
+}
+
 void StressTest::TestCompactFiles(ThreadState* thread,
                                   ColumnFamilyHandle* column_family) {
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
@@ -3925,8 +4003,6 @@ void InitializeOptionsFromFlags(
   options.log_file_time_to_roll = FLAGS_log_file_time_to_roll;
   options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;
   options.advise_random_on_open = FLAGS_advise_random_on_open;
-  // TODO (hx235): test the functionality of `WAL_ttl_seconds`,
-  // `WAL_size_limit_MB` i.e, `GetUpdatesSince()`
   options.WAL_ttl_seconds = FLAGS_WAL_ttl_seconds;
   options.WAL_size_limit_MB = FLAGS_WAL_size_limit_MB;
   options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;

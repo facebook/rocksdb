@@ -213,6 +213,7 @@ DECLARE_int32(compact_range_one_in);
 DECLARE_int32(promote_l0_one_in);
 DECLARE_int32(mark_for_compaction_one_file_in);
 DECLARE_int32(flush_one_in);
+DECLARE_int32(get_update_since_one_in);
 DECLARE_int32(key_may_exist_one_in);
 DECLARE_int32(reset_stats_one_in);
 DECLARE_int32(pause_background_one_in);

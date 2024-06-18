@@ -134,6 +134,8 @@ class StressTest {
       ThreadState* thread, const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) = 0;
 
+  virtual void TestGetUpdatesSince(ThreadState* thread);
+
   // Issue compact range, starting with start_key, whose integer value
   // is rand_key.
   virtual void TestCompactRange(ThreadState* thread, int64_t rand_key,

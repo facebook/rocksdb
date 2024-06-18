@@ -120,6 +120,9 @@ default_params = {
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
+    # `get_update_since_one_in` requires no sequence number hole in all WALs
+    # To simplify santization, we enable or disable `get_update_since_one_in` consistently across runs
+    "get_update_since_one_in": random.choice([0, 1000000]),
     "reset_stats_one_in": lambda: random.choice([10000, 1000000]),
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
@@ -517,10 +520,12 @@ optimistic_txn_params = {
 best_efforts_recovery_params = {
     "best_efforts_recovery": 1,
     "disable_wal": 1,
+    # GetUpdateSince() is not compatible with `disable_wal=1`
+    "get_update_since_one_in": 0,
     "column_families": 1,
     "skip_verifydb": 1,
     "verify_db_one_in": 0
-}
+    }
 
 blob_params = {
     "allow_setting_blob_options_dynamically": 1,
@@ -788,14 +793,19 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
         dest_params["txn_write_policy"] = 0
         dest_params["unordered_write"] = 0
-    # For TransactionDB, correctness testing with unsync data loss is currently
-    # compatible with only write committed policy
+    # For TransactionDB, correctness testing with unsync data loss and
+    # GetUpdateSince() are currently compatible with only write committed policy
     if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
+        dest_params["get_update_since_one_in"] = 0
         # Wide-column pessimistic transaction APIs are initially supported for
         # WriteCommitted only
         dest_params["use_put_entity_one_in"] = 0
+    if dest_params.get("get_update_since_one_in") != 0:
+        # To avoid sequence number hole in WAL
+        dest_params["ingest_external_file_one_in"] = 0
+        dest_params["disable_wal"] = 0
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0
