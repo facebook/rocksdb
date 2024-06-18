@@ -124,6 +124,7 @@ public class EventListenerTest {
         db.put(("testKey" + i).getBytes(), value);
         if(i % 10000 == 0) {
           System.out.println("i : " + i);
+          //db.flush(new FlushOptions());
         }
       }
       //db.compactRange();
@@ -134,7 +135,8 @@ public class EventListenerTest {
   @Test
   public void onCompactionBegin() throws RocksDBException {
     final AtomicBoolean wasCbCalled = new AtomicBoolean();
-    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener(EnabledEventCallback.ON_COMPACTION_COMPLETED, EnabledEventCallback.ON_COMPACTION_BEGIN) {
+    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener(EnabledEventCallback.ON_COMPACTION_COMPLETED, EnabledEventCallback.ON_COMPACTION_BEGIN,
+            EnabledEventCallback.ON_FLUSH_BEGIN, EnabledEventCallback.ON_FLUSH_COMPLETED, EnabledEventCallback.ON_FILE_FLUSH_FINISH) {
       @Override
       public void onCompactionBegin(final RocksDB db, final CompactionJobInfo compactionJobInfo) {
         System.out.println("On compaction begin");
@@ -174,6 +176,16 @@ public class EventListenerTest {
       @Override
       public void onCompactionCompleted(RocksDB db, CompactionJobInfo compactionJobInfo) {
         System.out.println("On compaction completed");
+      }
+
+      @Override
+      public void onFlushCompleted(RocksDB db, FlushJobInfo flushJobInfo) {
+        System.out.println("On FlushCompleted");
+      }
+
+      @Override
+      public void onFlushBegin(RocksDB db, FlushJobInfo flushJobInfo) {
+        System.out.println("onFlushBegin");
       }
     };
     compactRange(onCompactionBeginListener, wasCbCalled);
