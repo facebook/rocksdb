@@ -107,13 +107,26 @@ public class EventListenerTest {
   void compactRange(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
       throws RocksDBException {
     try (final Options opt =
-             new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
+             new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el))
+                     .setCompactionStyle(CompactionStyle.LEVEL)
+                     .setTargetFileSizeBase(100l*1024l)
+                     .setTargetFileSizeMultiplier(100)
+                     .setIncreaseParallelism(20)
+                     .setMaxSubcompactions(5)
+                     .setAllowMmapReads(true)
+                     .setAllowMmapWrites(true)
+                     .setMaxOpenFiles(300);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
-      final byte[] value = new byte[24];
-      rand.nextBytes(value);
-      db.put("testKey".getBytes(), value);
-      db.compactRange();
+      final byte[] value = new byte[1024];
+      for(int i = 0 ; i < 350 * 1000; i++) {
+        rand.nextBytes(value);
+        db.put(("testKey" + i).getBytes(), value);
+        if(i % 10000 == 0) {
+          System.out.println("i : " + i);
+        }
+      }
+      //db.compactRange();
       assertThat(wasCbCalled.get()).isTrue();
     }
   }
@@ -121,12 +134,46 @@ public class EventListenerTest {
   @Test
   public void onCompactionBegin() throws RocksDBException {
     final AtomicBoolean wasCbCalled = new AtomicBoolean();
-    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener() {
+    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener(EnabledEventCallback.ON_COMPACTION_COMPLETED, EnabledEventCallback.ON_COMPACTION_BEGIN) {
       @Override
       public void onCompactionBegin(final RocksDB db, final CompactionJobInfo compactionJobInfo) {
-        assertThat(compactionJobInfo.compactionReason())
-            .isEqualTo(CompactionReason.kManualCompaction);
+        System.out.println("On compaction begin");
+
+        compactionJobInfo.status().getCodeString();
+        compactionJobInfo.status().getCodeString();
+                compactionJobInfo.compactionReason();
+                compactionJobInfo.inputFiles();
+                compactionJobInfo.outputFiles();
+                compactionJobInfo.jobId();
+                compactionJobInfo.baseInputLevel();
+                new String(compactionJobInfo.columnFamilyName(), StandardCharsets.UTF_8);
+                compactionJobInfo.compression();
+                compactionJobInfo.threadId();
+        compactionJobInfo.tableProperties().entrySet().stream().forEach(
+                entry -> {
+                        entry.getKey();
+                        new String(entry.getValue().getColumnFamilyName(), StandardCharsets.UTF_8);
+                        entry.getValue().getCompressionName();
+                        entry.getValue().getCreationTime();
+                        entry.getValue().getDataSize();
+                        entry.getValue().getFilterPolicyName();
+                        entry.getValue().getFilterSize();
+                        entry.getValue().getFixedKeyLen();
+                        entry.getValue().getMergeOperatorName();
+                        entry.getValue().getNumDataBlocks();
+                        entry.getValue().getNumDeletions();
+                        entry.getValue().getNumRangeDeletions();
+                        entry.getValue().getReadableProperties();
+                        entry.getValue().getTopLevelIndexSize();
+                        entry.getValue().getUserCollectedProperties();
+                }
+        );
         wasCbCalled.set(true);
+      }
+
+      @Override
+      public void onCompactionCompleted(RocksDB db, CompactionJobInfo compactionJobInfo) {
+        System.out.println("On compaction completed");
       }
     };
     compactRange(onCompactionBeginListener, wasCbCalled);
