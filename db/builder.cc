@@ -64,7 +64,7 @@ Status BuildTable(
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
-    std::vector<SequenceNumber> snapshots,
+    std::vector<SequenceNumber> snapshots, SequenceNumber earliest_snapshot,
     SequenceNumber earliest_write_conflict_snapshot,
     SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
     bool paranoid_file_checks, InternalStats* internal_stats,
@@ -195,7 +195,7 @@ Status BuildTable(
 
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
-        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots,
+        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots, earliest_snapshot,
         earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),

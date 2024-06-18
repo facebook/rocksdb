@@ -636,26 +636,37 @@ TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
 TESTS += $(PLUGIN_TESTS)
 
-# `make check-headers` to very that each header file includes its own
-# dependencies
+# `make check-headers` to verify that each header file includes its own deps
+# and that public headers do not depend on internal headers
 ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 # TODO: add/support JNI headers
 	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
 # Some headers like in port/ are platform-specific
-	DEV_HEADERS := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|lua/|range_tree/')
+	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|lua/|range_tree/')
+	PUBLIC_HEADERS_TO_CHECK := $(shell $(FIND) include/ -type f -name '*.h' | grep -E -v 'lua/')
 else
-	DEV_HEADERS :=
+	DEV_HEADERS_TO_CHECK :=
+	PUBLIC_HEADERS_TO_CHECK :=
 endif
-HEADER_OK_FILES = $(patsubst %.h, %.h.ok, $(DEV_HEADERS))
+HEADER_OK_FILES = $(patsubst %.h, %.h.ok, $(DEV_HEADERS_TO_CHECK)) \
+	$(patsubst %.h, %.h.pub, $(PUBLIC_HEADERS_TO_CHECK))
 
 AM_V_CCH = $(am__v_CCH_$(V))
 am__v_CCH_ = $(am__v_CCH_$(AM_DEFAULT_VERBOSITY))
 am__v_CCH_0 = @echo "  CC.h    " $<;
 am__v_CCH_1 =
 
+# verify headers include their own dependencies, under dev build settings
 %.h.ok: %.h # .h.ok not actually created, so re-checked on each invocation
 # -DROCKSDB_NAMESPACE=42 ensures the namespace header is included
-	$(AM_V_CCH) echo '#include "$<"' | $(CXX) $(CXXFLAGS) -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+	$(AM_V_CCH) echo '#include "$<"' | $(CXX) $(CXXFLAGS) \
+	  -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
+
+# verify public headers do not depend on internal headers, under typical
+# user build settings
+%.h.pub: %.h # .h.pub not actually created, so re-checked on each invocation
+	$(AM_V_CCH) cd include/ && echo '#include "$(patsubst include/%,%,$<)"' | \
+	  $(CXX) -I. -DROCKSDB_NAMESPACE=42 -x c++ -c - -o /dev/null
 
 check-headers: $(HEADER_OK_FILES)
 
@@ -1629,6 +1640,9 @@ compaction_job_stats_test: $(OBJ_DIR)/db/compaction/compaction_job_stats_test.o 
 	$(AM_LINK)
 
 compaction_service_test: $(OBJ_DIR)/db/compaction/compaction_service_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+compact_for_tiering_collector_test: $(OBJ_DIR)/utilities/table_properties_collectors/compact_for_tiering_collector_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 compact_on_deletion_collector_test: $(OBJ_DIR)/utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(TEST_LIBRARY) $(LIBRARY)

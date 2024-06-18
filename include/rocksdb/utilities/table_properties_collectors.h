@@ -84,4 +84,50 @@ std::shared_ptr<CompactOnDeletionCollectorFactory>
 NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
                                      size_t deletion_trigger,
                                      double deletion_ratio = 0);
+
+// A factory of a table property collector that marks a SST file as
+// need-compaction when for the tiering use case, it observes, among all the
+// data entries, the ratio of entries that are already eligible to be placed on
+// the last level but are not yet on the last level is equal to or higher than
+// the configured `compaction_trigger_ratio_`.
+// 1) Setting the ratio to be equal to or smaller than 0 disables this collector
+// 2) Setting the ratio to be within (0, 1] will write the number of
+//     observed eligible entries into a user property and marks a file as
+//     need-compaction when aforementioned condition is met.
+// 3) Setting the ratio to be higher than 1 can be used to just writes the user
+//    table property, and not mark any file as need compaction.
+// For a column family that does not enable tiering feature, even if an
+// effective configuration is provided, this collector is still disabled.
+class CompactForTieringCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ public:
+  // @param compaction_trigger_ratio: the triggering threshold for the ratio of
+  // eligible entries to the total number of entries. See class documentation
+  // for what entry is eligible.
+  CompactForTieringCollectorFactory(double compaction_trigger_ratio);
+
+  ~CompactForTieringCollectorFactory() {}
+
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override;
+
+  void SetCompactionTriggerRatio(double new_ratio) {
+    compaction_trigger_ratio_.store(new_ratio);
+  }
+
+  double GetCompactionTriggerRatio() const {
+    return compaction_trigger_ratio_.load();
+  }
+
+  static const char* kClassName() { return "CompactForTieringCollector"; }
+  const char* Name() const override { return kClassName(); }
+
+  std::string ToString() const override;
+
+ private:
+  std::atomic<double> compaction_trigger_ratio_;
+};
+
+std::shared_ptr<CompactForTieringCollectorFactory>
+NewCompactForTieringCollectorFactory(double compaction_trigger_ratio);
 }  // namespace ROCKSDB_NAMESPACE

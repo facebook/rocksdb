@@ -93,10 +93,6 @@ int db_stress_tool(int argc, char** argv) {
     // This will be overwritten in StressTest::Open() for open fault injection
     // and in RunStressTestImpl() for proper write fault injection setup.
     fault_fs_guard->SetFilesystemDirectWritable(true);
-    // FIXME: For some reason(s), db_stress currently relies on the WRONG
-    // semantic of reading only synced data from files currently open for
-    // write.
-    fault_fs_guard->SetReadUnsyncedData(false);
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();

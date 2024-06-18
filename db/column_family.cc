@@ -538,6 +538,7 @@ ColumnFamilyData::ColumnFamilyData(
       refs_(0),
       initialized_(false),
       dropped_(false),
+      flush_skip_reschedule_(false),
       internal_comparator_(cf_options.comparator),
       initial_cf_options_(SanitizeOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),
@@ -1619,6 +1620,19 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
 
   assert(path_id < data_dirs_.size());
   return data_dirs_[path_id].get();
+}
+
+void ColumnFamilyData::SetFlushSkipReschedule() {
+  const Comparator* ucmp = user_comparator();
+  const size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz == 0 || ioptions_.persist_user_defined_timestamps) {
+    return;
+  }
+  flush_skip_reschedule_.store(true);
+}
+
+bool ColumnFamilyData::GetAndClearFlushSkipReschedule() {
+  return flush_skip_reschedule_.exchange(false);
 }
 
 bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(

@@ -1006,12 +1006,7 @@ void StressTest::OperateDb(ThreadState* thread) {
                         " to %" PRIu64 "\n",
                         old_wal->LogNumber(), new_wal->LogNumber());
               }
-              // FIXME: FaultInjectionTestFS does not report file sizes that
-              // reflect what has been flushed. Either that needs to be fixed
-              // or GetSortedWals/GetLiveWalFile need to stop relying on
-              // asking the FS for sizes.
-              if (!fault_fs_guard &&
-                  old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
+              if (old_wal->SizeFileBytes() != new_wal->SizeFileBytes()) {
                 fprintf(stderr,
                         "Failed: WAL %" PRIu64
                         " size changed during LockWAL(): %" PRIu64
@@ -1300,7 +1295,12 @@ void StressTest::OperateDb(ThreadState* thread) {
           ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_DBITERATOR);
-          TestIterate(thread, read_opts, rand_column_families, rand_keys);
+          if (FLAGS_use_multi_cf_iterator && FLAGS_use_attribute_group) {
+            TestIterateAttributeGroups(thread, read_opts, rand_column_families,
+                                       rand_keys);
+          } else {
+            TestIterate(thread, read_opts, rand_column_families, rand_keys);
+          }
           ThreadStatusUtil::ResetThreadStatus();
         }
       } else {
@@ -1384,6 +1384,75 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const ReadOptions& read_opts,
                                const std::vector<int>& rand_column_families,
                                const std::vector<int64_t>& rand_keys) {
+  auto new_iter_func = [&rand_column_families, this](const ReadOptions& ro) {
+    if (FLAGS_use_multi_cf_iterator) {
+      std::vector<ColumnFamilyHandle*> cfhs;
+      cfhs.reserve(rand_column_families.size());
+      for (auto cf_index : rand_column_families) {
+        cfhs.emplace_back(column_families_[cf_index]);
+      }
+      assert(!cfhs.empty());
+      return db_->NewCoalescingIterator(ro, cfhs);
+    } else {
+      ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+      assert(cfh);
+      return std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+    }
+  };
+
+  auto verify_func = [](Iterator* iter) {
+    if (!VerifyWideColumns(iter->value(), iter->columns())) {
+      fprintf(stderr,
+              "Value and columns inconsistent for iterator: value: %s, "
+              "columns: %s\n",
+              iter->value().ToString(/* hex */ true).c_str(),
+              WideColumnsToHex(iter->columns()).c_str());
+      return false;
+    }
+    return true;
+  };
+
+  return TestIterateImpl<Iterator>(thread, read_opts, rand_column_families,
+                                   rand_keys, new_iter_func, verify_func);
+}
+
+Status StressTest::TestIterateAttributeGroups(
+    ThreadState* thread, const ReadOptions& read_opts,
+    const std::vector<int>& rand_column_families,
+    const std::vector<int64_t>& rand_keys) {
+  auto new_iter_func = [&rand_column_families, this](const ReadOptions& ro) {
+    assert(FLAGS_use_multi_cf_iterator);
+    std::vector<ColumnFamilyHandle*> cfhs;
+    cfhs.reserve(rand_column_families.size());
+    for (auto cf_index : rand_column_families) {
+      cfhs.emplace_back(column_families_[cf_index]);
+    }
+    assert(!cfhs.empty());
+    return db_->NewAttributeGroupIterator(ro, cfhs);
+  };
+  auto verify_func = [](AttributeGroupIterator* iter) {
+    if (!VerifyIteratorAttributeGroups(iter->attribute_groups())) {
+      // TODO - print out attribute group values
+      fprintf(stderr,
+              "one of the columns in the attribute groups inconsistent for "
+              "iterator\n");
+      return false;
+    }
+    return true;
+  };
+
+  return TestIterateImpl<AttributeGroupIterator>(
+      thread, read_opts, rand_column_families, rand_keys, new_iter_func,
+      verify_func);
+}
+
+template <typename IterType, typename NewIterFunc, typename VerifyFunc>
+Status StressTest::TestIterateImpl(ThreadState* thread,
+                                   const ReadOptions& read_opts,
+                                   const std::vector<int>& rand_column_families,
+                                   const std::vector<int64_t>& rand_keys,
+                                   NewIterFunc new_iter_func,
+                                   VerifyFunc verify_func) {
   assert(!rand_column_families.empty());
   assert(!rand_keys.empty());
 
@@ -1439,21 +1508,7 @@ Status StressTest::TestIterate(ThreadState* thread,
         *ro.iterate_lower_bound, *ro.iterate_upper_bound);
   }
 
-  std::unique_ptr<Iterator> iter;
-
-  if (FLAGS_use_multi_cf_iterator) {
-    std::vector<ColumnFamilyHandle*> cfhs;
-    cfhs.reserve(rand_column_families.size());
-    for (auto cf_index : rand_column_families) {
-      cfhs.emplace_back(column_families_[cf_index]);
-    }
-    assert(!cfhs.empty());
-    iter = db_->NewCoalescingIterator(ro, cfhs);
-  } else {
-    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
-    assert(cfh);
-    iter = std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
-  }
+  std::unique_ptr<IterType> iter = new_iter_func(ro);
 
   std::vector<std::string> key_strs;
   if (thread->rand.OneIn(16)) {
@@ -1559,7 +1614,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     }
 
     VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                   key, op_logs, &diverged);
+                   key, op_logs, verify_func, &diverged);
 
     const bool no_reverse =
         (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
@@ -1583,7 +1638,7 @@ Status StressTest::TestIterate(ThreadState* thread,
       last_op = kLastOpNextOrPrev;
 
       VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                     key, op_logs, &diverged);
+                     key, op_logs, verify_func, &diverged);
     }
 
     thread->stats.AddIterations(1);
@@ -1640,12 +1695,11 @@ Status StressTest::VerifyGetCurrentWalFile() const {
 // Will flag failure if the verification fails.
 // diverged = true if the two iterator is already diverged.
 // True if verification passed, false if not.
-void StressTest::VerifyIterator(ThreadState* thread,
-                                ColumnFamilyHandle* cmp_cfh,
-                                const ReadOptions& ro, Iterator* iter,
-                                Iterator* cmp_iter, LastIterateOp op,
-                                const Slice& seek_key,
-                                const std::string& op_logs, bool* diverged) {
+template <typename IterType, typename VerifyFuncType>
+void StressTest::VerifyIterator(
+    ThreadState* thread, ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro,
+    IterType* iter, Iterator* cmp_iter, LastIterateOp op, const Slice& seek_key,
+    const std::string& op_logs, VerifyFuncType verify_func, bool* diverged) {
   assert(diverged);
 
   if (*diverged) {
@@ -1801,17 +1855,10 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (!*diverged && iter->Valid()) {
-    if (!VerifyWideColumns(iter->value(), iter->columns())) {
-      fprintf(stderr,
-              "Value and columns inconsistent for iterator: value: %s, "
-              "columns: %s\n",
-              iter->value().ToString(/* hex */ true).c_str(),
-              WideColumnsToHex(iter->columns()).c_str());
-
+    if (!verify_func(iter)) {
       *diverged = true;
     }
   }
-
   if (*diverged) {
     fprintf(stderr, "VerifyIterator failed. Control CF %s\n",
             cmp_cfh->GetName().c_str());
@@ -1916,17 +1963,6 @@ Status StressTest::TestBackupRestore(
     s = db_->FlushWAL(/*sync=*/false);
     if (!s.ok()) {
       from = "FlushWAL";
-    }
-  }
-
-  // FIXME: this is only needed as long as db_stress uses
-  // SetReadUnsyncedData(false), because it will only be able to
-  // copy the synced portion of the WAL. For correctness validation, that
-  // needs to include updates to the locked key.
-  if (s.ok()) {
-    s = db_->SyncWAL();
-    if (!s.ok()) {
-      from = "SyncWAL";
     }
   }
 

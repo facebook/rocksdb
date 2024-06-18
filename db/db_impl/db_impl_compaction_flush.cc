@@ -87,6 +87,9 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   mutex_.AssertHeld();
   assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
   ColumnFamilyData* cfd = flush_req.cfd_to_max_mem_id_to_persist.begin()->first;
+  if (cfd->GetAndClearFlushSkipReschedule()) {
+    return false;
+  }
   uint64_t max_memtable_id =
       flush_req.cfd_to_max_mem_id_to_persist.begin()->second;
   if (cfd->IsDropped() ||
@@ -98,15 +101,20 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   // alleviated if we continue with the flush instead of postponing it.
   const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
 
-  // Taking the status of the active Memtable into consideration so that we are
-  // not just checking if DB is currently already in write stall mode.
-  int mem_to_flush = cfd->mem()->ApproximateMemoryUsageFast() >=
-                             cfd->mem()->write_buffer_size() / 2
-                         ? 1
-                         : 0;
+  // Use the same criteria as WaitUntilFlushWouldNotStallWrites does w.r.t
+  // defining what a write stall is about to happen means. If this uses a
+  // stricter criteria, for example, a write stall is about to happen if the
+  // last memtable is 10% full, there is a possibility that manual flush could
+  // be waiting in `WaitUntilFlushWouldNotStallWrites` with the incorrect
+  // expectation that others will clear up the excessive memtables and
+  // eventually let it proceed. The others in this case won't start clearing
+  // until the last memtable is 10% full. To avoid that scenario, the criteria
+  // this uses should be the same or less strict than
+  // `WaitUntilFlushWouldNotStallWrites` does.
   WriteStallCondition write_stall =
       ColumnFamilyData::GetWriteStallConditionAndCause(
-          cfd->imm()->NumNotFlushed() + mem_to_flush, /*num_l0_files=*/0,
+          cfd->GetUnflushedMemTableCountForWriteStallCheck(),
+          /*num_l0_files=*/0,
           /*num_compaction_needed_bytes=*/0, mutable_cf_options,
           *cfd->ioptions())
           .first;
@@ -2361,7 +2369,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         }
       }
       for (const auto& req : flush_reqs) {
-        SchedulePendingFlush(req);
+        assert(req.cfd_to_max_mem_id_to_persist.size() == 1);
+        ColumnFamilyData* loop_cfd =
+            req.cfd_to_max_mem_id_to_persist.begin()->first;
+        bool already_queued_for_flush = loop_cfd->queued_for_flush();
+        bool flush_req_enqueued = SchedulePendingFlush(req);
+        if (already_queued_for_flush || flush_req_enqueued) {
+          loop_cfd->SetFlushSkipReschedule();
+        }
       }
       MaybeScheduleFlushOrCompaction();
     }
@@ -2577,7 +2592,9 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
           flush_reason,
           {{cfd,
             std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
-      SchedulePendingFlush(flush_req);
+      if (SchedulePendingFlush(flush_req)) {
+        cfd->SetFlushSkipReschedule();
+      };
     }
   }
   MaybeScheduleFlushOrCompaction();
@@ -2665,13 +2682,13 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
       // mode due to pending compaction bytes, but that's less common
       // No extra immutable Memtable will be created if the current Memtable is
       // empty.
-      int mem_to_flush = cfd->mem()->IsEmpty() ? 0 : 1;
-      write_stall_condition = ColumnFamilyData::GetWriteStallConditionAndCause(
-                                  cfd->imm()->NumNotFlushed() + mem_to_flush,
-                                  vstorage->l0_delay_trigger_count() + 1,
-                                  vstorage->estimated_compaction_needed_bytes(),
-                                  mutable_cf_options, *cfd->ioptions())
-                                  .first;
+      write_stall_condition =
+          ColumnFamilyData::GetWriteStallConditionAndCause(
+              cfd->GetUnflushedMemTableCountForWriteStallCheck(),
+              vstorage->l0_delay_trigger_count() + 1,
+              vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,
+              *cfd->ioptions())
+              .first;
     } while (write_stall_condition != WriteStallCondition::kNormal);
   }
   return Status::OK();
@@ -2983,13 +3000,14 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
   return cfd;
 }
 
-void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
+bool DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
   mutex_.AssertHeld();
+  bool enqueued = false;
   if (reject_new_background_jobs_) {
-    return;
+    return enqueued;
   }
   if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
-    return;
+    return enqueued;
   }
   if (!immutable_db_options_.atomic_flush) {
     // For the non-atomic flush case, we never schedule multiple column
@@ -3004,6 +3022,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
       cfd->set_queued_for_flush(true);
       ++unscheduled_flushes_;
       flush_queue_.push_back(flush_req);
+      enqueued = true;
     }
   } else {
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
@@ -3012,7 +3031,9 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
     }
     ++unscheduled_flushes_;
     flush_queue_.push_back(flush_req);
+    enqueued = true;
   }
+  return enqueued;
 }
 
 void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {

@@ -151,7 +151,7 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
       writable_file_opened_(true),
       fs_(fs) {
   assert(target_ != nullptr);
-  state_.pos_ = 0;
+  state_.pos_at_last_append_ = 0;
 }
 
 TestFSWritableFile::~TestFSWritableFile() {
@@ -166,14 +166,19 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  IOStatus io_s;
   if (target_->use_direct_io()) {
-    target_->Append(data, options, dbg).PermitUncheckedError();
+    // TODO(hx235): buffer data for direct IO write to simulate data loss like
+    // non-direct IO write
+    io_s = target_->Append(data, options, dbg);
   } else {
     state_.buffer_.append(data.data(), data.size());
-    state_.pos_ += data.size();
-    fs_->WritableFileAppended(state_);
   }
-  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
+  if (io_s.ok()) {
+    state_.pos_at_last_append_ += data.size();
+    fs_->WritableFileAppended(state_);
+    io_s = fs_->InjectWriteError(state_.filename_);
+  }
   return io_s;
 }
 
@@ -202,14 +207,46 @@ IOStatus TestFSWritableFile::Append(
         "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
+  IOStatus io_s;
   if (target_->use_direct_io()) {
-    target_->Append(data, options, dbg).PermitUncheckedError();
+    // TODO(hx235): buffer data for direct IO write to simulate data loss like
+    // non-direct IO write
+    io_s = target_->Append(data, options, dbg);
   } else {
     state_.buffer_.append(data.data(), data.size());
-    state_.pos_ += data.size();
+  }
+  if (io_s.ok()) {
+    state_.pos_at_last_append_ += data.size();
+    fs_->WritableFileAppended(state_);
+    io_s = fs_->InjectWriteError(state_.filename_);
+  }
+  return io_s;
+}
+
+IOStatus TestFSWritableFile::Truncate(uint64_t size, const IOOptions& options,
+                                      IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  // TODO(hx235): inject error
+  IOStatus io_s = target_->Truncate(size, options, dbg);
+  if (io_s.ok()) {
+    state_.pos_at_last_append_ = size;
+  }
+  return io_s;
+}
+
+IOStatus TestFSWritableFile::PositionedAppend(const Slice& data,
+                                              uint64_t offset,
+                                              const IOOptions& options,
+                                              IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  // TODO(hx235): buffer data for direct IO write to simulate data loss like
+  // non-direct IO write
+  // TODO(hx235): inject error
+  IOStatus io_s = target_->PositionedAppend(data, offset, options, dbg);
+  if (io_s.ok()) {
+    state_.pos_at_last_append_ = offset + data.size();
     fs_->WritableFileAppended(state_);
   }
-  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
   return io_s;
 }
 
@@ -236,8 +273,14 @@ IOStatus TestFSWritableFile::PositionedAppend(
         "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
-  target_->PositionedAppend(data, offset, options, dbg);
-  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
+  // TODO(hx235): buffer data for direct IO write to simulate data loss like
+  // non-direct IO write
+  IOStatus io_s = target_->PositionedAppend(data, offset, options, dbg);
+  if (io_s.ok()) {
+    state_.pos_at_last_append_ = offset + data.size();
+    fs_->WritableFileAppended(state_);
+    io_s = fs_->InjectWriteError(state_.filename_);
+  }
   return io_s;
 }
 
@@ -292,7 +335,7 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
   state_.buffer_.resize(0);
   // Ignore sync errors
   target_->Sync(options, dbg).PermitUncheckedError();
-  state_.pos_at_last_sync_ = state_.pos_;
+  state_.pos_at_last_sync_ = state_.pos_at_last_append_;
   fs_->WritableFileSynced(state_);
   return io_s;
 }
@@ -493,10 +536,11 @@ void FaultInjectionTestFS::AddUnsyncedToRead(const std::string& fname,
   auto it = db_file_state_.find(fname);
   if (it != db_file_state_.end()) {
     auto& st = it->second;
-    if (st.pos_ > static_cast<ssize_t>(pos_after)) {
+    if (st.pos_at_last_append_ > static_cast<ssize_t>(pos_after)) {
       size_t remaining_requested = n - result->size();
-      size_t to_copy = std::min(remaining_requested,
-                                static_cast<size_t>(st.pos_) - pos_after);
+      size_t to_copy =
+          std::min(remaining_requested,
+                   static_cast<size_t>(st.pos_at_last_append_) - pos_after);
       size_t buffer_offset = pos_after - static_cast<size_t>(std::max(
                                              st.pos_at_last_sync_, ssize_t{0}));
       // Data might have been dropped from buffer
@@ -805,7 +849,7 @@ IOStatus FaultInjectionTestFS::GetFileSize(const std::string& f,
     MutexLock l(&mutex_);
     auto it = db_file_state_.find(f);
     if (it != db_file_state_.end()) {
-      *file_size = it->second.pos_;
+      *file_size = it->second.pos_at_last_append_;
     }
   }
   return io_s;
