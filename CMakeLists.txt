@@ -939,6 +939,7 @@ set(SOURCES
         utilities/persistent_cache/volatile_tier_impl.cc
         utilities/simulator_cache/cache_simulator.cc
         utilities/simulator_cache/sim_cache.cc
+        utilities/table_properties_collectors/compact_for_tiering_collector.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
         utilities/trace/replayer_impl.cc
@@ -1481,6 +1482,7 @@ if(WITH_TESTS)
         utilities/persistent_cache/persistent_cache_test.cc
         utilities/simulator_cache/cache_simulator_test.cc
         utilities/simulator_cache/sim_cache_test.cc
+        utilities/table_properties_collectors/compact_for_tiering_collector_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
