@@ -2135,10 +2135,12 @@ void InternalStats::DumpCFFileHistogram(std::string* value) {
   value->append(oss.str());
 }
 
+namespace {
+
 class SumPropertyAggregator : public IntPropertyAggregator {
  public:
   SumPropertyAggregator() : aggregated_value_(0) {}
-  virtual ~SumPropertyAggregator() = default;
+  virtual ~SumPropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
     (void)cfd;
@@ -2156,7 +2158,7 @@ class SumPropertyAggregator : public IntPropertyAggregator {
 class BlockCachePropertyAggregator : public IntPropertyAggregator {
  public:
   BlockCachePropertyAggregator() = default;
-  virtual ~BlockCachePropertyAggregator() = default;
+  virtual ~BlockCachePropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
     auto* table_factory = cfd->ioptions()->table_factory.get();
@@ -2179,6 +2181,8 @@ class BlockCachePropertyAggregator : public IntPropertyAggregator {
  private:
   std::unordered_map<Cache*, uint64_t> block_cache_properties_;
 };
+
+}  // anonymous namespace
 
 std::unique_ptr<IntPropertyAggregator> CreateIntPropertyAggregator(
     const Slice& property) {
