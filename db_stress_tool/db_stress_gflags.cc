@@ -582,6 +582,16 @@ DEFINE_bool(
         .detect_filter_construct_corruption,
     "Detect corruption during new Bloom Filter and Ribbon Filter construction");
 
+DEFINE_string(sqfc_name, "foo",
+              "Config name to select from SstQueryFilterConfigsManager.");
+
+DEFINE_uint32(sqfc_version, 0,
+              "User-defined filtering version to select from "
+              "SstQueryFilterConfigsManager. 0 = disable writing filters");
+
+DEFINE_bool(use_sqfc_for_range_queries, true,
+            "Apply SstQueryFilters to range queries");
+
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(

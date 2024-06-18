@@ -130,6 +130,9 @@ default_params = {
     "readpercent": 45,
     "recycle_log_file_num": lambda: random.randint(0, 1),
     "snapshot_hold_ops": 100000,
+    "sqfc_name": lambda: random.choice(["foo", "bar"]),
+    # 0 = disable writing SstQueryFilters
+    "sqfc_version": lambda: random.choice([0, 1, 1, 2, 2]),
     "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
     "long_running_snapshots": lambda: random.randint(0, 1),
@@ -141,6 +144,7 @@ default_params = {
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
+    "use_sqfc_for_range_queries": lambda: random.choice([0, 1, 1, 1]),
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(
         ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",

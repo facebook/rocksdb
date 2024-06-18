@@ -12,6 +12,7 @@
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "rocksdb/experimental.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;
@@ -19,6 +20,7 @@ class Transaction;
 class TransactionDB;
 class OptimisticTransactionDB;
 struct TransactionDBOptions;
+using experimental::SstQueryFilterConfigsManager;
 
 class StressTest {
  public:
@@ -319,6 +321,7 @@ class StressTest {
   std::unordered_map<std::string, std::vector<std::string>> options_table_;
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
+  std::shared_ptr<SstQueryFilterConfigsManager::Factory> sqfc_factory_;
 
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
@@ -360,7 +363,9 @@ void InitializeOptionsFromFlags(
 // from OPTIONS file.
 void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+    const std::shared_ptr<const FilterPolicy>& filter_policy,
+    const std::shared_ptr<SstQueryFilterConfigsManager::Factory>& sqfc_factory,
+    Options& options);
 
 // If no OPTIONS file is specified, set up `options` so that we can test
 // user-defined timestamp which requires `-user_timestamp_size=8`.
