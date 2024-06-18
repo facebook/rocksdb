@@ -627,7 +627,7 @@ multiops_txn_default_params = {
     "inplace_update_support": 0,
     # TimedPut not supported in transaction
     "use_timed_put_one_in": 0,
-    # AttributeGroupIterator not yet supported
+    # AttributeGroup not yet supported
     "use_attribute_group": 0,
 }
 
