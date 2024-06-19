@@ -92,7 +92,7 @@ TEST_F(OptionsFileTest, OptionsFileName) {
   const uint64_t kTempOptionsFileNum = 54352;
   auto temp_options_file_name = TempOptionsFileName("", kTempOptionsFileNum);
   ASSERT_TRUE(ParseFileName(temp_options_file_name, &number, &type, nullptr));
-  ASSERT_NE(temp_options_file_name.find(kTempFileNameSuffix),
+  ASSERT_NE(temp_options_file_name.find(GetTempFileNameSuffix()),
             std::string::npos);
   ASSERT_EQ(type, kTempFile);
   ASSERT_EQ(number, kTempOptionsFileNum);

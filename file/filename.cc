@@ -23,14 +23,40 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::string kCurrentFileName = "CURRENT";
-const std::string kOptionsFileNamePrefix = "OPTIONS-";
-const std::string kTempFileNameSuffix = "dbtmp";
+const std::string& GetCurrentFileName() {
+  static const std::string kCurrentFileName = "CURRENT";
+  return kCurrentFileName;
+}
 
-static const std::string kRocksDbTFileExt = "sst";
-static const std::string kLevelDbTFileExt = "ldb";
-static const std::string kRocksDBBlobFileExt = "blob";
-static const std::string kArchivalDirName = "archive";
+const std::string& GetOptionsFileNamePrefix() {
+  static const std::string kOptionsFileNamePrefix = "OPTIONS-";
+  return kOptionsFileNamePrefix;
+}
+
+const std::string& GetTempFileNameSuffix() {
+  static const std::string kTempFileNameSuffix = "dbtmp";
+  return kTempFileNameSuffix;
+}
+
+static const std::string& GetRocksDbFileExt() {
+  static const std::string kRocksDbTFileExt = "sst";
+  return kRocksDbTFileExt;
+}
+
+static const std::string& GetLevelDbFileExt() {
+  static const std::string kLevelDbTFileExt = "ldb";
+  return kLevelDbTFileExt;
+}
+
+static const std::string& GetRocksDBBlobFileExt() {
+  static const std::string kRocksDBBlobFileExt = "blob";
+  return kRocksDBBlobFileExt;
+}
+
+static const std::string& GetArchivalDirName() {
+  static const std::string kArchivalDirName = "archive";
+  return kArchivalDirName;
+}
 
 // Given a path, flatten the path name by replacing all chars not in
 // {[0-9,a-z,A-Z,-,_,.]} with _. And append '_LOG\0' at the end.
@@ -86,44 +112,44 @@ std::string LogFileName(uint64_t number) {
 
 std::string BlobFileName(uint64_t number) {
   assert(number > 0);
-  return MakeFileName(number, kRocksDBBlobFileExt.c_str());
+  return MakeFileName(number, GetRocksDBBlobFileExt().c_str());
 }
 
 std::string BlobFileName(const std::string& blobdirname, uint64_t number) {
   assert(number > 0);
-  return MakeFileName(blobdirname, number, kRocksDBBlobFileExt.c_str());
+  return MakeFileName(blobdirname, number, GetRocksDBBlobFileExt().c_str());
 }
 
 std::string BlobFileName(const std::string& dbname, const std::string& blob_dir,
                          uint64_t number) {
   assert(number > 0);
   return MakeFileName(dbname + "/" + blob_dir, number,
-                      kRocksDBBlobFileExt.c_str());
+                      GetRocksDBBlobFileExt().c_str());
 }
 
 std::string ArchivalDirectory(const std::string& dir) {
-  return dir + "/" + kArchivalDirName;
+  return dir + "/" + GetArchivalDirName();
 }
 std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
-  return MakeFileName(name + "/" + kArchivalDirName, number, "log");
+  return MakeFileName(name + "/" + GetArchivalDirName(), number, "log");
 }
 
 std::string MakeTableFileName(const std::string& path, uint64_t number) {
-  return MakeFileName(path, number, kRocksDbTFileExt.c_str());
+  return MakeFileName(path, number, GetRocksDbFileExt().c_str());
 }
 
 std::string MakeTableFileName(uint64_t number) {
-  return MakeFileName(number, kRocksDbTFileExt.c_str());
+  return MakeFileName(number, GetRocksDbFileExt().c_str());
 }
 
 std::string Rocks2LevelTableFileName(const std::string& fullname) {
-  assert(fullname.size() > kRocksDbTFileExt.size() + 1);
-  if (fullname.size() <= kRocksDbTFileExt.size() + 1) {
+  assert(fullname.size() > GetRocksDbFileExt().size() + 1);
+  if (fullname.size() <= GetRocksDbFileExt().size() + 1) {
     return "";
   }
-  return fullname.substr(0, fullname.size() - kRocksDbTFileExt.size()) +
-         kLevelDbTFileExt;
+  return fullname.substr(0, fullname.size() - GetRocksDbFileExt().size()) +
+         GetLevelDbFileExt();
 }
 
 uint64_t TableFileNameToNumber(const std::string& name) {
@@ -175,13 +201,13 @@ std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
 }
 
 std::string CurrentFileName(const std::string& dbname) {
-  return dbname + "/" + kCurrentFileName;
+  return dbname + "/" + GetCurrentFileName();
 }
 
 std::string LockFileName(const std::string& dbname) { return dbname + "/LOCK"; }
 
 std::string TempFileName(const std::string& dbname, uint64_t number) {
-  return MakeFileName(dbname, number, kTempFileNameSuffix.c_str());
+  return MakeFileName(dbname, number, GetTempFileNameSuffix().c_str());
 }
 
 InfoLogPrefix::InfoLogPrefix(bool has_log_dir,
@@ -227,7 +253,7 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
 std::string OptionsFileName(uint64_t file_num) {
   char buffer[256];
   snprintf(buffer, sizeof(buffer), "%s%06" PRIu64,
-           kOptionsFileNamePrefix.c_str(), file_num);
+           GetOptionsFileNamePrefix().c_str(), file_num);
   return buffer;
 }
 std::string OptionsFileName(const std::string& dbname, uint64_t file_num) {
@@ -237,8 +263,8 @@ std::string OptionsFileName(const std::string& dbname, uint64_t file_num) {
 std::string TempOptionsFileName(const std::string& dbname, uint64_t file_num) {
   char buffer[256];
   snprintf(buffer, sizeof(buffer), "%s%06" PRIu64 ".%s",
-           kOptionsFileNamePrefix.c_str(), file_num,
-           kTempFileNameSuffix.c_str());
+           GetOptionsFileNamePrefix().c_str(), file_num,
+           GetTempFileNameSuffix().c_str());
   return dbname + "/" + buffer;
 }
 
@@ -324,12 +350,12 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
     }
     *type = kMetaDatabase;
     *number = num;
-  } else if (rest.starts_with(kOptionsFileNamePrefix)) {
+  } else if (rest.starts_with(GetOptionsFileNamePrefix())) {
     uint64_t ts_suffix;
     bool is_temp_file = false;
-    rest.remove_prefix(kOptionsFileNamePrefix.size());
+    rest.remove_prefix(GetOptionsFileNamePrefix().size());
     const std::string kTempFileNameSuffixWithDot =
-        std::string(".") + kTempFileNameSuffix;
+        std::string(".") + GetTempFileNameSuffix();
     if (rest.ends_with(kTempFileNameSuffixWithDot)) {
       rest.remove_suffix(kTempFileNameSuffixWithDot.size());
       is_temp_file = true;
@@ -343,11 +369,11 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
     // Avoid strtoull() to keep filename format independent of the
     // current locale
     bool archive_dir_found = false;
-    if (rest.starts_with(kArchivalDirName)) {
-      if (rest.size() <= kArchivalDirName.size()) {
+    if (rest.starts_with(GetArchivalDirName())) {
+      if (rest.size() <= GetArchivalDirName().size()) {
         return false;
       }
-      rest.remove_prefix(kArchivalDirName.size() +
+      rest.remove_prefix(GetArchivalDirName().size() +
                          1);  // Add 1 to remove / also
       if (log_type) {
         *log_type = kArchivedLogFile;
@@ -371,12 +397,12 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
       }
     } else if (archive_dir_found) {
       return false;  // Archive dir can contain only log files
-    } else if (suffix == Slice(kRocksDbTFileExt) ||
-               suffix == Slice(kLevelDbTFileExt)) {
+    } else if (suffix == Slice(GetRocksDbFileExt()) ||
+               suffix == Slice(GetLevelDbFileExt())) {
       *type = kTableFile;
-    } else if (suffix == Slice(kRocksDBBlobFileExt)) {
+    } else if (suffix == Slice(GetRocksDBBlobFileExt())) {
       *type = kBlobFile;
-    } else if (suffix == Slice(kTempFileNameSuffix)) {
+    } else if (suffix == Slice(GetTempFileNameSuffix())) {
       *type = kTempFile;
     } else {
       return false;

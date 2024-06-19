@@ -137,8 +137,8 @@ class DBBlockCacheTest : public DBTestBase {
     // Verify in cache entry role stats
     std::array<size_t, kNumCacheEntryRoles> cache_entry_role_counts;
     std::map<std::string, std::string> values;
-    EXPECT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
-                                    &values));
+    EXPECT_TRUE(db_->GetMapProperty(
+        DB::Properties::GetFastBlockCacheEntryStats(), &values));
     for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
       auto role = static_cast<CacheEntryRole>(i);
       cache_entry_role_counts[i] =
@@ -304,7 +304,6 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 
 }  // anonymous namespace
 #endif  // SNAPPY
-
 
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
@@ -994,8 +993,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
 
       // Also check the GetProperty interface
       std::map<std::string, std::string> values;
-      ASSERT_TRUE(
-          db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::GetBlockCacheEntryStats(),
+                                      &values));
 
       for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
         auto role = static_cast<CacheEntryRole>(i);
@@ -1019,8 +1018,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         // Not enough for a "background" miss but enough for a "foreground" miss
         env_->MockSleepForSeconds(45);
 
-        ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats,
-                                        &values));
+        ASSERT_TRUE(db_->GetMapProperty(
+            DB::Properties::GetBlockCacheEntryStats(), &values));
         EXPECT_EQ(
             std::to_string(
                 expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
@@ -1078,33 +1077,33 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       ASSERT_EQ(scan_count, 1);
 
       env_->MockSleepForSeconds(60);
-      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
-                                      &values));
+      ASSERT_TRUE(db_->GetMapProperty(
+          DB::Properties::GetFastBlockCacheEntryStats(), &values));
       ASSERT_EQ(scan_count, 1);
-      ASSERT_TRUE(
-          db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::GetBlockCacheEntryStats(),
+                                      &values));
       ASSERT_EQ(scan_count, 2);
 
       env_->MockSleepForSeconds(10000);
-      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
-                                      &values));
+      ASSERT_TRUE(db_->GetMapProperty(
+          DB::Properties::GetFastBlockCacheEntryStats(), &values));
       ASSERT_EQ(scan_count, 3);
 
       env_->MockSleepForSeconds(60);
       std::string value_str;
-      ASSERT_TRUE(db_->GetProperty(DB::Properties::kFastBlockCacheEntryStats,
-                                   &value_str));
+      ASSERT_TRUE(db_->GetProperty(
+          DB::Properties::GetFastBlockCacheEntryStats(), &value_str));
       ASSERT_EQ(scan_count, 3);
-      ASSERT_TRUE(
-          db_->GetProperty(DB::Properties::kBlockCacheEntryStats, &value_str));
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::GetBlockCacheEntryStats(),
+                                   &value_str));
       ASSERT_EQ(scan_count, 4);
 
       env_->MockSleepForSeconds(10000);
-      ASSERT_TRUE(db_->GetProperty(DB::Properties::kFastBlockCacheEntryStats,
-                                   &value_str));
+      ASSERT_TRUE(db_->GetProperty(
+          DB::Properties::GetFastBlockCacheEntryStats(), &value_str));
       ASSERT_EQ(scan_count, 5);
 
-      ASSERT_TRUE(db_->GetProperty(DB::Properties::kCFStats, &value_str));
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::GetCFStats(), &value_str));
       // To match historical speed, querying this property no longer triggers
       // a scan, even if results are old. But periodic dump stats should keep
       // things reasonably updated.
@@ -1723,8 +1722,8 @@ class CacheKeyTest : public testing::Test {
     tp_.db_id = std::to_string(db_id_);
     tp_.orig_file_number = file_number;
     bool is_stable;
-    std::string cur_session_id;       // ignored
-    uint64_t cur_file_number = 42;    // ignored
+    std::string cur_session_id;     // ignored
+    uint64_t cur_file_number = 42;  // ignored
     OffsetableCacheKey rv;
     BlockBasedTable::SetupBaseCacheKey(&tp_, cur_session_id, cur_file_number,
                                        &rv, &is_stable);

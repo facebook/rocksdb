@@ -406,7 +406,7 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
             "[%s] FIFO compaction: picking file %" PRIu64
             " with next file's oldest time %" PRIu64 " for temperature %s.",
             cf_name.c_str(), cur_file->fd.GetNumber(), oldest_ancestor_time,
-            temperature_to_string[cur_target_temp].c_str());
+            OptionsHelper::GetTemperatureToString()[cur_target_temp].c_str());
       }
       if (compaction_size > mutable_cf_options.max_compaction_bytes) {
         break;

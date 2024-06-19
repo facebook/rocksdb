@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -343,7 +342,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
     results.emplace_back();
     LiveFileStorageInfo& info = results.back();
 
-    info.relative_filename = kCurrentFileName;
+    info.relative_filename = GetCurrentFileName();
     info.directory = GetName();
     info.file_type = kCurrentFile;
     // CURRENT could be replaced so we have to record the contents as needed.

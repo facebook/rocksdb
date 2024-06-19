@@ -2017,7 +2017,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
     // reasonable and not an error.
     std::string prop;
     ASSERT_TRUE(dbfull()->GetProperty(
-        DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
+        DB::Properties::GetLiveSstFilesSizeAtTemperature() + std::to_string(22),
         &prop));
     ASSERT_EQ(std::atoi(prop.c_str()), 0);
 #undef VERIFY_SST_COUNT
@@ -2222,7 +2222,6 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                                         std::make_tuple(true, false),
                                         std::make_tuple(false, true),
                                         std::make_tuple(false, false)));
-
 
 }  // namespace ROCKSDB_NAMESPACE
 

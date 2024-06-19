@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -3106,8 +3105,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
       } else if (field_name == kFileSizeFieldName) {
         expected_size = std::strtoull(field_data.c_str(), nullptr, /*base*/ 10);
       } else if (field_name == kTemperatureFieldName) {
-        auto iter = temperature_string_map.find(field_data);
-        if (iter != temperature_string_map.end()) {
+        auto iter = OptionsHelper::GetTemperatureStringMap().find(field_data);
+        if (iter != OptionsHelper::GetTemperatureStringMap().end()) {
           temp = iter->second;
         } else {
           // Could report corruption, but in case of new temperatures added
@@ -3279,7 +3278,7 @@ IOStatus BackupEngineImpl::BackupMeta::StoreToFile(
     }
     if (schema_version >= 2 && file->temp != Temperature::kUnknown) {
       buf << " " << kTemperatureFieldName << " "
-          << temperature_to_string[file->temp];
+          << OptionsHelper::GetTemperatureToString()[file->temp];
     }
     if (schema_test_options && schema_test_options->file_sizes) {
       buf << " " << kFileSizeFieldName << " " << std::to_string(file->size);

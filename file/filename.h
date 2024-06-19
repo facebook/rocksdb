@@ -76,7 +76,7 @@ std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
                           uint32_t path_id);
 
 // Sufficient buffer size for FormatFileNumber.
-const size_t kFormatFileNumberBufSize = 38;
+constexpr size_t kFormatFileNumberBufSize = 38;
 
 void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
                       size_t out_buf_size);
@@ -88,7 +88,7 @@ std::string DescriptorFileName(const std::string& dbname, uint64_t number);
 
 std::string DescriptorFileName(uint64_t number);
 
-extern const std::string kCurrentFileName;  // = "CURRENT"
+const std::string& GetCurrentFileName();  // = "CURRENT"
 
 // Return the name of the current file.  This file contains the name
 // of the current manifest file.  The result will be prefixed with
@@ -123,8 +123,8 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
                                const std::string& db_path = "",
                                const std::string& log_dir = "");
 
-extern const std::string kOptionsFileNamePrefix;  // = "OPTIONS-"
-extern const std::string kTempFileNameSuffix;     // = "dbtmp"
+const std::string& GetOptionsFileNamePrefix();  // = "OPTIONS-"
+const std::string& GetTempFileNameSuffix();     // = "dbtmp"
 
 // Return a options file name given the "dbname" and file number.
 // Format:  OPTIONS-[number].dbtmp

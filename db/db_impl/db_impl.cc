@@ -142,7 +142,7 @@ CompressionType GetCompressionFlush(
 namespace {
 void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "Compression algorithms supported:");
-  for (auto& compression : OptionsHelper::compression_type_string_map) {
+  for (auto& compression : OptionsHelper::GetCompressionTypeStringMap()) {
     if (compression.second != kNoCompression &&
         compression.second != kDisableCompressionOption) {
       ROCKS_LOG_HEADER(logger, "\t%s supported: %d", compression.first.c_str(),
@@ -1158,14 +1158,14 @@ void DBImpl::DumpStats() {
       }
     }
 
-    const std::string* property = &DB::Properties::kDBStats;
+    const std::string* property = &DB::Properties::GetDBStats();
     const DBPropertyInfo* property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
     assert(!property_info->need_out_of_mutex);
     default_cf_internal_stats_->GetStringProperty(*property_info, *property,
                                                   &stats);
 
-    property = &InternalStats::kPeriodicCFStats;
+    property = &InternalStats::GetPeriodicCFStats();
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
     assert(!property_info->need_out_of_mutex);

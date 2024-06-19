@@ -30,9 +30,7 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-ConfigOptions::ConfigOptions()
-    : registry(ObjectRegistry::NewInstance())
-{
+ConfigOptions::ConfigOptions() : registry(ObjectRegistry::NewInstance()) {
   env = Env::Default();
 }
 
@@ -320,56 +318,91 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
 }
+const std::string& OptionsHelper::GetCFOptionsName() {
+  static const std::string kCFOptionsName = "ColumnFamilyOptions";
+  return kCFOptionsName;
+}
+const std::string& OptionsHelper::GetDBOptionsName() {
+  static const std::string kDBOptionsName = "DBOptions";
+  return kDBOptionsName;
+}
+std::map<CompactionStyle, std::string>&
+OptionsHelper::GetCompactionStyleToString() {
+  static std::map<CompactionStyle, std::string> compaction_style_to_string = {
+      {kCompactionStyleLevel, "kCompactionStyleLevel"},
+      {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
+      {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
+      {kCompactionStyleNone, "kCompactionStyleNone"}};
 
-std::map<CompactionStyle, std::string>
-    OptionsHelper::compaction_style_to_string = {
-        {kCompactionStyleLevel, "kCompactionStyleLevel"},
-        {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
-        {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
-        {kCompactionStyleNone, "kCompactionStyleNone"}};
+  return compaction_style_to_string;
+}
 
-std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
-    {kByCompensatedSize, "kByCompensatedSize"},
-    {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
-    {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
-    {kMinOverlappingRatio, "kMinOverlappingRatio"},
-    {kRoundRobin, "kRoundRobin"}};
+std::map<CompactionPri, std::string>&
+OptionsHelper::GetCompactionPriToString() {
+  static std::map<CompactionPri, std::string> compaction_pri_to_string = {
+      {kByCompensatedSize, "kByCompensatedSize"},
+      {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
+      {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
+      {kMinOverlappingRatio, "kMinOverlappingRatio"},
+      {kRoundRobin, "kRoundRobin"}};
 
-std::map<CompactionStopStyle, std::string>
-    OptionsHelper::compaction_stop_style_to_string = {
-        {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
-        {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
+  return compaction_pri_to_string;
+}
 
-std::map<Temperature, std::string> OptionsHelper::temperature_to_string = {
-    {Temperature::kUnknown, "kUnknown"},
-    {Temperature::kHot, "kHot"},
-    {Temperature::kWarm, "kWarm"},
-    {Temperature::kCold, "kCold"}};
+std::map<CompactionStopStyle, std::string>&
+OptionsHelper::GetCompactionStopStyleToString() {
+  static std::map<CompactionStopStyle, std::string>
+      compaction_stop_style_to_string = {
+          {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
+          {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
 
-std::unordered_map<std::string, ChecksumType>
-    OptionsHelper::checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
-                                               {"kCRC32c", kCRC32c},
-                                               {"kxxHash", kxxHash},
-                                               {"kxxHash64", kxxHash64},
-                                               {"kXXH3", kXXH3}};
+  return compaction_stop_style_to_string;
+}
+std::map<Temperature, std::string>& OptionsHelper::GetTemperatureToString() {
+  static std::map<Temperature, std::string> temperature_to_string = {
+      {Temperature::kUnknown, "kUnknown"},
+      {Temperature::kHot, "kHot"},
+      {Temperature::kWarm, "kWarm"},
+      {Temperature::kCold, "kCold"}};
 
-std::unordered_map<std::string, CompressionType>
-    OptionsHelper::compression_type_string_map = {
-        {"kNoCompression", kNoCompression},
-        {"kSnappyCompression", kSnappyCompression},
-        {"kZlibCompression", kZlibCompression},
-        {"kBZip2Compression", kBZip2Compression},
-        {"kLZ4Compression", kLZ4Compression},
-        {"kLZ4HCCompression", kLZ4HCCompression},
-        {"kXpressCompression", kXpressCompression},
-        {"kZSTD", kZSTD},
-        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
-        {"kDisableCompressionOption", kDisableCompressionOption}};
+  return temperature_to_string;
+}
+
+std::unordered_map<std::string, ChecksumType>&
+OptionsHelper::GetChecksumTypeStringMap() {
+  static std::unordered_map<std::string, ChecksumType>
+      checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
+                                  {"kCRC32c", kCRC32c},
+                                  {"kxxHash", kxxHash},
+                                  {"kxxHash64", kxxHash64},
+                                  {"kXXH3", kXXH3}};
+
+  return checksum_type_string_map;
+}
+
+std::unordered_map<std::string, CompressionType>&
+OptionsHelper::GetCompressionTypeStringMap() {
+  static std::unordered_map<std::string, CompressionType>
+      compression_type_string_map = {
+          {"kNoCompression", kNoCompression},
+          {"kSnappyCompression", kSnappyCompression},
+          {"kZlibCompression", kZlibCompression},
+          {"kBZip2Compression", kBZip2Compression},
+          {"kLZ4Compression", kLZ4Compression},
+          {"kLZ4HCCompression", kLZ4HCCompression},
+          {"kXpressCompression", kXpressCompression},
+          {"kZSTD", kZSTD},
+          {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
+          {"kDisableCompressionOption", kDisableCompressionOption}};
+
+  return compression_type_string_map;
+}
 
 std::vector<CompressionType> GetSupportedCompressions() {
   // std::set internally to deduplicate potential name aliases
   std::set<CompressionType> supported_compressions;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
+  for (const auto& comp_to_name :
+       OptionsHelper::GetCompressionTypeStringMap()) {
     CompressionType t = comp_to_name.second;
     if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
       supported_compressions.insert(t);
@@ -381,7 +414,8 @@ std::vector<CompressionType> GetSupportedCompressions() {
 
 std::vector<CompressionType> GetSupportedDictCompressions() {
   std::set<CompressionType> dict_compression_types;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
+  for (const auto& comp_to_name :
+       OptionsHelper::GetCompressionTypeStringMap()) {
     CompressionType t = comp_to_name.second;
     if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
       dict_compression_types.insert(t);
@@ -393,7 +427,7 @@ std::vector<CompressionType> GetSupportedDictCompressions() {
 
 std::vector<ChecksumType> GetSupportedChecksums() {
   std::set<ChecksumType> checksum_types;
-  for (const auto& e : OptionsHelper::checksum_type_string_map) {
+  for (const auto& e : OptionsHelper::GetChecksumTypeStringMap()) {
     checksum_types.insert(e.second);
   }
   return std::vector<ChecksumType>(checksum_types.begin(),
@@ -442,24 +476,27 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       break;
     case OptionType::kCompactionStyle:
       return ParseEnum<CompactionStyle>(
-          compaction_style_string_map, value,
+          OptionsHelper::GetCompactionStyleStringMap(), value,
           static_cast<CompactionStyle*>(opt_address));
     case OptionType::kCompactionPri:
-      return ParseEnum<CompactionPri>(compaction_pri_string_map, value,
-                                      static_cast<CompactionPri*>(opt_address));
+      return ParseEnum<CompactionPri>(
+          OptionsHelper::GetCompactionPriStringMap(), value,
+          static_cast<CompactionPri*>(opt_address));
     case OptionType::kCompressionType:
       return ParseEnum<CompressionType>(
-          compression_type_string_map, value,
+          OptionsHelper::GetCompressionTypeStringMap(), value,
           static_cast<CompressionType*>(opt_address));
     case OptionType::kChecksumType:
-      return ParseEnum<ChecksumType>(checksum_type_string_map, value,
+      return ParseEnum<ChecksumType>(OptionsHelper::GetChecksumTypeStringMap(),
+                                     value,
                                      static_cast<ChecksumType*>(opt_address));
     case OptionType::kEncodingType:
-      return ParseEnum<EncodingType>(encoding_type_string_map, value,
+      return ParseEnum<EncodingType>(OptionsHelper::GetEncodingTypeStringMap(),
+                                     value,
                                      static_cast<EncodingType*>(opt_address));
     case OptionType::kCompactionStopStyle:
       return ParseEnum<CompactionStopStyle>(
-          compaction_stop_style_string_map, value,
+          OptionsHelper::GetCompactionStopStyleStringMap(), value,
           static_cast<CompactionStopStyle*>(opt_address));
     case OptionType::kEncodedString: {
       std::string* output_addr = static_cast<std::string*>(opt_address);
@@ -467,7 +504,8 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       break;
     }
     case OptionType::kTemperature: {
-      return ParseEnum<Temperature>(temperature_string_map, value,
+      return ParseEnum<Temperature>(OptionsHelper::GetTemperatureStringMap(),
+                                    value,
                                     static_cast<Temperature*>(opt_address));
     }
     default:
@@ -490,13 +528,11 @@ bool SerializeSingleOptionHelper(const void* opt_address,
     case OptionType::kInt32T:
       *value = std::to_string(*(static_cast<const int32_t*>(opt_address)));
       break;
-    case OptionType::kInt64T:
-      {
-        int64_t v;
-        GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
+    case OptionType::kInt64T: {
+      int64_t v;
+      GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
     case OptionType::kUInt:
       *value = std::to_string(*(static_cast<const unsigned int*>(opt_address)));
       break;
@@ -506,20 +542,16 @@ bool SerializeSingleOptionHelper(const void* opt_address,
     case OptionType::kUInt32T:
       *value = std::to_string(*(static_cast<const uint32_t*>(opt_address)));
       break;
-    case OptionType::kUInt64T:
-      {
-        uint64_t v;
-        GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
-    case OptionType::kSizeT:
-      {
-        size_t v;
-        GetUnaligned(static_cast<const size_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
+    case OptionType::kUInt64T: {
+      uint64_t v;
+      GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
+    case OptionType::kSizeT: {
+      size_t v;
+      GetUnaligned(static_cast<const size_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
     case OptionType::kDouble:
       *value = std::to_string(*(static_cast<const double*>(opt_address)));
       break;
@@ -533,28 +565,28 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       break;
     case OptionType::kCompactionStyle:
       return SerializeEnum<CompactionStyle>(
-          compaction_style_string_map,
+          OptionsHelper::GetCompactionStyleStringMap(),
           *(static_cast<const CompactionStyle*>(opt_address)), value);
     case OptionType::kCompactionPri:
       return SerializeEnum<CompactionPri>(
-          compaction_pri_string_map,
+          OptionsHelper::GetCompactionPriStringMap(),
           *(static_cast<const CompactionPri*>(opt_address)), value);
     case OptionType::kCompressionType:
       return SerializeEnum<CompressionType>(
-          compression_type_string_map,
+          OptionsHelper::GetCompressionTypeStringMap(),
           *(static_cast<const CompressionType*>(opt_address)), value);
       break;
     case OptionType::kChecksumType:
       return SerializeEnum<ChecksumType>(
-          checksum_type_string_map,
+          OptionsHelper::GetChecksumTypeStringMap(),
           *static_cast<const ChecksumType*>(opt_address), value);
     case OptionType::kEncodingType:
       return SerializeEnum<EncodingType>(
-          encoding_type_string_map,
+          OptionsHelper::GetEncodingTypeStringMap(),
           *static_cast<const EncodingType*>(opt_address), value);
     case OptionType::kCompactionStopStyle:
       return SerializeEnum<CompactionStopStyle>(
-          compaction_stop_style_string_map,
+          OptionsHelper::GetCompactionStopStyleStringMap(),
           *static_cast<const CompactionStopStyle*>(opt_address), value);
     case OptionType::kEncodedString: {
       const auto* ptr = static_cast<const std::string*>(opt_address);
@@ -563,8 +595,8 @@ bool SerializeSingleOptionHelper(const void* opt_address,
     }
     case OptionType::kTemperature: {
       return SerializeEnum<Temperature>(
-          temperature_string_map, *static_cast<const Temperature*>(opt_address),
-          value);
+          OptionsHelper::GetTemperatureStringMap(),
+          *static_cast<const Temperature*>(opt_address), value);
     }
     default:
       return false;
@@ -583,7 +615,6 @@ Status ConfigureFromMap(
   }
   return s;
 }
-
 
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map) {
@@ -628,7 +659,6 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
@@ -645,7 +675,6 @@ Status GetStringFromDBOptions(const ConfigOptions& config_options,
   auto config = DBOptionsAsConfigurable(db_options);
   return config->GetOptionString(config_options, opt_string);
 }
-
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
                                         const ColumnFamilyOptions& cf_options,
@@ -665,8 +694,9 @@ Status GetStringFromColumnFamilyOptions(const ConfigOptions& config_options,
 
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type) {
-  bool ok = SerializeEnum<CompressionType>(compression_type_string_map,
-                                           compression_type, compression_str);
+  bool ok = SerializeEnum<CompressionType>(
+      OptionsHelper::GetCompressionTypeStringMap(), compression_type,
+      compression_str);
   if (ok) {
     return Status::OK();
   } else {
@@ -685,7 +715,7 @@ Status GetColumnFamilyOptionsFromMap(
 
   const auto config = CFOptionsAsConfigurable(base_options);
   Status s = ConfigureFromMap<ColumnFamilyOptions>(
-      config_options, opts_map, OptionsHelper::kCFOptionsName, config.get(),
+      config_options, opts_map, OptionsHelper::GetCFOptionsName(), config.get(),
       new_options);
   // Translate any errors (NotFound, NotSupported, to InvalidArgument
   if (s.ok() || s.IsInvalidArgument()) {
@@ -717,7 +747,7 @@ Status GetDBOptionsFromMap(
   *new_options = base_options;
   auto config = DBOptionsAsConfigurable(base_options);
   Status s = ConfigureFromMap<DBOptions>(config_options, opts_map,
-                                         OptionsHelper::kDBOptionsName,
+                                         OptionsHelper::GetDBOptionsName(),
                                          config.get(), new_options);
   // Translate any errors (NotFound, NotSupported, to InvalidArgument
   if (s.ok() || s.IsInvalidArgument()) {
@@ -769,7 +799,7 @@ Status GetOptionsFromString(const ConfigOptions& config_options,
 
   if (s.ok()) {
     DBOptions* new_db_options =
-        config->GetOptions<DBOptions>(OptionsHelper::kDBOptionsName);
+        config->GetOptions<DBOptions>(OptionsHelper::GetDBOptionsName());
     if (!unused_opts.empty()) {
       s = GetColumnFamilyOptionsFromMap(config_options, base_options,
                                         unused_opts, &new_cf_options);
@@ -788,41 +818,69 @@ Status GetOptionsFromString(const ConfigOptions& config_options,
   }
 }
 
-std::unordered_map<std::string, EncodingType>
-    OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
-                                               {"kPrefix", kPrefix}};
+std::unordered_map<std::string, EncodingType>&
+OptionsHelper::GetEncodingTypeStringMap() {
+  static std::unordered_map<std::string, EncodingType>
+      encoding_type_string_map = {{"kPlain", kPlain}, {"kPrefix", kPrefix}};
 
-std::unordered_map<std::string, CompactionStyle>
-    OptionsHelper::compaction_style_string_map = {
-        {"kCompactionStyleLevel", kCompactionStyleLevel},
-        {"kCompactionStyleUniversal", kCompactionStyleUniversal},
-        {"kCompactionStyleFIFO", kCompactionStyleFIFO},
-        {"kCompactionStyleNone", kCompactionStyleNone}};
+  return encoding_type_string_map;
+}
 
-std::unordered_map<std::string, CompactionPri>
-    OptionsHelper::compaction_pri_string_map = {
-        {"kByCompensatedSize", kByCompensatedSize},
-        {"kOldestLargestSeqFirst", kOldestLargestSeqFirst},
-        {"kOldestSmallestSeqFirst", kOldestSmallestSeqFirst},
-        {"kMinOverlappingRatio", kMinOverlappingRatio},
-        {"kRoundRobin", kRoundRobin}};
+std::unordered_map<std::string, CompactionStyle>&
+OptionsHelper::GetCompactionStyleStringMap() {
+  static std::unordered_map<std::string, CompactionStyle>
+      compaction_style_string_map = {
+          {"kCompactionStyleLevel", kCompactionStyleLevel},
+          {"kCompactionStyleUniversal", kCompactionStyleUniversal},
+          {"kCompactionStyleFIFO", kCompactionStyleFIFO},
+          {"kCompactionStyleNone", kCompactionStyleNone}};
 
-std::unordered_map<std::string, CompactionStopStyle>
-    OptionsHelper::compaction_stop_style_string_map = {
-        {"kCompactionStopStyleSimilarSize", kCompactionStopStyleSimilarSize},
-        {"kCompactionStopStyleTotalSize", kCompactionStopStyleTotalSize}};
+  return compaction_style_string_map;
+}
 
-std::unordered_map<std::string, Temperature>
-    OptionsHelper::temperature_string_map = {
-        {"kUnknown", Temperature::kUnknown},
-        {"kHot", Temperature::kHot},
-        {"kWarm", Temperature::kWarm},
-        {"kCold", Temperature::kCold}};
+std::unordered_map<std::string, CompactionPri>&
+OptionsHelper::GetCompactionPriStringMap() {
+  static std::unordered_map<std::string, CompactionPri>
+      compaction_pri_string_map = {
+          {"kByCompensatedSize", kByCompensatedSize},
+          {"kOldestLargestSeqFirst", kOldestLargestSeqFirst},
+          {"kOldestSmallestSeqFirst", kOldestSmallestSeqFirst},
+          {"kMinOverlappingRatio", kMinOverlappingRatio},
+          {"kRoundRobin", kRoundRobin}};
 
-std::unordered_map<std::string, PrepopulateBlobCache>
-    OptionsHelper::prepopulate_blob_cache_string_map = {
-        {"kDisable", PrepopulateBlobCache::kDisable},
-        {"kFlushOnly", PrepopulateBlobCache::kFlushOnly}};
+  return compaction_pri_string_map;
+}
+
+std::unordered_map<std::string, CompactionStopStyle>&
+OptionsHelper::GetCompactionStopStyleStringMap() {
+  static std::unordered_map<std::string, CompactionStopStyle>
+      compaction_stop_style_string_map = {
+          {"kCompactionStopStyleSimilarSize", kCompactionStopStyleSimilarSize},
+          {"kCompactionStopStyleTotalSize", kCompactionStopStyleTotalSize}};
+
+  return compaction_stop_style_string_map;
+}
+
+std::unordered_map<std::string, Temperature>&
+OptionsHelper::GetTemperatureStringMap() {
+  static std::unordered_map<std::string, Temperature> temperature_string_map = {
+      {"kUnknown", Temperature::kUnknown},
+      {"kHot", Temperature::kHot},
+      {"kWarm", Temperature::kWarm},
+      {"kCold", Temperature::kCold}};
+
+  return temperature_string_map;
+}
+
+std::unordered_map<std::string, PrepopulateBlobCache>&
+OptionsHelper::GetPrepopulateBlobCacheStringMap() {
+  static std::unordered_map<std::string, PrepopulateBlobCache>
+      prepopulate_blob_cache_string_map = {
+          {"kDisable", PrepopulateBlobCache::kDisable},
+          {"kFlushOnly", PrepopulateBlobCache::kFlushOnly}};
+
+  return prepopulate_blob_cache_string_map;
+}
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {

@@ -1055,187 +1055,187 @@ class DB {
     //  "rocksdb.num-files-at-level<N>" - returns string containing the number
     //      of files at level <N>, where <N> is an ASCII representation of a
     //      level number (e.g., "0").
-    static const std::string kNumFilesAtLevelPrefix;
+    static const std::string& GetNumFilesAtLevelPrefix();
 
     //  "rocksdb.compression-ratio-at-level<N>" - returns string containing the
     //      compression ratio of data at level <N>, where <N> is an ASCII
     //      representation of a level number (e.g., "0"). Here, compression
     //      ratio is defined as uncompressed data size / compressed file size.
     //      Returns "-1.0" if no open files at level <N>.
-    static const std::string kCompressionRatioAtLevelPrefix;
+    static const std::string& GetCompressionRatioAtLevelPrefix();
 
     //  "rocksdb.stats" - returns a multi-line string containing the data
     //      described by kCFStats followed by the data described by kDBStats.
-    static const std::string kStats;
+    static const std::string& GetStats();
 
     //  "rocksdb.sstables" - returns a multi-line string summarizing current
     //      SST files.
-    static const std::string kSSTables;
+    static const std::string& GetSSTables();
 
     //  "rocksdb.cfstats" - Raw data from "rocksdb.cfstats-no-file-histogram"
     //      and "rocksdb.cf-file-histogram" as a "map" property.
-    static const std::string kCFStats;
+    static const std::string& GetCFStats();
 
     //  "rocksdb.cfstats-no-file-histogram" - returns a multi-line string with
     //      general column family stats per-level over db's lifetime ("L<n>"),
     //      aggregated over db's lifetime ("Sum"), and aggregated over the
     //      interval since the last retrieval ("Int").
-    static const std::string kCFStatsNoFileHistogram;
+    static const std::string& GetCFStatsNoFileHistogram();
 
     //  "rocksdb.cf-file-histogram" - print out how many file reads to every
     //      level, as well as the histogram of latency of single requests.
-    static const std::string kCFFileHistogram;
+    static const std::string& GetCFFileHistogram();
 
     // "rocksdb.cf-write-stall-stats" - returns a multi-line string or
     //      map with statistics on CF-scope write stalls for a given CF
     // See`WriteStallStatsMapKeys` for structured representation of keys
     // available in the map form.
-    static const std::string kCFWriteStallStats;
+    static const std::string& GetCFWriteStallStats();
 
     // "rocksdb.db-write-stall-stats" - returns a multi-line string or
     //      map with statistics on DB-scope write stalls
     // See`WriteStallStatsMapKeys` for structured representation of keys
     // available in the map form.
-    static const std::string kDBWriteStallStats;
+    static const std::string& GetDBWriteStallStats();
 
     //  "rocksdb.dbstats" - As a string property, returns a multi-line string
     //      with general database stats, both cumulative (over the db's
     //      lifetime) and interval (since the last retrieval of kDBStats).
     //      As a map property, returns cumulative stats only and does not
     //      update the baseline for the interval stats.
-    static const std::string kDBStats;
+    static const std::string& GetDBStats();
 
     //  "rocksdb.levelstats" - returns multi-line string containing the number
     //      of files per level and total size of each level (MB).
-    static const std::string kLevelStats;
+    static const std::string& GetLevelStats();
 
     //  "rocksdb.block-cache-entry-stats" - returns a multi-line string or
     //      map with statistics on block cache usage. See
     //      `BlockCacheEntryStatsMapKeys` for structured representation of keys
     //      available in the map form.
-    static const std::string kBlockCacheEntryStats;
+    static const std::string& GetBlockCacheEntryStats();
 
     //  "rocksdb.fast-block-cache-entry-stats" - same as above, but returns
     //      stale values more frequently to reduce overhead and latency.
-    static const std::string kFastBlockCacheEntryStats;
+    static const std::string& GetFastBlockCacheEntryStats();
 
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable
     //      memtables that have not yet been flushed.
-    static const std::string kNumImmutableMemTable;
+    static const std::string& GetNumImmutableMemTable();
 
     //  "rocksdb.num-immutable-mem-table-flushed" - returns number of immutable
     //      memtables that have already been flushed.
-    static const std::string kNumImmutableMemTableFlushed;
+    static const std::string& GetNumImmutableMemTableFlushed();
 
     //  "rocksdb.mem-table-flush-pending" - returns 1 if a memtable flush is
     //      pending; otherwise, returns 0.
-    static const std::string kMemTableFlushPending;
+    static const std::string& GetMemTableFlushPending();
 
     //  "rocksdb.num-running-flushes" - returns the number of currently running
     //      flushes.
-    static const std::string kNumRunningFlushes;
+    static const std::string& GetNumRunningFlushes();
 
     //  "rocksdb.compaction-pending" - returns 1 if at least one compaction is
     //      pending; otherwise, returns 0.
-    static const std::string kCompactionPending;
+    static const std::string& GetCompactionPending();
 
     //  "rocksdb.num-running-compactions" - returns the number of currently
     //      running compactions.
-    static const std::string kNumRunningCompactions;
+    static const std::string& GetNumRunningCompactions();
 
     //  "rocksdb.background-errors" - returns accumulated number of background
     //      errors.
-    static const std::string kBackgroundErrors;
+    static const std::string& GetBackgroundErrors();
 
     //  "rocksdb.cur-size-active-mem-table" - returns approximate size of active
     //      memtable (bytes).
-    static const std::string kCurSizeActiveMemTable;
+    static const std::string& GetCurSizeActiveMemTable();
 
     //  "rocksdb.cur-size-all-mem-tables" - returns approximate size of active
     //      and unflushed immutable memtables (bytes).
-    static const std::string kCurSizeAllMemTables;
+    static const std::string& GetCurSizeAllMemTables();
 
     //  "rocksdb.size-all-mem-tables" - returns approximate size of active,
     //      unflushed immutable, and pinned immutable memtables (bytes).
-    static const std::string kSizeAllMemTables;
+    static const std::string& GetSizeAllMemTables();
 
     //  "rocksdb.num-entries-active-mem-table" - returns total number of entries
     //      in the active memtable.
-    static const std::string kNumEntriesActiveMemTable;
+    static const std::string& GetNumEntriesActiveMemTable();
 
     //  "rocksdb.num-entries-imm-mem-tables" - returns total number of entries
     //      in the unflushed immutable memtables.
-    static const std::string kNumEntriesImmMemTables;
+    static const std::string& GetNumEntriesImmMemTables();
 
     //  "rocksdb.num-deletes-active-mem-table" - returns total number of delete
     //      entries in the active memtable.
-    static const std::string kNumDeletesActiveMemTable;
+    static const std::string& GetNumDeletesActiveMemTable();
 
     //  "rocksdb.num-deletes-imm-mem-tables" - returns total number of delete
     //      entries in the unflushed immutable memtables.
-    static const std::string kNumDeletesImmMemTables;
+    static const std::string& GetNumDeletesImmMemTables();
 
     //  "rocksdb.estimate-num-keys" - returns estimated number of total keys in
     //      the active and unflushed immutable memtables and storage.
-    static const std::string kEstimateNumKeys;
+    static const std::string& GetEstimateNumKeys();
 
     //  "rocksdb.estimate-table-readers-mem" - returns estimated memory used for
     //      reading SST tables, excluding memory used in block cache (e.g.,
     //      filter and index blocks).
-    static const std::string kEstimateTableReadersMem;
+    static const std::string& GetEstimateTableReadersMem();
 
     //  "rocksdb.is-file-deletions-enabled" - returns 0 if deletion of obsolete
     //      files is enabled; otherwise, returns a non-zero number.
     //  This name may be misleading because true(non-zero) means disable,
     //  but we keep the name for backward compatibility.
-    static const std::string kIsFileDeletionsEnabled;
+    static const std::string& GetIsFileDeletionsEnabled();
 
     //  "rocksdb.num-snapshots" - returns number of unreleased snapshots of the
     //      database.
-    static const std::string kNumSnapshots;
+    static const std::string& GetNumSnapshots();
 
     //  "rocksdb.oldest-snapshot-time" - returns number representing unix
     //      timestamp of oldest unreleased snapshot.
-    static const std::string kOldestSnapshotTime;
+    static const std::string& GetOldestSnapshotTime();
 
     //  "rocksdb.oldest-snapshot-sequence" - returns number representing
     //      sequence number of oldest unreleased snapshot.
-    static const std::string kOldestSnapshotSequence;
+    static const std::string& GetOldestSnapshotSequence();
 
     //  "rocksdb.num-live-versions" - returns number of live versions. `Version`
     //      is an internal data structure. See version_set.h for details. More
     //      live versions often mean more SST files are held from being deleted,
     //      by iterators or unfinished compactions.
-    static const std::string kNumLiveVersions;
+    static const std::string& GetNumLiveVersions();
 
     //  "rocksdb.current-super-version-number" - returns number of current LSM
     //  version. It is a uint64_t integer number, incremented after there is
     //  any change to the LSM tree. The number is not preserved after restarting
     //  the DB. After DB restart, it will start from 0 again.
-    static const std::string kCurrentSuperVersionNumber;
+    static const std::string& GetCurrentSuperVersionNumber();
 
     //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
     //      live data in bytes. For BlobDB, it also includes the exact value of
     //      live bytes in the blob files of the version.
-    static const std::string kEstimateLiveDataSize;
+    static const std::string& GetEstimateLiveDataSize();
 
     //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
     //      log files that should be kept.
-    static const std::string kMinLogNumberToKeep;
+    static const std::string& GetMinLogNumberToKeep();
 
     //  "rocksdb.min-obsolete-sst-number-to-keep" - return the minimum file
     //      number for an obsolete SST to be kept. The max value of `uint64_t`
     //      will be returned if all obsolete files can be deleted.
-    static const std::string kMinObsoleteSstNumberToKeep;
+    static const std::string& GetMinObsoleteSstNumberToKeep();
 
     //  "rocksdb.total-sst-files-size" - returns total size (bytes) of all SST
     //      files belonging to any of the CF's versions.
     //  WARNING: may slow down online queries if there are too many files.
-    static const std::string kTotalSstFilesSize;
+    static const std::string& GetTotalSstFilesSize();
 
     //  "rocksdb.live-sst-files-size" - returns total size (bytes) of all SST
     //      files belong to the CF's current version.
-    static const std::string kLiveSstFilesSize;
+    static const std::string& GetLiveSstFilesSize();
 
     //  "rocksdb.obsolete-sst-files-size" - returns total size (bytes) of all
     //      SST files that became obsolete but have not yet been deleted or
@@ -1244,92 +1244,92 @@ class DB {
     //
     //      N.B. Unlike the other "*SstFilesSize" properties, this property
     //      includes SST files that originated in any of the DB's CFs.
-    static const std::string kObsoleteSstFilesSize;
+    static const std::string& GetObsoleteSstFilesSize();
 
     // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
     //      of SST files at all certain file temperature
-    static const std::string kLiveSstFilesSizeAtTemperature;
+    static const std::string& GetLiveSstFilesSizeAtTemperature();
 
     //  "rocksdb.base-level" - returns number of level to which L0 data will be
     //      compacted.
-    static const std::string kBaseLevel;
+    static const std::string& GetBaseLevel();
 
     //  "rocksdb.estimate-pending-compaction-bytes" - returns estimated total
     //      number of bytes compaction needs to rewrite to get all levels down
     //      to under target size. Not valid for other compactions than level-
     //      based.
-    static const std::string kEstimatePendingCompactionBytes;
+    static const std::string& GetEstimatePendingCompactionBytes();
 
     //  "rocksdb.aggregated-table-properties" - returns a string or map
     //      representation of the aggregated table properties of the target
     //      column family. Only properties that make sense for aggregation
     //      are included.
-    static const std::string kAggregatedTableProperties;
+    static const std::string& GetAggregatedTableProperties();
 
     //  "rocksdb.aggregated-table-properties-at-level<N>", same as the previous
     //      one but only returns the aggregated table properties of the
     //      specified level "N" at the target column family.
-    static const std::string kAggregatedTablePropertiesAtLevel;
+    static const std::string& GetAggregatedTablePropertiesAtLevel();
 
     //  "rocksdb.actual-delayed-write-rate" - returns the current actual delayed
     //      write rate. 0 means no delay.
-    static const std::string kActualDelayedWriteRate;
+    static const std::string& GetActualDelayedWriteRate();
 
     //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
-    static const std::string kIsWriteStopped;
+    static const std::string& GetIsWriteStopped();
 
     //  "rocksdb.estimate-oldest-key-time" - returns an estimation of
     //      oldest key timestamp in the DB. Currently only available for
     //      FIFO compaction with
     //      compaction_options_fifo.allow_compaction = false.
-    static const std::string kEstimateOldestKeyTime;
+    static const std::string& GetEstimateOldestKeyTime();
 
     //  "rocksdb.block-cache-capacity" - returns block cache capacity.
-    static const std::string kBlockCacheCapacity;
+    static const std::string& GetBlockCacheCapacity();
 
     //  "rocksdb.block-cache-usage" - returns the memory size for the entries
     //      residing in block cache.
-    static const std::string kBlockCacheUsage;
+    static const std::string& GetBlockCacheUsage();
 
     // "rocksdb.block-cache-pinned-usage" - returns the memory size for the
     //      entries being pinned.
-    static const std::string kBlockCachePinnedUsage;
+    static const std::string& GetBlockCachePinnedUsage();
 
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
-    static const std::string kOptionsStatistics;
+    static const std::string& GetOptionsStatistics();
 
     // "rocksdb.num-blob-files" - returns number of blob files in the current
     //      version.
-    static const std::string kNumBlobFiles;
+    static const std::string& GetNumBlobFiles();
 
     // "rocksdb.blob-stats" - return the total number and size of all blob
     //      files, and total amount of garbage (bytes) in the blob files in
     //      the current version.
-    static const std::string kBlobStats;
+    static const std::string& GetBlobStats();
 
     // "rocksdb.total-blob-file-size" - returns the total size of all blob
     //      files over all versions.
-    static const std::string kTotalBlobFileSize;
+    static const std::string& GetTotalBlobFileSize();
 
     // "rocksdb.live-blob-file-size" - returns the total size of all blob
     //      files in the current version.
-    static const std::string kLiveBlobFileSize;
+    static const std::string& GetLiveBlobFileSize();
 
     // "rocksdb.live-blob-file-garbage-size" - returns the total amount of
     // garbage in the blob files in the current version.
-    static const std::string kLiveBlobFileGarbageSize;
+    static const std::string& GetLiveBlobFileGarbageSize();
 
     //  "rocksdb.blob-cache-capacity" - returns blob cache capacity.
-    static const std::string kBlobCacheCapacity;
+    static const std::string& GetBlobCacheCapacity();
 
     //  "rocksdb.blob-cache-usage" - returns the memory size for the entries
     //      residing in blob cache.
-    static const std::string kBlobCacheUsage;
+    static const std::string& GetBlobCacheUsage();
 
     // "rocksdb.blob-cache-pinned-usage" - returns the memory size for the
     //      entries being pinned in blob cache.
-    static const std::string kBlobCachePinnedUsage;
+    static const std::string& GetBlobCachePinnedUsage();
   };
 
   // DB implementations export properties about their state via this method.

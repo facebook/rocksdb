@@ -1161,7 +1161,6 @@ class DelayFilterFactory : public CompactionFilterFactory {
 };
 }  // anonymous namespace
 
-
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
   test::CompressibleString(rnd, 0.8, len, &r);
@@ -4368,7 +4367,6 @@ TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   ASSERT_NOK(db_->CreateColumnFamily(cf_options, "name", &handle));
 }
 
-
 TEST_F(DBTest, SanitizeNumThreads) {
   for (int attempt = 0; attempt < 2; attempt++) {
     const size_t kTotalTasks = 8;
@@ -4804,7 +4802,7 @@ TEST_F(DBTest, ThreadStatusFlush) {
   ASSERT_TRUE(VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0));
 
   uint64_t num_running_flushes = 0;
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningFlushes,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumRunningFlushes(),
                                   &num_running_flushes));
   ASSERT_EQ(num_running_flushes, 0);
 
@@ -4815,7 +4813,7 @@ TEST_F(DBTest, ThreadStatusFlush) {
   // running when we perform VerifyOperationCount().
   TEST_SYNC_POINT("DBTest::ThreadStatusFlush:1");
   ASSERT_TRUE(VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 1));
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningFlushes,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumRunningFlushes(),
                                   &num_running_flushes));
   ASSERT_EQ(num_running_flushes, 1);
   // This second sync point is to ensure the flush job will not
@@ -4860,7 +4858,7 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
     // This makes sure a compaction won't be scheduled until
     // we have done with the above Put Phase.
     uint64_t num_running_compactions = 0;
-    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumRunningCompactions(),
                                     &num_running_compactions));
     ASSERT_EQ(num_running_compactions, 0);
     TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:0");
@@ -4875,8 +4873,9 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
       // This test is flaky and fails here.
       bool match = VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 1);
       if (!match) {
-        ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
-                                        &num_running_compactions));
+        ASSERT_TRUE(
+            db_->GetIntProperty(DB::Properties::GetNumRunningCompactions(),
+                                &num_running_compactions));
         fprintf(stderr, "running compaction: %" PRIu64 " lsm state: %s\n",
                 num_running_compactions, FilesPerLevel().c_str());
       }
@@ -4885,7 +4884,7 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
       // If thread tracking is not enabled, compaction count should be 0.
       ASSERT_TRUE(VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 0));
     }
-    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumRunningCompactions(),
                                     &num_running_compactions));
     ASSERT_EQ(num_running_compactions, 1);
     // TODO(yhchiang): adding assert to verify each compaction stage.
@@ -5755,7 +5754,6 @@ TEST_F(DBTest, FileCreationRandomFailure) {
     ASSERT_EQ(v, values[k]);
   }
 }
-
 
 TEST_F(DBTest, DynamicMiscOptions) {
   // Test max_sequential_skip_in_iterations
@@ -7198,7 +7196,6 @@ TEST_F(DBTest, ReusePinnableSlice) {
             1);
 }
 
-
 TEST_F(DBTest, DeletingOldWalAfterDrop) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"Test:AllowFlushes", "DBImpl::BGWorkFlush"},
@@ -7322,7 +7319,6 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
-
 
 TEST_F(DBTest, CreationTimeOfOldestFile) {
   const int kNumKeysPerFile = 32;

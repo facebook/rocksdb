@@ -101,7 +101,7 @@ struct DBStatInfo {
 
 class InternalStats {
  public:
-  static const std::map<LevelStatType, LevelStat> compaction_level_stats;
+  static const std::map<LevelStatType, LevelStat>& GetCompactionLevelStats();
 
   enum InternalCFStatsType {
     MEMTABLE_LIMIT_DELAYS,
@@ -149,7 +149,8 @@ class InternalStats {
     kIntStatsNumMax,
   };
 
-  static const std::map<InternalDBStatsType, DBStatInfo> db_stats_type_to_info;
+  static const std::map<InternalDBStatsType, DBStatInfo>&
+  GetDBStatsTypeToInfo();
 
   InternalStats(int num_levels, SystemClock* clock, ColumnFamilyData* cfd);
 
@@ -609,9 +610,9 @@ class InternalStats {
 
   // Store a mapping from the user-facing DB::Properties string to our
   // DBPropertyInfo struct used internally for retrieving properties.
-  static const UnorderedMap<std::string, DBPropertyInfo> ppt_name_to_info;
+  static const UnorderedMap<std::string, DBPropertyInfo>& GetPptNameToInfo();
 
-  static const std::string kPeriodicCFStats;
+  static const std::string& GetPeriodicCFStats();
 
  private:
   void DumpDBMapStats(std::map<std::string, std::string>* db_stats);
@@ -665,7 +666,7 @@ class InternalStats {
   // a periodic dump.
   int no_cf_change_period_since_dump_ = 0;
   uint64_t last_histogram_num = std::numeric_limits<uint64_t>::max();
-  static const int kMaxNoChangePeriodSinceDump;
+  static constexpr int kMaxNoChangePeriodSinceDump = 8;
 
   // Used to compute per-interval statistics
   struct CFStatsSnapshot {

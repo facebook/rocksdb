@@ -29,8 +29,7 @@ enum OptionSection : char {
   kOptionSectionUnknown
 };
 
-static const std::string opt_section_titles[] = {
-    "Version", "DBOptions", "CFOptions", "TableOptions/", "Unknown"};
+const std::array<std::string, 5>& GetOptSectionTitles();
 
 Status PersistRocksDBOptions(const WriteOptions& write_options,
                              const DBOptions& db_opt,
@@ -146,6 +145,5 @@ class RocksDBOptionsParser {
   int db_version[3];
   int opt_file_version[3];
 };
-
 
 }  // namespace ROCKSDB_NAMESPACE

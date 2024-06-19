@@ -1128,9 +1128,8 @@ static inline Function Choose_Extend() {
 #endif
 }
 
-static Function ChosenExtend = Choose_Extend();
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
-  return ChosenExtend(crc, buf, size);
+  return Choose_Extend()(crc, buf, size);
 }
 
 // The code for crc32c combine, copied with permission from folly

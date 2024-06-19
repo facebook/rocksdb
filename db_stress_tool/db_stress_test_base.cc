@@ -2596,24 +2596,24 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
 void StressTest::TestGetProperty(ThreadState* thread) const {
   std::unordered_set<std::string> levelPropertyNames = {
-      DB::Properties::kAggregatedTablePropertiesAtLevel,
-      DB::Properties::kCompressionRatioAtLevelPrefix,
-      DB::Properties::kNumFilesAtLevelPrefix,
+      DB::Properties::GetAggregatedTablePropertiesAtLevel(),
+      DB::Properties::GetCompressionRatioAtLevelPrefix(),
+      DB::Properties::GetNumFilesAtLevelPrefix(),
   };
   std::unordered_set<std::string> unknownPropertyNames = {
-      DB::Properties::kEstimateOldestKeyTime,
-      DB::Properties::kOptionsStatistics,
+      DB::Properties::GetEstimateOldestKeyTime(),
+      DB::Properties::GetOptionsStatistics(),
       DB::Properties::
-          kLiveSstFilesSizeAtTemperature,  // similar to levelPropertyNames, it
-                                           // requires a number suffix
+          GetLiveSstFilesSizeAtTemperature(),  // similar to levelPropertyNames,
+                                               // it requires a number suffix
   };
   unknownPropertyNames.insert(levelPropertyNames.begin(),
                               levelPropertyNames.end());
 
   std::unordered_set<std::string> blobCachePropertyNames = {
-      DB::Properties::kBlobCacheCapacity,
-      DB::Properties::kBlobCacheUsage,
-      DB::Properties::kBlobCachePinnedUsage,
+      DB::Properties::GetBlobCacheCapacity(),
+      DB::Properties::GetBlobCacheUsage(),
+      DB::Properties::GetBlobCachePinnedUsage(),
   };
   if (db_->GetOptions().blob_cache == nullptr) {
     unknownPropertyNames.insert(blobCachePropertyNames.begin(),
@@ -2621,7 +2621,7 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
   }
 
   std::string prop;
-  for (const auto& ppt_name_and_info : InternalStats::ppt_name_to_info) {
+  for (const auto& ppt_name_and_info : InternalStats::GetPptNameToInfo()) {
     bool res = db_->GetProperty(ppt_name_and_info.first, &prop);
     if (unknownPropertyNames.find(ppt_name_and_info.first) ==
         unknownPropertyNames.end()) {

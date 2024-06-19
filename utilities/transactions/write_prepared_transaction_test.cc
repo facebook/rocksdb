@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -841,7 +840,7 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
       ASSERT_OK(db_impl->TEST_SwitchMemtable());
     }
     uint64_t num_imm_mems;
-    ASSERT_TRUE(db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+    ASSERT_TRUE(db->GetIntProperty(DB::Properties::GetNumImmutableMemTable(),
                                    &num_imm_mems));
     if (attempt == kAttemptHistoryMemtable) {
       ASSERT_EQ(0, num_imm_mems);
@@ -3596,7 +3595,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     }  // for split_before_mutex
-  }    // for split_read
+  }  // for split_read
 }
 
 // When max evicted seq advances a prepared seq, it involves two updates: i)

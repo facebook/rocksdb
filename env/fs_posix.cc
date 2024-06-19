@@ -90,8 +90,12 @@ struct LockHoldingInfo {
   int64_t acquire_time;
   uint64_t acquiring_thread;
 };
-static std::map<std::string, LockHoldingInfo> locked_files;
 static port::Mutex mutex_locked_files;
+
+static std::map<std::string, LockHoldingInfo>& GetLockedFilesMap() {
+  static std::map<std::string, LockHoldingInfo> locked_files;
+  return locked_files;
+}
 
 static int LockOrUnlock(int fd, bool lock) {
   errno = 0;
@@ -759,7 +763,7 @@ class PosixFileSystem : public FileSystem {
     // Otherwise, we will open a new file descriptor. Locks are associated with
     // a process, not a file descriptor and when *any* file descriptor is
     // closed, all locks the process holds for that *file* are released
-    const auto it_success = locked_files.insert({fname, lhi});
+    const auto it_success = GetLockedFilesMap().insert({fname, lhi});
     if (it_success.second == false) {
       LockHoldingInfo prev_info = it_success.first->second;
       mutex_locked_files.Unlock();
@@ -797,7 +801,7 @@ class PosixFileSystem : public FileSystem {
       // If there is an error in locking, then remove the pathname from
       // locked_files. (If we got this far, it did not exist in locked_files
       // before this call.)
-      locked_files.erase(fname);
+      GetLockedFilesMap().erase(fname);
     }
 
     mutex_locked_files.Unlock();
@@ -811,7 +815,7 @@ class PosixFileSystem : public FileSystem {
     mutex_locked_files.Lock();
     // If we are unlocking, then verify that we had locked it earlier,
     // it should already exist in locked_files. Remove it from locked_files.
-    if (locked_files.erase(my_lock->filename) != 1) {
+    if (GetLockedFilesMap().erase(my_lock->filename) != 1) {
       errno = ENOLCK;
       result = IOError("unlock", my_lock->filename, errno);
     } else if (LockOrUnlock(my_lock->fd_, false) == -1) {
@@ -932,10 +936,12 @@ class PosixFileSystem : public FileSystem {
   }
 #ifdef OS_LINUX
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
-    return logical_block_size_cache_.RefAndCacheLogicalBlockSize(paths);
+    return PosixFileSystem::GetLogicalBlockSizeCache()
+        .RefAndCacheLogicalBlockSize(paths);
   }
   Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
-    logical_block_size_cache_.UnrefAndTryRemoveCachedLogicalBlockSize(paths);
+    PosixFileSystem::GetLogicalBlockSizeCache()
+        .UnrefAndTryRemoveCachedLogicalBlockSize(paths);
     return Status::OK();
   }
 #endif
@@ -1204,7 +1210,10 @@ class PosixFileSystem : public FileSystem {
   bool allow_non_owner_access_;
 
 #ifdef OS_LINUX
-  static LogicalBlockSizeCache logical_block_size_cache_;
+  static LogicalBlockSizeCache& GetLogicalBlockSizeCache() {
+    static LogicalBlockSizeCache logical_block_size_cache_;
+    return logical_block_size_cache_;
+  }
 #endif
   static size_t GetLogicalBlockSize(const std::string& fname, int fd);
   // In non-direct IO mode, this directly returns kDefaultPageSize.
@@ -1217,13 +1226,10 @@ class PosixFileSystem : public FileSystem {
                                                     int fd);
 };
 
-#ifdef OS_LINUX
-LogicalBlockSizeCache PosixFileSystem::logical_block_size_cache_;
-#endif
-
 size_t PosixFileSystem::GetLogicalBlockSize(const std::string& fname, int fd) {
 #ifdef OS_LINUX
-  return logical_block_size_cache_.GetLogicalBlockSize(fname, fd);
+  return PosixFileSystem::GetLogicalBlockSizeCache().GetLogicalBlockSize(fname,
+                                                                         fd);
 #else
   (void)fname;
   return PosixHelper::GetLogicalBlockSizeOfFd(fd);

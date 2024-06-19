@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/blob_db/blob_db.h"
 
 #include <algorithm>
@@ -1223,7 +1222,7 @@ TEST_F(BlobDBTest, FIFOEviction_NoEnoughBlobFilesToEvict) {
   ASSERT_OK(blob_db_->Flush(FlushOptions()));
 
   uint64_t live_sst_size = 0;
-  ASSERT_TRUE(blob_db_->GetIntProperty(DB::Properties::kTotalSstFilesSize,
+  ASSERT_TRUE(blob_db_->GetIntProperty(DB::Properties::GetTotalSstFilesSize(),
                                        &live_sst_size));
   ASSERT_TRUE(live_sst_size > 0);
 

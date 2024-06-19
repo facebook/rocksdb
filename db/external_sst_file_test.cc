@@ -1962,7 +1962,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
     ASSERT_OK(Put(Key(k), "memtable"));
     true_data[Key(k)] = "memtable";
   }
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumEntriesActiveMemTable(),
                                   &entries_in_memtable));
   ASSERT_GE(entries_in_memtable, 1);
 
@@ -1972,7 +1972,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {90, 100, 110}, -1, true, write_global_seqno,
       verify_checksums_before_ingest, false, false, &true_data));
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumEntriesActiveMemTable(),
                                   &entries_in_memtable));
   ASSERT_GE(entries_in_memtable, 1);
 
@@ -1980,7 +1980,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {19, 20, 21}, -1, true, write_global_seqno,
       verify_checksums_before_ingest, false, false, &true_data));
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumEntriesActiveMemTable(),
                                   &entries_in_memtable));
   ASSERT_EQ(entries_in_memtable, 0);
 
@@ -1988,7 +1988,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
     ASSERT_OK(Put(Key(k), "memtable"));
     true_data[Key(k)] = "memtable";
   }
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumEntriesActiveMemTable(),
                                   &entries_in_memtable));
   ASSERT_GE(entries_in_memtable, 1);
 
@@ -1996,7 +1996,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {202, 203, 204}, -1, true, write_global_seqno,
       verify_checksums_before_ingest, false, false, &true_data));
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumEntriesActiveMemTable(),
                                   &entries_in_memtable));
   ASSERT_GE(entries_in_memtable, 1);
 
@@ -2004,7 +2004,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {206, 207}, -1, true, write_global_seqno,
       verify_checksums_before_ingest, false, false, &true_data));
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetNumEntriesActiveMemTable(),
                                   &entries_in_memtable));
   ASSERT_EQ(entries_in_memtable, 0);
 

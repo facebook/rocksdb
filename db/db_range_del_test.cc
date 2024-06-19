@@ -3492,7 +3492,7 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
   ASSERT_OK(Flush());
   // nothing is dropped during flush
   std::string property;
-  db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+  db_->GetProperty(DB::Properties::GetAggregatedTableProperties(), &property);
   TableProperties output_tp;
   ParseTablePropertiesString(property, &output_tp);
   ASSERT_EQ(output_tp.num_range_deletions, 2);
@@ -3502,7 +3502,7 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
-  db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+  db_->GetProperty(DB::Properties::GetAggregatedTableProperties(), &property);
   ParseTablePropertiesString(property, &output_tp);
   ASSERT_EQ(output_tp.num_range_deletions, 1);
 
@@ -3517,7 +3517,7 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   // All compacted to L6
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
-  db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+  db_->GetProperty(DB::Properties::GetAggregatedTableProperties(), &property);
   ParseTablePropertiesString(property, &output_tp);
   ASSERT_EQ(output_tp.num_range_deletions, 1);
   db_->ReleaseSnapshot(snapshot);

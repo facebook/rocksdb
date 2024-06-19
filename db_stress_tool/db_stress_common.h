@@ -495,8 +495,9 @@ inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
 inline enum ROCKSDB_NAMESPACE::ChecksumType StringToChecksumType(
     const char* ctype) {
   assert(ctype);
-  auto iter = ROCKSDB_NAMESPACE::checksum_type_string_map.find(ctype);
-  if (iter != ROCKSDB_NAMESPACE::checksum_type_string_map.end()) {
+  auto iter =
+      ROCKSDB_NAMESPACE::OptionsHelper::GetChecksumTypeStringMap().find(ctype);
+  if (iter != ROCKSDB_NAMESPACE::OptionsHelper::GetChecksumTypeStringMap(.end()) {
     return iter->second;
   }
   fprintf(stderr, "Cannot parse checksum type '%s'\n", ctype);
@@ -505,11 +506,12 @@ inline enum ROCKSDB_NAMESPACE::ChecksumType StringToChecksumType(
 
 inline std::string ChecksumTypeToString(ROCKSDB_NAMESPACE::ChecksumType ctype) {
   auto iter = std::find_if(
-      ROCKSDB_NAMESPACE::checksum_type_string_map.begin(),
-      ROCKSDB_NAMESPACE::checksum_type_string_map.end(),
+      ROCKSDB_NAMESPACE::OptionsHelper::GetChecksumTypeStringMap(.begin(),
+      ROCKSDB_NAMESPACE::OptionsHelper::GetChecksumTypeStringMap(.end(),
       [&](const std::pair<std::string, ROCKSDB_NAMESPACE::ChecksumType>&
-              name_and_enum_val) { return name_and_enum_val.second == ctype; });
-  assert(iter != ROCKSDB_NAMESPACE::checksum_type_string_map.end());
+              name_and_enum_val) {
+    return name_and_enum_val.second == ctype; });
+  assert(iter != ROCKSDB_NAMESPACE::OptionsHelper::GetChecksumTypeStringMap(.end());
   return iter->first;
 }
 
@@ -517,21 +519,23 @@ inline enum ROCKSDB_NAMESPACE::Temperature StringToTemperature(
     const char* ctype) {
   assert(ctype);
   auto iter = std::find_if(
-      ROCKSDB_NAMESPACE::temperature_to_string.begin(),
-      ROCKSDB_NAMESPACE::temperature_to_string.end(),
+      ROCKSDB_NAMESPACE::OptionsHelper::GetTemperatureToString().begin(),
+      ROCKSDB_NAMESPACE::OptionsHelper::GetTemperatureToString().end(),
       [&](const std::pair<ROCKSDB_NAMESPACE::Temperature, std::string>&
               temp_and_string_val) {
         return ctype == temp_and_string_val.second;
       });
-  assert(iter != ROCKSDB_NAMESPACE::temperature_to_string.end());
+  assert(iter !=
+         ROCKSDB_NAMESPACE::OptionsHelper::GetTemperatureToString().end());
   return iter->first;
 }
 
 inline std::string TemperatureToString(
     ROCKSDB_NAMESPACE::Temperature temperature) {
-  auto iter =
-      ROCKSDB_NAMESPACE::OptionsHelper::temperature_to_string.find(temperature);
-  assert(iter != ROCKSDB_NAMESPACE::OptionsHelper::temperature_to_string.end());
+  auto iter = ROCKSDB_NAMESPACE::OptionsHelper::GetTemperatureToString().find(
+      temperature);
+  assert(iter !=
+         ROCKSDB_NAMESPACE::OptionsHelper::GetTemperatureToString().end());
   return iter->second;
 }
 

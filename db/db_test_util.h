@@ -731,9 +731,10 @@ class FileTemperatureTestFS : public FileSystemWrapper {
             result->reset();
             return IOStatus::PathNotFound(
                 "Read requested temperature " +
-                temperature_to_string[opts.temperature] +
+                OptionsHelper::GetTemperatureToString()[opts.temperature] +
                 " but stored with temperature " +
-                temperature_to_string[e->second] + " for " + fname);
+                OptionsHelper::GetTemperatureToString()[e->second] + " for " +
+                fname);
           }
         }
         *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
@@ -764,9 +765,10 @@ class FileTemperatureTestFS : public FileSystemWrapper {
             result->reset();
             return IOStatus::PathNotFound(
                 "Read requested temperature " +
-                temperature_to_string[opts.temperature] +
+                OptionsHelper::GetTemperatureToString()[opts.temperature] +
                 " but stored with temperature " +
-                temperature_to_string[e->second] + " for " + fname);
+                OptionsHelper::GetTemperatureToString()[e->second] + " for " +
+                fname);
           }
         }
         *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(

@@ -69,47 +69,31 @@ Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map);
 
 struct OptionsHelper {
-  static const std::string kCFOptionsName /*= "ColumnFamilyOptions"*/;
-  static const std::string kDBOptionsName /*= "DBOptions" */;
-  static std::map<CompactionStyle, std::string> compaction_style_to_string;
-  static std::map<CompactionPri, std::string> compaction_pri_to_string;
-  static std::map<CompactionStopStyle, std::string>
-      compaction_stop_style_to_string;
-  static std::map<Temperature, std::string> temperature_to_string;
-  static std::unordered_map<std::string, ChecksumType> checksum_type_string_map;
-  static std::unordered_map<std::string, CompressionType>
-      compression_type_string_map;
-  static std::unordered_map<std::string, PrepopulateBlobCache>
-      prepopulate_blob_cache_string_map;
-  static std::unordered_map<std::string, CompactionStopStyle>
-      compaction_stop_style_string_map;
-  static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
-  static std::unordered_map<std::string, CompactionStyle>
-      compaction_style_string_map;
-  static std::unordered_map<std::string, CompactionPri>
-      compaction_pri_string_map;
-  static std::unordered_map<std::string, Temperature> temperature_string_map;
+  static const std::string& GetCFOptionsName(); /*= "ColumnFamilyOptions"*/
+  ;
+  static const std::string& GetDBOptionsName(); /*= "DBOptions" */
+  ;
+  static std::map<CompactionStyle, std::string>& GetCompactionStyleToString();
+  static std::map<CompactionPri, std::string>& GetCompactionPriToString();
+  static std::map<CompactionStopStyle, std::string>&
+  GetCompactionStopStyleToString();
+  static std::map<Temperature, std::string>& GetTemperatureToString();
+  static std::unordered_map<std::string, ChecksumType>&
+  GetChecksumTypeStringMap();
+  static std::unordered_map<std::string, CompressionType>&
+  GetCompressionTypeStringMap();
+  static std::unordered_map<std::string, PrepopulateBlobCache>&
+  GetPrepopulateBlobCacheStringMap();
+  static std::unordered_map<std::string, CompactionStopStyle>&
+  GetCompactionStopStyleStringMap();
+  static std::unordered_map<std::string, EncodingType>&
+  GetEncodingTypeStringMap();
+  static std::unordered_map<std::string, CompactionStyle>&
+  GetCompactionStyleStringMap();
+  static std::unordered_map<std::string, CompactionPri>&
+  GetCompactionPriStringMap();
+  static std::unordered_map<std::string, Temperature>&
+  GetTemperatureStringMap();
 };
-
-// Some aliasing
-static auto& compaction_style_to_string =
-    OptionsHelper::compaction_style_to_string;
-static auto& compaction_pri_to_string = OptionsHelper::compaction_pri_to_string;
-static auto& compaction_stop_style_to_string =
-    OptionsHelper::compaction_stop_style_to_string;
-static auto& temperature_to_string = OptionsHelper::temperature_to_string;
-static auto& checksum_type_string_map = OptionsHelper::checksum_type_string_map;
-static auto& compaction_stop_style_string_map =
-    OptionsHelper::compaction_stop_style_string_map;
-static auto& compression_type_string_map =
-    OptionsHelper::compression_type_string_map;
-static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;
-static auto& compaction_style_string_map =
-    OptionsHelper::compaction_style_string_map;
-static auto& compaction_pri_string_map =
-    OptionsHelper::compaction_pri_string_map;
-static auto& temperature_string_map = OptionsHelper::temperature_string_map;
-static auto& prepopulate_blob_cache_string_map =
-    OptionsHelper::prepopulate_blob_cache_string_map;
 
 }  // namespace ROCKSDB_NAMESPACE

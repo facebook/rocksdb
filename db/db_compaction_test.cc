@@ -5784,7 +5784,7 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   // If CompactRange's flush was skipped, the final Put above will still be
   // in the active memtable.
   std::string num_keys_in_memtable;
-  ASSERT_TRUE(db_->GetProperty(DB::Properties::kNumEntriesActiveMemTable,
+  ASSERT_TRUE(db_->GetProperty(DB::Properties::GetNumEntriesActiveMemTable(),
                                &num_keys_in_memtable));
   ASSERT_EQ(std::to_string(1), num_keys_in_memtable);
 
@@ -5828,11 +5828,11 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
       ASSERT_OK(db_->CompactRange(compact_range_opts, begin_ptr, end_ptr));
 
       uint64_t get_prop_tmp, num_memtable_entries = 0;
-      ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesImmMemTables,
-                                      &get_prop_tmp));
+      ASSERT_TRUE(db_->GetIntProperty(
+          DB::Properties::GetNumEntriesImmMemTables(), &get_prop_tmp));
       num_memtable_entries += get_prop_tmp;
-      ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
-                                      &get_prop_tmp));
+      ASSERT_TRUE(db_->GetIntProperty(
+          DB::Properties::GetNumEntriesActiveMemTable(), &get_prop_tmp));
       num_memtable_entries += get_prop_tmp;
       if (begin_ptr == nullptr || end_ptr == nullptr ||
           (i <= 4 && j >= 1 && (begin != "c" || end != "c"))) {
@@ -6750,7 +6750,8 @@ TEST_F(DBCompactionTest, PartialManualCompaction) {
   MoveFilesToLevel(2);
 
   std::string prop;
-  EXPECT_TRUE(dbfull()->GetProperty(DB::Properties::kLiveSstFilesSize, &prop));
+  EXPECT_TRUE(
+      dbfull()->GetProperty(DB::Properties::GetLiveSstFilesSize(), &prop));
   uint64_t max_compaction_bytes = atoi(prop.c_str()) / 2;
   ASSERT_OK(dbfull()->SetOptions(
       {{"max_compaction_bytes", std::to_string(max_compaction_bytes)}}));

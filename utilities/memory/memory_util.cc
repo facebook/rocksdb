@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "rocksdb/utilities/memory_util.h"
 
 #include "db/db_impl/db_impl.h"
@@ -19,11 +18,11 @@ Status MemoryUtil::GetApproximateMemoryUsageByType(
   // MemTable
   for (auto* db : dbs) {
     uint64_t usage = 0;
-    if (db->GetAggregatedIntProperty(DB::Properties::kSizeAllMemTables,
+    if (db->GetAggregatedIntProperty(DB::Properties::GetSizeAllMemTables(),
                                      &usage)) {
       (*usage_by_type)[MemoryUtil::kMemTableTotal] += usage;
     }
-    if (db->GetAggregatedIntProperty(DB::Properties::kCurSizeAllMemTables,
+    if (db->GetAggregatedIntProperty(DB::Properties::GetCurSizeAllMemTables(),
                                      &usage)) {
       (*usage_by_type)[MemoryUtil::kMemTableUnFlushed] += usage;
     }
@@ -32,8 +31,8 @@ Status MemoryUtil::GetApproximateMemoryUsageByType(
   // Table Readers
   for (auto* db : dbs) {
     uint64_t usage = 0;
-    if (db->GetAggregatedIntProperty(DB::Properties::kEstimateTableReadersMem,
-                                     &usage)) {
+    if (db->GetAggregatedIntProperty(
+            DB::Properties::GetEstimateTableReadersMem(), &usage)) {
       (*usage_by_type)[MemoryUtil::kTableReadersTotal] += usage;
     }
   }

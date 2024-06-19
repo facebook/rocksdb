@@ -497,7 +497,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"prepopulate_blob_cache",
          OptionTypeInfo::Enum<PrepopulateBlobCache>(
              offsetof(struct MutableCFOptions, prepopulate_blob_cache),
-             &prepopulate_blob_cache_string_map, OptionTypeFlags::kMutable)},
+             &OptionsHelper::GetPrepopulateBlobCacheStringMap(),
+             OptionTypeFlags::kMutable)},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -828,8 +829,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kCompareLoose}},
 };
 
-const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
-
 class ConfigurableMutableCFOptions : public Configurable {
  public:
   explicit ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
@@ -867,7 +866,7 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
   }
 
   const void* GetOptionsPtr(const std::string& name) const override {
-    if (name == OptionsHelper::kCFOptionsName) {
+    if (name == OptionsHelper::GetCFOptionsName()) {
       return &cf_options_;
     } else {
       return ConfigurableMutableCFOptions::GetOptionsPtr(name);
@@ -1007,9 +1006,9 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
 // when level_compaction_dynamic_level_bytes is true and leveled compaction
 // is used, the base level is not always L1, so precomupted max_file_size can
 // no longer be used. Recompute file_size_for_level from base level.
-uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
-    int level, CompactionStyle compaction_style, int base_level,
-    bool level_compaction_dynamic_level_bytes) {
+uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options, int level,
+                             CompactionStyle compaction_style, int base_level,
+                             bool level_compaction_dynamic_level_bytes) {
   if (!level_compaction_dynamic_level_bytes || level < base_level ||
       compaction_style != kCompactionStyleLevel) {
     assert(level >= 0);

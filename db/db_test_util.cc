@@ -122,7 +122,6 @@ DBTestBase::~DBTestBase() {
 }
 
 bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
-
   if ((skip_mask & kSkipUniversalCompaction) &&
       (option_config == kUniversalCompaction ||
        option_config == kUniversalCompactionMultiLevel ||
@@ -1191,7 +1190,6 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   return result;
 }
 
-
 std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
   VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
@@ -1702,7 +1700,6 @@ void DBTestBase::VerifyDBInternal(
   iter->~InternalIterator();
 }
 
-
 uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
     DB* db, std::string column_family_name) {
   std::vector<LiveFileMetaData> metadata;
@@ -1717,7 +1714,7 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
 uint64_t DBTestBase::GetSstSizeHelper(Temperature temperature) {
   std::string prop;
   EXPECT_TRUE(dbfull()->GetProperty(
-      DB::Properties::kLiveSstFilesSizeAtTemperature +
+      DB::Properties::GetLiveSstFilesSizeAtTemperature() +
           std::to_string(static_cast<uint8_t>(temperature)),
       &prop));
   return static_cast<uint64_t>(std::atoi(prop.c_str()));

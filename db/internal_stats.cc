@@ -16,6 +16,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -34,55 +35,63 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
-    {
-        {LevelStatType::NUM_FILES, LevelStat{"NumFiles", "Files"}},
-        {LevelStatType::COMPACTED_FILES,
-         LevelStat{"CompactedFiles", "CompactedFiles"}},
-        {LevelStatType::SIZE_BYTES, LevelStat{"SizeBytes", "Size"}},
-        {LevelStatType::SCORE, LevelStat{"Score", "Score"}},
-        {LevelStatType::READ_GB, LevelStat{"ReadGB", "Read(GB)"}},
-        {LevelStatType::RN_GB, LevelStat{"RnGB", "Rn(GB)"}},
-        {LevelStatType::RNP1_GB, LevelStat{"Rnp1GB", "Rnp1(GB)"}},
-        {LevelStatType::WRITE_GB, LevelStat{"WriteGB", "Write(GB)"}},
-        {LevelStatType::W_NEW_GB, LevelStat{"WnewGB", "Wnew(GB)"}},
-        {LevelStatType::MOVED_GB, LevelStat{"MovedGB", "Moved(GB)"}},
-        {LevelStatType::WRITE_AMP, LevelStat{"WriteAmp", "W-Amp"}},
-        {LevelStatType::READ_MBPS, LevelStat{"ReadMBps", "Rd(MB/s)"}},
-        {LevelStatType::WRITE_MBPS, LevelStat{"WriteMBps", "Wr(MB/s)"}},
-        {LevelStatType::COMP_SEC, LevelStat{"CompSec", "Comp(sec)"}},
-        {LevelStatType::COMP_CPU_SEC,
-         LevelStat{"CompMergeCPU", "CompMergeCPU(sec)"}},
-        {LevelStatType::COMP_COUNT, LevelStat{"CompCount", "Comp(cnt)"}},
-        {LevelStatType::AVG_SEC, LevelStat{"AvgSec", "Avg(sec)"}},
-        {LevelStatType::KEY_IN, LevelStat{"KeyIn", "KeyIn"}},
-        {LevelStatType::KEY_DROP, LevelStat{"KeyDrop", "KeyDrop"}},
-        {LevelStatType::R_BLOB_GB, LevelStat{"RblobGB", "Rblob(GB)"}},
-        {LevelStatType::W_BLOB_GB, LevelStat{"WblobGB", "Wblob(GB)"}},
-};
+const std::map<LevelStatType, LevelStat>&
+InternalStats::GetCompactionLevelStats() {
+  static const std::map<LevelStatType, LevelStat> compaction_level_stats = {
+      {LevelStatType::NUM_FILES, LevelStat{"NumFiles", "Files"}},
+      {LevelStatType::COMPACTED_FILES,
+       LevelStat{"CompactedFiles", "CompactedFiles"}},
+      {LevelStatType::SIZE_BYTES, LevelStat{"SizeBytes", "Size"}},
+      {LevelStatType::SCORE, LevelStat{"Score", "Score"}},
+      {LevelStatType::READ_GB, LevelStat{"ReadGB", "Read(GB)"}},
+      {LevelStatType::RN_GB, LevelStat{"RnGB", "Rn(GB)"}},
+      {LevelStatType::RNP1_GB, LevelStat{"Rnp1GB", "Rnp1(GB)"}},
+      {LevelStatType::WRITE_GB, LevelStat{"WriteGB", "Write(GB)"}},
+      {LevelStatType::W_NEW_GB, LevelStat{"WnewGB", "Wnew(GB)"}},
+      {LevelStatType::MOVED_GB, LevelStat{"MovedGB", "Moved(GB)"}},
+      {LevelStatType::WRITE_AMP, LevelStat{"WriteAmp", "W-Amp"}},
+      {LevelStatType::READ_MBPS, LevelStat{"ReadMBps", "Rd(MB/s)"}},
+      {LevelStatType::WRITE_MBPS, LevelStat{"WriteMBps", "Wr(MB/s)"}},
+      {LevelStatType::COMP_SEC, LevelStat{"CompSec", "Comp(sec)"}},
+      {LevelStatType::COMP_CPU_SEC,
+       LevelStat{"CompMergeCPU", "CompMergeCPU(sec)"}},
+      {LevelStatType::COMP_COUNT, LevelStat{"CompCount", "Comp(cnt)"}},
+      {LevelStatType::AVG_SEC, LevelStat{"AvgSec", "Avg(sec)"}},
+      {LevelStatType::KEY_IN, LevelStat{"KeyIn", "KeyIn"}},
+      {LevelStatType::KEY_DROP, LevelStat{"KeyDrop", "KeyDrop"}},
+      {LevelStatType::R_BLOB_GB, LevelStat{"RblobGB", "Rblob(GB)"}},
+      {LevelStatType::W_BLOB_GB, LevelStat{"WblobGB", "Wblob(GB)"}},
+  };
+  return compaction_level_stats;
+}
 
-const std::map<InternalStats::InternalDBStatsType, DBStatInfo>
-    InternalStats::db_stats_type_to_info = {
-        {InternalStats::kIntStatsWalFileBytes,
-         DBStatInfo{"db.wal_bytes_written"}},
-        {InternalStats::kIntStatsWalFileSynced, DBStatInfo{"db.wal_syncs"}},
-        {InternalStats::kIntStatsBytesWritten,
-         DBStatInfo{"db.user_bytes_written"}},
-        {InternalStats::kIntStatsNumKeysWritten,
-         DBStatInfo{"db.user_keys_written"}},
-        {InternalStats::kIntStatsWriteDoneByOther,
-         DBStatInfo{"db.user_writes_by_other"}},
-        {InternalStats::kIntStatsWriteDoneBySelf,
-         DBStatInfo{"db.user_writes_by_self"}},
-        {InternalStats::kIntStatsWriteWithWal,
-         DBStatInfo{"db.user_writes_with_wal"}},
-        {InternalStats::kIntStatsWriteStallMicros,
-         DBStatInfo{"db.user_write_stall_micros"}},
-        {InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts,
-         DBStatInfo{WriteStallStatsMapKeys::CauseConditionCount(
-             WriteStallCause::kWriteBufferManagerLimit,
-             WriteStallCondition::kStopped)}},
-};
+const std::map<InternalStats::InternalDBStatsType, DBStatInfo>&
+InternalStats::GetDBStatsTypeToInfo() {
+  static const std::map<InternalStats::InternalDBStatsType, DBStatInfo>
+      db_stats_type_to_info = {
+          {InternalStats::kIntStatsWalFileBytes,
+           DBStatInfo{"db.wal_bytes_written"}},
+          {InternalStats::kIntStatsWalFileSynced, DBStatInfo{"db.wal_syncs"}},
+          {InternalStats::kIntStatsBytesWritten,
+           DBStatInfo{"db.user_bytes_written"}},
+          {InternalStats::kIntStatsNumKeysWritten,
+           DBStatInfo{"db.user_keys_written"}},
+          {InternalStats::kIntStatsWriteDoneByOther,
+           DBStatInfo{"db.user_writes_by_other"}},
+          {InternalStats::kIntStatsWriteDoneBySelf,
+           DBStatInfo{"db.user_writes_by_self"}},
+          {InternalStats::kIntStatsWriteWithWal,
+           DBStatInfo{"db.user_writes_with_wal"}},
+          {InternalStats::kIntStatsWriteStallMicros,
+           DBStatInfo{"db.user_write_stall_micros"}},
+          {InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts,
+           DBStatInfo{WriteStallStatsMapKeys::CauseConditionCount(
+               WriteStallCause::kWriteBufferManagerLimit,
+               WriteStallCondition::kStopped)}},
+
+      };
+  return db_stats_type_to_info;
+}
 
 namespace {
 const double kMB = 1048576.0;
@@ -95,7 +104,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
       snprintf(buf, len, "\n** Compaction Stats [%s] **\n", cf_name.c_str());
   written_size = std::min(written_size, static_cast<int>(len));
   auto hdr = [](LevelStatType t) {
-    return InternalStats::compaction_level_stats.at(t).header_name.c_str();
+    return InternalStats::GetCompactionLevelStats().at(t).header_name.c_str();
   };
   int line_size = snprintf(
       buf + written_size, len - written_size,
@@ -237,394 +246,603 @@ std::pair<Slice, Slice> GetPropertyNameAndArg(const Slice& property) {
 }
 }  // anonymous namespace
 
-static const std::string rocksdb_prefix = "rocksdb.";
+static constexpr std::string_view rocksdb_prefix = "rocksdb.";
 
-static const std::string num_files_at_level_prefix = "num-files-at-level";
-static const std::string compression_ratio_at_level_prefix =
+static constexpr std::string_view num_files_at_level_prefix =
+    "num-files-at-level";
+static constexpr std::string_view compression_ratio_at_level_prefix =
     "compression-ratio-at-level";
-static const std::string allstats = "stats";
-static const std::string sstables = "sstables";
-static const std::string cfstats = "cfstats";
-static const std::string cfstats_no_file_histogram =
+static constexpr std::string_view allstats = "stats";
+static constexpr std::string_view sstables = "sstables";
+static constexpr std::string_view cfstats = "cfstats";
+static constexpr std::string_view cfstats_no_file_histogram =
     "cfstats-no-file-histogram";
-static const std::string cf_file_histogram = "cf-file-histogram";
-static const std::string cf_write_stall_stats = "cf-write-stall-stats";
-static const std::string dbstats = "dbstats";
-static const std::string db_write_stall_stats = "db-write-stall-stats";
-static const std::string levelstats = "levelstats";
-static const std::string block_cache_entry_stats = "block-cache-entry-stats";
-static const std::string fast_block_cache_entry_stats =
+static constexpr std::string_view cf_file_histogram = "cf-file-histogram";
+static constexpr std::string_view cf_write_stall_stats = "cf-write-stall-stats";
+static constexpr std::string_view dbstats = "dbstats";
+static constexpr std::string_view db_write_stall_stats = "db-write-stall-stats";
+static constexpr std::string_view levelstats = "levelstats";
+static constexpr std::string_view block_cache_entry_stats =
+    "block-cache-entry-stats";
+static constexpr std::string_view fast_block_cache_entry_stats =
     "fast-block-cache-entry-stats";
-static const std::string num_immutable_mem_table = "num-immutable-mem-table";
-static const std::string num_immutable_mem_table_flushed =
+static constexpr std::string_view num_immutable_mem_table =
+    "num-immutable-mem-table";
+static constexpr std::string_view num_immutable_mem_table_flushed =
     "num-immutable-mem-table-flushed";
-static const std::string mem_table_flush_pending = "mem-table-flush-pending";
-static const std::string compaction_pending = "compaction-pending";
-static const std::string background_errors = "background-errors";
-static const std::string cur_size_active_mem_table =
+static constexpr std::string_view mem_table_flush_pending =
+    "mem-table-flush-pending";
+static constexpr std::string_view compaction_pending = "compaction-pending";
+static constexpr std::string_view background_errors = "background-errors";
+static constexpr std::string_view cur_size_active_mem_table =
     "cur-size-active-mem-table";
-static const std::string cur_size_all_mem_tables = "cur-size-all-mem-tables";
-static const std::string size_all_mem_tables = "size-all-mem-tables";
-static const std::string num_entries_active_mem_table =
+static constexpr std::string_view cur_size_all_mem_tables =
+    "cur-size-all-mem-tables";
+static constexpr std::string_view size_all_mem_tables = "size-all-mem-tables";
+static constexpr std::string_view num_entries_active_mem_table =
     "num-entries-active-mem-table";
-static const std::string num_entries_imm_mem_tables =
+static constexpr std::string_view num_entries_imm_mem_tables =
     "num-entries-imm-mem-tables";
-static const std::string num_deletes_active_mem_table =
+static constexpr std::string_view num_deletes_active_mem_table =
     "num-deletes-active-mem-table";
-static const std::string num_deletes_imm_mem_tables =
+static constexpr std::string_view num_deletes_imm_mem_tables =
     "num-deletes-imm-mem-tables";
-static const std::string estimate_num_keys = "estimate-num-keys";
-static const std::string estimate_table_readers_mem =
+static constexpr std::string_view estimate_num_keys = "estimate-num-keys";
+static constexpr std::string_view estimate_table_readers_mem =
     "estimate-table-readers-mem";
-static const std::string is_file_deletions_enabled =
+static constexpr std::string_view is_file_deletions_enabled =
     "is-file-deletions-enabled";
-static const std::string num_snapshots = "num-snapshots";
-static const std::string oldest_snapshot_time = "oldest-snapshot-time";
-static const std::string oldest_snapshot_sequence = "oldest-snapshot-sequence";
-static const std::string num_live_versions = "num-live-versions";
-static const std::string current_version_number =
+static constexpr std::string_view num_snapshots = "num-snapshots";
+static constexpr std::string_view oldest_snapshot_time = "oldest-snapshot-time";
+static constexpr std::string_view oldest_snapshot_sequence =
+    "oldest-snapshot-sequence";
+static constexpr std::string_view num_live_versions = "num-live-versions";
+static constexpr std::string_view current_version_number =
     "current-super-version-number";
-static const std::string estimate_live_data_size = "estimate-live-data-size";
-static const std::string min_log_number_to_keep_str = "min-log-number-to-keep";
-static const std::string min_obsolete_sst_number_to_keep_str =
+static constexpr std::string_view estimate_live_data_size =
+    "estimate-live-data-size";
+static constexpr std::string_view min_log_number_to_keep_str =
+    "min-log-number-to-keep";
+static constexpr std::string_view min_obsolete_sst_number_to_keep_str =
     "min-obsolete-sst-number-to-keep";
-static const std::string base_level_str = "base-level";
-static const std::string total_sst_files_size = "total-sst-files-size";
-static const std::string live_sst_files_size = "live-sst-files-size";
-static const std::string obsolete_sst_files_size = "obsolete-sst-files-size";
-static const std::string live_sst_files_size_at_temperature =
+static constexpr std::string_view base_level_str = "base-level";
+static constexpr std::string_view total_sst_files_size = "total-sst-files-size";
+static constexpr std::string_view live_sst_files_size = "live-sst-files-size";
+static constexpr std::string_view obsolete_sst_files_size =
+    "obsolete-sst-files-size";
+static constexpr std::string_view live_sst_files_size_at_temperature =
     "live-sst-files-size-at-temperature";
-static const std::string estimate_pending_comp_bytes =
+static constexpr std::string_view estimate_pending_comp_bytes =
     "estimate-pending-compaction-bytes";
-static const std::string aggregated_table_properties =
+static constexpr std::string_view aggregated_table_properties =
     "aggregated-table-properties";
-static const std::string aggregated_table_properties_at_level =
-    aggregated_table_properties + "-at-level";
-static const std::string num_running_compactions = "num-running-compactions";
-static const std::string num_running_flushes = "num-running-flushes";
-static const std::string actual_delayed_write_rate =
+static constexpr std::string_view at_level = "-at-level";
+static constexpr std::string_view num_running_compactions =
+    "num-running-compactions";
+static constexpr std::string_view num_running_flushes = "num-running-flushes";
+static constexpr std::string_view actual_delayed_write_rate =
     "actual-delayed-write-rate";
-static const std::string is_write_stopped = "is-write-stopped";
-static const std::string estimate_oldest_key_time = "estimate-oldest-key-time";
-static const std::string block_cache_capacity = "block-cache-capacity";
-static const std::string block_cache_usage = "block-cache-usage";
-static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
-static const std::string options_statistics = "options-statistics";
-static const std::string num_blob_files = "num-blob-files";
-static const std::string blob_stats = "blob-stats";
-static const std::string total_blob_file_size = "total-blob-file-size";
-static const std::string live_blob_file_size = "live-blob-file-size";
-static const std::string live_blob_file_garbage_size =
+static constexpr std::string_view is_write_stopped = "is-write-stopped";
+static constexpr std::string_view estimate_oldest_key_time =
+    "estimate-oldest-key-time";
+static constexpr std::string_view block_cache_capacity = "block-cache-capacity";
+static constexpr std::string_view block_cache_usage = "block-cache-usage";
+static constexpr std::string_view block_cache_pinned_usage =
+    "block-cache-pinned-usage";
+static constexpr std::string_view options_statistics = "options-statistics";
+static constexpr std::string_view num_blob_files = "num-blob-files";
+static constexpr std::string_view blob_stats = "blob-stats";
+static constexpr std::string_view total_blob_file_size = "total-blob-file-size";
+static constexpr std::string_view live_blob_file_size = "live-blob-file-size";
+static constexpr std::string_view live_blob_file_garbage_size =
     "live-blob-file-garbage-size";
-static const std::string blob_cache_capacity = "blob-cache-capacity";
-static const std::string blob_cache_usage = "blob-cache-usage";
-static const std::string blob_cache_pinned_usage = "blob-cache-pinned-usage";
+static constexpr std::string_view blob_cache_capacity = "blob-cache-capacity";
+static constexpr std::string_view blob_cache_usage = "blob-cache-usage";
+static constexpr std::string_view blob_cache_pinned_usage =
+    "blob-cache-pinned-usage";
 
-const std::string DB::Properties::kNumFilesAtLevelPrefix =
-    rocksdb_prefix + num_files_at_level_prefix;
-const std::string DB::Properties::kCompressionRatioAtLevelPrefix =
-    rocksdb_prefix + compression_ratio_at_level_prefix;
-const std::string DB::Properties::kStats = rocksdb_prefix + allstats;
-const std::string DB::Properties::kSSTables = rocksdb_prefix + sstables;
-const std::string DB::Properties::kCFStats = rocksdb_prefix + cfstats;
-const std::string DB::Properties::kCFStatsNoFileHistogram =
-    rocksdb_prefix + cfstats_no_file_histogram;
-const std::string DB::Properties::kCFFileHistogram =
-    rocksdb_prefix + cf_file_histogram;
-const std::string DB::Properties::kCFWriteStallStats =
-    rocksdb_prefix + cf_write_stall_stats;
-const std::string DB::Properties::kDBWriteStallStats =
-    rocksdb_prefix + db_write_stall_stats;
-const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
-const std::string DB::Properties::kLevelStats = rocksdb_prefix + levelstats;
-const std::string DB::Properties::kBlockCacheEntryStats =
-    rocksdb_prefix + block_cache_entry_stats;
-const std::string DB::Properties::kFastBlockCacheEntryStats =
-    rocksdb_prefix + fast_block_cache_entry_stats;
-const std::string DB::Properties::kNumImmutableMemTable =
-    rocksdb_prefix + num_immutable_mem_table;
-const std::string DB::Properties::kNumImmutableMemTableFlushed =
-    rocksdb_prefix + num_immutable_mem_table_flushed;
-const std::string DB::Properties::kMemTableFlushPending =
-    rocksdb_prefix + mem_table_flush_pending;
-const std::string DB::Properties::kCompactionPending =
-    rocksdb_prefix + compaction_pending;
-const std::string DB::Properties::kNumRunningCompactions =
-    rocksdb_prefix + num_running_compactions;
-const std::string DB::Properties::kNumRunningFlushes =
-    rocksdb_prefix + num_running_flushes;
-const std::string DB::Properties::kBackgroundErrors =
-    rocksdb_prefix + background_errors;
-const std::string DB::Properties::kCurSizeActiveMemTable =
-    rocksdb_prefix + cur_size_active_mem_table;
-const std::string DB::Properties::kCurSizeAllMemTables =
-    rocksdb_prefix + cur_size_all_mem_tables;
-const std::string DB::Properties::kSizeAllMemTables =
-    rocksdb_prefix + size_all_mem_tables;
-const std::string DB::Properties::kNumEntriesActiveMemTable =
-    rocksdb_prefix + num_entries_active_mem_table;
-const std::string DB::Properties::kNumEntriesImmMemTables =
-    rocksdb_prefix + num_entries_imm_mem_tables;
-const std::string DB::Properties::kNumDeletesActiveMemTable =
-    rocksdb_prefix + num_deletes_active_mem_table;
-const std::string DB::Properties::kNumDeletesImmMemTables =
-    rocksdb_prefix + num_deletes_imm_mem_tables;
-const std::string DB::Properties::kEstimateNumKeys =
-    rocksdb_prefix + estimate_num_keys;
-const std::string DB::Properties::kEstimateTableReadersMem =
-    rocksdb_prefix + estimate_table_readers_mem;
-const std::string DB::Properties::kIsFileDeletionsEnabled =
-    rocksdb_prefix + is_file_deletions_enabled;
-const std::string DB::Properties::kNumSnapshots =
-    rocksdb_prefix + num_snapshots;
-const std::string DB::Properties::kOldestSnapshotTime =
-    rocksdb_prefix + oldest_snapshot_time;
-const std::string DB::Properties::kOldestSnapshotSequence =
-    rocksdb_prefix + oldest_snapshot_sequence;
-const std::string DB::Properties::kNumLiveVersions =
-    rocksdb_prefix + num_live_versions;
-const std::string DB::Properties::kCurrentSuperVersionNumber =
-    rocksdb_prefix + current_version_number;
-const std::string DB::Properties::kEstimateLiveDataSize =
-    rocksdb_prefix + estimate_live_data_size;
-const std::string DB::Properties::kMinLogNumberToKeep =
-    rocksdb_prefix + min_log_number_to_keep_str;
-const std::string DB::Properties::kMinObsoleteSstNumberToKeep =
-    rocksdb_prefix + min_obsolete_sst_number_to_keep_str;
-const std::string DB::Properties::kTotalSstFilesSize =
-    rocksdb_prefix + total_sst_files_size;
-const std::string DB::Properties::kLiveSstFilesSize =
-    rocksdb_prefix + live_sst_files_size;
-const std::string DB::Properties::kObsoleteSstFilesSize =
-    rocksdb_prefix + obsolete_sst_files_size;
-const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level_str;
-const std::string DB::Properties::kEstimatePendingCompactionBytes =
-    rocksdb_prefix + estimate_pending_comp_bytes;
-const std::string DB::Properties::kAggregatedTableProperties =
-    rocksdb_prefix + aggregated_table_properties;
-const std::string DB::Properties::kAggregatedTablePropertiesAtLevel =
-    rocksdb_prefix + aggregated_table_properties_at_level;
-const std::string DB::Properties::kActualDelayedWriteRate =
-    rocksdb_prefix + actual_delayed_write_rate;
-const std::string DB::Properties::kIsWriteStopped =
-    rocksdb_prefix + is_write_stopped;
-const std::string DB::Properties::kEstimateOldestKeyTime =
-    rocksdb_prefix + estimate_oldest_key_time;
-const std::string DB::Properties::kBlockCacheCapacity =
-    rocksdb_prefix + block_cache_capacity;
-const std::string DB::Properties::kBlockCacheUsage =
-    rocksdb_prefix + block_cache_usage;
-const std::string DB::Properties::kBlockCachePinnedUsage =
-    rocksdb_prefix + block_cache_pinned_usage;
-const std::string DB::Properties::kOptionsStatistics =
-    rocksdb_prefix + options_statistics;
-const std::string DB::Properties::kLiveSstFilesSizeAtTemperature =
-    rocksdb_prefix + live_sst_files_size_at_temperature;
-const std::string DB::Properties::kNumBlobFiles =
-    rocksdb_prefix + num_blob_files;
-const std::string DB::Properties::kBlobStats = rocksdb_prefix + blob_stats;
-const std::string DB::Properties::kTotalBlobFileSize =
-    rocksdb_prefix + total_blob_file_size;
-const std::string DB::Properties::kLiveBlobFileSize =
-    rocksdb_prefix + live_blob_file_size;
-const std::string DB::Properties::kLiveBlobFileGarbageSize =
-    rocksdb_prefix + live_blob_file_garbage_size;
-const std::string DB::Properties::kBlobCacheCapacity =
-    rocksdb_prefix + blob_cache_capacity;
-const std::string DB::Properties::kBlobCacheUsage =
-    rocksdb_prefix + blob_cache_usage;
-const std::string DB::Properties::kBlobCachePinnedUsage =
-    rocksdb_prefix + blob_cache_pinned_usage;
+const std::string& DB::Properties::GetNumFilesAtLevelPrefix() {
+  static const std::string kNumFilesAtLevelPrefix =
+      std::string(rocksdb_prefix) + std::string(num_files_at_level_prefix);
+  return kNumFilesAtLevelPrefix;
+}
+const std::string& DB::Properties::GetCompressionRatioAtLevelPrefix() {
+  static const std::string kCompressionRatioAtLevelPrefix =
+      std::string(rocksdb_prefix) +
+      std::string(compression_ratio_at_level_prefix);
+  return kCompressionRatioAtLevelPrefix;
+}
+const std::string& DB::Properties::GetStats() {
+  static const std::string kStats =
+      std::string(rocksdb_prefix) + std::string(allstats);
+  return kStats;
+}
+const std::string& DB::Properties::GetSSTables() {
+  static const std::string kSSTables =
+      std::string(rocksdb_prefix) + std::string(sstables);
+  return kSSTables;
+}
+const std::string& DB::Properties::GetCFStats() {
+  static const std::string kCFStats =
+      std::string(rocksdb_prefix) + std::string(cfstats);
+  return kCFStats;
+}
+const std::string& DB::Properties::GetCFStatsNoFileHistogram() {
+  static const std::string kCFStatsNoFileHistogram =
+      std::string(rocksdb_prefix) + std::string(cfstats_no_file_histogram);
+  return kCFStatsNoFileHistogram;
+}
+const std::string& DB::Properties::GetCFFileHistogram() {
+  static const std::string kCFFileHistogram =
+      std::string(rocksdb_prefix) + std::string(cf_file_histogram);
+  return kCFFileHistogram;
+}
+const std::string& DB::Properties::GetCFWriteStallStats() {
+  static const std::string kCFWriteStallStats =
+      std::string(rocksdb_prefix) + std::string(cf_write_stall_stats);
+  return kCFWriteStallStats;
+}
+const std::string& DB::Properties::GetDBWriteStallStats() {
+  static const std::string kDBWriteStallStats =
+      std::string(rocksdb_prefix) + std::string(db_write_stall_stats);
+  return kDBWriteStallStats;
+}
+const std::string& DB::Properties::GetDBStats() {
+  static const std::string kDBStats =
+      std::string(rocksdb_prefix) + std::string(dbstats);
+  return kDBStats;
+}
+const std::string& DB::Properties::GetLevelStats() {
+  static const std::string kLevelStats =
+      std::string(rocksdb_prefix) + std::string(levelstats);
+  return kLevelStats;
+}
+const std::string& DB::Properties::GetBlockCacheEntryStats() {
+  static const std::string kBlockCacheEntryStats =
+      std::string(rocksdb_prefix) + std::string(block_cache_entry_stats);
+  return kBlockCacheEntryStats;
+}
+const std::string& DB::Properties::GetFastBlockCacheEntryStats() {
+  static const std::string kFastBlockCacheEntryStats =
+      std::string(rocksdb_prefix) + std::string(fast_block_cache_entry_stats);
+  return kFastBlockCacheEntryStats;
+}
+const std::string& DB::Properties::GetNumImmutableMemTable() {
+  static const std::string kNumImmutableMemTable =
+      std::string(rocksdb_prefix) + std::string(num_immutable_mem_table);
+  return kNumImmutableMemTable;
+}
+const std::string& DB::Properties::GetNumImmutableMemTableFlushed() {
+  static const std::string kNumImmutableMemTableFlushed =
+      std::string(rocksdb_prefix) +
+      std::string(num_immutable_mem_table_flushed);
+  return kNumImmutableMemTableFlushed;
+}
+const std::string& DB::Properties::GetMemTableFlushPending() {
+  static const std::string kMemTableFlushPending =
+      std::string(rocksdb_prefix) + std::string(mem_table_flush_pending);
+  return kMemTableFlushPending;
+}
+const std::string& DB::Properties::GetCompactionPending() {
+  static const std::string kCompactionPending =
+      std::string(rocksdb_prefix) + std::string(compaction_pending);
+  return kCompactionPending;
+}
+const std::string& DB::Properties::GetNumRunningCompactions() {
+  static const std::string kNumRunningCompactions =
+      std::string(rocksdb_prefix) + std::string(num_running_compactions);
+  return kNumRunningCompactions;
+}
+const std::string& DB::Properties::GetNumRunningFlushes() {
+  static const std::string kNumRunningFlushes =
+      std::string(rocksdb_prefix) + std::string(num_running_flushes);
+  return kNumRunningFlushes;
+}
+const std::string& DB::Properties::GetBackgroundErrors() {
+  static const std::string kBackgroundErrors =
+      std::string(rocksdb_prefix) + std::string(background_errors);
+  return kBackgroundErrors;
+}
+const std::string& DB::Properties::GetCurSizeActiveMemTable() {
+  static const std::string kCurSizeActiveMemTable =
+      std::string(rocksdb_prefix) + std::string(cur_size_active_mem_table);
+  return kCurSizeActiveMemTable;
+}
+const std::string& DB::Properties::GetCurSizeAllMemTables() {
+  static const std::string kCurSizeAllMemTables =
+      std::string(rocksdb_prefix) + std::string(cur_size_all_mem_tables);
+  return kCurSizeAllMemTables;
+}
+const std::string& DB::Properties::GetSizeAllMemTables() {
+  static const std::string kSizeAllMemTables =
+      std::string(rocksdb_prefix) + std::string(size_all_mem_tables);
+  return kSizeAllMemTables;
+}
+const std::string& DB::Properties::GetNumEntriesActiveMemTable() {
+  static const std::string kNumEntriesActiveMemTable =
+      std::string(rocksdb_prefix) + std::string(num_entries_active_mem_table);
+  return kNumEntriesActiveMemTable;
+}
+const std::string& DB::Properties::GetNumEntriesImmMemTables() {
+  static const std::string kNumEntriesImmMemTables =
+      std::string(rocksdb_prefix) + std::string(num_entries_imm_mem_tables);
+  return kNumEntriesImmMemTables;
+}
+const std::string& DB::Properties::GetNumDeletesActiveMemTable() {
+  static const std::string kNumDeletesActiveMemTable =
+      std::string(rocksdb_prefix) + std::string(num_deletes_active_mem_table);
+  return kNumDeletesActiveMemTable;
+}
+const std::string& DB::Properties::GetNumDeletesImmMemTables() {
+  static const std::string kNumDeletesImmMemTables =
+      std::string(rocksdb_prefix) + std::string(num_deletes_imm_mem_tables);
+  return kNumDeletesImmMemTables;
+}
+const std::string& DB::Properties::GetEstimateNumKeys() {
+  static const std::string kEstimateNumKeys =
+      std::string(rocksdb_prefix) + std::string(estimate_num_keys);
+  return kEstimateNumKeys;
+}
+const std::string& DB::Properties::GetEstimateTableReadersMem() {
+  static const std::string kEstimateTableReadersMem =
+      std::string(rocksdb_prefix) + std::string(estimate_table_readers_mem);
+  return kEstimateTableReadersMem;
+}
+const std::string& DB::Properties::GetIsFileDeletionsEnabled() {
+  static const std::string kIsFileDeletionsEnabled =
+      std::string(rocksdb_prefix) + std::string(is_file_deletions_enabled);
+  return kIsFileDeletionsEnabled;
+}
+const std::string& DB::Properties::GetNumSnapshots() {
+  static const std::string kNumSnapshots =
+      std::string(rocksdb_prefix) + std::string(num_snapshots);
+  return kNumSnapshots;
+}
+const std::string& DB::Properties::GetOldestSnapshotTime() {
+  static const std::string kOldestSnapshotTime =
+      std::string(rocksdb_prefix) + std::string(oldest_snapshot_time);
+  return kOldestSnapshotTime;
+}
+const std::string& DB::Properties::GetOldestSnapshotSequence() {
+  static const std::string kOldestSnapshotSequence =
+      std::string(rocksdb_prefix) + std::string(oldest_snapshot_sequence);
+  return kOldestSnapshotSequence;
+}
+const std::string& DB::Properties::GetNumLiveVersions() {
+  static const std::string kNumLiveVersions =
+      std::string(rocksdb_prefix) + std::string(num_live_versions);
+  return kNumLiveVersions;
+}
+const std::string& DB::Properties::GetCurrentSuperVersionNumber() {
+  static const std::string kCurrentSuperVersionNumber =
+      std::string(rocksdb_prefix) + std::string(current_version_number);
+  return kCurrentSuperVersionNumber;
+}
+const std::string& DB::Properties::GetEstimateLiveDataSize() {
+  static const std::string kEstimateLiveDataSize =
+      std::string(rocksdb_prefix) + std::string(estimate_live_data_size);
+  return kEstimateLiveDataSize;
+}
+const std::string& DB::Properties::GetMinLogNumberToKeep() {
+  static const std::string kMinLogNumberToKeep =
+      std::string(rocksdb_prefix) + std::string(min_log_number_to_keep_str);
+  return kMinLogNumberToKeep;
+}
+const std::string& DB::Properties::GetMinObsoleteSstNumberToKeep() {
+  static const std::string kMinObsoleteSstNumberToKeep =
+      std::string(rocksdb_prefix) +
+      std::string(min_obsolete_sst_number_to_keep_str);
+  return kMinObsoleteSstNumberToKeep;
+}
+const std::string& DB::Properties::GetTotalSstFilesSize() {
+  static const std::string kTotalSstFilesSize =
+      std::string(rocksdb_prefix) + std::string(total_sst_files_size);
+  return kTotalSstFilesSize;
+}
+const std::string& DB::Properties::GetLiveSstFilesSize() {
+  static const std::string kLiveSstFilesSize =
+      std::string(rocksdb_prefix) + std::string(live_sst_files_size);
+  return kLiveSstFilesSize;
+}
+const std::string& DB::Properties::GetObsoleteSstFilesSize() {
+  static const std::string kObsoleteSstFilesSize =
+      std::string(rocksdb_prefix) + std::string(obsolete_sst_files_size);
+  return kObsoleteSstFilesSize;
+}
+const std::string& DB::Properties::GetBaseLevel() {
+  static const std::string kBaseLevel =
+      std::string(rocksdb_prefix) + std::string(base_level_str);
+  return kBaseLevel;
+}
+const std::string& DB::Properties::GetEstimatePendingCompactionBytes() {
+  static const std::string kEstimatePendingCompactionBytes =
+      std::string(rocksdb_prefix) + std::string(estimate_pending_comp_bytes);
+  return kEstimatePendingCompactionBytes;
+}
+const std::string& DB::Properties::GetAggregatedTableProperties() {
+  static const std::string kAggregatedTableProperties =
+      std::string(rocksdb_prefix) + std::string(aggregated_table_properties);
+  return kAggregatedTableProperties;
+}
+const std::string& DB::Properties::GetAggregatedTablePropertiesAtLevel() {
+  static const std::string kAggregatedTablePropertiesAtLevel =
+      std::string(rocksdb_prefix) + std::string(aggregated_table_properties) +
+      std::string(at_level);
+  return kAggregatedTablePropertiesAtLevel;
+}
+const std::string& DB::Properties::GetActualDelayedWriteRate() {
+  static const std::string kActualDelayedWriteRate =
+      std::string(rocksdb_prefix) + std::string(actual_delayed_write_rate);
+  return kActualDelayedWriteRate;
+}
+const std::string& DB::Properties::GetIsWriteStopped() {
+  static const std::string kIsWriteStopped =
+      std::string(rocksdb_prefix) + std::string(is_write_stopped);
+  return kIsWriteStopped;
+}
+const std::string& DB::Properties::GetEstimateOldestKeyTime() {
+  static const std::string kEstimateOldestKeyTime =
+      std::string(rocksdb_prefix) + std::string(estimate_oldest_key_time);
+  return kEstimateOldestKeyTime;
+}
+const std::string& DB::Properties::GetBlockCacheCapacity() {
+  static const std::string kBlockCacheCapacity =
+      std::string(rocksdb_prefix) + std::string(block_cache_capacity);
+  return kBlockCacheCapacity;
+}
+const std::string& DB::Properties::GetBlockCacheUsage() {
+  static const std::string kBlockCacheUsage =
+      std::string(rocksdb_prefix) + std::string(block_cache_usage);
+  return kBlockCacheUsage;
+}
+const std::string& DB::Properties::GetBlockCachePinnedUsage() {
+  static const std::string kBlockCachePinnedUsage =
+      std::string(rocksdb_prefix) + std::string(block_cache_pinned_usage);
+  return kBlockCachePinnedUsage;
+}
+const std::string& DB::Properties::GetOptionsStatistics() {
+  static const std::string kOptionsStatistics =
+      std::string(rocksdb_prefix) + std::string(options_statistics);
+  return kOptionsStatistics;
+}
+const std::string& DB::Properties::GetLiveSstFilesSizeAtTemperature() {
+  static const std::string kLiveSstFilesSizeAtTemperature =
+      std::string(rocksdb_prefix) +
+      std::string(live_sst_files_size_at_temperature);
+  return kLiveSstFilesSizeAtTemperature;
+}
+const std::string& DB::Properties::GetNumBlobFiles() {
+  static const std::string kNumBlobFiles =
+      std::string(rocksdb_prefix) + std::string(num_blob_files);
+  return kNumBlobFiles;
+}
+const std::string& DB::Properties::GetBlobStats() {
+  static const std::string kBlobStats =
+      std::string(rocksdb_prefix) + std::string(blob_stats);
+  return kBlobStats;
+}
+const std::string& DB::Properties::GetTotalBlobFileSize() {
+  static const std::string kTotalBlobFileSize =
+      std::string(rocksdb_prefix) + std::string(total_blob_file_size);
+  return kTotalBlobFileSize;
+}
+const std::string& DB::Properties::GetLiveBlobFileSize() {
+  static const std::string kLiveBlobFileSize =
+      std::string(rocksdb_prefix) + std::string(live_blob_file_size);
+  return kLiveBlobFileSize;
+}
+const std::string& DB::Properties::GetLiveBlobFileGarbageSize() {
+  static const std::string kLiveBlobFileGarbageSize =
+      std::string(rocksdb_prefix) + std::string(live_blob_file_garbage_size);
+  return kLiveBlobFileGarbageSize;
+}
+const std::string& DB::Properties::GetBlobCacheCapacity() {
+  static const std::string kBlobCacheCapacity =
+      std::string(rocksdb_prefix) + std::string(blob_cache_capacity);
+  return kBlobCacheCapacity;
+}
+const std::string& DB::Properties::GetBlobCacheUsage() {
+  static const std::string kBlobCacheUsage =
+      std::string(rocksdb_prefix) + std::string(blob_cache_usage);
+  return kBlobCacheUsage;
+}
+const std::string& DB::Properties::GetBlobCachePinnedUsage() {
+  static const std::string kBlobCachePinnedUsage =
+      std::string(rocksdb_prefix) + std::string(blob_cache_pinned_usage);
+  return kBlobCachePinnedUsage;
+}
 
-const std::string InternalStats::kPeriodicCFStats =
-    DB::Properties::kCFStats + ".periodic";
-const int InternalStats::kMaxNoChangePeriodSinceDump = 8;
+const std::string& InternalStats::GetPeriodicCFStats() {
+  static const std::string kPeriodicCFStats =
+      DB::Properties::GetCFStats() + ".periodic";
+  return kPeriodicCFStats;
+}
 
-const UnorderedMap<std::string, DBPropertyInfo>
-    InternalStats::ppt_name_to_info = {
-        {DB::Properties::kNumFilesAtLevelPrefix,
-         {false, &InternalStats::HandleNumFilesAtLevel, nullptr, nullptr,
-          nullptr}},
-        {DB::Properties::kCompressionRatioAtLevelPrefix,
-         {false, &InternalStats::HandleCompressionRatioAtLevelPrefix, nullptr,
-          nullptr, nullptr}},
-        {DB::Properties::kLevelStats,
-         {false, &InternalStats::HandleLevelStats, nullptr, nullptr, nullptr}},
-        {DB::Properties::kStats,
-         {false, &InternalStats::HandleStats, nullptr, nullptr, nullptr}},
-        {DB::Properties::kCFStats,
-         {false, &InternalStats::HandleCFStats, nullptr,
-          &InternalStats::HandleCFMapStats, nullptr}},
-        {InternalStats::kPeriodicCFStats,
-         {false, &InternalStats::HandleCFStatsPeriodic, nullptr, nullptr,
-          nullptr}},
-        {DB::Properties::kCFStatsNoFileHistogram,
-         {false, &InternalStats::HandleCFStatsNoFileHistogram, nullptr, nullptr,
-          nullptr}},
-        {DB::Properties::kCFFileHistogram,
-         {false, &InternalStats::HandleCFFileHistogram, nullptr, nullptr,
-          nullptr}},
-        {DB::Properties::kCFWriteStallStats,
-         {false, &InternalStats::HandleCFWriteStallStats, nullptr,
-          &InternalStats::HandleCFWriteStallStatsMap, nullptr}},
-        {DB::Properties::kDBStats,
-         {false, &InternalStats::HandleDBStats, nullptr,
-          &InternalStats::HandleDBMapStats, nullptr}},
-        {DB::Properties::kDBWriteStallStats,
-         {false, &InternalStats::HandleDBWriteStallStats, nullptr,
-          &InternalStats::HandleDBWriteStallStatsMap, nullptr}},
-        {DB::Properties::kBlockCacheEntryStats,
-         {true, &InternalStats::HandleBlockCacheEntryStats, nullptr,
-          &InternalStats::HandleBlockCacheEntryStatsMap, nullptr}},
-        {DB::Properties::kFastBlockCacheEntryStats,
-         {true, &InternalStats::HandleFastBlockCacheEntryStats, nullptr,
-          &InternalStats::HandleFastBlockCacheEntryStatsMap, nullptr}},
-        {DB::Properties::kSSTables,
-         {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
-        {DB::Properties::kAggregatedTableProperties,
-         {false, &InternalStats::HandleAggregatedTableProperties, nullptr,
-          &InternalStats::HandleAggregatedTablePropertiesMap, nullptr}},
-        {DB::Properties::kAggregatedTablePropertiesAtLevel,
-         {false, &InternalStats::HandleAggregatedTablePropertiesAtLevel,
-          nullptr, &InternalStats::HandleAggregatedTablePropertiesAtLevelMap,
-          nullptr}},
-        {DB::Properties::kNumImmutableMemTable,
-         {false, nullptr, &InternalStats::HandleNumImmutableMemTable, nullptr,
-          nullptr}},
-        {DB::Properties::kNumImmutableMemTableFlushed,
-         {false, nullptr, &InternalStats::HandleNumImmutableMemTableFlushed,
-          nullptr, nullptr}},
-        {DB::Properties::kMemTableFlushPending,
-         {false, nullptr, &InternalStats::HandleMemTableFlushPending, nullptr,
-          nullptr}},
-        {DB::Properties::kCompactionPending,
-         {false, nullptr, &InternalStats::HandleCompactionPending, nullptr,
-          nullptr}},
-        {DB::Properties::kBackgroundErrors,
-         {false, nullptr, &InternalStats::HandleBackgroundErrors, nullptr,
-          nullptr}},
-        {DB::Properties::kCurSizeActiveMemTable,
-         {false, nullptr, &InternalStats::HandleCurSizeActiveMemTable, nullptr,
-          nullptr}},
-        {DB::Properties::kCurSizeAllMemTables,
-         {false, nullptr, &InternalStats::HandleCurSizeAllMemTables, nullptr,
-          nullptr}},
-        {DB::Properties::kSizeAllMemTables,
-         {false, nullptr, &InternalStats::HandleSizeAllMemTables, nullptr,
-          nullptr}},
-        {DB::Properties::kNumEntriesActiveMemTable,
-         {false, nullptr, &InternalStats::HandleNumEntriesActiveMemTable,
-          nullptr, nullptr}},
-        {DB::Properties::kNumEntriesImmMemTables,
-         {false, nullptr, &InternalStats::HandleNumEntriesImmMemTables, nullptr,
-          nullptr}},
-        {DB::Properties::kNumDeletesActiveMemTable,
-         {false, nullptr, &InternalStats::HandleNumDeletesActiveMemTable,
-          nullptr, nullptr}},
-        {DB::Properties::kNumDeletesImmMemTables,
-         {false, nullptr, &InternalStats::HandleNumDeletesImmMemTables, nullptr,
-          nullptr}},
-        {DB::Properties::kEstimateNumKeys,
-         {false, nullptr, &InternalStats::HandleEstimateNumKeys, nullptr,
-          nullptr}},
-        {DB::Properties::kEstimateTableReadersMem,
-         {true, nullptr, &InternalStats::HandleEstimateTableReadersMem, nullptr,
-          nullptr}},
-        {DB::Properties::kIsFileDeletionsEnabled,
-         {false, nullptr, &InternalStats::HandleIsFileDeletionsEnabled, nullptr,
-          nullptr}},
-        {DB::Properties::kNumSnapshots,
-         {false, nullptr, &InternalStats::HandleNumSnapshots, nullptr,
-          nullptr}},
-        {DB::Properties::kOldestSnapshotTime,
-         {false, nullptr, &InternalStats::HandleOldestSnapshotTime, nullptr,
-          nullptr}},
-        {DB::Properties::kOldestSnapshotSequence,
-         {false, nullptr, &InternalStats::HandleOldestSnapshotSequence, nullptr,
-          nullptr}},
-        {DB::Properties::kNumLiveVersions,
-         {false, nullptr, &InternalStats::HandleNumLiveVersions, nullptr,
-          nullptr}},
-        {DB::Properties::kCurrentSuperVersionNumber,
-         {false, nullptr, &InternalStats::HandleCurrentSuperVersionNumber,
-          nullptr, nullptr}},
-        {DB::Properties::kEstimateLiveDataSize,
-         {true, nullptr, &InternalStats::HandleEstimateLiveDataSize, nullptr,
-          nullptr}},
-        {DB::Properties::kMinLogNumberToKeep,
-         {false, nullptr, &InternalStats::HandleMinLogNumberToKeep, nullptr,
-          nullptr}},
-        {DB::Properties::kMinObsoleteSstNumberToKeep,
-         {false, nullptr, &InternalStats::HandleMinObsoleteSstNumberToKeep,
-          nullptr, nullptr}},
-        {DB::Properties::kBaseLevel,
-         {false, nullptr, &InternalStats::HandleBaseLevel, nullptr, nullptr}},
-        {DB::Properties::kTotalSstFilesSize,
-         {false, nullptr, &InternalStats::HandleTotalSstFilesSize, nullptr,
-          nullptr}},
-        {DB::Properties::kLiveSstFilesSize,
-         {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
-          nullptr}},
-        {DB::Properties::kLiveSstFilesSizeAtTemperature,
-         {false, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
-          nullptr, nullptr}},
-        {DB::Properties::kObsoleteSstFilesSize,
-         {false, nullptr, &InternalStats::HandleObsoleteSstFilesSize, nullptr,
-          nullptr}},
-        {DB::Properties::kEstimatePendingCompactionBytes,
-         {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
-          nullptr, nullptr}},
-        {DB::Properties::kNumRunningFlushes,
-         {false, nullptr, &InternalStats::HandleNumRunningFlushes, nullptr,
-          nullptr}},
-        {DB::Properties::kNumRunningCompactions,
-         {false, nullptr, &InternalStats::HandleNumRunningCompactions, nullptr,
-          nullptr}},
-        {DB::Properties::kActualDelayedWriteRate,
-         {false, nullptr, &InternalStats::HandleActualDelayedWriteRate, nullptr,
-          nullptr}},
-        {DB::Properties::kIsWriteStopped,
-         {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr,
-          nullptr}},
-        {DB::Properties::kEstimateOldestKeyTime,
-         {false, nullptr, &InternalStats::HandleEstimateOldestKeyTime, nullptr,
-          nullptr}},
-        {DB::Properties::kBlockCacheCapacity,
-         {false, nullptr, &InternalStats::HandleBlockCacheCapacity, nullptr,
-          nullptr}},
-        {DB::Properties::kBlockCacheUsage,
-         {false, nullptr, &InternalStats::HandleBlockCacheUsage, nullptr,
-          nullptr}},
-        {DB::Properties::kBlockCachePinnedUsage,
-         {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage, nullptr,
-          nullptr}},
-        {DB::Properties::kOptionsStatistics,
-         {true, nullptr, nullptr, nullptr,
-          &DBImpl::GetPropertyHandleOptionsStatistics}},
-        {DB::Properties::kNumBlobFiles,
-         {false, nullptr, &InternalStats::HandleNumBlobFiles, nullptr,
-          nullptr}},
-        {DB::Properties::kBlobStats,
-         {false, &InternalStats::HandleBlobStats, nullptr, nullptr, nullptr}},
-        {DB::Properties::kTotalBlobFileSize,
-         {false, nullptr, &InternalStats::HandleTotalBlobFileSize, nullptr,
-          nullptr}},
-        {DB::Properties::kLiveBlobFileSize,
-         {false, nullptr, &InternalStats::HandleLiveBlobFileSize, nullptr,
-          nullptr}},
-        {DB::Properties::kLiveBlobFileGarbageSize,
-         {false, nullptr, &InternalStats::HandleLiveBlobFileGarbageSize,
-          nullptr, nullptr}},
-        {DB::Properties::kBlobCacheCapacity,
-         {false, nullptr, &InternalStats::HandleBlobCacheCapacity, nullptr,
-          nullptr}},
-        {DB::Properties::kBlobCacheUsage,
-         {false, nullptr, &InternalStats::HandleBlobCacheUsage, nullptr,
-          nullptr}},
-        {DB::Properties::kBlobCachePinnedUsage,
-         {false, nullptr, &InternalStats::HandleBlobCachePinnedUsage, nullptr,
-          nullptr}},
-};
+const UnorderedMap<std::string, DBPropertyInfo>&
+InternalStats::GetPptNameToInfo() {
+  static const UnorderedMap<std::string, DBPropertyInfo> ppt_name_to_info = {
+      {DB::Properties::GetNumFilesAtLevelPrefix(),
+       {false, &InternalStats::HandleNumFilesAtLevel, nullptr, nullptr,
+        nullptr}},
+      {DB::Properties::GetCompressionRatioAtLevelPrefix(),
+       {false, &InternalStats::HandleCompressionRatioAtLevelPrefix, nullptr,
+        nullptr, nullptr}},
+      {DB::Properties::GetLevelStats(),
+       {false, &InternalStats::HandleLevelStats, nullptr, nullptr, nullptr}},
+      {DB::Properties::GetStats(),
+       {false, &InternalStats::HandleStats, nullptr, nullptr, nullptr}},
+      {DB::Properties::GetCFStats(),
+       {false, &InternalStats::HandleCFStats, nullptr,
+        &InternalStats::HandleCFMapStats, nullptr}},
+      {InternalStats::GetPeriodicCFStats(),
+       {false, &InternalStats::HandleCFStatsPeriodic, nullptr, nullptr,
+        nullptr}},
+      {DB::Properties::GetCFStatsNoFileHistogram(),
+       {false, &InternalStats::HandleCFStatsNoFileHistogram, nullptr, nullptr,
+        nullptr}},
+      {DB::Properties::GetCFFileHistogram(),
+       {false, &InternalStats::HandleCFFileHistogram, nullptr, nullptr,
+        nullptr}},
+      {DB::Properties::GetCFWriteStallStats(),
+       {false, &InternalStats::HandleCFWriteStallStats, nullptr,
+        &InternalStats::HandleCFWriteStallStatsMap, nullptr}},
+      {DB::Properties::GetDBStats(),
+       {false, &InternalStats::HandleDBStats, nullptr,
+        &InternalStats::HandleDBMapStats, nullptr}},
+      {DB::Properties::GetDBWriteStallStats(),
+       {false, &InternalStats::HandleDBWriteStallStats, nullptr,
+        &InternalStats::HandleDBWriteStallStatsMap, nullptr}},
+      {DB::Properties::GetBlockCacheEntryStats(),
+       {true, &InternalStats::HandleBlockCacheEntryStats, nullptr,
+        &InternalStats::HandleBlockCacheEntryStatsMap, nullptr}},
+      {DB::Properties::GetFastBlockCacheEntryStats(),
+       {true, &InternalStats::HandleFastBlockCacheEntryStats, nullptr,
+        &InternalStats::HandleFastBlockCacheEntryStatsMap, nullptr}},
+      {DB::Properties::GetSSTables(),
+       {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
+      {DB::Properties::GetAggregatedTableProperties(),
+       {false, &InternalStats::HandleAggregatedTableProperties, nullptr,
+        &InternalStats::HandleAggregatedTablePropertiesMap, nullptr}},
+      {DB::Properties::GetAggregatedTablePropertiesAtLevel(),
+       {false, &InternalStats::HandleAggregatedTablePropertiesAtLevel, nullptr,
+        &InternalStats::HandleAggregatedTablePropertiesAtLevelMap, nullptr}},
+      {DB::Properties::GetNumImmutableMemTable(),
+       {false, nullptr, &InternalStats::HandleNumImmutableMemTable, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumImmutableMemTableFlushed(),
+       {false, nullptr, &InternalStats::HandleNumImmutableMemTableFlushed,
+        nullptr, nullptr}},
+      {DB::Properties::GetMemTableFlushPending(),
+       {false, nullptr, &InternalStats::HandleMemTableFlushPending, nullptr,
+        nullptr}},
+      {DB::Properties::GetCompactionPending(),
+       {false, nullptr, &InternalStats::HandleCompactionPending, nullptr,
+        nullptr}},
+      {DB::Properties::GetBackgroundErrors(),
+       {false, nullptr, &InternalStats::HandleBackgroundErrors, nullptr,
+        nullptr}},
+      {DB::Properties::GetCurSizeActiveMemTable(),
+       {false, nullptr, &InternalStats::HandleCurSizeActiveMemTable, nullptr,
+        nullptr}},
+      {DB::Properties::GetCurSizeAllMemTables(),
+       {false, nullptr, &InternalStats::HandleCurSizeAllMemTables, nullptr,
+        nullptr}},
+      {DB::Properties::GetSizeAllMemTables(),
+       {false, nullptr, &InternalStats::HandleSizeAllMemTables, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumEntriesActiveMemTable(),
+       {false, nullptr, &InternalStats::HandleNumEntriesActiveMemTable, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumEntriesImmMemTables(),
+       {false, nullptr, &InternalStats::HandleNumEntriesImmMemTables, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumDeletesActiveMemTable(),
+       {false, nullptr, &InternalStats::HandleNumDeletesActiveMemTable, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumDeletesImmMemTables(),
+       {false, nullptr, &InternalStats::HandleNumDeletesImmMemTables, nullptr,
+        nullptr}},
+      {DB::Properties::GetEstimateNumKeys(),
+       {false, nullptr, &InternalStats::HandleEstimateNumKeys, nullptr,
+        nullptr}},
+      {DB::Properties::GetEstimateTableReadersMem(),
+       {true, nullptr, &InternalStats::HandleEstimateTableReadersMem, nullptr,
+        nullptr}},
+      {DB::Properties::GetIsFileDeletionsEnabled(),
+       {false, nullptr, &InternalStats::HandleIsFileDeletionsEnabled, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumSnapshots(),
+       {false, nullptr, &InternalStats::HandleNumSnapshots, nullptr, nullptr}},
+      {DB::Properties::GetOldestSnapshotTime(),
+       {false, nullptr, &InternalStats::HandleOldestSnapshotTime, nullptr,
+        nullptr}},
+      {DB::Properties::GetOldestSnapshotSequence(),
+       {false, nullptr, &InternalStats::HandleOldestSnapshotSequence, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumLiveVersions(),
+       {false, nullptr, &InternalStats::HandleNumLiveVersions, nullptr,
+        nullptr}},
+      {DB::Properties::GetCurrentSuperVersionNumber(),
+       {false, nullptr, &InternalStats::HandleCurrentSuperVersionNumber,
+        nullptr, nullptr}},
+      {DB::Properties::GetEstimateLiveDataSize(),
+       {true, nullptr, &InternalStats::HandleEstimateLiveDataSize, nullptr,
+        nullptr}},
+      {DB::Properties::GetMinLogNumberToKeep(),
+       {false, nullptr, &InternalStats::HandleMinLogNumberToKeep, nullptr,
+        nullptr}},
+      {DB::Properties::GetMinObsoleteSstNumberToKeep(),
+       {false, nullptr, &InternalStats::HandleMinObsoleteSstNumberToKeep,
+        nullptr, nullptr}},
+      {DB::Properties::GetBaseLevel(),
+       {false, nullptr, &InternalStats::HandleBaseLevel, nullptr, nullptr}},
+      {DB::Properties::GetTotalSstFilesSize(),
+       {false, nullptr, &InternalStats::HandleTotalSstFilesSize, nullptr,
+        nullptr}},
+      {DB::Properties::GetLiveSstFilesSize(),
+       {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
+        nullptr}},
+      {DB::Properties::GetLiveSstFilesSizeAtTemperature(),
+       {false, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
+        nullptr, nullptr}},
+      {DB::Properties::GetObsoleteSstFilesSize(),
+       {false, nullptr, &InternalStats::HandleObsoleteSstFilesSize, nullptr,
+        nullptr}},
+      {DB::Properties::GetEstimatePendingCompactionBytes(),
+       {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
+        nullptr, nullptr}},
+      {DB::Properties::GetNumRunningFlushes(),
+       {false, nullptr, &InternalStats::HandleNumRunningFlushes, nullptr,
+        nullptr}},
+      {DB::Properties::GetNumRunningCompactions(),
+       {false, nullptr, &InternalStats::HandleNumRunningCompactions, nullptr,
+        nullptr}},
+      {DB::Properties::GetActualDelayedWriteRate(),
+       {false, nullptr, &InternalStats::HandleActualDelayedWriteRate, nullptr,
+        nullptr}},
+      {DB::Properties::GetIsWriteStopped(),
+       {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr,
+        nullptr}},
+      {DB::Properties::GetEstimateOldestKeyTime(),
+       {false, nullptr, &InternalStats::HandleEstimateOldestKeyTime, nullptr,
+        nullptr}},
+      {DB::Properties::GetBlockCacheCapacity(),
+       {false, nullptr, &InternalStats::HandleBlockCacheCapacity, nullptr,
+        nullptr}},
+      {DB::Properties::GetBlockCacheUsage(),
+       {false, nullptr, &InternalStats::HandleBlockCacheUsage, nullptr,
+        nullptr}},
+      {DB::Properties::GetBlockCachePinnedUsage(),
+       {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage, nullptr,
+        nullptr}},
+      {DB::Properties::GetOptionsStatistics(),
+       {true, nullptr, nullptr, nullptr,
+        &DBImpl::GetPropertyHandleOptionsStatistics}},
+      {DB::Properties::GetNumBlobFiles(),
+       {false, nullptr, &InternalStats::HandleNumBlobFiles, nullptr, nullptr}},
+      {DB::Properties::GetBlobStats(),
+       {false, &InternalStats::HandleBlobStats, nullptr, nullptr, nullptr}},
+      {DB::Properties::GetTotalBlobFileSize(),
+       {false, nullptr, &InternalStats::HandleTotalBlobFileSize, nullptr,
+        nullptr}},
+      {DB::Properties::GetLiveBlobFileSize(),
+       {false, nullptr, &InternalStats::HandleLiveBlobFileSize, nullptr,
+        nullptr}},
+      {DB::Properties::GetLiveBlobFileGarbageSize(),
+       {false, nullptr, &InternalStats::HandleLiveBlobFileGarbageSize, nullptr,
+        nullptr}},
+      {DB::Properties::GetBlobCacheCapacity(),
+       {false, nullptr, &InternalStats::HandleBlobCacheCapacity, nullptr,
+        nullptr}},
+      {DB::Properties::GetBlobCacheUsage(),
+       {false, nullptr, &InternalStats::HandleBlobCacheUsage, nullptr,
+        nullptr}},
+      {DB::Properties::GetBlobCachePinnedUsage(),
+       {false, nullptr, &InternalStats::HandleBlobCachePinnedUsage, nullptr,
+        nullptr}},
+  };
+  return ppt_name_to_info;
+}
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
                              ColumnFamilyData* cfd)
@@ -959,8 +1177,8 @@ bool InternalStats::HandleBlobCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
   std::string ppt_name = GetPropertyNameAndArg(property).first.ToString();
-  auto ppt_info_iter = InternalStats::ppt_name_to_info.find(ppt_name);
-  if (ppt_info_iter == InternalStats::ppt_name_to_info.end()) {
+  auto ppt_info_iter = InternalStats::GetPptNameToInfo().find(ppt_name);
+  if (ppt_info_iter == InternalStats::GetPptNameToInfo().end()) {
     return nullptr;
   }
   return &ppt_info_iter->second;
@@ -1534,7 +1752,7 @@ void InternalStats::DumpDBMapStats(
     std::map<std::string, std::string>* db_stats) {
   for (int i = 0; i < static_cast<int>(kIntStatsNumMax); ++i) {
     InternalDBStatsType type = static_cast<InternalDBStatsType>(i);
-    (*db_stats)[db_stats_type_to_info.at(type).property_name] =
+    (*db_stats)[GetDBStatsTypeToInfo().at(type).property_name] =
         std::to_string(GetDBStats(type));
   }
   double seconds_up = (clock_->NowMicros() - started_at_) / kMicrosInSec;
@@ -1735,7 +1953,7 @@ void InternalStats::DumpCFMapStats(
       auto stat_type = stat_ent.first;
       auto key_str =
           "compaction." + level_str + "." +
-          InternalStats::compaction_level_stats.at(stat_type).property_name;
+          InternalStats::GetCompactionLevelStats().at(stat_type).property_name;
       (*cf_stats)[key_str] = std::to_string(stat_ent.second);
     }
   }
@@ -2186,9 +2404,9 @@ class BlockCachePropertyAggregator : public IntPropertyAggregator {
 
 std::unique_ptr<IntPropertyAggregator> CreateIntPropertyAggregator(
     const Slice& property) {
-  if (property == DB::Properties::kBlockCacheCapacity ||
-      property == DB::Properties::kBlockCacheUsage ||
-      property == DB::Properties::kBlockCachePinnedUsage) {
+  if (property == DB::Properties::GetBlockCacheCapacity() ||
+      property == DB::Properties::GetBlockCacheUsage() ||
+      property == DB::Properties::GetBlockCachePinnedUsage()) {
     return std::make_unique<BlockCachePropertyAggregator>();
   } else {
     return std::make_unique<SumPropertyAggregator>();

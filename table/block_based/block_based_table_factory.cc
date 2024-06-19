@@ -164,7 +164,6 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   return std::min(kMaxPrefetchSize, max_qualified_size);
 }
 
-
 const std::string kOptNameMetadataCacheOpts = "metadata_cache_options";
 
 static std::unordered_map<std::string, PinningTier>
@@ -495,8 +494,8 @@ namespace {
 // Different cache kinds use the same keys for physically different values, so
 // they must not share an underlying key space with each other.
 Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
-  int cache_count = (bbto.block_cache != nullptr) +
-                    (bbto.persistent_cache != nullptr);
+  int cache_count =
+      (bbto.block_cache != nullptr) + (bbto.persistent_cache != nullptr);
   if (cache_count <= 1) {
     // Nothing to share / overlap
     return Status::OK();
@@ -724,7 +723,7 @@ Status BlockBasedTableFactory::ValidateOptions(
     }
   }
   std::string garbage;
-  if (!SerializeEnum<ChecksumType>(checksum_type_string_map,
+  if (!SerializeEnum<ChecksumType>(OptionsHelper::GetChecksumTypeStringMap(),
                                    table_options_.checksum, &garbage)) {
     return Status::InvalidArgument(
         "Unrecognized ChecksumType for checksum: " +

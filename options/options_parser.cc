@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "options/options_parser.h"
 
 #include <cmath>
@@ -34,6 +33,11 @@ static const std::string option_file_header =
     "# in examples/rocksdb_option_file_example.ini\n"
     "#\n"
     "\n";
+const std::array<std::string, 5>& GetOptSectionTitles() {
+  static const std::array<std::string, 5> opt_section_titles = {
+      "Version", "DBOptions", "CFOptions", "TableOptions/", "Unknown"};
+  return opt_section_titles;
+}
 
 Status PersistRocksDBOptions(const WriteOptions& write_options,
                              const DBOptions& db_opt,
@@ -69,8 +73,7 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
   }
   std::unique_ptr<FSWritableFile> wf;
 
-  Status s =
-      fs->NewWritableFile(file_name, FileOptions(), &wf, nullptr);
+  Status s = fs->NewWritableFile(file_name, FileOptions(), &wf, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -84,13 +87,14 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
   IOOptions opts;
   s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
-    s = writable->Append(opts, option_file_header + "[" +
-                                   opt_section_titles[kOptionSectionVersion] +
-                                   "]\n"
-                                   "  rocksdb_version=" +
-                                   std::to_string(ROCKSDB_MAJOR) + "." +
-                                   std::to_string(ROCKSDB_MINOR) + "." +
-                                   std::to_string(ROCKSDB_PATCH) + "\n");
+    s = writable->Append(opts,
+                         option_file_header + "[" +
+                             GetOptSectionTitles()[kOptionSectionVersion] +
+                             "]\n"
+                             "  rocksdb_version=" +
+                             std::to_string(ROCKSDB_MAJOR) + "." +
+                             std::to_string(ROCKSDB_MINOR) + "." +
+                             std::to_string(ROCKSDB_PATCH) + "\n");
   }
   if (s.ok()) {
     s = writable->Append(
@@ -100,7 +104,7 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
   }
   if (s.ok()) {
     s = writable->Append(
-        opts, "\n[" + opt_section_titles[kOptionSectionDBOptions] + "]\n  ");
+        opts, "\n[" + GetOptSectionTitles()[kOptionSectionDBOptions] + "]\n  ");
   }
 
   if (s.ok()) {
@@ -113,7 +117,7 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
   for (size_t i = 0; s.ok() && i < cf_opts.size(); ++i) {
     // CFOptions section
     s = writable->Append(
-        opts, "\n[" + opt_section_titles[kOptionSectionCFOptions] + " \"" +
+        opts, "\n[" + GetOptSectionTitles()[kOptionSectionCFOptions] + " \"" +
                   EscapeOptionString(cf_names[i]) + "\"]\n  ");
     if (s.ok()) {
       s = GetStringFromColumnFamilyOptions(config_options, cf_opts[i],
@@ -127,7 +131,7 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
     if (tf != nullptr) {
       if (s.ok()) {
         s = writable->Append(
-            opts, "[" + opt_section_titles[kOptionSectionTableOptions] +
+            opts, "[" + GetOptSectionTitles()[kOptionSectionTableOptions] +
                       tf->Name() + " \"" + EscapeOptionString(cf_names[i]) +
                       "\"]\n  ");
       }
@@ -202,10 +206,10 @@ Status RocksDBOptionsParser::ParseSection(OptionSection* section,
     *argument = "";
   }
   for (int i = 0; i < kOptionSectionUnknown; ++i) {
-    if (title->find(opt_section_titles[i]) == 0) {
+    if (title->find(GetOptSectionTitles()[i]) == 0) {
       if (i == kOptionSectionVersion || i == kOptionSectionDBOptions ||
           i == kOptionSectionCFOptions) {
-        if (title->size() == opt_section_titles[i].size()) {
+        if (title->size() == GetOptSectionTitles()[i].size()) {
           // if true, then it indicats equal
           *section = static_cast<OptionSection>(i);
           return CheckSection(*section, *argument, line_num);
@@ -213,7 +217,7 @@ Status RocksDBOptionsParser::ParseSection(OptionSection* section,
       } else if (i == kOptionSectionTableOptions) {
         // This type of sections has a sufffix at the end of the
         // section title
-        if (title->size() > opt_section_titles[i].size()) {
+        if (title->size() > GetOptSectionTitles()[i].size()) {
           *section = static_cast<OptionSection>(i);
           return CheckSection(*section, *argument, line_num);
         }
@@ -268,8 +272,8 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
   ConfigOptions config_options = config_options_in;
 
   std::unique_ptr<FSSequentialFile> seq_file;
-  Status s = fs->NewSequentialFile(file_name, FileOptions(), &seq_file,
-                                   nullptr);
+  Status s =
+      fs->NewSequentialFile(file_name, FileOptions(), &seq_file, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -363,9 +367,8 @@ Status RocksDBOptionsParser::CheckSection(const OptionSection section,
   } else if (section == kOptionSectionTableOptions) {
     if (GetCFOptions(section_arg) == nullptr) {
       return InvalidArgument(
-          line_num, std::string(
-                        "Does not find a matched column family name in "
-                        "TableOptions section.  Column Family Name:") +
+          line_num, std::string("Does not find a matched column family name in "
+                                "TableOptions section.  Column Family Name:") +
                         section_arg);
     }
   } else if (section == kOptionSectionVersion) {
@@ -468,7 +471,7 @@ Status RocksDBOptionsParser::EndSection(
     s = TableFactory::CreateFromString(
         config_options,
         section_title.substr(
-            opt_section_titles[kOptionSectionTableOptions].size()),
+            GetOptSectionTitles()[kOptionSectionTableOptions].size()),
         &(cf_opt->table_factory));
     if (s.ok() && cf_opt->table_factory != nullptr) {
       s = cf_opt->table_factory->ConfigureFromMap(config_options, opt_map);

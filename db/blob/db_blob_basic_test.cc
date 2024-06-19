@@ -1289,20 +1289,21 @@ TEST_F(DBBlobBasicTest, Properties) {
   // Number of blob files
   uint64_t num_blob_files = 0;
   ASSERT_TRUE(
-      db_->GetIntProperty(DB::Properties::kNumBlobFiles, &num_blob_files));
+      db_->GetIntProperty(DB::Properties::GetNumBlobFiles(), &num_blob_files));
   ASSERT_EQ(num_blob_files, 2);
 
   // Total size of live blob files
   uint64_t live_blob_file_size = 0;
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileSize,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetLiveBlobFileSize(),
                                   &live_blob_file_size));
   ASSERT_EQ(live_blob_file_size, total_expected_size);
 
   // Total amount of garbage in live blob files
   {
     uint64_t live_blob_file_garbage_size = 0;
-    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileGarbageSize,
-                                    &live_blob_file_garbage_size));
+    ASSERT_TRUE(
+        db_->GetIntProperty(DB::Properties::GetLiveBlobFileGarbageSize(),
+                            &live_blob_file_garbage_size));
     ASSERT_EQ(live_blob_file_garbage_size, 0);
   }
 
@@ -1310,7 +1311,7 @@ TEST_F(DBBlobBasicTest, Properties) {
   // Note: this should be the same as above since we only have one
   // version at this point.
   uint64_t total_blob_file_size = 0;
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetTotalBlobFileSize(),
                                   &total_blob_file_size));
   ASSERT_EQ(total_blob_file_size, total_expected_size);
 
@@ -1332,7 +1333,7 @@ TEST_F(DBBlobBasicTest, Properties) {
 
   // Blob file stats
   std::string blob_stats;
-  ASSERT_TRUE(db_->GetProperty(DB::Properties::kBlobStats, &blob_stats));
+  ASSERT_TRUE(db_->GetProperty(DB::Properties::GetBlobStats(), &blob_stats));
 
   std::ostringstream oss;
   oss << "Number of blob files: 2\nTotal size of blob files: "
@@ -1345,8 +1346,9 @@ TEST_F(DBBlobBasicTest, Properties) {
   // Total amount of garbage in live blob files
   {
     uint64_t live_blob_file_garbage_size = 0;
-    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileGarbageSize,
-                                    &live_blob_file_garbage_size));
+    ASSERT_TRUE(
+        db_->GetIntProperty(DB::Properties::GetLiveBlobFileGarbageSize(),
+                            &live_blob_file_garbage_size));
     ASSERT_EQ(live_blob_file_garbage_size, expected_garbage_size);
   }
 }
@@ -1398,7 +1400,7 @@ TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
   // file. (The second blob file is thus shared by the two versions but should
   // be counted only once.)
   uint64_t total_blob_file_size = 0;
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetTotalBlobFileSize(),
                                   &total_blob_file_size));
   ASSERT_EQ(total_blob_file_size,
             3 * (BlobLogHeader::kSize +

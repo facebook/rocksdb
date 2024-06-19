@@ -1951,8 +1951,8 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   // We ingested the error to env, so the returned status is not OK.
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
   uint64_t num_bg_errors;
-  ASSERT_TRUE(
-      db_->GetIntProperty(DB::Properties::kBackgroundErrors, &num_bg_errors));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::GetBackgroundErrors(),
+                                  &num_bg_errors));
   ASSERT_GT(num_bg_errors, 0);
 
   // In the bug scenario, triggering another flush would cause the second flush

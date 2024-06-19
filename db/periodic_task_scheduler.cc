@@ -21,23 +21,31 @@ namespace ROCKSDB_NAMESPACE {
 // infrequently.
 static port::Mutex timer_mutex;
 
-static const std::map<PeriodicTaskType, uint64_t> kDefaultPeriodSeconds = {
-    {PeriodicTaskType::kDumpStats, kInvalidPeriodSec},
-    {PeriodicTaskType::kPersistStats, kInvalidPeriodSec},
-    {PeriodicTaskType::kFlushInfoLog, 10},
-    {PeriodicTaskType::kRecordSeqnoTime, kInvalidPeriodSec},
-};
+static const std::map<PeriodicTaskType, uint64_t>& GetDefaultPeriodSeconds() {
+  static const std::map<PeriodicTaskType, uint64_t> kDefaultPeriodSeconds = {
+      {PeriodicTaskType::kDumpStats, kInvalidPeriodSec},
+      {PeriodicTaskType::kPersistStats, kInvalidPeriodSec},
+      {PeriodicTaskType::kFlushInfoLog, 10},
+      {PeriodicTaskType::kRecordSeqnoTime, kInvalidPeriodSec},
+  };
+  return kDefaultPeriodSeconds;
+}
 
-static const std::map<PeriodicTaskType, std::string> kPeriodicTaskTypeNames = {
-    {PeriodicTaskType::kDumpStats, "dump_st"},
-    {PeriodicTaskType::kPersistStats, "pst_st"},
-    {PeriodicTaskType::kFlushInfoLog, "flush_info_log"},
-    {PeriodicTaskType::kRecordSeqnoTime, "record_seq_time"},
-};
+static const std::map<PeriodicTaskType, std::string>&
+GetPeriodicTaskTypeNames() {
+  static const std::map<PeriodicTaskType, std::string> kPeriodicTaskTypeNames =
+      {
+          {PeriodicTaskType::kDumpStats, "dump_st"},
+          {PeriodicTaskType::kPersistStats, "pst_st"},
+          {PeriodicTaskType::kFlushInfoLog, "flush_info_log"},
+          {PeriodicTaskType::kRecordSeqnoTime, "record_seq_time"},
+      };
+  return kPeriodicTaskTypeNames;
+}
 
 Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
                                        const PeriodicTaskFunc& fn) {
-  return Register(task_type, fn, kDefaultPeriodSeconds.at(task_type));
+  return Register(task_type, fn, GetDefaultPeriodSeconds().at(task_type));
 }
 
 Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
@@ -63,7 +71,7 @@ Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
   timer_->Start();
   // put task type name as prefix, for easy debug
   std::string unique_id =
-      kPeriodicTaskTypeNames.at(task_type) + std::to_string(id_++);
+      GetPeriodicTaskTypeNames().at(task_type) + std::to_string(id_++);
 
   bool succeeded = timer_->Add(
       fn, unique_id,

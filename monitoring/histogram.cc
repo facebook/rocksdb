@@ -52,16 +52,19 @@ size_t HistogramBucketMapper::IndexForValue(const uint64_t value) const {
 }
 
 namespace {
-const HistogramBucketMapper bucketMapper;
+static const HistogramBucketMapper& GetBucketMapper() {
+  static const HistogramBucketMapper bucketMapper;
+  return bucketMapper;
 }
+}  // namespace
 
-HistogramStat::HistogramStat() : num_buckets_(bucketMapper.BucketCount()) {
+HistogramStat::HistogramStat() : num_buckets_(GetBucketMapper().BucketCount()) {
   assert(num_buckets_ == sizeof(buckets_) / sizeof(*buckets_));
   Clear();
 }
 
 void HistogramStat::Clear() {
-  min_.store(bucketMapper.LastValue(), std::memory_order_relaxed);
+  min_.store(GetBucketMapper().LastValue(), std::memory_order_relaxed);
   max_.store(0, std::memory_order_relaxed);
   num_.store(0, std::memory_order_relaxed);
   sum_.store(0, std::memory_order_relaxed);
@@ -77,7 +80,7 @@ void HistogramStat::Add(uint64_t value) {
   // This function is designed to be lock free, as it's in the critical path
   // of any operation. Each individual value is atomic and the order of updates
   // by concurrent threads is tolerable.
-  const size_t index = bucketMapper.IndexForValue(value);
+  const size_t index = GetBucketMapper().IndexForValue(value);
   assert(index < num_buckets_);
   buckets_[index].store(buckets_[index].load(std::memory_order_relaxed) + 1,
                         std::memory_order_relaxed);
@@ -135,8 +138,8 @@ double HistogramStat::Percentile(double p) const {
     cumulative_sum += bucket_value;
     if (cumulative_sum >= threshold) {
       // Scale linearly within this bucket
-      uint64_t left_point = (b == 0) ? 0 : bucketMapper.BucketLimit(b - 1);
-      uint64_t right_point = bucketMapper.BucketLimit(b);
+      uint64_t left_point = (b == 0) ? 0 : GetBucketMapper().BucketLimit(b - 1);
+      uint64_t right_point = GetBucketMapper().BucketLimit(b);
       uint64_t left_sum = cumulative_sum - bucket_value;
       uint64_t right_sum = cumulative_sum;
       double pos = 0;
@@ -213,10 +216,10 @@ std::string HistogramStat::ToString() const {
     snprintf(buf, sizeof(buf),
              "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",
              (b == 0) ? '[' : '(',
-             (b == 0) ? 0 : bucketMapper.BucketLimit(b - 1),  // left
-             bucketMapper.BucketLimit(b),                     // right
-             bucket_value,                                    // count
-             (mult * bucket_value),                           // percentage
+             (b == 0) ? 0 : GetBucketMapper().BucketLimit(b - 1),  // left
+             GetBucketMapper().BucketLimit(b),                     // right
+             bucket_value,                                         // count
+             (mult * bucket_value),                                // percentage
              (mult * cumulative_sum));  // cumulative percentage
     r.append(buf);
 

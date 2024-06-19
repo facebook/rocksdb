@@ -562,7 +562,8 @@ TEST_P(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
 
   TEST_SYNC_POINT("ColumnFamilyTest.CreateCFRaceWithGetAggProperty:1");
   uint64_t pv;
-  db_->GetAggregatedIntProperty(DB::Properties::kEstimateTableReadersMem, &pv);
+  db_->GetAggregatedIntProperty(DB::Properties::GetEstimateTableReadersMem(),
+                                &pv);
   TEST_SYNC_POINT("ColumnFamilyTest.CreateCFRaceWithGetAggProperty:2");
 
   thread.join();

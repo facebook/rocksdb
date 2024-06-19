@@ -453,8 +453,8 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
       ASSERT_OK(db_impl->TEST_SwitchMemtable());
     }
     uint64_t num_imm_mems;
-    ASSERT_TRUE(txn_db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
-                                       &num_imm_mems));
+    ASSERT_TRUE(txn_db->GetIntProperty(
+        DB::Properties::GetNumImmutableMemTable(), &num_imm_mems));
     if (attempt == kAttemptHistoryMemtable) {
       ASSERT_EQ(0, num_imm_mems);
     } else {

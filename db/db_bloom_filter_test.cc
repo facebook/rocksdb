@@ -593,7 +593,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     // Sanity check some table properties
     std::map<std::string, std::string> props;
     ASSERT_TRUE(db_->GetMapProperty(
-        handles_[1], DB::Properties::kAggregatedTableProperties, &props));
+        handles_[1], DB::Properties::GetAggregatedTableProperties(), &props));
     uint64_t nkeys = N + N / 100;
     uint64_t filter_size = ParseUint64(props["filter_size"]);
     EXPECT_LE(filter_size,
@@ -674,7 +674,7 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
     GetFn();
   };
   std::map<std::string, std::string> props;
-  const auto& kAggTableProps = DB::Properties::kAggregatedTableProperties;
+  const auto& kAggTableProps = DB::Properties::GetAggregatedTableProperties();
 
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -1658,7 +1658,7 @@ class TestingContextCustomFilterPolicy
     test_report_ += context.column_family_name;
     test_report_ += ",s=";
     test_report_ +=
-        OptionsHelper::compaction_style_to_string[context.compaction_style];
+        OptionsHelper::GetCompactionStyleToString()[context.compaction_style];
     test_report_ += ",n=";
     test_report_ += std::to_string(context.num_levels);
     test_report_ += ",l=";

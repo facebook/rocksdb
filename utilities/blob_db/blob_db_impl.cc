@@ -1267,7 +1267,8 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
 
 void BlobDBImpl::UpdateLiveSSTSize(const WriteOptions& write_options) {
   uint64_t live_sst_size = 0;
-  bool ok = GetIntProperty(DB::Properties::kLiveSstFilesSize, &live_sst_size);
+  bool ok =
+      GetIntProperty(DB::Properties::GetLiveSstFilesSize(), &live_sst_size);
   if (ok) {
     live_sst_size_.store(live_sst_size);
     ROCKS_LOG_INFO(db_options_.info_log,
