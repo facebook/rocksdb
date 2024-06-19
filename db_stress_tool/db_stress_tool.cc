@@ -82,9 +82,11 @@ int db_stress_tool(int argc, char** argv) {
   dbsl_env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(raw_env);
   db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
-  if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
-      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
-      FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) {
+  if (FLAGS_open_metadata_read_fault_one_in ||
+      FLAGS_open_metadata_write_fault_one_in || FLAGS_open_read_fault_one_in ||
+      FLAGS_open_write_fault_one_in || FLAGS_metadata_read_fault_one_in ||
+      FLAGS_metadata_write_fault_one_in || FLAGS_read_fault_one_in ||
+      FLAGS_write_fault_one_in || FLAGS_sync_fault_injection) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);

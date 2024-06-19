@@ -301,7 +301,10 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   }
   if (immutable_db_options_.write_dbid_to_manifest) {
     std::string temp_db_id;
-    GetDbIdentityFromIdentityFile(&temp_db_id);
+    s = GetDbIdentityFromIdentityFile(&temp_db_id);
+    if (!s.ok()) {
+      return s;
+    }
     new_db.SetDBId(temp_db_id);
   }
   new_db.SetLogNumber(0);

@@ -1028,6 +1028,14 @@ DEFINE_int32(approximate_size_one_in, 64,
 DEFINE_int32(read_fault_one_in, 1000,
              "On non-zero, enables fault injection on read");
 
+DEFINE_bool(error_recovery_with_no_fault_injection, false,
+            "If true, error recovery will be done without fault injection if "
+            "fault injection is enabled");
+
+DEFINE_int32(metadata_read_fault_one_in, 1000,
+             "On non-zero, enables fault injection on metadata read (i.e, "
+             "directory and file metadata read)");
+
 DEFINE_int32(get_property_one_in, 1000,
              "If non-zero, then DB::GetProperty() will be called to get various"
              " properties for every N ops on average. 0 indicates that"
@@ -1087,6 +1095,10 @@ DEFINE_int32(write_fault_one_in, 0,
              "On non-zero, enables fault injection on write. Currently only"
              "injects write error when writing to SST files.");
 
+DEFINE_int32(metadata_write_fault_one_in, 1000,
+             "On non-zero, enables fault injection on metadata write (i.e, "
+             "directory and file metadata write)");
+
 DEFINE_uint64(user_timestamp_size, 0,
               "Number of bytes for a user-defined timestamp. Currently, only "
               "8-byte is supported");
@@ -1094,6 +1106,11 @@ DEFINE_uint64(user_timestamp_size, 0,
 DEFINE_bool(persist_user_defined_timestamps, true,
             "Flag to indicate whether user-defined timestamps will be persisted"
             " during Flush");
+
+DEFINE_int32(open_metadata_read_fault_one_in, 0,
+             "On non-zero, enables fault injection on file metadata read (i.e, "
+             "directory and file metadata read)"
+             "during DB reopen.");
 
 DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "

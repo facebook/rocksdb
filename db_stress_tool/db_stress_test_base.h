@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/io_status.h"
 #ifdef GFLAGS
 #pragma once
 
@@ -43,8 +44,24 @@ class StressTest {
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
   void PrintStatistics();
+  bool MightHaveDataLoss() {
+    return FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0 ||
+           FLAGS_metadata_write_fault_one_in > 0 || FLAGS_disable_wal ||
+           FLAGS_manual_wal_flush_one_in > 0;
+  }
 
  protected:
+  static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
+    if (error_count_1 > 0 && error_count_2 > 0) {
+      return std::min(error_count_1, error_count_2);
+    } else if (error_count_1 > 0) {
+      return error_count_1;
+    } else if (error_count_2 > 0) {
+      return error_count_2;
+    } else {
+      return 0;
+    }
+  }
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
 
@@ -242,13 +259,13 @@ class StressTest {
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
 
-  Status VerifyGetLiveFiles() const;
-  Status VerifyGetLiveFilesMetaData() const;
-  Status VerifyGetLiveFilesStorageInfo() const;
-  Status VerifyGetAllColumnFamilyMetaData() const;
+  Status TestGetLiveFiles() const;
+  Status TestGetLiveFilesMetaData() const;
+  Status TestGetLiveFilesStorageInfo() const;
+  Status TestGetAllColumnFamilyMetaData() const;
 
-  Status VerifyGetSortedWalFiles() const;
-  Status VerifyGetCurrentWalFile() const;
+  Status TestGetSortedWalFiles() const;
+  Status TestGetCurrentWalFile() const;
   void TestGetProperty(ThreadState* thread) const;
   Status TestGetPropertiesOfAllTables() const;
 
@@ -261,6 +278,11 @@ class StressTest {
       ThreadState* /*thread*/,
       const std::vector<int>& /*rand_column_families*/) {
     return Status::NotSupported("TestCustomOperations() must be overridden");
+  }
+
+  bool IsRetryableInjectedError(const Status& s) const {
+    return s.getState() && std::strstr(s.getState(), "inject") &&
+           !status_to_io_status(Status(s)).GetDataLoss();
   }
 
   void ProcessStatus(SharedState* shared, std::string msg, const Status& s,

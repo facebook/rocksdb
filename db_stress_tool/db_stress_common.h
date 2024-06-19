@@ -89,7 +89,6 @@ DECLARE_string(options_file);
 DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
-DECLARE_int32(manual_wal_flush_one_in);
 DECLARE_int32(lock_wal_one_in);
 DECLARE_bool(test_cf_consistency);
 DECLARE_bool(test_multi_ops_txns);
@@ -193,7 +192,6 @@ DECLARE_uint64(bytes_per_sync);
 DECLARE_uint64(wal_bytes_per_sync);
 DECLARE_int32(kill_random_test);
 DECLARE_string(kill_exclude_prefixes);
-DECLARE_bool(disable_wal);
 DECLARE_uint64(recycle_log_file_num);
 DECLARE_int64(target_file_size_base);
 DECLARE_int32(target_file_size_multiplier);
@@ -319,8 +317,6 @@ DECLARE_int32(blob_cache_numshardbits);
 DECLARE_int32(prepopulate_blob_cache);
 
 DECLARE_int32(approximate_size_one_in);
-DECLARE_bool(sync_fault_injection);
-
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
