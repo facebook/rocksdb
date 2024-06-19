@@ -116,7 +116,7 @@ public class EventListenerTest {
                      .setAllowMmapReads(true)
                      .setAllowMmapWrites(true)
                      .setMaxOpenFiles(300);
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB db = RocksDB.open(opt, "/insert-dir")) {
       assertThat(db).isNotNull();
       final byte[] value = new byte[1024];
       for(int i = 0 ; i < 350 * 1000; i++) {
@@ -135,8 +135,10 @@ public class EventListenerTest {
   @Test
   public void onCompactionBegin() throws RocksDBException {
     final AtomicBoolean wasCbCalled = new AtomicBoolean();
-    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener(EnabledEventCallback.ON_COMPACTION_COMPLETED, EnabledEventCallback.ON_COMPACTION_BEGIN,
-            EnabledEventCallback.ON_FLUSH_BEGIN, EnabledEventCallback.ON_FLUSH_COMPLETED, EnabledEventCallback.ON_FILE_FLUSH_FINISH) {
+    //final AbstractEventListener onCompactionBeginListener = new AbstractEventListener(EnabledEventCallback.ON_COMPACTION_COMPLETED, EnabledEventCallback.ON_COMPACTION_BEGIN,
+    //            EnabledEventCallback.ON_FLUSH_BEGIN, EnabledEventCallback.ON_FLUSH_COMPLETED, EnabledEventCallback.ON_FILE_FLUSH_FINISH) {
+
+    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener() {
       @Override
       public void onCompactionBegin(final RocksDB db, final CompactionJobInfo compactionJobInfo) {
         System.out.println("On compaction begin");
