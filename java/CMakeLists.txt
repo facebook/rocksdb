@@ -360,6 +360,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/MemTableTest.java
   src/test/java/org/rocksdb/MemoryUtilTest.java
   src/test/java/org/rocksdb/MergeCFVariantsTest.java
+  src/test/java/org/rocksdb/MergeOperatorV2Test.java
   src/test/java/org/rocksdb/MergeTest.java
   src/test/java/org/rocksdb/MergeVariantsTest.java
   src/test/java/org/rocksdb/MixedOptionsTest.java
@@ -478,6 +479,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.MemTableTest
   org.rocksdb.MemoryUtilTest
   org.rocksdb.MergeCFVariantsTest
+  org.rocksdb.MergeOperatorV2Test
   org.rocksdb.MergeTest
   org.rocksdb.MergeVariantsTest
   org.rocksdb.MixedOptionsTest
