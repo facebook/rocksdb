@@ -99,7 +99,10 @@ class PrefetchTest
 
   virtual void SetGenericOptions(Env* env, bool use_direct_io,
                                  Options& options) {
-    options = CurrentOptions();
+    anon::OptionsOverride options_override;
+    // for !disable_io in PrefetchTest.Basic
+    options_override.full_block_cache = true;
+    options = CurrentOptions(options_override);
     options.write_buffer_size = 1024;
     options.create_if_missing = true;
     options.compression = kNoCompression;
