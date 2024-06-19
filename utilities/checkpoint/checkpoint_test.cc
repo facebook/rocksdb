@@ -848,15 +848,19 @@ TEST_F(CheckpointTest, CheckpointOptionsFileFailedToPersist) {
   // Setup `FaultInjectionTestFS` and `SyncPoint` callbacks to fail one
   // operation when inside the OPTIONS file persisting code.
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
-  fault_fs->SetRandomMetadataWriteError(1 /* one_in */);
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kWrite, 7 /* seed*/, 1 /* one_in */,
+      false /* retryable */, false /* has_data_loss*/);
   SyncPoint::GetInstance()->SetCallBack(
       "PersistRocksDBOptions:start", [fault_fs](void* /* arg */) {
-        fault_fs->EnableMetadataWriteErrorInjection();
+        fault_fs->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataWrite);
       });
   SyncPoint::GetInstance()->SetCallBack(
       "FaultInjectionTestFS::InjectMetadataWriteError:Injected",
       [fault_fs](void* /* arg */) {
-        fault_fs->DisableMetadataWriteErrorInjection();
+        fault_fs->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataWrite);
       });
   options.env = fault_fs_env.get();
   SyncPoint::GetInstance()->EnableProcessing();

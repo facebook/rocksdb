@@ -73,7 +73,10 @@ class CfConsistencyStressTest : public StressTest {
       status = db_->Write(write_opts, &batch);
     }
 
-    if (!status.ok()) {
+    if (IsRetryableInjectedError(status)) {
+      fprintf(stdout, "multi put or merge error: %s\n",
+              status.ToString().c_str());
+    } else if (!status.ok()) {
       fprintf(stderr, "multi put or merge error: %s\n",
               status.ToString().c_str());
       thread->stats.AddErrors(1);
@@ -96,7 +99,9 @@ class CfConsistencyStressTest : public StressTest {
       batch.Delete(cfh, key);
     }
     Status s = db_->Write(write_opts, &batch);
-    if (!s.ok()) {
+    if (IsRetryableInjectedError(s)) {
+      fprintf(stdout, "multidel error: %s\n", s.ToString().c_str());
+    } else if (!s.ok()) {
       fprintf(stderr, "multidel error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
@@ -125,7 +130,9 @@ class CfConsistencyStressTest : public StressTest {
       batch.DeleteRange(cfh, key, end_key);
     }
     Status s = db_->Write(write_opts, &batch);
-    if (!s.ok()) {
+    if (IsRetryableInjectedError(s)) {
+      fprintf(stdout, "multi del range error: %s\n", s.ToString().c_str());
+    } else if (!s.ok()) {
       fprintf(stderr, "multi del range error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     } else {
@@ -170,6 +177,15 @@ class CfConsistencyStressTest : public StressTest {
       std::string value0;
       s = db_->Get(readoptionscopy, column_families_[rand_column_families[0]],
                    key, &value0);
+
+      // Temporarily disable error injection for verification
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+
       if (s.ok() || s.IsNotFound()) {
         bool found = s.ok();
         for (size_t i = 1; i < rand_column_families.size(); i++) {
@@ -214,6 +230,13 @@ class CfConsistencyStressTest : public StressTest {
         }
       }
 
+      //  Enable back error injection disabled for verification
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
       db_->ReleaseSnapshot(snapshot);
     }
     if (!is_consistent) {
@@ -225,6 +248,8 @@ class CfConsistencyStressTest : public StressTest {
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
+    } else if (IsRetryableInjectedError(s)) {
+      fprintf(stdout, "TestGet error: %s\n", s.ToString().c_str());
     } else {
       fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
@@ -261,6 +286,8 @@ class CfConsistencyStressTest : public StressTest {
       } else if (s.IsNotFound()) {
         // not found case
         thread->stats.AddGets(1, 0);
+      } else if (IsRetryableInjectedError(s)) {
+        fprintf(stdout, "MultiGet error: %s\n", s.ToString().c_str());
       } else {
         // errors case
         fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
@@ -297,7 +324,12 @@ class CfConsistencyStressTest : public StressTest {
       PinnableWideColumns result;
       s = db_->GetEntity(read_opts, cfh, key, &result);
 
-      if (s.ok()) {
+      if (IsRetryableInjectedError(s)) {
+        fprintf(stdout,
+                "GetEntity error: inconsistent columns for key %s, entity %s\n",
+                StringToHex(key).c_str(),
+                WideColumnsToHex(result.columns()).c_str());
+      } else if (s.ok()) {
         if (!VerifyWideColumns(result.columns())) {
           fprintf(
               stderr,
@@ -323,6 +355,14 @@ class CfConsistencyStressTest : public StressTest {
                          column_families_[rand_column_families[0]], key,
                          &cmp_result);
 
+      //  Temporarily disable error injection for verification
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
       if (s.ok() || s.IsNotFound()) {
         const bool cmp_found = s.ok();
 
@@ -458,6 +498,14 @@ class CfConsistencyStressTest : public StressTest {
           }
         }
       }
+
+      //  Enable back error injection disabled for verification
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
     }
 
     if (!is_consistent) {
@@ -469,6 +517,8 @@ class CfConsistencyStressTest : public StressTest {
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
+    } else if (IsRetryableInjectedError(s)) {
+      fprintf(stdout, "TestGetEntity error: %s\n", s.ToString().c_str());
     } else {
       fprintf(stderr, "TestGetEntity error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
@@ -540,7 +590,11 @@ class CfConsistencyStressTest : public StressTest {
         for (size_t j = 0; j < num_cfs; ++j) {
           const Status& s = result[j].status();
           const WideColumns& columns = result[j].columns();
-          if (!s.ok() && !s.IsNotFound()) {
+          if (IsRetryableInjectedError(s)) {
+            fprintf(stdout, "TestMultiGetEntity (AttributeGroup) error: %s\n",
+                    s.ToString().c_str());
+            break;
+          } else if (!s.ok() && !s.IsNotFound()) {
             fprintf(stderr, "TestMultiGetEntity (AttributeGroup) error: %s\n",
                     s.ToString().c_str());
             thread->stats.AddErrors(1);
@@ -645,7 +699,11 @@ class CfConsistencyStressTest : public StressTest {
           const Status& s = statuses[j];
           const WideColumns& columns = results[j].columns();
 
-          if (!s.ok() && !s.IsNotFound()) {
+          if (IsRetryableInjectedError(s)) {
+            fprintf(stdout, "TestMultiGetEntity error: %s\n",
+                    s.ToString().c_str());
+            break;
+          } else if (!s.ok() && !s.IsNotFound()) {
             fprintf(stderr, "TestMultiGetEntity error: %s\n",
                     s.ToString().c_str());
             thread->stats.AddErrors(1);
@@ -746,6 +804,10 @@ class CfConsistencyStressTest : public StressTest {
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
+      if (FLAGS_use_sqfc_for_range_queries) {
+        ro_copy.table_filter =
+            sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
+      }
     }
 
     ColumnFamilyHandle* const cfh =
@@ -776,7 +838,9 @@ class CfConsistencyStressTest : public StressTest {
       s = iter->status();
     }
 
-    if (!s.ok()) {
+    if (IsRetryableInjectedError(s)) {
+      fprintf(stdout, "TestPrefixScan error: %s\n", s.ToString().c_str());
+    } else if (!s.ok()) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
 
