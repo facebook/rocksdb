@@ -70,9 +70,7 @@ Status StringToMap(const std::string& opts_str,
 
 struct OptionsHelper {
   static const std::string& GetCFOptionsName(); /*= "ColumnFamilyOptions"*/
-  ;
   static const std::string& GetDBOptionsName(); /*= "DBOptions" */
-  ;
   static std::map<CompactionStyle, std::string>& GetCompactionStyleToString();
   static std::map<CompactionPri, std::string>& GetCompactionPriToString();
   static std::map<CompactionStopStyle, std::string>&
