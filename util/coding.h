@@ -194,6 +194,36 @@ inline void PutVarsignedint64(std::string* dst, int64_t v) {
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
+/**
+ * @brief encode a signed int using 8 bits of every byte
+ *
+ * Efficient use of all 8 bits of as many bytes as necessary
+ * because the length of the encoding is known independently,
+ * e.g. as the length of the "value" in a (key,value)-pair
+ *
+ * -128..127 are a single byte sign extended value
+ * -32768..32767 are a 2-byte sign extended value
+ *
+ * @param dst buffer to encode into
+ * @param v value to encode
+ */
+inline void Put8BitVarsignedint64(std::string* dst, int64_t v) {
+  if (v >= 0) {
+    while (v > 0x7f) {
+      unsigned char byte = static_cast<uint64_t>(v) & 0xff;
+      dst->push_back(byte);
+      v >>= 8;
+    }
+  } else {
+    while (v < -0x80) {
+      unsigned char byte = static_cast<uint64_t>(v) & 0xff;
+      dst->push_back(byte);
+      v >>= 8;
+    }
+  }
+  dst->push_back(static_cast<unsigned char>(v));
+}
+
 inline void PutVarint64Varint64(std::string* dst, uint64_t v1, uint64_t v2) {
   char buf[20];
   char* ptr = EncodeVarint64(buf, v1);
@@ -314,6 +344,36 @@ inline bool GetVarsignedint64(Slice* input, int64_t* value) {
     *input = Slice(q, static_cast<size_t>(limit - q));
     return true;
   }
+}
+
+/**
+ * @brief decode a signed int encoded using 8 bits of every byte, inverse of
+ * `Put8BitVarsignedint64`
+ *
+ * Efficient use of all 8 bits of as many bytes as necessary
+ * because the length of the encoding is known independently,
+ * e.g. as the length of the "value" in a (key,value)-pair
+ *
+ * -128..127 are a single byte sign extended value
+ * -32768..32767 are a 2-byte sign extended value
+ *
+ * @param input buffer to decode out of
+ * @return an int64_t which is the decoded value of the buffer
+ */
+inline int64_t Get8BitVarsignedint64(Slice* input) {
+  const char* start = input->data();
+  const char* p = start + input->size();
+  int64_t s = 0;
+  if (start < p) {
+    s = *(reinterpret_cast<const char*>(--p));
+    while (start < p) {
+      int64_t byte =
+          static_cast<int64_t>(*(reinterpret_cast<const unsigned char*>(--p)));
+      s = (s * 0x100) | byte;  // s = (s << 8) | byte; fails ubsan check,
+                               // -ve << is undefined in C/C++
+    }
+  }
+  return s;
 }
 
 inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
