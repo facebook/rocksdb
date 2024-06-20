@@ -107,6 +107,7 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/build-folly"
+    - run: apt-get update -y && apt-get install -y g++-7
     - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly-lite-no-test:
@@ -117,6 +118,7 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
+    - run: apt-get update -y && apt-get install -y g++-7
     - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
@@ -207,6 +209,8 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - name: Build rocksdb lib
       run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
+    - name: Install protobuf
+      run: apt install -y protobuf-compiler
     - name: Build fuzzers
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
@@ -234,6 +238,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - run: apt-get update -y && apt-get install -y g++-8
     - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-10-cxx20-no_test_run:
