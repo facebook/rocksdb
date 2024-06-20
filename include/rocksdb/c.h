@@ -107,6 +107,7 @@ typedef struct rocksdb_slicetransform_t rocksdb_slicetransform_t;
 typedef struct rocksdb_snapshot_t rocksdb_snapshot_t;
 typedef struct rocksdb_writablefile_t rocksdb_writablefile_t;
 typedef struct rocksdb_writebatch_t rocksdb_writebatch_t;
+typedef struct rocksdb_writebatch_handler_t rocksdb_writebatch_handler_t;
 typedef struct rocksdb_writebatch_wi_t rocksdb_writebatch_wi_t;
 typedef struct rocksdb_writeoptions_t rocksdb_writeoptions_t;
 typedef struct rocksdb_universal_compaction_options_t
@@ -850,6 +851,21 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t*, void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen));
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate_with_handler(rocksdb_writebatch_t* b, rocksdb_writebatch_handler_t* h);
+extern ROCKSDB_LIBRARY_API rocksdb_writebatch_handler_t* rocksdb_writebatch_new_handler(
+    void* state,
+    void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
+    void (*deleted)(void*, const char* k, size_t klen)
+);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_handler_set_put_cf(
+    rocksdb_writebatch_handler_t* h,
+    void (*put_cf)(void*, uint32_t column_family_id, const char* k, size_t klen, const char* v, size_t vlen)
+);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_handler_set_delete_cf(
+    rocksdb_writebatch_handler_t* h,
+    void (*delete_cf)(void*, uint32_t column_family_id, const char* k, size_t klen)
+);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_handler_destroy(rocksdb_writebatch_handler_t* h);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_data(
     rocksdb_writebatch_t*, size_t* size);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
