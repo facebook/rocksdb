@@ -13,14 +13,12 @@
 #include <cinttypes>
 #include <memory>
 #include <optional>
-#include <set>
 #include <utility>
 #include <vector>
 
 #include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
-#include "db/builder.h"
 #include "db/compaction/clipping_iterator.h"
 #include "db/compaction/compaction_state.h"
 #include "db/db_impl/db_impl.h"
@@ -49,7 +47,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
@@ -222,8 +219,8 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_PROP_FLAGS,
-      compaction->is_manual_compaction() +
-          (compaction->deletion_compaction() << 1));
+      static_cast<uint64_t>(compaction->is_manual_compaction()) +
+          (static_cast<uint64_t>(compaction->deletion_compaction()) << 1));
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES,
@@ -263,7 +260,7 @@ void CompactionJob::Prepare() {
     StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
     GenSubcompactionBoundaries();
   }
-  if (boundaries_.size() >= 1) {
+  if (!boundaries_.empty()) {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       compact_->sub_compact_states.emplace_back(
           c, (i != 0) ? std::optional<Slice>(boundaries_[i - 1]) : std::nullopt,
@@ -1038,12 +1035,10 @@ void CompactionJob::NotifyOnSubcompactionBegin(
     listener->OnSubcompactionBegin(info);
   }
   info.status.PermitUncheckedError();
-
 }
 
 void CompactionJob::NotifyOnSubcompactionCompleted(
     SubcompactionState* sub_compact) {
-
   if (db_options_.listeners.empty()) {
     return;
   }
@@ -1051,7 +1046,7 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
     return;
   }
 
-  if (sub_compact->notify_on_subcompaction_completion == false) {
+  if (!sub_compact->notify_on_subcompaction_completion) {
     return;
   }
 
@@ -1550,7 +1545,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   // Add range tombstones
   auto earliest_snapshot = kMaxSequenceNumber;
-  if (existing_snapshots_.size() > 0) {
+  if (!existing_snapshots_.empty()) {
     earliest_snapshot = existing_snapshots_[0];
   }
   if (s.ok()) {
@@ -1678,7 +1673,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   // Report new file to SstFileManagerImpl
   auto sfm =
-      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+      dynamic_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm && meta != nullptr && meta->fd.GetPathId() == 0) {
     Status add_s = sfm->OnAddFile(fname);
     if (!add_s.ok() && s.ok()) {
