@@ -872,7 +872,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       // It is okay for some reader to load old cache during invalidation as
       // the new sequence number is not published yet.
       // Each core will have a shared_ptr to a shared_ptr to the cached
-      // fragmented range tombstones, so that ref count is maintianed locally
+      // fragmented range tombstones, so that ref count is maintained locally
       // per-core using the per-core shared_ptr.
       std::atomic_store_explicit(
           local_cache_ref_ptr,
