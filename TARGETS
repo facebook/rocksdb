@@ -306,6 +306,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/merge_operators/sortlist.cc",
         "utilities/merge_operators/string_append/stringappend.cc",
         "utilities/merge_operators/string_append/stringappend2.cc",
+        "utilities/merge_operators/int64add.cc",
         "utilities/merge_operators/uint64add.cc",
         "utilities/object_registry.cc",
         "utilities/option_change_migration/option_change_migration.cc",
@@ -5148,6 +5149,11 @@ cpp_unittest_wrapper(name="import_column_family_test",
 
 cpp_unittest_wrapper(name="inlineskiplist_test",
             srcs=["memtable/inlineskiplist_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+cpp_unittest_wrapper(name="int64add_test",
+            srcs=["utilities/merge_operators/int64add_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
