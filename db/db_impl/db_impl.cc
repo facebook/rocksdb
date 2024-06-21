@@ -1615,8 +1615,14 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
     for (auto it = logs_.begin();
          it != logs_.end() && it->number <= up_to_number; ++it) {
       auto& log = *it;
+      // Ensure the head of logs_ is marked as getting_synced if any is.
       log.PrepareForSync();
-      wals_to_sync.push_back(log.writer);
+      // If last sync failed on a later WAL, this could be a fully synced
+      // and closed WAL that just needs to be recorded as synced in the
+      // manifest.
+      if (log.writer->file()) {
+        wals_to_sync.push_back(log.writer);
+      }
     }
 
     need_wal_dir_sync = !log_dir_synced_;

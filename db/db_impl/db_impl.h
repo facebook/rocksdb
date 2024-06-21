@@ -1722,8 +1722,11 @@ class DBImpl : public DB {
       return w;
     }
     Status ClearWriter() {
-      // TODO: plumb Env::IOActivity, Env::IOPriority
-      Status s = writer->WriteBuffer(WriteOptions());
+      Status s;
+      if (writer->file()) {
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        s = writer->WriteBuffer(WriteOptions());
+      }
       delete writer;
       writer = nullptr;
       return s;
@@ -1738,10 +1741,16 @@ class DBImpl : public DB {
 
     void PrepareForSync() {
       assert(!getting_synced);
-      // Size is expected to be monotonically increasing.
-      assert(writer->file()->GetFlushedSize() >= pre_sync_size);
+      // Ensure the head of logs_ is marked as getting_synced if any is.
       getting_synced = true;
-      pre_sync_size = writer->file()->GetFlushedSize();
+      // If last sync failed on a later WAL, this could be a fully synced
+      // and closed WAL that just needs to be recorded as synced in the
+      // manifest.
+      if (writer->file()) {
+        // Size is expected to be monotonically increasing.
+        assert(writer->file()->GetFlushedSize() >= pre_sync_size);
+        pre_sync_size = writer->file()->GetFlushedSize();
+      }
     }
 
     void FinishSync() {
