@@ -1520,7 +1520,8 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
   options.track_and_verify_wals_in_manifest = true;
   options.max_bgerror_resume_count = 0;  // manual resume
 
-  auto custom_fs = std::make_shared<MyTestFileSystem>(FileSystem::Default());
+  auto custom_fs =
+      std::make_shared<MyTestFileSystem>(options.env->GetFileSystem());
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(custom_fs));
   options.env = fault_fs_env.get();
   Reopen(options);
