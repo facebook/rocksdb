@@ -1726,8 +1726,8 @@ class DBImpl : public DB {
       if (writer->file()) {
         // TODO: plumb Env::IOActivity, Env::IOPriority
         s = writer->WriteBuffer(WriteOptions());
-        delete writer;
       }
+      delete writer;
       writer = nullptr;
       return s;
     }

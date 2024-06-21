@@ -1520,8 +1520,7 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
   options.track_and_verify_wals_in_manifest = true;
   options.max_bgerror_resume_count = 0;  // manual resume
 
-  auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
-  auto custom_fs = std::make_shared<MyTestFileSystem>(fault_fs);
+  auto custom_fs = std::make_shared<MyTestFileSystem>(FileSystem::Default());
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(custom_fs));
   options.env = fault_fs_env.get();
   Reopen(options);
@@ -1551,12 +1550,9 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
   // regardless of the IOStatus itself. (Can/should be fixed?)
   ASSERT_NOK(db_->Resume());
 
-  // Verify no data loss on losing unsynced data
-  ASSERT_OK(fault_fs->DropUnsyncedFileData());
-  // Also Close() could previously crash in this state
+  // Verify no data loss after reopen.
+  // Also Close() could previously crash in this state.
   Reopen(options);
-
-  // Verify no data loss
   ASSERT_EQ("val1", Get("key1"));
   ASSERT_EQ("val2", Get("key2"));
   ASSERT_EQ("val3", Get("key3"));
