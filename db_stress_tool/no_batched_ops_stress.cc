@@ -528,6 +528,7 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kRead);
       fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
     }
 
     const ExpectedValue pre_read_expected_value =
@@ -537,7 +538,7 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->Get(rand_column_families[0], rand_keys[0]);
 
     int injected_error_count = 0;
-    if (fault_fs_guard) {
+    if (fault_fs_guard && !SharedState::ignore_read_error) {
       injected_error_count = GetMinInjectedErrorCount(
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kRead),
@@ -687,10 +688,11 @@ class NonBatchedOpsStressTest : public StressTest {
             FaultInjectionIOType::kRead);
         fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
       }
       db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-      if (fault_fs_guard) {
+      if (fault_fs_guard && !SharedState::ignore_read_error) {
         injected_error_count = GetMinInjectedErrorCount(
             fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
                 FaultInjectionIOType::kRead),
@@ -981,6 +983,7 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kRead);
       fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
     }
 
     Status s;
@@ -998,7 +1001,7 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->Get(column_family, key);
 
     int injected_error_count = 0;
-    if (fault_fs_guard) {
+    if (fault_fs_guard && !SharedState::ignore_read_error) {
       injected_error_count = GetMinInjectedErrorCount(
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kRead),
@@ -1384,6 +1387,7 @@ class NonBatchedOpsStressTest : public StressTest {
             FaultInjectionIOType::kRead);
         fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
       }
 
       std::vector<PinnableAttributeGroups> results;
@@ -1397,7 +1401,7 @@ class NonBatchedOpsStressTest : public StressTest {
       db_->MultiGetEntity(read_opts_copy, num_keys, key_slices.data(),
                           results.data());
 
-      if (fault_fs_guard) {
+      if (fault_fs_guard && !SharedState::ignore_read_error) {
         verify_expected_errors(
             [&](size_t i) { return results[i][0].status(); });
       }
@@ -1418,6 +1422,7 @@ class NonBatchedOpsStressTest : public StressTest {
             FaultInjectionIOType::kRead);
         fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
       }
 
       std::vector<PinnableWideColumns> results(num_keys);
@@ -1426,7 +1431,7 @@ class NonBatchedOpsStressTest : public StressTest {
       db_->MultiGetEntity(read_opts_copy, cfh, num_keys, key_slices.data(),
                           results.data(), statuses.data());
 
-      if (fault_fs_guard) {
+      if (fault_fs_guard && !SharedState::ignore_read_error) {
         verify_expected_errors([&](size_t i) { return statuses[i]; });
       }
 
@@ -1483,6 +1488,7 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kRead);
       fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
     }
 
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
@@ -1516,7 +1522,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     int injected_error_count = 0;
-    if (fault_fs_guard) {
+    if (fault_fs_guard && !SharedState::ignore_read_error) {
       injected_error_count = GetMinInjectedErrorCount(
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kRead),
