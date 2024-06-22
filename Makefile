@@ -2472,7 +2472,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard beacd86d63cd71c904632262e6c36f60874d78ba
+	cd third-party/folly && git reset --hard 17054c85c2dee0e84cbee7ef28d7bae7d0b1630e
 	@# A hack to remove boost dependency.
 	@# NOTE: this hack is only needed if building using USE_FOLLY_LITE
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
@@ -2480,6 +2480,8 @@ checkout_folly:
 	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
 	@# NOTE: this hack is required for gcc in some cases
 	perl -pi -e 's/(__has_include.<experimental.memory_resource>.)/__cpp_rtti && $$1/' third-party/folly/folly/memory/MemoryResource.h
+	@# NOTE: this hack is only needed if building target build_folly in the future
+	perl -pi -e 's,https://github.com/jedisct1/libsodium/releases/download/1.0.17/libsodium-1.0.17.tar.gz,https://download.libsodium.org/libsodium/releases/old/unsupported/libsodium-1.0.17.tar.gz,' third-party/folly/build/fbcode_builder/manifests/libsodium
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 
