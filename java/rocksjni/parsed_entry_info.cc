@@ -118,8 +118,8 @@ jint JNICALL Java_org_rocksdb_ParsedEntryInfo_userKeyByteArray(
   auto *parsed_entry_info =
       reinterpret_cast<ROCKSDB_NAMESPACE::ParsedEntryInfo *>(handle);
   ROCKSDB_NAMESPACE::Slice key_slice = parsed_entry_info->user_key;
-  return ROCKSDB_NAMESPACE::JniUtil::copyToIndirect(env, key_slice, jtarget,
-                                                    joffset, jlen);
+  return ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(env, key_slice, jtarget,
+                                                     joffset, jlen);
 }
 
 /*
@@ -139,7 +139,7 @@ jbyteArray JNICALL Java_org_rocksdb_ParsedEntryInfo_userKeyJni(JNIEnv *env,
     ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env, "Memory allocation failed in RocksDB JNI function");
     return nullptr;
   }
-  ROCKSDB_NAMESPACE::JniUtil::copyToIndirect(
+  ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(
       env, key_slice, jkey, 0, static_cast<jint>(key_slice.size()));
   return jkey;
 }

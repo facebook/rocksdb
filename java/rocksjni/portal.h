@@ -2530,7 +2530,7 @@ class JniUtil {
   /* Helper for copying value in source into a byte array.
    */
   template <class T>
-  static jint copyToIndirect(JNIEnv* env, T& source, jbyteArray jtarget,
+  static jint copyToByteArray(JNIEnv* env, T& source, jbyteArray jtarget,
                              jint jtarget_off, jint jtarget_len) {
     if (jtarget == nullptr ||
         env->GetArrayLength(jtarget) < (jtarget_off + jtarget_len)) {

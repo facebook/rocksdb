@@ -69,7 +69,7 @@ public class ParsedEntryInfo extends RocksObject {
    * @param options options used while writing the sst file.
    * @param internalKey byte array containing the internal key.
    */
-  public final void parseEntry(Options options, byte[] internalKey) {
+  public final void parseEntry(final Options options, final byte[] internalKey) {
     if (options == null || internalKey == null) {
       throw new IllegalArgumentException("ByteBuffer and options parameters must not be null");
     }
@@ -82,7 +82,7 @@ public class ParsedEntryInfo extends RocksObject {
    * @param options options used while writing the sst file.
    * @param internalKey ByteBuffer containing the internal key.
    */
-  public final void parseEntry(Options options, final ByteBuffer internalKey) {
+  public final void parseEntry(final Options options, final ByteBuffer internalKey) {
     if (options == null || internalKey == null) {
       throw new IllegalArgumentException("ByteBuffer and options parameters must not be null");
     }
@@ -100,16 +100,17 @@ public class ParsedEntryInfo extends RocksObject {
   private static native long newParseEntryInstance();
 
   private static native void parseEntry(
-      long handle, long optionsHandle, byte[] buffer, int bufferLen);
+      final long handle, final long optionsHandle, final byte[] buffer, final int bufferLen);
 
   private static native void parseEntryDirect(
-      long handle, long optionsHandle, ByteBuffer buffer, int bufferOffset, int bufferLen);
+      final long handle, final long optionsHandle, final ByteBuffer buffer, final int bufferOffset,
+      final int bufferLen);
   private static native void parseEntryByteArray(
-      long handle, long optionsHandle, byte[] buffer, int bufferOffset, int bufferLen);
+      final long handle, final long optionsHandle, final byte[] buffer, final int bufferOffset, final int bufferLen);
   private static native int userKeyDirect(
-      long handle, ByteBuffer target, int bufferOffset, int bufferLen);
+      final long handle, final ByteBuffer target, final int bufferOffset, final int bufferLen);
   private static native int userKeyByteArray(
-      long handle, byte[] target, int bufferOffset, int bufferLen);
+      final long handle, final byte[] target, final int bufferOffset, final int bufferLen);
   private static native byte[] userKeyJni(final long handle);
   private static native long getSequenceNumberJni(final long handle);
   private static native byte getEntryTypeJni(final long handle);
