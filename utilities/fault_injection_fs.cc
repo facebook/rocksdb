@@ -1228,8 +1228,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ErrorContext* ctx =
       static_cast<ErrorContext*>(injected_thread_local_read_error_.Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      io_activties_exempted_from_fault_injection.find(io_options.io_activity) !=
-          io_activties_exempted_from_fault_injection.end()) {
+      ShouldIOActivtiesExemptFromFaultInjection(io_options.io_activity)) {
     return IOStatus::OK();
   }
 
@@ -1306,8 +1305,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
 
   ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      io_activties_exempted_from_fault_injection.find(io_options.io_activity) !=
-          io_activties_exempted_from_fault_injection.end()) {
+      ShouldIOActivtiesExemptFromFaultInjection(io_options.io_activity)) {
     return IOStatus::OK();
   }
 

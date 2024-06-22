@@ -425,6 +425,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     io_activties_exempted_from_fault_injection = io_activties;
   }
 
+  bool ShouldIOActivtiesExemptFromFaultInjection(Env::IOActivity io_activty) {
+    MutexLock l(&mutex_);
+    return io_activties_exempted_from_fault_injection.find(io_activty) !=
+           io_activties_exempted_from_fault_injection.end();
+  }
+
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
   IOStatus GetError() { return fs_error_; }

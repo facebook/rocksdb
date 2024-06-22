@@ -1607,14 +1607,13 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_verify_before_write) {
       // Temporarily disable error injection for preparation
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       bool res = VerifyOrSyncValue(
@@ -1622,14 +1621,12 @@ class NonBatchedOpsStressTest : public StressTest {
           /* msg_prefix */ "Pre-Put Get verification", from_db, s);
 
       // Enable back error injection disabled for preparation
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
       if (!res) {
         return s;
       }
@@ -1897,19 +1894,24 @@ class NonBatchedOpsStressTest : public StressTest {
     std::ostringstream ingest_options_oss;
 
     // Temporarily disable error injection for preparation
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+      fault_fs_guard->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataWrite);
+    }
+
     if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file
       // ingestion a clean slate
       s = db_stress_env->DeleteFile(sst_filename);
     }
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+      fault_fs_guard->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataWrite);
+    }
 
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);
     if (s.ok()) {

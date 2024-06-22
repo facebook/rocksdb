@@ -19,8 +19,6 @@
 
 ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
-// If non-null, injects read error at a rate specified by the
-// read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
 std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
