@@ -1052,6 +1052,7 @@ if(USE_FOLLY_LITE)
   list(APPEND SOURCES
     third-party/folly/folly/container/detail/F14Table.cpp
     third-party/folly/folly/detail/Futex.cpp
+    third-party/folly/folly/lang/Exception.cpp
     third-party/folly/folly/lang/SafeAssert.cpp
     third-party/folly/folly/lang/ToAscii.cpp
     third-party/folly/folly/ScopeGuard.cpp
@@ -1059,6 +1060,12 @@ if(USE_FOLLY_LITE)
     third-party/folly/folly/synchronization/DistributedMutex.cpp
     third-party/folly/folly/synchronization/ParkingLot.cpp)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+  build/fbcode_builder/getdeps.py show-source-dir boost OUTPUT_VARIABLE
+  BOOST_SOURCE_PATH)
+  exec_program(ls ARGS -d ${BOOST_SOURCE_PATH}/boost* OUTPUT_VARIABLE
+  BOOST_INCLUDE_DIR)
+  include_directories(${BOOST_INCLUDE_DIR})
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
   list(APPEND THIRDPARTY_LIBS glog)
 endif()
