@@ -617,7 +617,7 @@ if(USE_FOLLY)
     FMT_INST_PATH)
     exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
     GFLAGS_INST_PATH)
-    set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.78.0)
+    set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.83.0)
     if(EXISTS ${FMT_INST_PATH}/lib64)
       set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
     else()
