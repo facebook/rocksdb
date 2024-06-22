@@ -2,6 +2,7 @@ name: pre-steps
 runs:
   using: composite
   steps:
+  - uses: "./.github/actions/install-gflags"
   - name: Setup Environment Variables
     run: |-
       echo "GTEST_THROW_ON_FAILURE=0" >> "$GITHUB_ENV"

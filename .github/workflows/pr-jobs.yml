@@ -56,9 +56,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -68,9 +65,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -87,9 +81,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -101,9 +92,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -114,36 +102,29 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/build-folly"
+    - run: apt-get update -y && apt-get install -y g++-7
     - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly-lite-no-test:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
+    - run: apt-get update -y && apt-get install -y g++-7
     - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     env:
       CC: gcc-10
       CXX: g++-10
@@ -158,9 +139,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -170,9 +148,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -184,9 +159,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - run: make V=1 -j32 LIB_MODE=shared release
@@ -210,9 +182,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 8-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
@@ -225,9 +194,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -238,14 +204,13 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - name: Build rocksdb lib
       run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
+    - name: Install protobuf
+      run: apt install -y protobuf-compiler
     - name: Build fuzzers
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
@@ -253,9 +218,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 8-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
@@ -264,9 +226,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -276,21 +235,16 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - run: apt-get update -y && apt-get install -y g++-8
     - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-10-cxx20-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -300,9 +254,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -313,9 +264,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -346,9 +294,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -359,9 +304,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -371,9 +313,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -383,9 +322,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -395,9 +331,6 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
