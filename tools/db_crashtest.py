@@ -130,6 +130,9 @@ default_params = {
     "readpercent": 45,
     "recycle_log_file_num": lambda: random.randint(0, 1),
     "snapshot_hold_ops": 100000,
+    "sqfc_name": lambda: random.choice(["foo", "bar"]),
+    # 0 = disable writing SstQueryFilters
+    "sqfc_version": lambda: random.choice([0, 1, 1, 2, 2]),
     "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
     "long_running_snapshots": lambda: random.randint(0, 1),
@@ -141,6 +144,7 @@ default_params = {
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
+    "use_sqfc_for_range_queries": lambda: random.choice([0, 1, 1, 1]),
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(
         ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
@@ -154,7 +158,7 @@ default_params = {
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
-    "use_multi_cf_iterator": 0, # TODO(jaykorean) - re-enable this after fixing the test
+    "use_multi_cf_iterator": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
     "value_size_mult": 32,
@@ -213,9 +217,13 @@ default_params = {
     "continuous_verification_interval": 0,
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
+    "error_recovery_with_no_fault_injection": lambda: random.randint(0, 1),
+    "metadata_read_fault_one_in": lambda: random.choice([0, 32, 1000]),
+    "metadata_write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
     "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
+    "open_metadata_read_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
     "sync_fault_injection": lambda: random.randint(0, 1),
@@ -263,7 +271,7 @@ default_params = {
     "table_cache_numshardbits": lambda: random.choice([6] * 3 + [-1] * 2 + [0]),
     "enable_write_thread_adaptive_yield": lambda: random.choice([0, 1]),
     "log_readahead_size": lambda: random.choice([0, 16 * 1024 * 1024]),
-    "bgerror_resume_retry_interval": lambda: random.choice([10000, 1000000]),
+    "bgerror_resume_retry_interval": lambda: random.choice([100, 1000000]),
     "delete_obsolete_files_period_micros": lambda: random.choice([6 * 60 * 60 * 1000000, 30 * 1000000]),
     "max_log_file_size": lambda: random.choice([0, 1024 * 1024]),
     "log_file_time_to_roll": lambda: random.choice([0, 60]),
@@ -614,6 +622,8 @@ multiops_txn_default_params = {
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
+    "metadata_write_fault_one_in": 0,
+    "manual_wal_flush": 0,
     # This test has aggressive flush frequency and small write buffer size.
     # Disabling write fault to avoid writes being stopped.
     "write_fault_one_in": 0,
@@ -627,6 +637,8 @@ multiops_txn_default_params = {
     "inplace_update_support": 0,
     # TimedPut not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 multiops_wc_txn_params = {
@@ -718,12 +730,16 @@ def finalize_and_sanitize(src_params):
        # inplace_update_support does not update sequence number. Our stress test recovery
        # logic for unsynced data loss relies on max sequence number stored
        # in MANIFEST, so they don't work together.
-       dest_params["disable_wal"] = 0
        dest_params["sync_fault_injection"] = 0
+       dest_params["write_fault_one_in"] = 0
+       dest_params["metadata_write_fault_one_in"] = 0
+       dest_params["disable_wal"] = 0
        dest_params["manual_wal_flush_one_in"] = 0
     if (
-        dest_params.get("disable_wal") == 1
-        or dest_params.get("sync_fault_injection") == 1
+        dest_params.get("sync_fault_injection") == 1
+        or dest_params.get("write_fault_one_in") > 0
+        or dest_params.get("metadata_write_fault_one_in") > 0
+        or dest_params.get("disable_wal") == 1
         or dest_params.get("manual_wal_flush_one_in") > 0
     ):
         # File ingestion does not guarantee prefix-recoverability when unsynced
@@ -738,11 +754,6 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
-        # verification upon reopen. Currently reopen does not restore expected state
-        # with potential data loss in mind like start of each `./db_stress` run.
-        # Therefore it always expects no data loss.
-        dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
@@ -797,6 +808,9 @@ def finalize_and_sanitize(src_params):
     # compatible with only write committed policy
     if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["disable_wal"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
         # Wide-column pessimistic transaction APIs are initially supported for
         # WriteCommitted only

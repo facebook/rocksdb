@@ -79,7 +79,9 @@ class SstFileWriterPropertiesCollectorFactory
       : version_(version), global_seqno_(global_seqno) {}
 
   InternalTblPropColl* CreateInternalTblPropColl(
-      uint32_t /*column_family_id*/, int /* level_at_creation */) override {
+      uint32_t /*column_family_id*/, int /* level_at_creation */,
+      int /* num_levels */,
+      SequenceNumber /* last_level_inclusive_max_seqno_threshold */) override {
     return new SstFileWriterPropertiesCollector(version_, global_seqno_);
   }
 

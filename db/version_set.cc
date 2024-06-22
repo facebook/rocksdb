@@ -5196,17 +5196,21 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
 }
 
 VersionSet::~VersionSet() {
-  // we need to delete column_family_set_ because its destructor depends on
-  // VersionSet
+  // Must clean up column families to make all files "obsolete"
   column_family_set_.reset();
+
   for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
       // NOTE: DB is shutting down, so file is probably not obsolete, just
       // no longer referenced by Versions in memory.
       // For more context, see comment on "table_cache_->EraseUnRefEntries()"
       // in DBImpl::CloseHelper().
-      table_cache_->Release(file.metadata->table_reader_handle);
-      TableCache::Evict(table_cache_, file.metadata->fd.GetNumber());
+      // Using uncache_aggressiveness=0 overrides any previous marking to
+      // attempt to uncache the file's blocks (which after cleaning up
+      // column families could cause use-after-free)
+      TableCache::ReleaseObsolete(table_cache_,
+                                  file.metadata->table_reader_handle,
+                                  /*uncache_aggressiveness=*/0);
     }
     file.DeleteMetadata();
   }

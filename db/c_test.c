@@ -2234,6 +2234,12 @@ int main(int argc, char** argv) {
     CheckCondition(rocksdb_statistics_level_all ==
                    rocksdb_options_get_statistics_level(o));
 
+    CheckCondition(0 ==
+                   rocksdb_options_get_track_and_verify_wals_in_manifest(o));
+    rocksdb_options_set_track_and_verify_wals_in_manifest(o, 42);
+    CheckCondition(1 ==
+                   rocksdb_options_get_track_and_verify_wals_in_manifest(o));
+
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));

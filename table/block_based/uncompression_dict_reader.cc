@@ -77,9 +77,8 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
 }
 
 Status UncompressionDictReader::GetOrReadUncompressionDictionary(
-    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro, bool no_io,
-    bool verify_checksums, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
+    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
     CachableEntry<UncompressionDict>* uncompression_dict) const {
   assert(uncompression_dict);
 
@@ -88,14 +87,7 @@ Status UncompressionDictReader::GetOrReadUncompressionDictionary(
     return Status::OK();
   }
 
-  ReadOptions read_options;
-  if (no_io) {
-    read_options.read_tier = kBlockCacheTier;
-  }
-  read_options.verify_checksums = verify_checksums;
-  read_options.io_activity = ro.io_activity;
-
-  return ReadUncompressionDictionary(table_, prefetch_buffer, read_options,
+  return ReadUncompressionDictionary(table_, prefetch_buffer, ro,
                                      cache_dictionary_blocks(), get_context,
                                      lookup_context, uncompression_dict);
 }
