@@ -19,6 +19,7 @@ class BlobIndex;
 // A thin wrapper around the blob retrieval functionality of Version.
 class BlobFetcher {
  public:
+  virtual ~BlobFetcher() = default;
   BlobFetcher(const Version* version, const ReadOptions& read_options)
       : version_(version), read_options_(read_options) {}
 
@@ -32,6 +33,16 @@ class BlobFetcher {
 
  private:
   const Version* version_;
-  ReadOptions read_options_;
+  const ReadOptions& read_options_;
 };
+
+class BlobFetcherWithReadOptionsCopy : public BlobFetcher {
+ public:
+  BlobFetcherWithReadOptionsCopy(const Version* v, const ReadOptions& ro)
+      : BlobFetcher(v, read_options_copy_), read_options_copy_(ro) {}
+
+ private:
+  const ReadOptions read_options_copy_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
