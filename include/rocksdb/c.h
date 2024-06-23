@@ -113,8 +113,11 @@ typedef struct rocksdb_universal_compaction_options_t
     rocksdb_universal_compaction_options_t;
 typedef struct rocksdb_livefiles_t rocksdb_livefiles_t;
 typedef struct rocksdb_column_family_handle_t rocksdb_column_family_handle_t;
+typedef struct rocksdb_import_column_family_options_t rocksdb_import_column_family_options_t;
 typedef struct rocksdb_column_family_metadata_t
     rocksdb_column_family_metadata_t;
+typedef struct rocksdb_export_import_files_metadata_t
+    rocksdb_export_import_files_metadata_t;
 typedef struct rocksdb_level_metadata_t rocksdb_level_metadata_t;
 typedef struct rocksdb_sst_file_metadata_t rocksdb_sst_file_metadata_t;
 typedef struct rocksdb_envoptions_t rocksdb_envoptions_t;
@@ -415,6 +418,80 @@ extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
 rocksdb_create_column_family(rocksdb_t* db,
                              const rocksdb_options_t* column_family_options,
                              const char* column_family_name, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
+rocksdb_create_column_family_with_import(
+    rocksdb_t* db, const rocksdb_options_t* column_family_options,
+    const char* column_family_name,
+    const rocksdb_import_column_family_options_t* import_column_family_options,
+    const rocksdb_export_import_files_metadata_t* metadatas, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_export_import_files_metadata_t*
+rocksdb_checkpoint_export_column_family(rocksdb_checkpoint_t* checkpoint,
+                                        rocksdb_column_family_handle_t* handle,
+                                        const char* export_dir, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_create_export_import_files_metadata(
+    const char* dbComparatorName, size_t dbComparatorNameLen,
+    rocksdb_export_import_files_metadata_t** eifm);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_add_livefile(
+    rocksdb_t* db, rocksdb_export_import_files_metadata_t* eifm,
+    const char* columnFamilyName, size_t columnFamilyNameSize, int level,
+    uint64_t smallestSeqNo, uint64_t largestSeqNo, const char* smallestKey,
+    size_t smallestKeySize, const char* largestKey, size_t largestKeySize,
+    uint64_t numReadsSampled, bool beingCompacted, uint64_t numEntries,
+    uint64_t numDeletions, uint64_t oldestBlobFileNumber,
+    uint64_t oldestAncesterTime, uint64_t fileCreationTime,
+    uint64_t epochNumber, const char* smallestInternalKey,
+    size_t smallestInternalKeySize, const char* largestInternalKey,
+    size_t largestInternalKeySize, const char* fileName, size_t fileNameSize,
+    const char* databasePath, size_t databasePathSize,
+    const char* relativeFilename, size_t relativeFilenameSize,
+    const char* directoryName, size_t directoryNameSize, uint64_t fileNumber,
+    uint64_t fileType, uint64_t size, uint64_t temperature,
+    const char* fileChecksum, size_t fileChecksumSize,
+    const char* fileChecksumFuncName, size_t fileChecksumFuncNameSize,
+    int* index);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_properties(
+    const rocksdb_export_import_files_metadata_t* eifm,
+    char** dbComparatorNamePtr, size_t* dbComparatorNameSize,
+    rocksdb_livefiles_t** lfPtr, size_t* lfSize);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_get_livefile_properties(
+    rocksdb_t* db, const rocksdb_livefiles_t* lf, int index,
+    char** columnFamilyName, size_t* columnFamilyNameSize, int* level, 
+    uint64_t* smallestSeqNo, uint64_t* largestSeqNo, 
+    char** smallestKey, size_t* smallestKeySize, 
+    char** largestKey, size_t* largestKeySize, 
+    uint64_t* numReadsSampled, bool* beingCompacted, 
+    uint64_t* numEntries, uint64_t* numDeletions, 
+    uint64_t* oldestBlobFileNumber, uint64_t* oldestAncesterTime, 
+    uint64_t* fileCreationTime, uint64_t* epochNumber, 
+    char** smallestInternalKey, size_t* smallestInternalKeySize, 
+    char** largestInternalKey, size_t* largestInternalKeySize, 
+    char** fileName, size_t* fileNameSize,
+    char** databasePath, size_t* databasePathSize,
+    char** relativeFilename, size_t* relativeFilenameSize,
+    char** directoryName, size_t* directoryNameSize, uint64_t* fileNumber,
+    uint64_t* fileType, size_t* size, uint64_t* temperature,
+    char** fileChecksum, size_t* fileChecksumSize,
+    char** fileChecksumFuncName, size_t* fileChecksumFuncNameSize);
+
+extern ROCKSDB_LIBRARY_API rocksdb_import_column_family_options_t*
+rocksdb_import_column_family_options_create(void);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_import_column_family_options_destroy(
+    rocksdb_import_column_family_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_import_column_family_options_set_move_files(
+    rocksdb_import_column_family_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_import_column_family_options_get_move_files(
+    rocksdb_import_column_family_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t**
 rocksdb_create_column_families(rocksdb_t* db,
