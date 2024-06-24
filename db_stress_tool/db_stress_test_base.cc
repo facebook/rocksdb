@@ -1137,7 +1137,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
 
       if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
-        Status status = TestFlush(rand_column_families);
+        Status status = TestFlush(thread, rand_column_families);
         ProcessStatus(shared, "Flush", status);
       }
 
@@ -1256,6 +1256,12 @@ void StressTest::OperateDb(ThreadState* thread) {
             TestApproximateSize(thread, i, rand_column_families, rand_keys);
         ProcessStatus(shared, "ApproximateSize", s);
       }
+
+      if (thread->rand.OneInOpt(FLAGS_get_approximate_memtable_stats_one_in)) {
+        TestGetApproximateMemTableStats(thread, rand_column_families[0],
+                                        rand_keys[0]);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
         TestAcquireSnapshot(thread, rand_column_family, keystr, i);
       }
@@ -2432,6 +2438,21 @@ Status StressTest::TestApproximateSize(
       sao, column_families_[rand_column_families[0]], &range, 1, &result);
 }
 
+void StressTest::TestGetApproximateMemTableStats(ThreadState* thread,
+                                                 int rand_column_family,
+                                                 int64_t rand_key) {
+  uint64_t count;
+  uint64_t size;
+
+  std::string start = Key(rand_key);
+  std::string end =
+      Key(rand_key + static_cast<int64_t>(thread->rand.Uniform(100)));
+  Range r(start, end);
+
+  return db_->GetApproximateMemTableStats(column_families_[rand_column_family],
+                                          r, &count, &size);
+}
+
 Status StressTest::TestCheckpoint(ThreadState* thread,
                                   const std::vector<int>& rand_column_families,
                                   const std::vector<int64_t>& rand_keys) {
@@ -2784,16 +2805,30 @@ void StressTest::TestPromoteL0(ThreadState* thread,
   }
 }
 
-Status StressTest::TestFlush(const std::vector<int>& rand_column_families) {
+Status StressTest::TestFlush(ThreadState* thread,
+                             const std::vector<int>& rand_column_families) {
   FlushOptions flush_opts;
-  assert(flush_opts.wait);
+  flush_opts.wait = thread->rand.OneIn(10) ? false : true;
+  flush_opts.allow_write_stall = thread->rand.OneIn(10) ? true : false;
+
+  Status s;
   if (FLAGS_atomic_flush) {
-    return db_->Flush(flush_opts, column_families_);
+    s = db_->Flush(flush_opts, column_families_);
+  } else {
+    std::vector<ColumnFamilyHandle*> cfhs;
+    std::for_each(
+        rand_column_families.begin(), rand_column_families.end(),
+        [this, &cfhs](int k) { cfhs.push_back(column_families_[k]); });
+    s = db_->Flush(flush_opts, cfhs);
   }
-  std::vector<ColumnFamilyHandle*> cfhs;
-  std::for_each(rand_column_families.begin(), rand_column_families.end(),
-                [this, &cfhs](int k) { cfhs.push_back(column_families_[k]); });
-  return db_->Flush(flush_opts, cfhs);
+  if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
+    fprintf(stderr,
+            "Unable to perform Flush(): %s under FlushOptions::wait %s, "
+            "allow_write_stall: %s\n",
+            s.ToString().c_str(), flush_opts.wait ? "true" : "false",
+            flush_opts.allow_write_stall ? "true" : "false");
+  }
+  return s;
 }
 
 Status StressTest::TestResetStats() { return db_->ResetStats(); }
@@ -4230,6 +4265,12 @@ void InitializeOptionsFromFlags(
       static_cast<CacheTier>(FLAGS_lowest_used_cache_tier);
   options.inplace_update_support = FLAGS_inplace_update_support;
   options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
+
+  if (FLAGS_row_cache_size > 0) {
+    LRUCacheOptions cache_options;
+    cache_options.capacity = FLAGS_row_cache_size;
+    options.row_cache = cache_options.MakeSharedRowCache();
+  }
 }
 
 void InitializeOptionsGeneral(
@@ -4260,8 +4301,7 @@ void InitializeOptionsGeneral(
     }
   }
 
-  // TODO: row_cache, thread-pool IO priority, CPU priority.
-
+  // TODO: thread-pool IO priority, CPU priority.
   if (!options.rate_limiter) {
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
       options.rate_limiter.reset(NewGenericRateLimiter(

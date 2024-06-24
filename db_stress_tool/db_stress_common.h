@@ -317,6 +317,7 @@ DECLARE_int32(blob_cache_numshardbits);
 DECLARE_int32(prepopulate_blob_cache);
 
 DECLARE_int32(approximate_size_one_in);
+DECLARE_int32(get_approximate_memtable_stats_one_in);
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
@@ -417,6 +418,7 @@ DECLARE_bool(check_multiget_consistency);
 DECLARE_bool(check_multiget_entity_consistency);
 DECLARE_bool(inplace_update_support);
 DECLARE_uint32(uncache_aggressiveness);
+DECLARE_int64(row_cache_size);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
