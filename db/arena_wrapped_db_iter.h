@@ -55,7 +55,8 @@ class ArenaWrappedDBIter : public Iterator {
     db_iter_->SetIter(iter);
   }
 
-  void SetMemtableRangetombstoneIter(TruncatedRangeDelIterator** iter) {
+  void SetMemtableRangetombstoneIter(
+      std::unique_ptr<TruncatedRangeDelIterator>* iter) {
     memtable_range_tombstone_iter_ = iter;
   }
 
@@ -110,7 +111,8 @@ class ArenaWrappedDBIter : public Iterator {
   bool allow_refresh_ = true;
   // If this is nullptr, it means the mutable memtable does not contain range
   // tombstone when added under this DBIter.
-  TruncatedRangeDelIterator** memtable_range_tombstone_iter_ = nullptr;
+  std::unique_ptr<TruncatedRangeDelIterator>* memtable_range_tombstone_iter_ =
+      nullptr;
 };
 
 // Generate the arena wrapped iterator class.
