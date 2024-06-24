@@ -534,21 +534,21 @@ class MemTable {
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
+  // Updates `fragmented_range_tombstone_list_` that will be used to serve reads
+  // when this memtable becomes an immutable memtable (in some
+  // MemtableListVersion::memlist_). Should be called when this memtable is
+  // about to become immutable. May be called multiple times since
+  // SwitchMemtable() may fail.
   void ConstructFragmentedRangeTombstones();
 
   // Returns whether a fragmented range tombstone list is already constructed
   // for this memtable. It should be constructed right before a memtable is
   // added to an immutable memtable list. Note that if a memtable does not have
-  // any range tombstone, then no range tombstone list will ever be constructed.
-  // @param allow_empty Specifies whether a memtable with no range tombstone is
-  // considered to have its fragmented range tombstone list constructed.
-  bool IsFragmentedRangeTombstonesConstructed(bool allow_empty = true) const {
-    if (allow_empty) {
-      return fragmented_range_tombstone_list_.get() != nullptr ||
-             is_range_del_table_empty_;
-    } else {
-      return fragmented_range_tombstone_list_.get() != nullptr;
-    }
+  // any range tombstone, then no range tombstone list will ever be constructed
+  // and true is returned in that case.
+  bool IsFragmentedRangeTombstonesConstructed() const {
+    return fragmented_range_tombstone_list_.get() != nullptr ||
+           is_range_del_table_empty_;
   }
 
   // Get the newest user-defined timestamp contained in this MemTable. Check

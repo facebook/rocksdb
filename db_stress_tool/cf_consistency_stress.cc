@@ -359,10 +359,10 @@ class CfConsistencyStressTest : public StressTest {
       if (fault_fs_guard) {
         fault_fs_guard->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-
         fault_fs_guard->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
+
       if (s.ok() || s.IsNotFound()) {
         const bool cmp_found = s.ok();
 

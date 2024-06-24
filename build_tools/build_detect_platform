@@ -585,7 +585,7 @@ EOF
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbenchmark"
         fi
     fi
-    if test $USE_FOLLY; then
+    if test $USE_FOLLY || test $USE_FOLLY_LITE; then
         # Test whether libfolly library is installed
         $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
           #include <folly/synchronization/DistributedMutex.h>
@@ -751,6 +751,11 @@ if [ "$USE_FOLLY" ]; then
     FOLLY_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly`
   fi
 fi
+if [ "$USE_FOLLY_LITE" ]; then
+  if [ "$FOLLY_DIR" ]; then
+    BOOST_SOURCE_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-source-dir boost`
+  fi
+fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
@@ -792,6 +797,7 @@ echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
 echo "FIND=$FIND" >> "$OUTPUT"
 echo "WATCH=$WATCH" >> "$OUTPUT"
 echo "FOLLY_PATH=$FOLLY_PATH" >> "$OUTPUT"
+echo "BOOST_SOURCE_PATH=$BOOST_SOURCE_PATH" >> "$OUTPUT"
 
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then

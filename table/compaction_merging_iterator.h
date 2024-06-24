@@ -38,7 +38,8 @@ class CompactionMergingIterator;
 
 InternalIterator* NewCompactionMergingIterator(
     const InternalKeyComparator* comparator, InternalIterator** children, int n,
-    std::vector<std::pair<TruncatedRangeDelIterator*,
-                          TruncatedRangeDelIterator***>>& range_tombstone_iters,
+    std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
+                          std::unique_ptr<TruncatedRangeDelIterator>**>>&
+        range_tombstone_iters,
     Arena* arena = nullptr);
 }  // namespace ROCKSDB_NAMESPACE
