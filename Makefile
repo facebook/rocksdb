@@ -2484,13 +2484,11 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard 17054c85c2dee0e84cbee7ef28d7bae7d0b1630e
+	cd third-party/folly && git reset --hard c48fdd205c1c291651749d532b8055fe822bba25
 	@# NOTE: this hack is required for clang in some cases
 	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
 	@# NOTE: this hack is required for gcc in some cases
 	perl -pi -e 's/(__has_include.<experimental.memory_resource>.)/__cpp_rtti && $$1/' third-party/folly/folly/memory/MemoryResource.h
-	@# NOTE: this hack is only needed if building target build_folly in the future
-	perl -pi -e 's,https://github.com/jedisct1/libsodium/releases/download/1.0.17/libsodium-1.0.17.tar.gz,https://download.libsodium.org/libsodium/releases/old/unsupported/libsodium-1.0.17.tar.gz,' third-party/folly/build/fbcode_builder/manifests/libsodium
 	@# NOTE: boost source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on boost headers
 	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost
 
