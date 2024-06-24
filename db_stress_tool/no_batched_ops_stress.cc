@@ -528,6 +528,7 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kRead);
       fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
     }
 
     const ExpectedValue pre_read_expected_value =
@@ -543,7 +544,8 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kRead),
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
-      if (injected_error_count > 0 && (s.ok() || s.IsNotFound())) {
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
+          (s.ok() || s.IsNotFound())) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
@@ -687,6 +689,7 @@ class NonBatchedOpsStressTest : public StressTest {
             FaultInjectionIOType::kRead);
         fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
       }
       db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
@@ -704,7 +707,8 @@ class NonBatchedOpsStressTest : public StressTest {
               stat_nok_nfound++;
             }
           }
-          if (stat_nok_nfound < injected_error_count) {
+          if (!SharedState::ignore_read_error &&
+              stat_nok_nfound < injected_error_count) {
             // Grab mutex so multiple thread don't try to print the
             // stack trace at the same time
             MutexLock l(shared->GetMutex());
@@ -981,6 +985,7 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kRead);
       fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
     }
 
     Status s;
@@ -1004,7 +1009,8 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kRead),
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
-      if (injected_error_count > 0 && (s.ok() || s.IsNotFound())) {
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
+          (s.ok() || s.IsNotFound())) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
@@ -1165,7 +1171,8 @@ class NonBatchedOpsStressTest : public StressTest {
           }
         }
 
-        if (stat_nok_nfound < injected_error_count) {
+        if (!SharedState::ignore_read_error &&
+            stat_nok_nfound < injected_error_count) {
           // Grab mutex so multiple threads don't try to print the
           // stack trace at the same time
           assert(thread->shared);
@@ -1384,6 +1391,7 @@ class NonBatchedOpsStressTest : public StressTest {
             FaultInjectionIOType::kRead);
         fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
       }
 
       std::vector<PinnableAttributeGroups> results;
@@ -1418,6 +1426,7 @@ class NonBatchedOpsStressTest : public StressTest {
             FaultInjectionIOType::kRead);
         fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
       }
 
       std::vector<PinnableWideColumns> results(num_keys);
@@ -1473,17 +1482,18 @@ class NonBatchedOpsStressTest : public StressTest {
     MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
                                        ro_copy);
 
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
-
-    uint64_t count = 0;
-    Status s;
-
     if (fault_fs_guard) {
       fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kRead);
       fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
     }
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
+
+    uint64_t count = 0;
+    Status s;
 
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
@@ -1522,7 +1532,8 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kRead),
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
-      if (injected_error_count > 0 && s.ok()) {
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
+          s.ok()) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
@@ -1541,6 +1552,10 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (injected_error_count > 0 && IsRetryableInjectedError(s)) {
       fprintf(stdout, "TestPrefixScan error: %s\n", s.ToString().c_str());
     } else {
+      fprintf(stderr, "TestPrefixScan is retryable error? %s\n",
+              IsRetryableInjectedError(s) ? "true" : "false");
+      fprintf(stderr, "TestPrefixScan injected_error_count: %d\n",
+              injected_error_count);
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->shared->SetVerificationFailure();
     }

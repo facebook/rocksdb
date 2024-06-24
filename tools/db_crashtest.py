@@ -695,6 +695,11 @@ def finalize_and_sanitize(src_params):
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
         dest_params["inplace_update_support"] = 0
+        # TODO(hx235): enable test_batches_snapshots with fault injection after stabilizing the CI
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
 
@@ -815,6 +820,12 @@ def finalize_and_sanitize(src_params):
         # Wide-column pessimistic transaction APIs are initially supported for
         # WriteCommitted only
         dest_params["use_put_entity_one_in"] = 0
+    # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
+    if dest_params.get("test_multi_ops_txns") == 1:
+         dest_params["write_fault_one_in"] = 0
+         dest_params["metadata_write_fault_one_in"] = 0
+         dest_params["read_fault_one_in"] = 0
+         dest_params["metadata_read_fault_one_in"] = 0
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0

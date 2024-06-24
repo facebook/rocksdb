@@ -407,6 +407,7 @@ TEST_LIB_SOURCES =                                              \
 FOLLY_SOURCES =                                                 \
   $(FOLLY_DIR)/folly/container/detail/F14Table.cpp              \
   $(FOLLY_DIR)/folly/detail/Futex.cpp                           \
+  $(FOLLY_DIR)/folly/lang/Exception.cpp                         \
   $(FOLLY_DIR)/folly/lang/SafeAssert.cpp                        \
   $(FOLLY_DIR)/folly/lang/ToAscii.cpp                           \
   $(FOLLY_DIR)/folly/ScopeGuard.cpp                             \
