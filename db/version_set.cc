@@ -976,7 +976,8 @@ class LevelIterator final : public InternalIterator {
       const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
           nullptr,
       bool allow_unprepared_value = false,
-      TruncatedRangeDelIterator**** range_tombstone_iter_ptr_ = nullptr)
+      std::unique_ptr<TruncatedRangeDelIterator>*** range_tombstone_iter_ptr_ =
+          nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -1116,9 +1117,8 @@ class LevelIterator final : public InternalIterator {
   }
 
   void ClearRangeTombstoneIter() {
-    if (range_tombstone_iter_ && *range_tombstone_iter_) {
-      delete *range_tombstone_iter_;
-      *range_tombstone_iter_ = nullptr;
+    if (range_tombstone_iter_) {
+      range_tombstone_iter_->reset();
     }
   }
 
@@ -1201,7 +1201,7 @@ class LevelIterator final : public InternalIterator {
   // iterator end).
   //
   // *range_tombstone_iter_ points to range tombstones of the current SST file
-  TruncatedRangeDelIterator** range_tombstone_iter_;
+  std::unique_ptr<TruncatedRangeDelIterator>* range_tombstone_iter_;
 
   // The sentinel key to be returned
   Slice sentinel_;
@@ -1929,7 +1929,7 @@ InternalIterator* Version::TEST_GetLevelIterator(
     int level, bool allow_unprepared_value) {
   auto* arena = merge_iter_builder->GetArena();
   auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
-  TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
+  std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr = nullptr;
   auto level_iter = new (mem) LevelIterator(
       cfd_->table_cache(), read_options, file_options_,
       cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
@@ -2029,7 +2029,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   auto* arena = merge_iter_builder->GetArena();
   if (level == 0) {
     // Merge all level zero files together since they may overlap
-    TruncatedRangeDelIterator* tombstone_iter = nullptr;
+    std::unique_ptr<TruncatedRangeDelIterator> tombstone_iter = nullptr;
     for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
       auto table_iter = cfd_->table_cache()->NewIterator(
@@ -2046,8 +2046,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       if (read_options.ignore_range_deletions) {
         merge_iter_builder->AddIterator(table_iter);
       } else {
-        merge_iter_builder->AddPointAndTombstoneIterator(table_iter,
-                                                         tombstone_iter);
+        merge_iter_builder->AddPointAndTombstoneIterator(
+            table_iter, std::move(tombstone_iter));
       }
     }
     if (should_sample) {
@@ -2064,7 +2064,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     // walks through the non-overlapping files in the level, opening them
     // lazily.
     auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
-    TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
+    std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr = nullptr;
     auto level_iter = new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
@@ -7078,8 +7078,8 @@ InternalIterator* VersionSet::MakeInputIterator(
   // that will be initialized to where CompactionMergingIterator stores
   // pointer to its range tombstones. This is used by LevelIterator
   // to update pointer to range tombstones as it traverse different SST files.
-  std::vector<
-      std::pair<TruncatedRangeDelIterator*, TruncatedRangeDelIterator***>>
+  std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
+                        std::unique_ptr<TruncatedRangeDelIterator>**>>
       range_tombstones;
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
@@ -7101,7 +7101,8 @@ InternalIterator* VersionSet::MakeInputIterator(
                   *end, fmd.smallest.user_key()) < 0) {
             continue;
           }
-          TruncatedRangeDelIterator* range_tombstone_iter = nullptr;
+          std::unique_ptr<TruncatedRangeDelIterator> range_tombstone_iter =
+              nullptr;
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), fmd, range_del_agg,
@@ -7118,11 +7119,13 @@ InternalIterator* VersionSet::MakeInputIterator(
               c->mutable_cf_options()->block_protection_bytes_per_key,
               /*range_del_read_seqno=*/nullptr,
               /*range_del_iter=*/&range_tombstone_iter);
-          range_tombstones.emplace_back(range_tombstone_iter, nullptr);
+          range_tombstones.emplace_back(std::move(range_tombstone_iter),
+                                        nullptr);
         }
       } else {
         // Create concatenating iterator for the files from this level
-        TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
+        std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr =
+            nullptr;
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),

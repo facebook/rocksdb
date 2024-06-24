@@ -2064,19 +2064,19 @@ InternalIterator* DBImpl::NewInternalIterator(
       read_options, super_version->GetSeqnoToTimeMapping(), arena);
   Status s;
   if (!read_options.ignore_range_deletions) {
-    TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+    std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
     auto range_del_iter = super_version->mem->NewRangeTombstoneIterator(
         read_options, sequence, false /* immutable_memtable */);
     if (range_del_iter == nullptr || range_del_iter->empty()) {
       delete range_del_iter;
     } else {
-      mem_tombstone_iter = new TruncatedRangeDelIterator(
+      mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
           std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
           &cfd->ioptions()->internal_comparator, nullptr /* smallest */,
           nullptr /* largest */);
     }
-    merge_iter_builder.AddPointAndTombstoneIterator(mem_iter,
-                                                    mem_tombstone_iter);
+    merge_iter_builder.AddPointAndTombstoneIterator(
+        mem_iter, std::move(mem_tombstone_iter));
   } else {
     merge_iter_builder.AddIterator(mem_iter);
   }
