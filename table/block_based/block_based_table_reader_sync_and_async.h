@@ -362,7 +362,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
   // First check the full filter
   // If full filter not useful, Then go into each block
-  const bool no_io = read_options.read_tier == kBlockCacheTier;
   uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
   if (sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
@@ -372,7 +371,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
   BlockCacheLookupContext metadata_lookup_context{
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
-  FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
+  FullFilterKeysMayMatch(filter, &sst_file_range, prefix_extractor,
                          &metadata_lookup_context, read_options);
 
   if (!sst_file_range.empty()) {
@@ -461,9 +460,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             uncompression_dict_status =
                 rep_->uncompression_dict_reader
                     ->GetOrReadUncompressionDictionary(
-                        nullptr /* prefetch_buffer */, read_options, no_io,
-                        read_options.verify_checksums, get_context,
-                        &metadata_lookup_context, &uncompression_dict);
+                        nullptr /* prefetch_buffer */, read_options,
+                        get_context, &metadata_lookup_context,
+                        &uncompression_dict);
             uncompression_dict_inited = true;
           }
 
@@ -668,7 +667,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             biter->status().IsIncomplete()) {
           // couldn't get block from block_cache
           // Update Saver.state to Found because we are only looking for
-          // whether we can guarantee the key is not there when "no_io" is set
+          // whether we can guarantee the key is not there with kBlockCacheTier
           get_context->MarkKeyMayExist();
           break;
         }

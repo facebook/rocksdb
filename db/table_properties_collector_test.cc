@@ -209,7 +209,9 @@ class RegularKeysStartWithAFactory : public InternalTblPropCollFactory,
     }
   }
   InternalTblPropColl* CreateInternalTblPropColl(
-      uint32_t /*column_family_id*/, int /* level_at_creation */) override {
+      uint32_t /*column_family_id*/, int /* level_at_creation */,
+      int /* num_levels */,
+      SequenceNumber /* last_level_inclusive_max_seqno_threshold */) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }

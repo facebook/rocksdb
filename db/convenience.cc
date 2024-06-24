@@ -71,6 +71,9 @@ Status VerifySstFileChecksumInternal(const Options& options,
   } else {
     return s;
   }
+  if (!s.ok()) {
+    return s;
+  }
   std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
