@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "port/stack_trace.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
@@ -27,6 +28,7 @@ TEST(CompactOnDeletionCollector, DeletionRatio) {
   TablePropertiesCollectorFactory::Context context;
   context.column_family_id =
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  context.last_level_inclusive_max_seqno_threshold = kMaxSequenceNumber;
   const size_t kTotalEntries = 100;
 
   {
@@ -86,6 +88,7 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
   TablePropertiesCollectorFactory::Context context;
   context.column_family_id =
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  context.last_level_inclusive_max_seqno_threshold = kMaxSequenceNumber;
 
   std::vector<int> window_sizes;
   std::vector<int> deletion_triggers;

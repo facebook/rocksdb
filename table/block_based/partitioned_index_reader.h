@@ -42,6 +42,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     // TODO(myabandeh): more accurate estimate of partition_map_ mem usage
     return usage;
   }
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
 
  private:
   PartitionIndexReader(const BlockBasedTable* t,

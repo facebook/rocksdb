@@ -25,6 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
+    SequenceNumber earliest_snapshot,
     SequenceNumber earliest_write_conflict_snapshot,
     SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
     Env* env, bool report_detailed_time, bool expect_valid_internal_key,
@@ -40,7 +41,7 @@ CompactionIterator::CompactionIterator(
     const SequenceNumber preserve_time_min_seqno,
     const SequenceNumber preclude_last_level_min_seqno)
     : CompactionIterator(
-          input, cmp, merge_helper, last_sequence, snapshots,
+          input, cmp, merge_helper, last_sequence, snapshots, earliest_snapshot,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
           report_detailed_time, expect_valid_internal_key, range_del_agg,
           blob_file_builder, allow_data_in_errors, enforce_single_del_contracts,
@@ -54,6 +55,7 @@ CompactionIterator::CompactionIterator(
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber /*last_sequence*/, std::vector<SequenceNumber>* snapshots,
+    SequenceNumber earliest_snapshot,
     SequenceNumber earliest_write_conflict_snapshot,
     SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
     Env* env, bool report_detailed_time, bool expect_valid_internal_key,
@@ -91,9 +93,7 @@ CompactionIterator::CompactionIterator(
       // snapshots_ cannot be nullptr, but we will assert later in the body of
       // the constructor.
       visible_at_tip_(snapshots_ ? snapshots_->empty() : false),
-      earliest_snapshot_(!snapshots_ || snapshots_->empty()
-                             ? kMaxSequenceNumber
-                             : snapshots_->at(0)),
+      earliest_snapshot_(earliest_snapshot),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
       enforce_single_del_contracts_(enforce_single_del_contracts),

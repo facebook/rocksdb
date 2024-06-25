@@ -174,6 +174,9 @@ CompactionJob::CompactionJob(
       db_mutex_(db_mutex),
       db_error_handler_(db_error_handler),
       existing_snapshots_(std::move(existing_snapshots)),
+      earliest_snapshot_(existing_snapshots_.empty()
+                             ? kMaxSequenceNumber
+                             : existing_snapshots_.at(0)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       job_context_(job_context),
@@ -282,6 +285,7 @@ void CompactionJob::Prepare() {
 
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
+
   uint64_t preserve_time_duration =
       std::max(c->immutable_options()->preserve_internal_time_seconds,
                c->immutable_options()->preclude_last_level_data_seconds);
@@ -319,28 +323,11 @@ void CompactionJob::Prepare() {
       seqno_to_time_mapping_.Enforce();
     } else {
       seqno_to_time_mapping_.Enforce(_current_time);
-      uint64_t preserve_time =
-          static_cast<uint64_t>(_current_time) > preserve_time_duration
-              ? _current_time - preserve_time_duration
-              : 0;
-      // GetProximalSeqnoBeforeTime tells us the last seqno known to have been
-      // written at or before the given time. + 1 to get the minimum we should
-      // preserve without excluding anything that might have been written on or
-      // after the given time.
-      preserve_time_min_seqno_ =
-          seqno_to_time_mapping_.GetProximalSeqnoBeforeTime(preserve_time) + 1;
-      if (c->immutable_options()->preclude_last_level_data_seconds > 0) {
-        uint64_t preclude_last_level_time =
-            static_cast<uint64_t>(_current_time) >
-                    c->immutable_options()->preclude_last_level_data_seconds
-                ? _current_time -
-                      c->immutable_options()->preclude_last_level_data_seconds
-                : 0;
-        preclude_last_level_min_seqno_ =
-            seqno_to_time_mapping_.GetProximalSeqnoBeforeTime(
-                preclude_last_level_time) +
-            1;
-      }
+      seqno_to_time_mapping_.GetCurrentTieringCutoffSeqnos(
+          static_cast<uint64_t>(_current_time),
+          c->immutable_options()->preserve_internal_time_seconds,
+          c->immutable_options()->preclude_last_level_data_seconds,
+          &preserve_time_min_seqno_, &preclude_last_level_min_seqno_);
     }
     // For accuracy of the GetProximalSeqnoBeforeTime queries above, we only
     // limit the capacity after them.
@@ -1295,8 +1282,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   auto c_iter = std::make_unique<CompactionIterator>(
       input, cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, earliest_write_conflict_snapshot_, job_snapshot_seq,
-      snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
+      &existing_snapshots_, earliest_snapshot_,
+      earliest_write_conflict_snapshot_, job_snapshot_seq, snapshot_checker_,
+      env_, ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, range_del_agg.get(),
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
@@ -1969,7 +1957,10 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       cfd->GetName(), sub_compact->compaction->output_level(),
       bottommost_level_, TableFileCreationReason::kCompaction,
       0 /* oldest_key_time */, current_time, db_id_, db_session_id_,
-      sub_compact->compaction->max_output_file_size(), file_number);
+      sub_compact->compaction->max_output_file_size(), file_number,
+      preclude_last_level_min_seqno_ == kMaxSequenceNumber
+          ? preclude_last_level_min_seqno_
+          : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
 
   outputs.NewBuilder(tboptions);
 

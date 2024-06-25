@@ -115,6 +115,9 @@ FlushJob::FlushJob(
       db_mutex_(db_mutex),
       shutting_down_(shutting_down),
       existing_snapshots_(std::move(existing_snapshots)),
+      earliest_snapshot_(existing_snapshots_.empty()
+                             ? kMaxSequenceNumber
+                             : existing_snapshots_.at(0)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       job_context_(job_context),
@@ -194,6 +197,7 @@ void FlushJob::PickMemTable() {
   // Track effective cutoff user-defined timestamp during flush if
   // user-defined timestamps can be stripped.
   GetEffectiveCutoffUDTForPickedMemTables();
+  GetPrecludeLastLevelMinSeqno();
 
   ReportFlushInputSize(mems_);
 
@@ -502,7 +506,7 @@ Status FlushJob::MemPurge() {
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
-        kMaxSequenceNumber, &existing_snapshots_,
+        kMaxSequenceNumber, &existing_snapshots_, earliest_snapshot_,
         earliest_write_conflict_snapshot_, job_snapshot_seq, snapshot_checker_,
         env, ShouldReportDetailedTime(env, ioptions->stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
@@ -968,14 +972,17 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->GetID(), cfd_->GetName(), 0 /* level */,
           false /* is_bottommost */, TableFileCreationReason::kFlush,
           oldest_key_time, current_time, db_id_, db_session_id_,
-          0 /* target_file_size */, meta_.fd.GetNumber());
+          0 /* target_file_size */, meta_.fd.GetNumber(),
+          preclude_last_level_min_seqno_ == kMaxSequenceNumber
+              ? preclude_last_level_min_seqno_
+              : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
 
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-          &blob_file_additions, existing_snapshots_,
+          &blob_file_additions, existing_snapshots_, earliest_snapshot_,
           earliest_write_conflict_snapshot_, job_snapshot_seq,
           snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
           cfd_->internal_stats(), &io_s, io_tracer_,
@@ -1151,6 +1158,26 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
       }
       cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
     }
+  }
+}
+
+void FlushJob::GetPrecludeLastLevelMinSeqno() {
+  if (cfd_->ioptions()->preclude_last_level_data_seconds == 0) {
+    return;
+  }
+  int64_t current_time = 0;
+  Status s = db_options_.clock->GetCurrentTime(&current_time);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get current time in Flush: Status: %s",
+                   s.ToString().c_str());
+  } else {
+    SequenceNumber preserve_time_min_seqno;
+    seqno_to_time_mapping_->GetCurrentTieringCutoffSeqnos(
+        static_cast<uint64_t>(current_time),
+        cfd_->ioptions()->preserve_internal_time_seconds,
+        cfd_->ioptions()->preclude_last_level_data_seconds,
+        &preserve_time_min_seqno, &preclude_last_level_min_seqno_);
   }
 }
 

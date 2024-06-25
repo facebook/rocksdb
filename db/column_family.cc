@@ -538,6 +538,7 @@ ColumnFamilyData::ColumnFamilyData(
       refs_(0),
       initialized_(false),
       dropped_(false),
+      flush_skip_reschedule_(false),
       internal_comparator_(cf_options.comparator),
       initial_cf_options_(SanitizeOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),
@@ -1528,6 +1529,20 @@ Status ColumnFamilyData::ValidateOptions(
       }
     }
   }
+
+  if (cf_options.compaction_style == kCompactionStyleUniversal) {
+    int max_read_amp = cf_options.compaction_options_universal.max_read_amp;
+    if (max_read_amp < -1) {
+      return Status::NotSupported(
+          "CompactionOptionsUniversal::max_read_amp should be at least -1.");
+    } else if (0 < max_read_amp &&
+               max_read_amp < cf_options.level0_file_num_compaction_trigger) {
+      return Status::NotSupported(
+          "CompactionOptionsUniversal::max_read_amp limits the number of sorted"
+          " runs but is smaller than the compaction trigger "
+          "level0_file_num_compaction_trigger.");
+    }
+  }
   return s;
 }
 
@@ -1605,6 +1620,19 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
 
   assert(path_id < data_dirs_.size());
   return data_dirs_[path_id].get();
+}
+
+void ColumnFamilyData::SetFlushSkipReschedule() {
+  const Comparator* ucmp = user_comparator();
+  const size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz == 0 || ioptions_.persist_user_defined_timestamps) {
+    return;
+  }
+  flush_skip_reschedule_.store(true);
+}
+
+bool ColumnFamilyData::GetAndClearFlushSkipReschedule() {
+  return flush_skip_reschedule_.exchange(false);
 }
 
 bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(

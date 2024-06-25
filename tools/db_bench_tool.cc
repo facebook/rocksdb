@@ -544,11 +544,19 @@ DEFINE_int32(universal_compression_size_percent, -1,
              "The percentage of the database to compress for universal "
              "compaction. -1 means compress everything.");
 
+DEFINE_int32(universal_max_read_amp, -1,
+             "The limit on the number of sorted runs");
+
 DEFINE_bool(universal_allow_trivial_move, false,
             "Allow trivial move in universal compaction.");
 
 DEFINE_bool(universal_incremental, false,
             "Enable incremental compactions in universal compaction.");
+
+DEFINE_int32(
+    universal_stop_style,
+    (int32_t)ROCKSDB_NAMESPACE::CompactionOptionsUniversal().stop_style,
+    "Universal compaction stop style.");
 
 DEFINE_int64(cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of uncompressed data");
@@ -703,6 +711,12 @@ DEFINE_bool(block_align,
 DEFINE_int64(prepopulate_block_cache, 0,
              "Pre-populate hot/warm blocks in block cache. 0 to disable and 1 "
              "to insert during flush");
+
+DEFINE_uint32(uncache_aggressiveness,
+              ROCKSDB_NAMESPACE::ColumnFamilyOptions().uncache_aggressiveness,
+              "Aggressiveness of erasing cache entries that are likely "
+              "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
+              "normal max");
 
 DEFINE_bool(use_data_block_hash_index, false,
             "if use kDataBlockBinaryAndHash "
@@ -4285,6 +4299,7 @@ class Benchmark {
         FLAGS_level_compaction_dynamic_level_bytes;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
+    options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
     Status s =
         CreateMemTableRepFactory(config_options, &options.memtable_factory);
     if (!s.ok()) {
@@ -4664,10 +4679,14 @@ class Benchmark {
       options.compaction_options_universal.compression_size_percent =
           FLAGS_universal_compression_size_percent;
     }
+    options.compaction_options_universal.max_read_amp =
+        FLAGS_universal_max_read_amp;
     options.compaction_options_universal.allow_trivial_move =
         FLAGS_universal_allow_trivial_move;
     options.compaction_options_universal.incremental =
         FLAGS_universal_incremental;
+    options.compaction_options_universal.stop_style =
+        static_cast<CompactionStopStyle>(FLAGS_universal_stop_style);
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
     }

@@ -590,6 +590,11 @@ class BatchedOpsStressTest : public StressTest {
         // For half of the time, set the upper bound to the next prefix
         ub_slices[i] = upper_bounds[i];
         ro_copies[i].iterate_upper_bound = &(ub_slices[i]);
+        if (FLAGS_use_sqfc_for_range_queries) {
+          ro_copies[i].table_filter =
+              sqfc_factory_->GetTableFilterForRangeQuery(prefix_slices[i],
+                                                         ub_slices[i]);
+        }
       }
 
       iters[i].reset(db_->NewIterator(ro_copies[i], cfh));

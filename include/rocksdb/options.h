@@ -234,6 +234,12 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.
   //
+  // Universal compaction: RocksDB will try to keep the number of sorted runs
+  //   no more than this number. If CompactionOptionsUniversal::max_read_amp is
+  //   set, then this option will be used only as a trigger to look for
+  //   compaction. CompactionOptionsUniversal::max_read_amp will be the limit
+  //   on the number of sorted runs.
+  //
   // Default: 4
   //
   // Dynamically changeable through SetOptions() API
@@ -343,6 +349,48 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint32_t memtable_max_range_deletions = 0;
+
+  // EXPERIMENTAL
+  // When > 0, RocksDB attempts to erase some block cache entries for files
+  // that have become obsolete, which means they are about to be deleted.
+  // To avoid excessive tracking, this "uncaching" process is iterative and
+  // speculative, meaning it could incur extra background CPU effort if the
+  // file's blocks are generally not cached. A larger number indicates more
+  // willingness to spend CPU time to maximize block cache hit rates by
+  // erasing known-obsolete entries.
+  //
+  // When uncache_aggressiveness=1, block cache entries for an obsolete file
+  // are only erased until any attempted erase operation fails because the
+  // block is not cached. Then no further attempts are made to erase cached
+  // blocks for that file.
+  //
+  // For larger values, erasure is attempted until evidence incidates that the
+  // chance of success is < 0.99^(a-1), where a = uncache_aggressiveness. For
+  // example:
+  // 2 -> Attempt only while expecting >= 99% successful/useful erasure
+  // 11 -> 90%
+  // 69 -> 50%
+  // 110 -> 33%
+  // 230 -> 10%
+  // 460 -> 1%
+  // 690 -> 0.1%
+  // 1000 -> 1 in 23000
+  // 10000 -> Always (for all practical purposes)
+  // NOTE: UINT32_MAX and nearby values could take additional special meanings
+  // in the future.
+  //
+  // Pinned cache entries (guaranteed present) are always erased if
+  // uncache_aggressiveness > 0, but are not used in predicting the chances of
+  // successful erasure of non-pinned entries.
+  //
+  // NOTE: In the case of copied DBs (such as Checkpoints) sharing a block
+  // cache, it is possible that a file becoming obsolete doesn't mean its
+  // block cache entries (shared among copies) are obsolete. Such a scenerio
+  // is the best case for uncache_aggressiveness = 0.
+  //
+  // Once validated in production, the default will likely change to something
+  // around 300.
+  uint32_t uncache_aggressiveness = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
@@ -1298,6 +1346,15 @@ struct DBOptions {
   // versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
   // the WAL is read.
   CompressionType wal_compression = kNoCompression;
+
+  // Set to true to re-instate an old behavior of keeping complete, synced WAL
+  // files open for write until they are collected for deletion by a
+  // background thread. This should not be needed unless there is a
+  // performance issue with file Close(), but setting it to true means that
+  // Checkpoint might call LinkFile on a WAL still open for write, which might
+  // be unsupported on some FileSystem implementations. As this is intended as
+  // a temporary kill switch, it is already DEPRECATED.
+  bool background_close_inactive_wals = false;
 
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not

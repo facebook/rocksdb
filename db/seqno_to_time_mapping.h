@@ -213,6 +213,15 @@ class SeqnoToTimeMapping {
   // must be in enforced state as a precondition.
   SequenceNumber GetProximalSeqnoBeforeTime(uint64_t time) const;
 
+  // Given current time, the configured `preserve_internal_time_seconds`, and
+  // `preclude_last_level_data_seconds`, find the relevant cutoff sequence
+  // numbers for tiering.
+  void GetCurrentTieringCutoffSeqnos(
+      uint64_t current_time, uint64_t preserve_internal_time_seconds,
+      uint64_t preclude_last_level_data_seconds,
+      SequenceNumber* preserve_time_min_seqno,
+      SequenceNumber* preclude_last_level_min_seqno) const;
+
   // Encode to a binary string by appending to `dest`.
   // Because this is a const operation depending on sortedness, the structure
   // must be in enforced state as a precondition.

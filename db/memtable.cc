@@ -13,6 +13,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+#include <optional>
 
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
@@ -617,8 +618,9 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
 }
 
 void MemTable::ConstructFragmentedRangeTombstones() {
-  assert(!IsFragmentedRangeTombstonesConstructed(false));
-  // There should be no concurrent Construction
+  // There should be no concurrent Construction.
+  // We could also check fragmented_range_tombstone_list_ to avoid repeate
+  // constructions. We just construct them here again to be safe.
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     // TODO: plumb Env::IOActivity, Env::IOPriority
     auto* unfragmented_iter = new MemTableIterator(
@@ -955,9 +957,9 @@ static bool SaveValue(void* arg, const char* entry) {
                                              s->key->user_key())) {
     // Correct user key
     TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Found:entry", &entry);
-    std::unique_ptr<ReadLock> read_lock;
+    std::optional<ReadLock> read_lock;
     if (s->inplace_update_support) {
-      read_lock.reset(new ReadLock(s->mem->GetLock(s->key->user_key())));
+      read_lock.emplace(s->mem->GetLock(s->key->user_key()));
     }
 
     if (s->protection_bytes_per_key > 0) {

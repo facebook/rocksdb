@@ -1,6 +1,56 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.4.0 (06/23/2024)
+### New Features
+* Added a `CompactForTieringCollectorFactory` to auto trigger compaction for tiering use case.
+* Optimistic transactions and pessimistic transactions with the WriteCommitted policy now support the `GetEntityForUpdate` API.
+* Added a new "count" command to the ldb repl shell. By default, it prints a count of keys in the database from start to end. The options --from=<key> and/or --to=<key> can be specified to limit the range.
+* Add `rocksdb_writebatch_update_timestamps`, `rocksdb_writebatch_wi_update_timestamps` in C API.
+* Add `rocksdb_iter_refresh` in C API.
+* Add `rocksdb_writebatch_create_with_params`, `rocksdb_writebatch_wi_create_with_params` to create WB and WBWI with all options in C API
+
+### Public API Changes
+* Deprecated names `LogFile` and `VectorLogPtr` in favor of new names `WalFile` and `VectorWalPtr`.
+* Introduce a new universal compaction option CompactionOptionsUniversal::max_read_amp which allows user to define the limit on the number of sorted runs separately from the trigger for compaction (`level0_file_num_compaction_trigger`) #12477.
+
+### Behavior Changes
+* Inactive WALs are immediately closed upon being fully sync-ed rather than in a background thread. This is to ensure LinkFile() is not called on files still open for write, which might not be supported by some FileSystem implementations. This should not be a performance issue, but an opt-out is available with with new DB option `background_close_inactive_wals`.
+
+### Bug Fixes
+* Fix a rare case in which a hard-linked WAL in a Checkpoint is not fully synced (so might lose data on power loss).
+* Fixed the output of the `ldb dump_wal` command for `PutEntity` records so it prints the key and correctly resets the hexadecimal formatting flag after printing the wide-column entity.
+* Fixed an issue where `PutEntity` records were handled incorrectly while rebuilding transactions during recovery.
+* Various read operations could ignore various ReadOptions that might be relevant. Fixed many such cases, which can result in behavior change but a better reflection of specified options.
+
+### Performance Improvements
+* Improved write throughput to memtable when there's a large number of concurrent writers and allow_concurrent_memtable_write=true(#12545)
+
+## 9.3.0 (05/17/2024)
+### New Features
+* Optimistic transactions and pessimistic transactions with the WriteCommitted policy now support the `GetEntity` API.
+* Added new `Iterator` property, "rocksdb.iterator.is-value-pinned", for checking whether the `Slice` returned by `Iterator::value()` can be used until the `Iterator` is destroyed.
+* Optimistic transactions and WriteCommitted pessimistic transactions now support the `MultiGetEntity` API.
+* Optimistic transactions and pessimistic transactions with the WriteCommitted policy now support the `PutEntity` API. Support for read APIs and other write policies (WritePrepared, WriteUnprepared) will be added later.
+
+### Public API Changes
+* Exposed block based metadata cache options via C API
+* Exposed compaction pri via c api.
+* Add a kAdmPolicyAllowAll option to TieredAdmissionPolicy that admits all blocks evicted from the primary block cache into the compressed secondary cache.
+
+### Behavior Changes
+* CompactRange() with change_level=true on a CF with FIFO compaction will return Status::NotSupported().
+* External file ingestion with FIFO compaction will always ingest to L0.
+
+### Bug Fixes
+* Fixed a bug for databases using `DBOptions::allow_2pc == true` (all `TransactionDB`s except `OptimisticTransactionDB`) that have exactly one column family. Due to a missing WAL sync, attempting to open the DB could have returned a `Status::Corruption` with a message like "SST file is ahead of WALs".
+* Fix a bug in CreateColumnFamilyWithImport() where if multiple CFs are imported, we were not resetting files' epoch number and L0 files can have overlapping key range but the same epoch number.
+* Fixed race conditions when `ColumnFamilyOptions::inplace_update_support == true` between user overwrites and reads on the same key.
+* Fix a bug where `CompactFiles()` can compact files of range conflict with other ongoing compactions' when `preclude_last_level_data_seconds > 0` is used
+* Fixed a false positive `Status::Corruption` reported when reopening a DB that used `DBOptions::recycle_log_file_num > 0` and `DBOptions::wal_compression != kNoCompression`.
+* While WAL is locked with LockWAL(), some operations like Flush() and IngestExternalFile() are now blocked as they should have been.
+* Fixed a bug causing stale memory access when using the TieredSecondaryCache with an NVM secondary cache, and a file system that supports return an FS allocated buffer for MultiRead (FSSupportedOps::kFSBuffer is set).
+
 ## 9.2.0 (05/01/2024)
 ### New Features
 * Added two options `deadline` and `max_size_bytes` for CacheDumper to exit early

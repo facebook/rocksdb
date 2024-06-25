@@ -306,6 +306,9 @@ DEFINE_int32(universal_max_merge_width, 0,
 DEFINE_int32(universal_max_size_amplification_percent, 0,
              "The max size amplification for universal style compaction");
 
+DEFINE_int32(universal_max_read_amp, -1,
+             "The limit on the number of sorted runs");
+
 DEFINE_int32(clear_column_family_one_in, 1000000,
              "With a chance of 1/N, delete a column family and then recreate "
              "it again. If N == 0, never drop/create column families. "
@@ -578,6 +581,16 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::BlockBasedTableOptions()
         .detect_filter_construct_corruption,
     "Detect corruption during new Bloom Filter and Ribbon Filter construction");
+
+DEFINE_string(sqfc_name, "foo",
+              "Config name to select from SstQueryFilterConfigsManager.");
+
+DEFINE_uint32(sqfc_version, 0,
+              "User-defined filtering version to select from "
+              "SstQueryFilterConfigsManager. 0 = disable writing filters");
+
+DEFINE_bool(use_sqfc_for_range_queries, true,
+            "Apply SstQueryFilters to range queries");
 
 DEFINE_int32(
     index_type,
@@ -955,6 +968,9 @@ DEFINE_uint32(use_put_entity_one_in, 0,
 DEFINE_bool(use_attribute_group, false,
             "If set, use the attribute_group API to put/get entities");
 
+DEFINE_bool(use_multi_cf_iterator, false,
+            "If set, use the multi_cf_iterator for TestIterate");
+
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");
@@ -1011,6 +1027,14 @@ DEFINE_int32(approximate_size_one_in, 64,
 
 DEFINE_int32(read_fault_one_in, 1000,
              "On non-zero, enables fault injection on read");
+
+DEFINE_bool(error_recovery_with_no_fault_injection, false,
+            "If true, error recovery will be done without fault injection if "
+            "fault injection is enabled");
+
+DEFINE_int32(metadata_read_fault_one_in, 1000,
+             "On non-zero, enables fault injection on metadata read (i.e, "
+             "directory and file metadata read)");
 
 DEFINE_int32(get_property_one_in, 1000,
              "If non-zero, then DB::GetProperty() will be called to get various"
@@ -1071,6 +1095,10 @@ DEFINE_int32(write_fault_one_in, 0,
              "On non-zero, enables fault injection on write. Currently only"
              "injects write error when writing to SST files.");
 
+DEFINE_int32(metadata_write_fault_one_in, 1000,
+             "On non-zero, enables fault injection on metadata write (i.e, "
+             "directory and file metadata write)");
+
 DEFINE_uint64(user_timestamp_size, 0,
               "Number of bytes for a user-defined timestamp. Currently, only "
               "8-byte is supported");
@@ -1078,6 +1106,11 @@ DEFINE_uint64(user_timestamp_size, 0,
 DEFINE_bool(persist_user_defined_timestamps, true,
             "Flag to indicate whether user-defined timestamps will be persisted"
             " during Flush");
+
+DEFINE_int32(open_metadata_read_fault_one_in, 0,
+             "On non-zero, enables fault injection on file metadata read (i.e, "
+             "directory and file metadata read)"
+             "during DB reopen.");
 
 DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "
@@ -1400,4 +1433,11 @@ DEFINE_bool(check_multiget_entity_consistency, true,
 DEFINE_bool(inplace_update_support,
             ROCKSDB_NAMESPACE::Options().inplace_update_support,
             "Options.inplace_update_support");
+
+DEFINE_uint32(uncache_aggressiveness,
+              ROCKSDB_NAMESPACE::ColumnFamilyOptions().uncache_aggressiveness,
+              "Aggressiveness of erasing cache entries that are likely "
+              "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
+              "normal max");
+
 #endif  // GFLAGS

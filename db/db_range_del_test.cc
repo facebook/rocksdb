@@ -3820,6 +3820,10 @@ TEST_F(DBRangeDelTest, RowCache) {
   ASSERT_OK(wb.DeleteRange(Key(1), Key(5)));
   ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsNotSupported());
   ASSERT_EQ(Get(Key(3)), "val");
+  // By default, memtable insertion failure will turn the DB to read-only mode.
+  // The check for delete range should happen before that to fail early
+  // and should not turn db into read-only mdoe.
+  ASSERT_OK(Put(Key(5), "foo"));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

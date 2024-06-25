@@ -69,6 +69,36 @@ SequenceNumber SeqnoToTimeMapping::GetProximalSeqnoBeforeTime(
   return it->seqno;
 }
 
+void SeqnoToTimeMapping::GetCurrentTieringCutoffSeqnos(
+    uint64_t current_time, uint64_t preserve_internal_time_seconds,
+    uint64_t preclude_last_level_data_seconds,
+    SequenceNumber* preserve_time_min_seqno,
+    SequenceNumber* preclude_last_level_min_seqno) const {
+  uint64_t preserve_time_duration = std::max(preserve_internal_time_seconds,
+                                             preclude_last_level_data_seconds);
+  if (preserve_time_duration <= 0) {
+    return;
+  }
+  uint64_t preserve_time = current_time > preserve_time_duration
+                               ? current_time - preserve_time_duration
+                               : 0;
+  // GetProximalSeqnoBeforeTime tells us the last seqno known to have been
+  // written at or before the given time. + 1 to get the minimum we should
+  // preserve without excluding anything that might have been written on or
+  // after the given time.
+  if (preserve_time_min_seqno) {
+    *preserve_time_min_seqno = GetProximalSeqnoBeforeTime(preserve_time) + 1;
+  }
+  if (preclude_last_level_data_seconds > 0 && preclude_last_level_min_seqno) {
+    uint64_t preclude_last_level_time =
+        current_time > preclude_last_level_data_seconds
+            ? current_time - preclude_last_level_data_seconds
+            : 0;
+    *preclude_last_level_min_seqno =
+        GetProximalSeqnoBeforeTime(preclude_last_level_time) + 1;
+  }
+}
+
 void SeqnoToTimeMapping::EnforceMaxTimeSpan(uint64_t now) {
   assert(enforced_);  // at least sorted
   uint64_t cutoff_time;

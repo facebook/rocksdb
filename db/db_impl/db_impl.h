@@ -9,6 +9,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <limits>
@@ -57,6 +58,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
@@ -230,6 +232,10 @@ class DBImpl : public DB {
 
   using DB::Write;
   Status Write(const WriteOptions& options, WriteBatch* updates) override;
+
+  using DB::WriteWithCallback;
+  Status WriteWithCallback(const WriteOptions& options, WriteBatch* updates,
+                           UserWriteCallback* user_write_cb) override;
 
   using DB::Get;
   Status Get(const ReadOptions& _read_options,
@@ -501,8 +507,14 @@ class DBImpl : public DB {
   // All the returned filenames start with "/"
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
                       bool flush_memtable = true) override;
-  Status GetSortedWalFiles(VectorLogPtr& files) override;
-  Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) override;
+  Status GetSortedWalFiles(VectorWalPtr& files) override;
+  // Get the known flushed sizes of WALs that might still be written to
+  // or have pending sync.
+  // NOTE: unlike alive_log_files_, this function includes WALs that might
+  // be obsolete (but not obsolete to a pending Checkpoint) and not yet fully
+  // synced.
+  Status GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size);
+  Status GetCurrentWalFile(std::unique_ptr<WalFile>* current_log_file) override;
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override;
 
   Status GetUpdatesSince(
@@ -688,7 +700,8 @@ class DBImpl : public DB {
   // thread to determine whether it is safe to perform the write.
   virtual Status WriteWithCallback(const WriteOptions& write_options,
                                    WriteBatch* my_batch,
-                                   WriteCallback* callback);
+                                   WriteCallback* callback,
+                                   UserWriteCallback* user_write_cb = nullptr);
 
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into the current
@@ -1447,6 +1460,9 @@ class DBImpl : public DB {
   Status RenameTempFileToOptionsFile(const std::string& file_name);
   Status DeleteObsoleteOptionsFiles();
 
+  void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
+                                    FlushReason flush_reason);
+
   void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                           const MutableCFOptions& mutable_cf_options,
                           int job_id, FlushReason flush_reason);
@@ -1497,6 +1513,7 @@ class DBImpl : public DB {
   // batch that does not have duplicate keys.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
+                   UserWriteCallback* user_write_cb = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
@@ -1505,6 +1522,7 @@ class DBImpl : public DB {
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
+                            UserWriteCallback* user_write_cb = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false,
                             uint64_t* seq_used = nullptr);
@@ -1531,7 +1549,8 @@ class DBImpl : public DB {
   // marks start of a new sub-batch.
   Status WriteImplWALOnly(
       WriteThread* write_thread, const WriteOptions& options,
-      WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
+      WriteBatch* updates, WriteCallback* callback,
+      UserWriteCallback* user_write_cb, uint64_t* log_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
       const PublishLastSeq publish_last_seq, const bool disable_memtable);
@@ -1703,8 +1722,11 @@ class DBImpl : public DB {
       return w;
     }
     Status ClearWriter() {
-      // TODO: plumb Env::IOActivity, Env::IOPriority
-      Status s = writer->WriteBuffer(WriteOptions());
+      Status s;
+      if (writer->file()) {
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        s = writer->WriteBuffer(WriteOptions());
+      }
       delete writer;
       writer = nullptr;
       return s;
@@ -1719,10 +1741,16 @@ class DBImpl : public DB {
 
     void PrepareForSync() {
       assert(!getting_synced);
-      // Size is expected to be monotonically increasing.
-      assert(writer->file()->GetFlushedSize() >= pre_sync_size);
+      // Ensure the head of logs_ is marked as getting_synced if any is.
       getting_synced = true;
-      pre_sync_size = writer->file()->GetFlushedSize();
+      // If last sync failed on a later WAL, this could be a fully synced
+      // and closed WAL that just needs to be recorded as synced in the
+      // manifest.
+      if (writer->file()) {
+        // Size is expected to be monotonically increasing.
+        assert(writer->file()->GetFlushedSize() >= pre_sync_size);
+        pre_sync_size = writer->file()->GetFlushedSize();
+      }
     }
 
     void FinishSync() {
@@ -1920,7 +1948,7 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  IOStatus SyncClosedLogs(const WriteOptions& write_options,
+  IOStatus SyncClosedWals(const WriteOptions& write_options,
                           JobContext* job_context, VersionEdit* synced_wals,
                           bool error_recovery_in_prog);
 
@@ -2054,17 +2082,22 @@ class DBImpl : public DB {
       mutex_.Lock();
     }
 
-    if (!immutable_db_options_.unordered_write) {
-      // Then the writes are finished before the next write group starts
-      return;
+    if (immutable_db_options_.unordered_write) {
+      // Wait for the ones who already wrote to the WAL to finish their
+      // memtable write.
+      if (pending_memtable_writes_.load() != 0) {
+        // XXX: suspicious wait while holding DB mutex?
+        std::unique_lock<std::mutex> guard(switch_mutex_);
+        switch_cv_.wait(guard,
+                        [&] { return pending_memtable_writes_.load() == 0; });
+      }
+    } else {
+      // (Writes are finished before the next write group starts.)
     }
 
-    // Wait for the ones who already wrote to the WAL to finish their
-    // memtable write.
-    if (pending_memtable_writes_.load() != 0) {
-      std::unique_lock<std::mutex> guard(switch_mutex_);
-      switch_cv_.wait(guard,
-                      [&] { return pending_memtable_writes_.load() == 0; });
+    // Wait for any LockWAL to clear
+    while (lock_wal_count_ > 0) {
+      bg_cv_.Wait();
     }
   }
 
@@ -2174,7 +2207,8 @@ class DBImpl : public DB {
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
 
-  void SchedulePendingFlush(const FlushRequest& req);
+  // Returns true if `req` is successfully enqueued.
+  bool SchedulePendingFlush(const FlushRequest& req);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
@@ -2249,6 +2283,11 @@ class DBImpl : public DB {
   // Pick the first unthrottled compaction with task token from queue.
   ColumnFamilyData* PickCompactionFromQueue(
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
+
+  IOStatus SyncWalImpl(bool include_current_wal,
+                       const WriteOptions& write_options,
+                       JobContext* job_context, VersionEdit* synced_wals,
+                       bool error_recovery_in_prog);
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
@@ -2522,8 +2561,10 @@ class DBImpl : public DB {
 
   bool persistent_stats_cfd_exists_ = true;
 
-  // alive_log_files_ is protected by mutex_ and log_write_mutex_ with details
-  // as follows:
+  // The current WAL file and those that have not been found obsolete from
+  // memtable flushes. A WAL not on this list might still be pending writer
+  // flush and/or sync and close and might still be in logs_. alive_log_files_
+  // is protected by mutex_ and log_write_mutex_ with details as follows:
   // 1. read by FindObsoleteFiles() which can be called in either application
   //    thread or RocksDB bg threads, both mutex_ and log_write_mutex_ are
   //    held.
@@ -2574,7 +2615,7 @@ class DBImpl : public DB {
   // 8. read by MarkLogsNotSynced() and MarkLogsSynced() are protected by
   //    log_write_mutex_.
   // 9. erase() by MarkLogsSynced() protected by log_write_mutex_.
-  // 10. read by SyncClosedLogs() protected by only log_write_mutex_. This can
+  // 10. read by SyncClosedWals() protected by only log_write_mutex_. This can
   //     happen in bg flush threads after DB::Open() returns success to
   //     applications.
   // 11. reads, e.g. front(), iteration, and back() called by PreprocessWrite()
@@ -2587,7 +2628,7 @@ class DBImpl : public DB {
   // 13. emplace_back() by SwitchMemtable() hold both mutex_ and
   //     log_write_mutex_. This happens in the write group leader. Can conflict
   //     with bg threads calling FindObsoleteFiles(), MarkLogsSynced(),
-  //     SyncClosedLogs(), etc. as well as application threads calling
+  //     SyncClosedWals(), etc. as well as application threads calling
   //     FlushWAL(), SyncWAL(), LockWAL(). This is fine because all parties
   //     require at least log_write_mutex_.
   // 14. iteration called in WriteToWAL(write_group) protected by

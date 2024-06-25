@@ -163,6 +163,11 @@ Status TableCache::GetTableReader(
   return s;
 }
 
+Cache::Handle* TableCache::Lookup(Cache* cache, uint64_t file_number) {
+  Slice key = GetSliceForFileNumber(&file_number);
+  return cache->Lookup(key);
+}
+
 Status TableCache::FindTable(
     const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator,
@@ -225,7 +230,7 @@ InternalIterator* TableCache::NewIterator(
     const InternalKey* smallest_compaction_key,
     const InternalKey* largest_compaction_key, bool allow_unprepared_value,
     uint8_t block_protection_bytes_per_key, const SequenceNumber* read_seqno,
-    TruncatedRangeDelIterator** range_del_iter) {
+    std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -280,7 +285,7 @@ InternalIterator* TableCache::NewIterator(
         delete new_range_del_iter;
         *range_del_iter = nullptr;
       } else {
-        *range_del_iter = new TruncatedRangeDelIterator(
+        *range_del_iter = std::make_unique<TruncatedRangeDelIterator>(
             std::unique_ptr<FragmentedRangeTombstoneIterator>(
                 new_range_del_iter),
             &icomparator, &file_meta.smallest, &file_meta.largest);
@@ -727,4 +732,14 @@ uint64_t TableCache::ApproximateSize(
 
   return result;
 }
+
+void TableCache::ReleaseObsolete(Cache* cache, Cache::Handle* h,
+                                 uint32_t uncache_aggressiveness) {
+  CacheInterface typed_cache(cache);
+  TypedHandle* table_handle = reinterpret_cast<TypedHandle*>(h);
+  TableReader* table_reader = typed_cache.Value(table_handle);
+  table_reader->MarkObsolete(uncache_aggressiveness);
+  typed_cache.ReleaseAndEraseIfLastRef(table_handle);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
