@@ -26,16 +26,16 @@ namespace ROCKSDB_NAMESPACE {
 
 class MultiTenantRateLimiter : public RateLimiter {
  public:
-  MultiTenantRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
-                     int32_t fairness, RateLimiter::Mode mode,
-                     const std::shared_ptr<SystemClock>& clock, bool auto_tuned,
-                     int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec,
-                     int num_clients);
+  MultiTenantRateLimiter(
+    int num_clients, std::vector<int64_t> client_bytes_per_sec, int64_t refill_period_us,
+    int32_t fairness, RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock, 
+    int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec);
 
   virtual ~MultiTenantRateLimiter();
 
   // Permits dynamically change rate limiter's bytes per second.
   void SetBytesPerSecond(int64_t bytes_per_second) override;
+  void SetBytesPerSecond(int client_id, int64_t bytes_per_second);
 
   Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
 
@@ -49,11 +49,17 @@ class MultiTenantRateLimiter : public RateLimiter {
   void Request(const int64_t bytes, const Env::IOPriority pri,
                        Statistics* stats, OpType op_type) override;
 
+  // TODO: make this per-tenant
   int64_t GetSingleBurstBytes() const override {
+    int client_id = 0;
+    return GetSingleBurstBytes(client_id);
+  }
+
+  int64_t GetSingleBurstBytes(int client_id) const {
     int64_t raw_single_burst_bytes =
         raw_single_burst_bytes_.load(std::memory_order_relaxed);
     if (raw_single_burst_bytes == 0) {
-      return refill_bytes_per_period_.load(std::memory_order_relaxed);
+      return refill_bytes_per_period_[client_id].load(std::memory_order_relaxed);
     }
     return raw_single_burst_bytes;
   }
@@ -101,8 +107,14 @@ class MultiTenantRateLimiter : public RateLimiter {
     return Status::OK();
   }
 
+  // TODO: Make this per-client? Maybe thread-level storage?
   int64_t GetBytesPerSecond() const override {
-    return rate_bytes_per_sec_.load(std::memory_order_relaxed);
+    int client_id = 0;
+    return GetBytesPerSecond(client_id);
+  }
+
+  int64_t GetBytesPerSecond(int client_id) const {
+    return rate_bytes_per_sec_[client_id].load(std::memory_order_relaxed);
   }
 
   virtual void TEST_SetClock(std::shared_ptr<SystemClock> clock) {
@@ -118,6 +130,7 @@ class MultiTenantRateLimiter : public RateLimiter {
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
   Status TuneLocked();
   void SetBytesPerSecondLocked(int64_t bytes_per_second);
+  void SetBytesPerSecondLocked(int client_id, int64_t bytes_per_second);
 
   void TGprintStackTrace();
 
@@ -130,8 +143,6 @@ class MultiTenantRateLimiter : public RateLimiter {
 
   const int64_t refill_period_us_;
 
-  std::atomic<int64_t> rate_bytes_per_sec_;
-  std::atomic<int64_t> refill_bytes_per_period_;
   // This value is validated but unsanitized (may be zero).
   std::atomic<int64_t> raw_single_burst_bytes_;
   std::shared_ptr<SystemClock> clock_;
@@ -158,14 +169,12 @@ class MultiTenantRateLimiter : public RateLimiter {
 
   // Multi-tenant extensions
   int num_clients_;
+  std::vector<std::atomic<int64_t>> rate_bytes_per_sec_;
+  std::vector<std::atomic<int64_t>> refill_bytes_per_period_;
   std::vector<int64_t> available_bytes_;
-
   std::map<ReqKey, std::deque<Req*>> request_queue_map_;
-
   std::vector<int64_t> calls_per_client_;
-
   int total_calls_;
-
   RateLimiter* read_rate_limiter_ = nullptr;
   int64_t read_rate_bytes_per_sec_;
 };

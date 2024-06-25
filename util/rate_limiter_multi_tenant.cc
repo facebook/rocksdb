@@ -68,16 +68,17 @@ struct MultiTenantRateLimiter::ReqKey {
   }
 };
 
+
+// We are implementing **DWRR**
+// rate_bytes_per_sec --> vector of weights
+// total_bytes_per_sec_limit --> 
+
 MultiTenantRateLimiter::MultiTenantRateLimiter(
-    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
-    RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock,
-    bool auto_tuned, int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec, int num_clients)
+  int num_clients, std::vector<int64_t> client_bytes_per_sec, int64_t refill_period_us,
+  int32_t fairness, RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock, 
+  int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec)
     : RateLimiter(mode),
       refill_period_us_(refill_period_us),
-      rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
-                                     : rate_bytes_per_sec),
-      refill_bytes_per_period_(
-          CalculateRefillBytesPerPeriodLocked(rate_bytes_per_sec_)),
       raw_single_burst_bytes_(single_burst_bytes),
       clock_(clock),
       stop_(false),
@@ -88,16 +89,24 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
       rnd_((uint32_t)time(nullptr)),
       wait_until_refill_pending_(false),
       num_clients_(num_clients),
+      rate_bytes_per_sec_(num_clients),
+      refill_bytes_per_period_(num_clients),
       read_rate_bytes_per_sec_(read_rate_bytes_per_sec) {
+  // Initialize per-priority counters.
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
   }
-  for (int i = 0; i < num_clients; ++i) {
-    calls_per_client_.push_back(0);
-    available_bytes_.push_back(0);
-  }
 
+  // Initialize per-client data structures.
+  for (int i = 0; i < num_clients; ++i) {
+    rate_bytes_per_sec_[i].store(client_bytes_per_sec[i]);
+    refill_bytes_per_period_[i].store(CalculateRefillBytesPerPeriodLocked(client_bytes_per_sec[i]));
+    calls_per_client_.emplace_back(0);
+    available_bytes_.emplace_back(0);
+  }
+  
+  // Create (empty) queue for each client-priority pair.
   for (int c_id = 0; c_id < num_clients; ++c_id) {
     for (int pri = Env::IO_LOW; pri < Env::IO_TOTAL; ++pri) {
       ReqKey key(c_id, static_cast<Env::IOPriority>(pri));
@@ -105,19 +114,23 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
     }
   }
 
-  std::cout << "[TGRIGGS_LOG] rate_bytes_per_sec_ = " << rate_bytes_per_sec_ << std::endl;
-
-  if (read_rate_bytes_per_sec_ > 0) {
-    read_rate_limiter_ = NewMultiTenantRateLimiter(
-        read_rate_bytes_per_sec_, // <rate_limit> MB/s rate limit
-        refill_period_us,        // Refill period
-        10,                // Fairness (default)
-        rocksdb::RateLimiter::Mode::kReadsOnly, // Apply only to reads
-        false,              // Disable auto-tuning
-        /* read_rate_limit = */ 0,
-        num_clients = num_clients
-    );
+  std::cout << "[TGRIGGS_LOG] per-client B/s limit:" << std::endl;
+  for (int i = 0; i < num_clients_; ++i) {
+    std::cout << "[TGRIGGS_LOG] Client " << i << ": " << rate_bytes_per_sec_[i].load(std::memory_order_relaxed) << std::endl;
   }
+
+  // TODO: create a separate (read) rate limiter for this
+  // if (read_rate_bytes_per_sec_ > 0) {
+  //   read_rate_limiter_ = NewMultiTenantRateLimiter(
+  //       read_rate_bytes_per_sec_, // <rate_limit> MB/s rate limit
+  //       refill_period_us,        // Refill period
+  //       10,                // Fairness (default)
+  //       rocksdb::RateLimiter::Mode::kReadsOnly, // Apply only to reads
+  //       false,              // Disable auto-tuning
+  //       /* read_rate_limit = */ 0,
+  //       num_clients = num_clients
+  //   );
+  // }
 }
 
 MultiTenantRateLimiter::~MultiTenantRateLimiter() {
@@ -142,17 +155,33 @@ MultiTenantRateLimiter::~MultiTenantRateLimiter() {
 }
 
 // This API allows user to dynamically change rate limiter's bytes per second.
-void MultiTenantRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
+// TODO: find where this is actually used in code, does it break our assumptions about resource limits?
+void MultiTenantRateLimiter::SetBytesPerSecond(int client_id, int64_t bytes_per_second) {
   MutexLock g(&request_mutex_);
-  SetBytesPerSecondLocked(bytes_per_second);
+  SetBytesPerSecondLocked(client_id, bytes_per_second);
+}
+
+void MultiTenantRateLimiter::SetBytesPerSecondLocked(int client_id, int64_t bytes_per_second) {
+  assert(bytes_per_second > 0);
+  rate_bytes_per_sec_[client_id].store(bytes_per_second, std::memory_order_relaxed);
+  refill_bytes_per_period_[client_id].store(
+      CalculateRefillBytesPerPeriodLocked(bytes_per_second),
+      std::memory_order_relaxed);
+}
+
+void MultiTenantRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
+  (void) bytes_per_second;
+  std::cout << "[TGRIGGS_LOG] Deprecated 'SetBytesPerSecond'.\n";
 }
 
 void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
-  assert(bytes_per_second > 0);
-  rate_bytes_per_sec_.store(bytes_per_second, std::memory_order_relaxed);
-  refill_bytes_per_period_.store(
-      CalculateRefillBytesPerPeriodLocked(bytes_per_second),
-      std::memory_order_relaxed);
+  (void) bytes_per_second;
+  std::cout << "[TGRIGGS_LOG] Deprecated 'SetBytesPerSecondLocked'.\n";
+  // assert(bytes_per_second > 0);
+  // rate_bytes_per_sec_.store(bytes_per_second, std::memory_order_relaxed);
+  // refill_bytes_per_period_.store(
+  //     CalculateRefillBytesPerPeriodLocked(bytes_per_second),
+  //     std::memory_order_relaxed);
 }
 
 Status MultiTenantRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
@@ -398,8 +427,10 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
 
   // Carry over the left over quota from the last period
   // TODO: don't understand how this ^^ is happening in the code below??
-  auto refill_bytes_per_period =
-      refill_bytes_per_period_.load(std::memory_order_relaxed);
+  std::vector<int64_t> refill_bytes_per_period;
+  for (int i = 0; i < num_clients_; ++i) {
+    refill_bytes_per_period.push_back(refill_bytes_per_period_[i].load(std::memory_order_relaxed));
+  }
 
   // TODO: are we breaking an invariant commenting this out?
   // assert(available_bytes_ == 0);
@@ -407,7 +438,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
 
   // TODO: allow weighting of different clients.
   for (int c_id = 0; c_id < num_clients_; ++c_id) {
-    available_bytes_[c_id] = refill_bytes_per_period;
+    available_bytes_[c_id] = refill_bytes_per_period[c_id];
   }
 
   // Random shuffle client order.
@@ -490,20 +521,28 @@ int64_t MultiTenantRateLimiter::CalculateRefillBytesPerPeriodLocked(
     return rate_bytes_per_sec * refill_period_us_ / kMicrosecondsPerSecond;
   }
 }
+
+// MultiTenantRateLimiter(
+//   int num_clients, std::vector<float> client_weights, int64_t total_bytes_per_sec, int64_t refill_period_us,
+//   int32_t fairness, RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock, 
+//   int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec)
+
+
 RateLimiter* NewMultiTenantRateLimiter(
-    int64_t rate_bytes_per_sec, int64_t refill_period_us /* = 100 * 1000 */,
+    int num_clients /* = 1 */,
+    // int64_t rate_bytes_per_sec, 
+    std::vector<int64_t> client_bytes_per_sec,
+    int64_t refill_period_us /* = 100 * 1000 */,
     int32_t fairness /* = 10 */,
     RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */,
-    bool auto_tuned /* = false */, int64_t single_burst_bytes /* = 0 */,
-    int64_t read_rate_bytes_per_sec /* = 0 */,
-    int num_clients /* = 1 */) {
+    int64_t single_burst_bytes /* = 0 */,
+    int64_t read_rate_bytes_per_sec /* = 0 */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
   std::unique_ptr<RateLimiter> limiter(new MultiTenantRateLimiter(
-      rate_bytes_per_sec, refill_period_us, fairness, mode,
-      SystemClock::Default(), auto_tuned, single_burst_bytes, read_rate_bytes_per_sec,
-      num_clients));
+      num_clients, client_bytes_per_sec, refill_period_us, fairness, mode,
+      SystemClock::Default(), single_burst_bytes, read_rate_bytes_per_sec));
   return limiter.release();
 }
 
