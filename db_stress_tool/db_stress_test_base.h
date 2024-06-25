@@ -238,13 +238,18 @@ class StressTest {
 
   virtual Status PrepareOptionsForRestoredDB(Options* options);
 
+  void TestGetApproximateMemTableStats(ThreadState* thread,
+                                       int rand_column_family,
+                                       int64_t rand_key);
+
   virtual Status TestCheckpoint(ThreadState* thread,
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys);
 
   void TestCompactFiles(ThreadState* thread, ColumnFamilyHandle* column_family);
 
-  Status TestFlush(const std::vector<int>& rand_column_families);
+  Status TestFlush(ThreadState* thread,
+                   const std::vector<int>& rand_column_families);
 
   Status TestResetStats();
 

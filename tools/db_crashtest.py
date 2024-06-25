@@ -315,13 +315,14 @@ default_params = {
     "last_level_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
     "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
     "default_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
-    # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
-    # after fixing the surfaced issue with delete range
-    "enable_memtable_insert_with_hint_prefix_extractor": 0,
+    "enable_memtable_insert_with_hint_prefix_extractor": lambda: random.choice([0, 1]),
     "check_multiget_consistency": lambda: random.choice([0, 0, 0, 1]),
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda : random.choice([-1] * 3 + [0, 4, 10]),
+    "get_approximate_memtable_stats_one_in": lambda : random.choice([0, 1000]),
+    # 0 (disable)
+    "row_cache_size": lambda: random.choice([0] * 9 + [8388608]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -908,6 +909,10 @@ def finalize_and_sanitize(src_params):
     elif (dest_params.get("use_put_entity_one_in") > 1 and
         dest_params.get("use_timed_put_one_in") == 1):
         dest_params["use_timed_put_one_in"] = 3
+    # Row cache is not compatible with delete range
+    if dest_params.get("row_cache_size") > 0 :
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
     return dest_params
 
 def gen_cmd_params(args):

@@ -1025,6 +1025,11 @@ DEFINE_int32(approximate_size_one_in, 64,
              "If non-zero, DB::GetApproximateSizes() will be called against"
              " random key ranges.");
 
+DEFINE_int32(
+    get_approximate_memtable_stats_one_in, 0,
+    "If non-zero, DB::GetApproximateMemTableStats() will be called against"
+    " random key ranges.");
+
 DEFINE_int32(read_fault_one_in, 1000,
              "On non-zero, enables fault injection on read");
 
@@ -1439,5 +1444,9 @@ DEFINE_uint32(uncache_aggressiveness,
               "Aggressiveness of erasing cache entries that are likely "
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
+
+DEFINE_int64(row_cache_size, 0,
+             "Size of row cache in bytes. 0 = disabled and LRU cache is used "
+             "when enabled");
 
 #endif  // GFLAGS
