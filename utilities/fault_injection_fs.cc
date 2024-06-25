@@ -846,8 +846,8 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kRead,
+                                              file_opts.io_options);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -866,8 +866,8 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kRead,
+                                              file_opts.io_options);
   if (!io_s.ok()) {
     return io_s;
   }

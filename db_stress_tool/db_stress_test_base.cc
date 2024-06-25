@@ -2868,6 +2868,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   // verify that the results are the same.
   Status status_at = db_->Get(ropt, column_family, key, &value_at);
   if (!status_at.ok() && IsErrorInjectedAndRetryable(status_at)) {
+    db_->ReleaseSnapshot(snapshot);
     return;
   }
   std::vector<bool>* key_vec = nullptr;
