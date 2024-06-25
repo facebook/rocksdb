@@ -1230,7 +1230,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           }
         }
 
-        if (total_size <= FLAGS_backup_max_size) {
+        if (total_size <= FLAGS_backup_max_size && fault_fs_guard) {
           // TODO(hx235): enable metadata error injection with
           // backup/restore after fixing the various issues it surfaces
           fault_fs_guard->DisableThreadLocalErrorInjection(
