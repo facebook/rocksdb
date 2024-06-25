@@ -119,7 +119,7 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
     std::cout << "[TGRIGGS_LOG] Client " << i << ": " << rate_bytes_per_sec_[i].load(std::memory_order_relaxed) << std::endl;
   }
 
-  // TODO: create a separate (read) rate limiter
+  // TODO(tgriggs): create a separate (read) rate limiter
   if (read_bytes_per_sec.size() > 0) {
     read_rate_limiter_ = NewMultiTenantRateLimiter(
         num_clients,
@@ -137,25 +137,23 @@ MultiTenantRateLimiter::~MultiTenantRateLimiter() {
   MutexLock g(&request_mutex_);
   stop_ = true;
   std::deque<Req*>::size_type queues_size_sum = 0;
-  for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
-    queues_size_sum += queue_[i].size();
+  for (const auto& pair : request_queue_map_) {
+    queues_size_sum += pair.second.size();
   }
   requests_to_wait_ = static_cast<int32_t>(queues_size_sum);
-
-  for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
-    std::deque<Req*> queue = queue_[i];
+  for (const auto& pair : request_queue_map_) {
+    std::deque<Req*> queue = pair.second;
     for (auto& r : queue) {
       r->cv.Signal();
     }
   }
-
   while (requests_to_wait_ > 0) {
     exit_cv_.Wait();
   }
 }
 
 // This API allows user to dynamically change rate limiter's bytes per second.
-// TODO: find where this is actually used in code, does it break our assumptions about resource limits?
+// TODO(tgriggs): find where this is actually used in code, does it break our assumptions about resource limits?
 void MultiTenantRateLimiter::SetBytesPerSecond(int client_id, int64_t bytes_per_second) {
   MutexLock g(&request_mutex_);
   SetBytesPerSecondLocked(client_id, bytes_per_second);
@@ -195,6 +193,22 @@ Status MultiTenantRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
   return Status::OK();
 }
 
+// TODO(tgriggs): how is this used? do we need per-tenant?
+  Status MultiTenantRateLimiter::GetTotalPendingRequests(
+      int64_t* total_pending_requests,
+      const Env::IOPriority pri) const {
+    assert(total_pending_requests != nullptr);
+    MutexLock g(&request_mutex_);
+    int64_t total_pending_requests_sum = 0;
+    for (const auto& pair : request_queue_map_) {
+      if (pri == Env::IO_TOTAL || pair.first.priority == pri) {
+        total_pending_requests_sum += static_cast<int64_t>(pair.second.size());
+      }
+    }
+    *total_pending_requests = total_pending_requests_sum;
+    return Status::OK();
+  }
+
 void MultiTenantRateLimiter::TGprintStackTrace() {
   void *array[10];
   size_t size;
@@ -226,21 +240,19 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                 
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
+  // TODO(tgriggs): Clean all of this client ID stuff up.
+
   // Extract client ID from thread-local metadata.
   int client_id = TG_GetThreadMetadata().client_id;
-
   if (client_id == 0) {
     // TGprintStackTrace();
   }
-
-  // TODO: clean this up
   if (client_id == -2) {
     std::cout << "[TGRIGGS_LOG] bad input" << std::endl;
     return;
   }
-
   // Flush - don't block them (for now)
-  // TODO:
+  // TODO(tgriggs):
   //    Idea: give support for splitting across certain clients
   if (client_id == -1) {
     // std::cout << "[TGRIGGS_LOG] un-set client id" << std::endl;
@@ -249,6 +261,9 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     client_id = 1;
     // return;
   }
+
+  // Revert to actual ID.
+  client_id -= 1;
 
   // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
   calls_per_client_[client_id]++;
@@ -411,7 +426,7 @@ MultiTenantRateLimiter::GeneratePriorityIterationOrderLocked() {
   return pri_iteration_order;
 }
 
-// TODO:
+// TODO(tgriggs):
 // 1) need to create N "available_bytes_" to track separate token buckets for each user. 
 // 2) for compaction: belongs to single client_id
 // 3) for flush: belongs to MULTIPLE client_id's, draw from each?? even if goes below zero??
@@ -424,13 +439,13 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
 
   // Carry over the left over quota from the last period
-  // TODO: don't understand how this ^^ is happening in the code below??
+  // TODO(tgriggs): don't understand how this ^^ is happening in the code below??
   std::vector<int64_t> refill_bytes_per_period;
   for (int i = 0; i < num_clients_; ++i) {
     refill_bytes_per_period.push_back(refill_bytes_per_period_[i].load(std::memory_order_relaxed));
   }
 
-  // TODO: are we breaking an invariant commenting this out?
+  // TODO(tgriggs): are we breaking an invariant commenting this out?
   // assert(available_bytes_ == 0);
   // available_bytes_ = refill_bytes_per_period;
 
