@@ -3845,6 +3845,33 @@ int main(int argc, char** argv) {
       rocksdb_iter_destroy(iter);
     }
 
+    // columns api write batch
+    {
+        const char* names1[] = {"col0", "col1"};
+        const size_t names1_sizes[] = {4, 4};
+        const char* values1[] = {"val-0", "val-1"};
+        const size_t values1_sizes[] = {5, 5};
+        const char* names2[] = {"col0", "col1"};
+        const size_t names2_sizes[] = {4, 4};
+        const char* values2[] = {"val-0", "val-1"};
+        const size_t values2_sizes[] = {5, 5};
+
+        rocksdb_writebatch_t* b = rocksdb_writebatch_create();
+
+        rocksdb_writebatch_put_entity_cf(b, cfh, "key1", 4, 2, names1, names1_sizes, values1, values1_sizes, &err);
+        CheckNoError(err);
+        rocksdb_writebatch_put_entity_cf(b, cfh, "key2", 4, 2, names2, names2_sizes, values2, values2_sizes, &err);
+        CheckNoError(err);
+
+        rocksdb_write(db, woptions, b, &err);
+        CheckNoError(err);
+
+        CheckGetCols(db, roptions, cfh, "key1", 2, names1, values1);
+        CheckGetCols(db, roptions, cfh, "key2", 2, names2, values2);
+
+        rocksdb_writebatch_destroy(b);
+    }
+
     rocksdb_column_family_handle_destroy(cfh);
     rocksdb_options_destroy(db_options);
   }

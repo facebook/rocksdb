@@ -804,6 +804,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_putv_cf(
     int num_keys, const char* const* keys_list, const size_t* keys_list_sizes,
     int num_values, const char* const* values_list,
     const size_t* values_list_sizes);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_put_entity_cf(
+    rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen, size_t num_columns,
+    const char* const* names_list, const size_t* names_list_sizes,
+    const char* const* values_list, const size_t* values_list_sizes,
+    char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_merge(rocksdb_writebatch_t*,
                                                          const char* key,
                                                          size_t klen,

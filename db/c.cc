@@ -2108,6 +2108,24 @@ void rocksdb_writebatch_putv_cf(rocksdb_writebatch_t* b,
              SliceParts(value_slices.data(), num_values));
 }
 
+void rocksdb_writebatch_put_entity_cf(
+    rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen, size_t num_columns,
+    const char* const* names_list, const size_t* names_list_sizes,
+    const char* const* values_list, const size_t* values_list_sizes,
+    char** errptr) {
+  WideColumns columns;
+  columns.reserve(num_columns);
+  for (size_t i = 0; i < num_columns; i++) {
+    WideColumn column(Slice(names_list[i], names_list_sizes[i]),
+                      Slice(values_list[i], values_list_sizes[i]));
+
+    columns.push_back(column);
+  }
+  SaveError(errptr,
+            b->rep.PutEntity(column_family->rep, Slice(key, keylen), columns));
+}
+
 void rocksdb_writebatch_merge(rocksdb_writebatch_t* b, const char* key,
                               size_t klen, const char* val, size_t vlen) {
   b->rep.Merge(Slice(key, klen), Slice(val, vlen));
