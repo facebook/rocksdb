@@ -27,9 +27,10 @@ namespace ROCKSDB_NAMESPACE {
 class MultiTenantRateLimiter : public RateLimiter {
  public:
   MultiTenantRateLimiter(
-    int num_clients, std::vector<int64_t> client_bytes_per_sec, int64_t refill_period_us,
+    int num_clients, std::vector<int64_t> writes_bytes_per_sec, 
+    std::vector<int64_t> read_bytes_per_sec, int64_t refill_period_us,
     int32_t fairness, RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock, 
-    int64_t single_burst_bytes, int64_t read_rate_bytes_per_sec);
+    int64_t single_burst_bytes);
 
   virtual ~MultiTenantRateLimiter();
 
@@ -115,6 +116,10 @@ class MultiTenantRateLimiter : public RateLimiter {
 
   int64_t GetBytesPerSecond(int client_id) const {
     return rate_bytes_per_sec_[client_id].load(std::memory_order_relaxed);
+  }
+
+  RateLimiter* GetReadRateLimiter() {
+    return read_rate_limiter_;
   }
 
   virtual void TEST_SetClock(std::shared_ptr<SystemClock> clock) {

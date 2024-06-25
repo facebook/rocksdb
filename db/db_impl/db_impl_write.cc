@@ -430,7 +430,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
 
   size_t num_cfs = 2;
-  for (int i = 0; i < num_cfs; ++i) {
+  for (size_t i = 0; i < num_cfs; ++i) {
     last_batch_sizes_[i] = 0;
   }
   
