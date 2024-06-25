@@ -280,9 +280,10 @@ class StressTest {
     return Status::NotSupported("TestCustomOperations() must be overridden");
   }
 
-  bool IsRetryableInjectedError(const Status& s) const {
-    return s.getState() && std::strstr(s.getState(), "inject") &&
-           !status_to_io_status(Status(s)).GetDataLoss();
+  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
+    assert(!error_s.ok());
+    return error_s.getState() && std::strstr(error_s.getState(), "inject") &&
+           !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
   void ProcessStatus(SharedState* shared, std::string msg, const Status& s,
