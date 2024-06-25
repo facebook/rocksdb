@@ -227,19 +227,18 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
-  // auto& thread_metadata = TG_GetThreadMetadata();
+  // Extract client ID from thread-local metadata.
   int client_id = TG_GetThreadMetadata().client_id;
 
   if (client_id == 0) {
     // TGprintStackTrace();
   }
 
+  // TODO: clean this up
   if (client_id == -2) {
     std::cout << "[TGRIGGS_LOG] bad input" << std::endl;
     return;
   }
-
-  // Extract client ID from thread-local metadata.
 
   // Flush - don't block them (for now)
   // TODO:
@@ -268,7 +267,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     std::cout << std::endl;
   }
 
-  assert(bytes <= GetSingleBurstBytes());
+  assert(bytes <= GetSingleBurstBytes(client_id));
   bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("MultiTenantRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:1",
@@ -436,7 +435,6 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   // assert(available_bytes_ == 0);
   // available_bytes_ = refill_bytes_per_period;
 
-  // TODO: allow weighting of different clients.
   for (int c_id = 0; c_id < num_clients_; ++c_id) {
     available_bytes_[c_id] = refill_bytes_per_period[c_id];
   }
