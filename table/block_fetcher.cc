@@ -249,6 +249,7 @@ void BlockFetcher::ReadBlock(bool retry) {
   read_req.status.PermitUncheckedError();
   // Actual file read
   if (io_status_.ok()) {
+    EnforceReadOpts::UsedIO();
     if (file_->use_direct_io()) {
       PERF_TIMER_GUARD(block_read_time);
       PERF_CPU_TIMER_GUARD(
@@ -410,6 +411,7 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
       if (!io_s.ok()) {
         return io_s;
       }
+      EnforceReadOpts::UsedIO();
       io_s = status_to_io_status(prefetch_buffer_->PrefetchAsync(
           opts, file_, handle_.offset(), block_size_with_trailer_, &slice_));
       if (io_s.IsTryAgain()) {
