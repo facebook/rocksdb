@@ -207,6 +207,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
+        inject_unsynced_data_loss_(false),
         read_unsynced_data_(true),
         allow_link_open_file_(false),
         injected_thread_local_read_error_(DeleteThreadLocalErrorContext),
@@ -359,19 +360,6 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     return filesystem_writable_;
   }
-  bool ShouldUseDiretWritable(const std::string& file_name) {
-    MutexLock l(&mutex_);
-    if (filesystem_writable_) {
-      return true;
-    }
-    FileType file_type = kTempFile;
-    uint64_t file_number = 0;
-    if (!TryParseFileName(file_name, &file_number, &file_type)) {
-      return false;
-    }
-    return direct_writable_types_.find(file_type) !=
-           direct_writable_types_.end();
-  }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
     error.PermitUncheckedError();
@@ -389,6 +377,18 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void SetFilesystemDirectWritable(bool writable) {
     MutexLock l(&mutex_);
     filesystem_writable_ = writable;
+  }
+
+  // If true, we buffer write data in memory to simulate data loss upon system
+  // crash by only having process crashes
+  void SetInjectUnsyncedDataLoss(bool inject) {
+    MutexLock l(&mutex_);
+    inject_unsynced_data_loss_ = inject;
+  }
+
+  bool InjectUnsyncedDataLoss() {
+    MutexLock l(&mutex_);
+    return inject_unsynced_data_loss_;
   }
 
   // In places (e.g. GetSortedWals()) RocksDB relies on querying the file size
@@ -414,21 +414,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     allow_link_open_file_ = allow_link_open_file;
   }
 
-  void SetDirectWritableTypes(const std::set<FileType>& types) {
+  bool ShouldIOActivtiesExcludedFromFaultInjection(Env::IOActivity io_activty) {
     MutexLock l(&mutex_);
-    direct_writable_types_ = types;
-  }
-
-  void SetIOActivtiesExemptedFromFaultInjection(
-      const std::set<Env::IOActivity>& io_activties) {
-    MutexLock l(&mutex_);
-    io_activties_exempted_from_fault_injection = io_activties;
-  }
-
-  bool ShouldIOActivtiesExemptFromFaultInjection(Env::IOActivity io_activty) {
-    MutexLock l(&mutex_);
-    return io_activties_exempted_from_fault_injection.find(io_activty) !=
-           io_activties_exempted_from_fault_injection.end();
+    return io_activties_excluded_from_fault_injection.find(io_activty) !=
+           io_activties_excluded_from_fault_injection.end();
   }
 
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
@@ -505,8 +494,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   IOStatus MaybeInjectThreadLocalError(
       FaultInjectionIOType type, const IOOptions& io_options,
-      ErrorOperation op = kUnknown, Slice* slice = nullptr,
-      bool direct_io = false, char* scratch = nullptr,
+      const std::string& file_name = "", ErrorOperation op = kUnknown,
+      Slice* slice = nullptr, bool direct_io = false, char* scratch = nullptr,
       bool need_count_increase = false, bool* fault_injected = nullptr);
 
   int GetAndResetInjectedThreadLocalErrorCount(FaultInjectionIOType type) {
@@ -517,6 +506,29 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       ctx->count = 0;
     }
     return count;
+  }
+
+  void SetIOActivtiesExcludedFromFaultInjection(
+      const std::set<Env::IOActivity>& io_activties) {
+    MutexLock l(&mutex_);
+    io_activties_excluded_from_fault_injection = io_activties;
+  }
+
+  void SetFileTypesExcludedFromWriteFaultInjection(
+      const std::set<FileType>& types) {
+    MutexLock l(&mutex_);
+    file_types_excluded_from_write_fault_injection_ = types;
+  }
+
+  bool ShouldExcludeFromWriteFaultInjection(const std::string& file_name) {
+    MutexLock l(&mutex_);
+    FileType file_type = kTempFile;
+    uint64_t file_number = 0;
+    if (!TryParseFileName(file_name, &file_number, &file_type)) {
+      return false;
+    }
+    return file_types_excluded_from_write_fault_injection_.find(file_type) !=
+           file_types_excluded_from_write_fault_injection_.end();
   }
 
   void EnableThreadLocalErrorInjection(FaultInjectionIOType type) {
@@ -551,6 +563,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool filesystem_active_;    // Record flushes, syncs, writes
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
                               // to underlying FS for writable files
+  bool inject_unsynced_data_loss_;  // See InjectUnsyncedDataLoss()
   bool read_unsynced_data_;   // See SetReadUnsyncedData()
   bool allow_link_open_file_;  // See SetAllowLinkOpenFile()
   IOStatus fs_error_;
@@ -588,8 +601,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
   };
 
-  std::set<FileType> direct_writable_types_;
-  std::set<Env::IOActivity> io_activties_exempted_from_fault_injection;
+  std::set<FileType> file_types_excluded_from_write_fault_injection_;
+  std::set<Env::IOActivity> io_activties_excluded_from_fault_injection;
   ThreadLocalPtr injected_thread_local_read_error_;
   ThreadLocalPtr injected_thread_local_write_error_;
   ThreadLocalPtr injected_thread_local_metadata_read_error_;

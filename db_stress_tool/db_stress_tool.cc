@@ -90,10 +90,10 @@ int db_stress_tool(int argc, char** argv) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    // Set it to direct writable here to not lose files created during DB open
-    // when no open fault injection is not enabled.
-    // This will be overwritten in StressTest::Open() for open fault injection
-    // and in RunStressTestImpl() for proper write fault injection setup.
+    // Set it to direct writable here to initially bypass any fault injection
+    // during DB open This will correspondingly be overwritten in
+    // StressTest::Open() for open fault injection and in RunStressTestImpl()
+    // for proper fault injection setup.
     fault_fs_guard->SetFilesystemDirectWritable(true);
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);

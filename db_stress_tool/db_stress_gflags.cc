@@ -1095,6 +1095,9 @@ DEFINE_int32(write_fault_one_in, 0,
              "On non-zero, enables fault injection on write. Currently only"
              "injects write error when writing to SST files.");
 
+DEFINE_bool(exclude_wal_from_write_fault_injection, false,
+            "If true, we won't inject write fault when writing to WAL file");
+
 DEFINE_int32(metadata_write_fault_one_in, 1000,
              "On non-zero, enables fault injection on metadata write (i.e, "
              "directory and file metadata write)");

@@ -159,13 +159,13 @@ bool RunStressTestImpl(SharedState* shared) {
         stress->TrackExpectedState(shared);
       }
 
-      // Since wrie fault and sync fault implementations are coupled with each
-      // other in `TestFSWritableFile()`, we can not enable or disable only one
-      // of the two.
-      // TODO(hx235): decouple implementations of write fault injection and sync
-      // fault injection.
       if (FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0) {
         fault_fs_guard->SetFilesystemDirectWritable(false);
+        fault_fs_guard->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);
+        if (FLAGS_exclude_wal_from_write_fault_injection) {
+          fault_fs_guard->SetFileTypesExcludedFromWriteFaultInjection(
+              {FileType::kWalFile});
+        }
       }
       now = clock->NowMicros();
       fprintf(stdout, "%s Starting database operations\n",
