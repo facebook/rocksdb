@@ -161,8 +161,9 @@ void MultiTenantRateLimiter::SetBytesPerSecond(int client_id, int64_t bytes_per_
 
 void MultiTenantRateLimiter::SetBytesPerSecondLocked(int client_id, int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
-  rate_bytes_per_sec_[client_id].store(bytes_per_second, std::memory_order_relaxed);
-  refill_bytes_per_period_[client_id].store(
+  int client_idx = ClientId2ClientIdx(client_id);
+  rate_bytes_per_sec_[client_idx].store(bytes_per_second, std::memory_order_relaxed);
+  refill_bytes_per_period_[client_idx].store(
       CalculateRefillBytesPerPeriodLocked(bytes_per_second),
       std::memory_order_relaxed);
 }
@@ -180,6 +181,16 @@ void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
   // refill_bytes_per_period_.store(
   //     CalculateRefillBytesPerPeriodLocked(bytes_per_second),
   //     std::memory_order_relaxed);
+}
+
+int64_t MultiTenantRateLimiter::GetSingleBurstBytes(int client_id) const {
+  int client_idx = ClientId2ClientIdx(client_id);
+  int64_t raw_single_burst_bytes =
+      raw_single_burst_bytes_.load(std::memory_order_relaxed);
+  if (raw_single_burst_bytes == 0) {
+    return refill_bytes_per_period_[client_idx].load(std::memory_order_relaxed);
+  }
+  return raw_single_burst_bytes;
 }
 
 Status MultiTenantRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
@@ -243,30 +254,21 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // TODO(tgriggs): Clean all of this client ID stuff up.
 
   // Extract client ID from thread-local metadata.
-  int client_id = TG_GetThreadMetadata().client_id;
-  if (client_id == 0) {
-    // TGprintStackTrace();
-  }
-  if (client_id == -2) {
-    std::cout << "[TGRIGGS_LOG] bad input" << std::endl;
+  int cid = TG_GetThreadMetadata().client_id;
+  int client_idx = ClientId2ClientIdx(cid);
+  if (client_idx < 0) {
+    std::cout << "[TGRIGGS_LOG] Error in client id assignment." << std::endl;
     return;
   }
-  // Flush - don't block them (for now)
-  // TODO(tgriggs):
-  //    Idea: give support for splitting across certain clients
-  if (client_id == -1) {
-    // std::cout << "[TGRIGGS_LOG] un-set client id" << std::endl;
-
-    // Assign flushes to client 1 (effectively 0)
-    client_id = 1;
-    // return;
+  if (client_idx == 0) {
+    std::cout << "[TGRIGGS_LOG] Unassigned client id" << std::endl;
+    return;
   }
-
-  // Revert to actual ID.
-  client_id -= 1;
+  
+  // TODO(tgriggs): Don't block flushes (for now) -- just go deficit
 
   // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
-  calls_per_client_[client_id]++;
+  calls_per_client_[client_idx]++;
   if (total_calls_++ >= 1000) {
     total_calls_ = 0;
     std::cout << "[TGRIGGS_LOG] RL calls per-clients for ";
@@ -281,7 +283,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     std::cout << std::endl;
   }
 
-  assert(bytes <= GetSingleBurstBytes(client_id));
+  assert(bytes <= GetSingleBurstBytes(cid));
   bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("MultiTenantRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:1",
@@ -298,10 +300,10 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   ++total_requests_[pri];
 
   // Draw from per-client token buckets.
-  if (available_bytes_[client_id] > 0) {
-    int64_t bytes_through = std::min(available_bytes_[client_id], bytes);
+  if (available_bytes_[client_idx] > 0) {
+    int64_t bytes_through = std::min(available_bytes_[client_idx], bytes);
     total_bytes_through_[pri] += bytes_through;
-    available_bytes_[client_id] -= bytes_through;
+    available_bytes_[client_idx] -= bytes_through;
     bytes -= bytes_through;
   } 
 
@@ -314,7 +316,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   Req req(bytes, &request_mutex_);
 
   // std::cout << "[TGRIGGS_LOG] Pushing back for client,pri,bytes: " << client_id << "," << pri << "," << bytes << std::endl;
-  request_queue_map_[ReqKey(client_id, pri)].push_back(&req);
+  request_queue_map_[ReqKey(client_idx, pri)].push_back(&req);
   // queue_[pri].push_back(&r);
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
                            &request_mutex_);
@@ -460,13 +462,13 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
 
   // 1) iterate through each client
   // 2) for each client, do strict priority order from IO_USER to IO_LOW
-  for (int c_id = 0; c_id < num_clients_; ++c_id) {
+  for (int c_idx = 0; c_idx < num_clients_; ++c_idx) {
     for (int priority = Env::IO_TOTAL - 1; priority >= Env::IO_LOW; --priority) {
-      auto* queue = &request_queue_map_[ReqKey(c_id, static_cast<Env::IOPriority>(priority))];
+      auto* queue = &request_queue_map_[ReqKey(c_idx, static_cast<Env::IOPriority>(priority))];
       while (!queue->empty()) {
-        int client_id = client_order[c_id];
+        int client_idx = client_order[c_idx];
         auto* next_req = queue->front();
-        if (available_bytes_[client_id] < next_req->request_bytes) {
+        if (available_bytes_[client_idx] < next_req->request_bytes) {
           // Grant partial request_bytes even if request is for more than
           // `available_bytes_`, which can happen in a few situations:
           //
@@ -474,11 +476,11 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
           // - The rate was dynamically reduced while requests were already
           //   enqueued
           // - The burst size was explicitly set to be larger than the refill size
-          next_req->request_bytes -= available_bytes_[client_id];
-          available_bytes_[client_id] = 0;
+          next_req->request_bytes -= available_bytes_[client_idx];
+          available_bytes_[client_idx] = 0;
           break;
         }
-        available_bytes_[client_id] -= next_req->request_bytes;
+        available_bytes_[client_idx] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[priority] += next_req->bytes;
         // std::cout << "[TGRIGGS_LOG] Popping client,pri: " << i << "," << j << std::endl;

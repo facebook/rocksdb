@@ -56,18 +56,11 @@ class MultiTenantRateLimiter : public RateLimiter {
 
   // TODO(tgriggs): make this per-tenant
   int64_t GetSingleBurstBytes() const override {
-    int client_id = 0;
+    int client_id = 1;
     return GetSingleBurstBytes(client_id);
   }
 
-  int64_t GetSingleBurstBytes(int client_id) const {
-    int64_t raw_single_burst_bytes =
-        raw_single_burst_bytes_.load(std::memory_order_relaxed);
-    if (raw_single_burst_bytes == 0) {
-      return refill_bytes_per_period_[client_id].load(std::memory_order_relaxed);
-    }
-    return raw_single_burst_bytes;
-  }
+  int64_t GetSingleBurstBytes(int client_id) const; 
 
   int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
@@ -125,6 +118,13 @@ class MultiTenantRateLimiter : public RateLimiter {
   void SetBytesPerSecondLocked(int client_id, int64_t bytes_per_second);
 
   void TGprintStackTrace();
+
+  int ClientId2ClientIdx(int client_id) const {
+    if (client_id > 0) {
+      return client_id - 1;
+    }
+    return client_id;
+  }
 
   uint64_t NowMicrosMonotonicLocked() {
     return clock_->NowNanos() / std::milli::den;

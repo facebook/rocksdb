@@ -647,10 +647,8 @@ void TG_SetThreadMetadata(std::string key) {
     return;
   }
 
-  int client_id = key_num / (6250000 / 4);
-
-  // TODO(tgriggs): remove this
-  client_id = 1 + client_id;
+  // TODO(tgriggs): update Client ID determination
+  int client_id = key_num / (6250000 / 4) + 1;
 
   thread_metadata.client_id = client_id;
   return;
