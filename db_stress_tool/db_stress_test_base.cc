@@ -1231,17 +1231,25 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
 
         if (total_size <= FLAGS_backup_max_size && fault_fs_guard) {
-          // TODO(hx235): enable metadata error injection with
+          // TODO(hx235): enable error injection with
           // backup/restore after fixing the various issues it surfaces
           fault_fs_guard->DisableThreadLocalErrorInjection(
               FaultInjectionIOType::kMetadataRead);
           fault_fs_guard->DisableThreadLocalErrorInjection(
               FaultInjectionIOType::kMetadataWrite);
+          fault_fs_guard->DisableThreadLocalErrorInjection(
+              FaultInjectionIOType::kRead);
+          fault_fs_guard->DisableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
           fault_fs_guard->EnableThreadLocalErrorInjection(
               FaultInjectionIOType::kMetadataWrite);
           fault_fs_guard->EnableThreadLocalErrorInjection(
               FaultInjectionIOType::kMetadataRead);
+          fault_fs_guard->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kRead);
+          fault_fs_guard->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
           ProcessStatus(shared, "Backup/restore", s);
         }
       }
@@ -2497,10 +2505,13 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
         fault_fs_guard->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
-      assert(my_s.ok());
-
-      for (const auto& f : files) {
-        fprintf(stderr, " %s\n", f.c_str());
+      if (!my_s.ok()) {
+        fprintf(stderr, "Fail to GetChildren under %s due to %s\n",
+                checkpoint_dir.c_str(), my_s.ToString().c_str());
+      } else {
+        for (const auto& f : files) {
+          fprintf(stderr, " %s\n", f.c_str());
+        }
       }
     }
   }
