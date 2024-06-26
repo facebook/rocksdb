@@ -485,26 +485,35 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
-  IOStatus s;
+  IOStatus res_status;
   FSReadRequest res;
+  IOStatus s;
   if (!fs_->IsFilesystemActive()) {
-    s = fs_->GetError();
+    res_status = fs_->GetError();
   }
-  if (s.ok()) {
-    s = fs_->MaybeInjectThreadLocalError(
+  if (res_status.ok()) {
+    res_status = fs_->MaybeInjectThreadLocalError(
         FaultInjectionIOType::kRead, opts,
         FaultInjectionTestFS::ErrorOperation::kRead, &res.result,
         use_direct_io(), req.scratch, /*need_count_increase=*/true,
         /*fault_injected=*/nullptr);
   }
-  if (s.ok()) {
+  if (res_status.ok()) {
     s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
     // TODO (low priority): fs_->ReadUnsyncedData()
-  }
-  if (!s.ok()) {
-    res.status = s;
+  } else {
+    // If there’s no injected error, then cb will be called asynchronously when
+    // target_ actually finishes the read. But if there’s an injected error, it
+    // needs to immediately call cb(res, cb_arg) s since target_->ReadAsync()
+    // isn’t invoked at all.
+    res.status = res_status;
     cb(res, cb_arg);
   }
+  // We return ReadAsync()'s status intead of injected error status here since
+  // the return status is not supposed to be the status of the actual IO (i.e,
+  // the actual async read). The actual status of the IO will be passed to cb()
+  // callback upon the actual read finishes or like above when injected error
+  // happens.
   return s;
 }
 
