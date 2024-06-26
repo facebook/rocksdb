@@ -88,14 +88,31 @@ class MultiTenantRateLimiter : public RateLimiter {
     return total_requests_[pri];
   }
 
+  // TODO(tgriggs): update this based on column family IDs
+  int ClientId2ClientIdx(int client_id) const {
+    if (client_id > 0) {
+      return client_id - 1;
+    }
+    return client_id;
+  }
+
+  int ClientIdx2ClientId(int client_idx) const {
+    if (client_idx >= 0) {
+      return client_idx + 1;
+    }
+    return client_idx;
+  }
+
   // TODO(tgriggs): Make this per-client? Maybe thread-level storage?
+  // Only used in [rocksdb/db/db_impl/db_impl_open.cc] to sanitize options
   int64_t GetBytesPerSecond() const override {
     int client_id = 0;
     return GetBytesPerSecond(client_id);
   }
 
   int64_t GetBytesPerSecond(int client_id) const {
-    return rate_bytes_per_sec_[client_id].load(std::memory_order_relaxed);
+    int client_idx = ClientId2ClientIdx(client_id);
+    return rate_bytes_per_sec_[client_idx].load(std::memory_order_relaxed);
   }
 
   RateLimiter* GetReadRateLimiter() {
@@ -118,13 +135,6 @@ class MultiTenantRateLimiter : public RateLimiter {
   void SetBytesPerSecondLocked(int client_id, int64_t bytes_per_second);
 
   void TGprintStackTrace();
-
-  int ClientId2ClientIdx(int client_id) const {
-    if (client_id > 0) {
-      return client_id - 1;
-    }
-    return client_id;
-  }
 
   uint64_t NowMicrosMonotonicLocked() {
     return clock_->NowNanos() / std::milli::den;
