@@ -44,9 +44,8 @@ class StressTest {
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
   void PrintStatistics();
-  bool MightHaveDataLoss() {
-    return FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0 ||
-           FLAGS_metadata_write_fault_one_in > 0 || FLAGS_disable_wal ||
+  bool MightHaveUnsyncedDataLoss() {
+    return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
            FLAGS_manual_wal_flush_one_in > 0;
   }
 

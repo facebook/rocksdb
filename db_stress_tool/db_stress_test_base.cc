@@ -436,7 +436,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
 void StressTest::TrackExpectedState(SharedState* shared) {
   // When data loss is simulated, recovery from potential data loss is a prefix
   // recovery that requires tracing
-  if (MightHaveDataLoss() && IsStateTracked()) {
+  if (MightHaveUnsyncedDataLoss() && IsStateTracked()) {
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -3475,17 +3475,23 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
     // TODO; test transaction DB Open with fault injection
     if (!FLAGS_use_txn) {
+      bool inject_sync_fault = FLAGS_sync_fault_injection;
       bool inject_open_meta_read_error =
           FLAGS_open_metadata_read_fault_one_in > 0;
       bool inject_open_meta_write_error =
           FLAGS_open_metadata_write_fault_one_in > 0;
       bool inject_open_read_error = FLAGS_open_read_fault_one_in > 0;
       bool inject_open_write_error = FLAGS_open_write_fault_one_in > 0;
-      if ((inject_open_meta_read_error || inject_open_meta_write_error ||
-           inject_open_read_error || inject_open_write_error) &&
+      if ((inject_sync_fault || inject_open_meta_read_error ||
+           inject_open_meta_write_error || inject_open_read_error ||
+           inject_open_write_error) &&
           fault_fs_guard
               ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
               .ok()) {
+        if (inject_sync_fault || inject_open_write_error) {
+          fault_fs_guard->SetFilesystemDirectWritable(false);
+          fault_fs_guard->SetInjectUnsyncedDataLoss(inject_sync_fault);
+        }
         fault_fs_guard->SetThreadLocalErrorContext(
             FaultInjectionIOType::kMetadataRead,
             static_cast<uint32_t>(FLAGS_seed),
@@ -3509,7 +3515,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         fault_fs_guard->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
 
-        fault_fs_guard->SetFilesystemDirectWritable(false);
         fault_fs_guard->SetThreadLocalErrorContext(
             FaultInjectionIOType::kWrite, static_cast<uint32_t>(FLAGS_seed),
             FLAGS_open_write_fault_one_in, false /* retryable */,
@@ -3544,11 +3549,12 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           }
         }
 
-        if (inject_open_meta_read_error || inject_open_meta_write_error ||
-            inject_open_read_error || inject_open_write_error) {
+        if (inject_sync_fault || inject_open_meta_read_error ||
+            inject_open_meta_write_error || inject_open_read_error ||
+            inject_open_write_error) {
+          fault_fs_guard->SetInjectUnsyncedDataLoss(false);
           fault_fs_guard->DisableThreadLocalErrorInjection(
               FaultInjectionIOType::kRead);
-          fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableThreadLocalErrorInjection(
               FaultInjectionIOType::kWrite);
           fault_fs_guard->DisableThreadLocalErrorInjection(
@@ -3571,9 +3577,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             }
           }
           if (!s.ok()) {
-            // After failure to opening a DB due to IO error, retry should
-            // successfully open the DB with correct data if no IO error shows
-            // up.
+            // After failure to opening a DB due to IO error or unsynced data
+            // loss, retry should successfully open the DB with correct data if
+            // no IO error shows up.
+            inject_sync_fault = false;
             inject_open_meta_read_error = false;
             inject_open_meta_write_error = false;
             inject_open_read_error = false;
@@ -3770,7 +3777,7 @@ void StressTest::Reopen(ThreadState* thread) {
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open(thread->shared, /*reopen=*/true);
 
-  if (thread->shared->GetStressTest()->MightHaveDataLoss() &&
+  if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
       IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
