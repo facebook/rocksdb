@@ -166,13 +166,13 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
     return fs_->GetError();
   }
 
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
 
-  if (target_->use_direct_io()) {
+  if (target_->use_direct_io() || !fs_->InjectUnsyncedDataLoss()) {
     // TODO(hx235): buffer data for direct IO write to simulate data loss like
     // non-direct IO write
     s = target_->Append(data, options, dbg);
@@ -201,8 +201,8 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption("Data is corrupted!");
   }
 
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -220,7 +220,7 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption(msg);
   }
 
-  if (target_->use_direct_io()) {
+  if (target_->use_direct_io() || !fs_->InjectUnsyncedDataLoss()) {
     // TODO(hx235): buffer data for direct IO write to simulate data loss like
     // non-direct IO write
     s = target_->Append(data, options, dbg);
@@ -240,8 +240,8 @@ IOStatus TestFSWritableFile::Truncate(uint64_t size, const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -264,8 +264,8 @@ IOStatus TestFSWritableFile::PositionedAppend(const Slice& data,
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -290,8 +290,8 @@ IOStatus TestFSWritableFile::PositionedAppend(
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -468,7 +468,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
     return fs_->GetError();
   }
   IOStatus s = fs_->MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kRead, options,
+      FaultInjectionIOType::kRead, options, "",
       FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
       scratch, /*need_count_increase=*/true,
       /*fault_injected=*/nullptr);
@@ -485,26 +485,35 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
-  IOStatus s;
+  IOStatus res_status;
   FSReadRequest res;
+  IOStatus s;
   if (!fs_->IsFilesystemActive()) {
-    s = fs_->GetError();
+    res_status = fs_->GetError();
   }
-  if (s.ok()) {
-    s = fs_->MaybeInjectThreadLocalError(
-        FaultInjectionIOType::kRead, opts,
+  if (res_status.ok()) {
+    res_status = fs_->MaybeInjectThreadLocalError(
+        FaultInjectionIOType::kRead, opts, "",
         FaultInjectionTestFS::ErrorOperation::kRead, &res.result,
         use_direct_io(), req.scratch, /*need_count_increase=*/true,
         /*fault_injected=*/nullptr);
   }
-  if (s.ok()) {
+  if (res_status.ok()) {
     s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
     // TODO (low priority): fs_->ReadUnsyncedData()
-  }
-  if (!s.ok()) {
-    res.status = s;
+  } else {
+    // If there’s no injected error, then cb will be called asynchronously when
+    // target_ actually finishes the read. But if there’s an injected error, it
+    // needs to immediately call cb(res, cb_arg) s since target_->ReadAsync()
+    // isn’t invoked at all.
+    res.status = res_status;
     cb(res, cb_arg);
   }
+  // We return ReadAsync()'s status intead of injected error status here since
+  // the return status is not supposed to be the status of the actual IO (i.e,
+  // the actual async read). The actual status of the IO will be passed to cb()
+  // callback upon the actual read finishes or like above when injected error
+  // happens.
   return s;
 }
 
@@ -524,7 +533,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     bool this_injected_error;
     reqs[i].status = fs_->MaybeInjectThreadLocalError(
-        FaultInjectionIOType::kRead, options,
+        FaultInjectionIOType::kRead, options, "",
         FaultInjectionTestFS::ErrorOperation::kRead, &(reqs[i].result),
         use_direct_io(), reqs[i].scratch,
         /*need_count_increase=*/true,
@@ -533,7 +542,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
   }
   if (s.ok()) {
     s = fs_->MaybeInjectThreadLocalError(
-        FaultInjectionIOType::kRead, options,
+        FaultInjectionIOType::kRead, options, "",
         FaultInjectionTestFS::ErrorOperation::kMultiRead, nullptr,
         use_direct_io(), nullptr, /*need_count_increase=*/!injected_error,
         /*fault_injected=*/nullptr);
@@ -589,7 +598,7 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
                                     Slice* result, char* scratch,
                                     IODebugContext* dbg) {
   IOStatus s = fs_->MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kRead, options,
+      FaultInjectionIOType::kRead, options, "",
       FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
       scratch, true /*need_count_increase=*/, nullptr /* fault_injected*/);
   if (!s.ok()) {
@@ -614,7 +623,7 @@ IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                               Slice* result, char* scratch,
                                               IODebugContext* dbg) {
   IOStatus s = fs_->MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kRead, options,
+      FaultInjectionIOType::kRead, options, "",
       FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
       scratch, true /*need_count_increase=*/, nullptr /* fault_injected */);
   if (!s.ok()) {
@@ -698,12 +707,12 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     return GetError();
   }
 
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
 
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -735,11 +744,11 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->ReopenWritableFile(fname, file_opts, result, dbg);
   }
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -811,11 +820,11 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->NewRandomRWFile(fname, file_opts, result, dbg);
   }
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -847,7 +856,10 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
     return GetError();
   }
   IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+      FaultInjectionIOType::kRead, file_opts.io_options, fname,
+      ErrorOperation::kOpen, nullptr /* result */, false /* direct_io */,
+      nullptr /* scratch */, true /*need_count_increase*/,
+      nullptr /*fault_injected*/);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -867,7 +879,10 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
     return GetError();
   }
   IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+      FaultInjectionIOType::kRead, file_opts.io_options, fname,
+      ErrorOperation::kOpen, nullptr /* result */, false /* direct_io */,
+      nullptr /* scratch */, true /*need_count_increase*/,
+      nullptr /*fault_injected*/);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -1228,8 +1243,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ErrorContext* ctx =
       static_cast<ErrorContext*>(injected_thread_local_read_error_.Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      io_activties_exempted_from_fault_injection.find(io_options.io_activity) !=
-          io_activties_exempted_from_fault_injection.end()) {
+      ShouldIOActivtiesExcludedFromFaultInjection(io_options.io_activity)) {
     return IOStatus::OK();
   }
 
@@ -1295,8 +1309,9 @@ bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
 }
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
-    FaultInjectionIOType type, const IOOptions& io_options, ErrorOperation op,
-    Slice* result, bool direct_io, char* scratch, bool need_count_increase,
+    FaultInjectionIOType type, const IOOptions& io_options,
+    const std::string& file_name, ErrorOperation op, Slice* result,
+    bool direct_io, char* scratch, bool need_count_increase,
     bool* fault_injected) {
   if (type == FaultInjectionIOType::kRead) {
     return MaybeInjectThreadLocalReadError(io_options, op, result, direct_io,
@@ -1306,8 +1321,9 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
 
   ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      io_activties_exempted_from_fault_injection.find(io_options.io_activity) !=
-          io_activties_exempted_from_fault_injection.end()) {
+      ShouldIOActivtiesExcludedFromFaultInjection(io_options.io_activity) ||
+      (type == FaultInjectionIOType::kWrite &&
+       ShouldExcludeFromWriteFaultInjection(file_name))) {
     return IOStatus::OK();
   }
 

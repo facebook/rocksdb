@@ -222,6 +222,7 @@ default_params = {
     "metadata_write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
     "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
+    "exclude_wal_from_write_fault_injection": 0,
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_metadata_read_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
@@ -622,11 +623,11 @@ multiops_txn_default_params = {
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
-    "metadata_write_fault_one_in": 0,
     "manual_wal_flush": 0,
     # This test has aggressive flush frequency and small write buffer size.
     # Disabling write fault to avoid writes being stopped.
     "write_fault_one_in": 0,
+    "metadata_write_fault_one_in": 0,
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
     "use_get_entity": 0,
@@ -736,14 +737,10 @@ def finalize_and_sanitize(src_params):
        # logic for unsynced data loss relies on max sequence number stored
        # in MANIFEST, so they don't work together.
        dest_params["sync_fault_injection"] = 0
-       dest_params["write_fault_one_in"] = 0
-       dest_params["metadata_write_fault_one_in"] = 0
        dest_params["disable_wal"] = 0
        dest_params["manual_wal_flush_one_in"] = 0
     if (
         dest_params.get("sync_fault_injection") == 1
-        or dest_params.get("write_fault_one_in") > 0
-        or dest_params.get("metadata_write_fault_one_in") > 0
         or dest_params.get("disable_wal") == 1
         or dest_params.get("manual_wal_flush_one_in") > 0
     ):
@@ -759,6 +756,12 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+        # Prefix-recoverability relies on tracing successful user writes. 
+        # Currently we trace all user writes regardless of whether it later succeeds or not.
+        # To simplify, we disable any user write failure injection. 
+        # TODO(hx235): support tracing user writes with failure injection.
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["exclude_wal_from_write_fault_injection"] = 1
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
@@ -813,8 +816,6 @@ def finalize_and_sanitize(src_params):
     # compatible with only write committed policy
     if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
-        dest_params["write_fault_one_in"] = 0
-        dest_params["metadata_write_fault_one_in"] = 0
         dest_params["disable_wal"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
         # Wide-column pessimistic transaction APIs are initially supported for

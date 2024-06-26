@@ -138,10 +138,10 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
             reinit_internal_iter();
             break;
           } else {
-            delete *memtable_range_tombstone_iter_;
-            *memtable_range_tombstone_iter_ = new TruncatedRangeDelIterator(
-                std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
-                &cfd->internal_comparator(), nullptr, nullptr);
+            *memtable_range_tombstone_iter_ =
+                std::make_unique<TruncatedRangeDelIterator>(
+                    std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
+                    &cfd->internal_comparator(), nullptr, nullptr);
           }
         }
         db_impl->ReturnAndCleanupSuperVersion(cfd, sv);
