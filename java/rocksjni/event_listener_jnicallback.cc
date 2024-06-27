@@ -115,6 +115,10 @@ EventListenerJniCallback::EventListenerJniCallback(
       m_on_error_recovery_completed_mid,
       EnabledEventCallback::ON_ERROR_RECOVERY_COMPLETED, env,
       AbstractEventListenerJni::getOnErrorRecoveryCompletedMethodId);
+
+  flushJobInfoJniConverter = std::make_unique<rocksdb::FlushJobInfoJni>(env);
+  compactionJobInfoJniConverter = std::make_unique<CompactionJobInfoJni>(env);
+
 }
 
 EventListenerJniCallback::~EventListenerJniCallback() {}
@@ -126,10 +130,12 @@ void EventListenerJniCallback::OnFlushCompleted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jflush_job_info = SetupCallbackInvocation<FlushJobInfo>(
-      env, attached_thread, flush_job_info,
-      FlushJobInfoJni::fromCppFlushJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jflush_job_info = flushJobInfoJniConverter->fromCppFlushJobInfo(env, &flush_job_info);
 
   if (jflush_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_flush_completed_proxy_mid,
@@ -146,10 +152,12 @@ void EventListenerJniCallback::OnFlushBegin(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jflush_job_info = SetupCallbackInvocation<FlushJobInfo>(
-      env, attached_thread, flush_job_info,
-      FlushJobInfoJni::fromCppFlushJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jflush_job_info = flushJobInfoJniConverter->fromCppFlushJobInfo(env, &flush_job_info);
 
   if (jflush_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_flush_begin_proxy_mid,
@@ -186,9 +194,13 @@ void EventListenerJniCallback::OnCompactionBegin(DB* db,
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jcompaction_job_info = SetupCallbackInvocation<CompactionJobInfo>(
-      env, attached_thread, ci, CompactionJobInfoJni::fromCppCompactionJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jcompaction_job_info =
+      compactionJobInfoJniConverter->fromCppCompactionJobInfo(env, &ci);
 
   if (jcompaction_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_compaction_begin_proxy_mid,
@@ -205,9 +217,13 @@ void EventListenerJniCallback::OnCompactionCompleted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jcompaction_job_info = SetupCallbackInvocation<CompactionJobInfo>(
-      env, attached_thread, ci, CompactionJobInfoJni::fromCppCompactionJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jcompaction_job_info =
+      compactionJobInfoJniConverter->fromCppCompactionJobInfo(env, &ci);
 
   if (jcompaction_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_compaction_completed_proxy_mid,
