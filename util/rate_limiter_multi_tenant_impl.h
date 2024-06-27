@@ -55,10 +55,7 @@ class MultiTenantRateLimiter : public RateLimiter {
       const Env::IOPriority pri = Env::IO_TOTAL) const override;
 
   // TODO(tgriggs): make this per-tenant
-  int64_t GetSingleBurstBytes() const override {
-    int client_id = 1;
-    return GetSingleBurstBytes(client_id);
-  }
+  int64_t GetSingleBurstBytes() const override;
 
   int64_t GetSingleBurstBytes(int client_id) const; 
 

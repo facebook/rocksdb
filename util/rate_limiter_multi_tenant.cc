@@ -176,6 +176,15 @@ void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
   //     std::memory_order_relaxed);
 }
 
+ int64_t MultiTenantRateLimiter::GetSingleBurstBytes() const {
+    int client_id = TG_GetThreadMetadata().client_id;
+    if (client_id == 0) {
+      std::cout << "[TGRIGGS_LOG] Call to GetSingleBurstBytes() has un-assigned id" << std::endl;
+    }
+    // int client_id = 1;
+    return GetSingleBurstBytes(client_id);
+  }
+
 int64_t MultiTenantRateLimiter::GetSingleBurstBytes(int client_id) const {
   int client_idx = ClientId2ClientIdx(client_id);
   int64_t raw_single_burst_bytes =
@@ -245,16 +254,17 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   // Extract client ID from thread-local metadata.
+
   int cid = TG_GetThreadMetadata().client_id;
-  int client_idx = ClientId2ClientIdx(cid);
-  if (client_idx < 0) {
-    std::cout << "[TGRIGGS_LOG] Error in client id assignment." << std::endl;
-    return;
-  }
-  if (client_idx == 0) {
+  if (cid == 0) {
     std::cout << "[TGRIGGS_LOG] Unassigned client id" << std::endl;
     return;
   }
+  if (cid < 0) {
+    std::cout << "[TGRIGGS_LOG] Error in client id assignment: " << cid << std::endl;
+    return;
+  }
+  int client_idx = ClientId2ClientIdx(cid);
   
   // TODO(tgriggs): Don't block flushes (for now) -- just go deficit
 
@@ -306,7 +316,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Request cannot be satisfied at this moment, enqueue.
   Req req(bytes, &request_mutex_);
 
-  // std::cout << "[TGRIGGS_LOG] Pushing back for client,pri,bytes: " << client_id << "," << pri << "," << bytes << std::endl;
+  std::cout << "[TGRIGGS_LOG] Pushing back for client_idx,pri,bytes: " << client_idx << "," << pri << "," << bytes << std::endl;
   request_queue_map_[ReqKey(client_idx, pri)].push_back(&req);
   // queue_[pri].push_back(&r);
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
@@ -436,10 +446,12 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   //                will have 0 available bytes, but not all of them.
   // assert(available_bytes_ == 0);
 
+  std::cout << "[TGRIGS_LOG] Refilling client allocations\n";
   for (int c_idx = 0; c_idx < num_clients_; ++c_idx) {
     int64_t refreshed_bytes = available_bytes_[c_idx] + refill_bytes_per_period[c_idx];
     int client_id = ClientIdx2ClientId(c_idx);
-    available_bytes_[c_idx] += std::max(refreshed_bytes, GetSingleBurstBytes(client_id));
+    available_bytes_[c_idx] = std::max(refreshed_bytes, GetSingleBurstBytes(client_id));
+    std::cout << "[TGRIGGS_LOG] Client idx " << c_idx << " is at " << available_bytes_[c_idx] << std::endl;
   }
 
   // TODO(tgriggs): consider restructuring to just do RR
@@ -468,6 +480,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
           available_bytes_[client_idx] = 0;
           break;
         }
+        std::cout << "[TGRIGGS_LOG] Finished client_idx,pri,bytes: " << client_idx << "," << priority << "," << next_req->request_bytes << std::endl;
         available_bytes_[client_idx] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[priority] += next_req->bytes;
