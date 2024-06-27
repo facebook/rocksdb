@@ -1204,8 +1204,7 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
     mutex_.Lock();
     assert(!error_handler_.IsBGWorkStopped());
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
     mutex_.Unlock();
   }
 }
@@ -2363,8 +2362,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
           read_options, write_options, &wal_deletion, &mutex_,
           directories_.GetDbDir());
       if (!s.ok() && versions_->io_status().IsIOError()) {
-        s = error_handler_.SetBGError(versions_->io_status(),
-                                      BackgroundErrorReason::kManifestWrite);
+        error_handler_.SetBGError(versions_->io_status(),
+                                  BackgroundErrorReason::kManifestWrite);
       }
       if (!s.ok()) {
         return s;

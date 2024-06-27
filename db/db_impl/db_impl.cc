@@ -391,8 +391,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       if (!s.ok()) {
         io_s = versions_->io_status();
         if (!io_s.ok()) {
-          s = error_handler_.SetBGError(io_s,
-                                        BackgroundErrorReason::kManifestWrite);
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         }
       }
     }
@@ -916,8 +916,8 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
             read_options, write_options, &edit, &mutex_,
             directories_.GetDbDir());
         if (!s.ok() && versions_->io_status().IsIOError()) {
-          s = error_handler_.SetBGError(versions_->io_status(),
-                                        BackgroundErrorReason::kManifestWrite);
+          error_handler_.SetBGError(versions_->io_status(),
+                                    BackgroundErrorReason::kManifestWrite);
         }
       }
 
@@ -1724,8 +1724,8 @@ Status DBImpl::ApplyWALToManifest(const ReadOptions& read_options,
       read_options, write_options, synced_wals, &mutex_,
       directories_.GetDbDir());
   if (!status.ok() && versions_->io_status().IsIOError()) {
-    status = error_handler_.SetBGError(versions_->io_status(),
-                                       BackgroundErrorReason::kManifestWrite);
+    error_handler_.SetBGError(versions_->io_status(),
+                              BackgroundErrorReason::kManifestWrite);
   }
   return status;
 }
