@@ -496,7 +496,11 @@ Status WriteCommittedTxn::SetReadTimestampForValidation(TxnTimestamp ts) {
 }
 
 Status WriteCommittedTxn::SetCommitTimestamp(TxnTimestamp ts) {
-  if (read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
+  // Only enforcing this if records may have been found for these keys in the db
+  // and allow the user to set arbitrary commit timestamp if definitely no
+  // records has been found.
+  if (keys_may_exist_in_db_ && read_timestamp_ < kMaxTxnTimestamp &&
+      ts <= read_timestamp_) {
     return Status::InvalidArgument(
         "Cannot commit at timestamp smaller than or equal to read timestamp");
   }
@@ -1205,9 +1209,19 @@ Status PessimisticTransaction::ValidateSnapshot(
     PutFixed64(&ts_buf, read_timestamp_);
   }
 
-  return TransactionUtil::CheckKeyForConflicts(
+  bool found_record_for_key = false;
+  Status s = TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
-      false /* cache_only */);
+      /*cache_only=*/false, &found_record_for_key, /*snap_checker=*/nullptr,
+      /*min_uncommitted=*/kMaxSequenceNumber);
+  // If a record is found or the checking is not successful due to other
+  // failures, it's considered the key may exist in the db.
+  if (!keys_may_exist_in_db_ &&
+      (found_record_for_key ||
+       !(s.ok() || s.IsNotFound() || s.IsMergeInProgress()))) {
+    keys_may_exist_in_db_ = true;
+  }
+  return s;
 }
 
 bool PessimisticTransaction::TryStealingLocks() {

@@ -41,7 +41,7 @@ class TransactionUtil {
   static Status CheckKeyForConflicts(
       DBImpl* db_impl, ColumnFamilyHandle* column_family,
       const std::string& key, SequenceNumber snap_seq,
-      const std::string* const ts, bool cache_only,
+      const std::string* const ts, bool cache_only, bool* found_record_for_key,
       ReadCallback* snap_checker = nullptr,
       SequenceNumber min_uncommitted = kMaxSequenceNumber);
 
@@ -75,7 +75,8 @@ class TransactionUtil {
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
                          const std::string& key, const std::string* const ts,
-                         bool cache_only, ReadCallback* snap_checker = nullptr,
+                         bool cache_only, bool* found_record_for_key,
+                         ReadCallback* snap_checker = nullptr,
                          SequenceNumber min_uncommitted = kMaxSequenceNumber);
 };
 
