@@ -852,6 +852,12 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     is_index_at_curr_block_ = false;
   }
 
+#ifndef NDEBUG
+  if (!index_iter_->status().ok()) {
+    IGNORE_STATUS_IF_ERROR(index_iter_->status());
+  }
+#endif
+
   if (found_first_miss_block) {
     // Iterate cache hit block handles from the end till a Miss is there, to
     // truncate and update the end offset till that Miss.
