@@ -258,11 +258,10 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Extract client ID from thread-local metadata.
 
   int cid = TG_GetThreadMetadata().client_id;
-  if (cid == 2) {
-    // std::cout << "[TGRIGGS_LOG] Client 2 sending request" << std::endl;
-  }
+
   if (cid == 0) {
-    std::cout << "[TGRIGGS_LOG] Call to Request() has unassigned client id: " << bytes << "bytes" << std::endl;
+    std::cout << "[TGRIGGS_LOG] Call to Request() has unassigned client id: " << bytes << " bytes" << std::endl;
+    // TGprintStackTrace();
     return;
   }
   if (cid < 0) {
@@ -271,21 +270,20 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   }
   int client_idx = ClientId2ClientIdx(cid);
   
-  // TODO(tgriggs): Don't block flushes (for now) -- just go deficit
-
-  // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
+  // TODO(tgriggs): Don't block flushes (for now) -- just go into deficit
   calls_per_client_[client_idx]++;
   bytes_per_client_[client_idx] += bytes;
   if (total_calls_++ >= 1000) {
     total_calls_ = 0;
-    std::cout << "[TGRIGGS_LOG] RL calls per-clients for ";
+    std::cout << "[TGRIGGS_LOG] RL calls and bytes per-client for ";
     if (mode_ == rocksdb::RateLimiter::Mode::kReadsOnly) {
       std::cout << "READ: ";
     } else {
       std::cout << "WRITE: ";
     }
-    for (const auto& calls : calls_per_client_) {
-      std::cout << calls << ", ";
+    std::cout << std::endl;
+    for (int i = 0; i < calls_per_client_.size(); ++i) {
+      std::cout << "Client " << i << ":" << calls_per_client_[i] << " calls, " << (bytes_per_client_[i]/1024/1024) << " MB\n";
     }
     std::cout << std::endl;
   }
