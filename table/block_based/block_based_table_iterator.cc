@@ -823,6 +823,12 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
         read_options_, block_handle,
         &(block_handle_info.cachable_entry_).As<Block_kData>());
     if (!s.ok()) {
+#ifndef NDEBUG
+      // To allow fault injection verification to pass since non-okay status in
+      // `BlockCacheLookupForReadAheadSize()` won't fail the read but to have
+      // less or no readahead
+      IGNORE_STATUS_IF_ERROR(s);
+#endif
       break;
     }
 
@@ -853,6 +859,9 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   }
 
 #ifndef NDEBUG
+  // To allow fault injection verification to pass since non-okay status in
+  // `BlockCacheLookupForReadAheadSize()` won't fail the read but to have less
+  // or no readahead
   if (!index_iter_->status().ok()) {
     IGNORE_STATUS_IF_ERROR(index_iter_->status());
   }
