@@ -170,9 +170,10 @@ class MultiTenantRateLimiter : public RateLimiter {
   std::vector<int64_t> available_bytes_;
   std::map<ReqKey, std::deque<Req*>> request_queue_map_;
   std::vector<int64_t> calls_per_client_;
+  std::vector<int64_t> bytes_per_client_;
   int total_calls_;
   RateLimiter* read_rate_limiter_ = nullptr;
-  int64_t read_rate_bytes_per_sec_;
+  RateLimiter::Mode mode_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

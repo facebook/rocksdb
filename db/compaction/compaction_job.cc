@@ -700,7 +700,7 @@ Status CompactionJob::Run() {
 
   std::cout << "[TGRIGGS_LOG] level: " << compact_->compaction->output_level() << std::endl;
   std::cout << "[TGRIGGS_LOG] start,end: " << compact_->compaction->GetSmallestUserKey().ToString() << ", " << compact_->compaction->GetLargestUserKey().ToString() << std::endl;
-  std::cout << "[TGRIGGS_LOG] compaction client_id: " << smallest_key << ", " << largest_key << std::endl;
+  std::cout << "[TGRIGGS_LOG] compaction client_id: start_key client=" << smallest_key << ", end_key client=" << largest_key << std::endl;
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
@@ -1047,7 +1047,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
          << stats.num_output_files << "total_output_size"
          << stats.bytes_written << "write_rate" << bytes_read_per_sec 
          << "read_rate" << bytes_written_per_sec<< "smallest_key" 
-         << smallest_key_str << "largest_key" << smallest_key_str;
+         << smallest_key_str << "largest_key" << smallest_key_str << "cf_name" << column_family_name;
 
   if (stats.num_output_files_blob > 0) {
     stream << "num_blob_output_files" << stats.num_output_files_blob
@@ -1416,7 +1416,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       "CompactionJob::ProcessKeyValueCompaction()::Processing",
       static_cast<void*>(const_cast<Compaction*>(sub_compact->compaction)));
   uint64_t last_cpu_micros = prev_cpu_micros;
-  int client_counts[4] = {0,0,0,0};
+  // int client_counts[4] = {0,0,0,0};
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
@@ -1453,7 +1453,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
     // TODO(tgriggs): This is where rate limiter requests are triggered
     c_iter->Next();
-    ++client_counts[(TG_StringKeyToIntKey(c_iter->user_key().ToString()) / (6250000 / 4))];
+    // ++client_counts[(TG_StringKeyToIntKey(c_iter->user_key().ToString()) / (6250000 / 4))];
     // std::cout << "[TGRIGGS_LOG] c_iter client: " << (TG_StringKeyToIntKey(c_iter->user_key().ToString()) / (6250000 / 4)) << std::endl;;
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
@@ -1468,11 +1468,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
 #endif  // NDEBUG
   }
-  std::cout << "[TGRIGGS_LOG] client counts: ";
-  for (int i = 0; i < 4; ++i) {
-    std::cout << client_counts[i] << ", ";
-  }
-  std::cout << std::endl;
+  // std::cout << "[TGRIGGS_LOG] client counts: ";
+  // for (int i = 0; i < 4; ++i) {
+  //   std::cout << client_counts[i] << ", ";
+  // }
+  // std::cout << std::endl;
 
   // This number may not be accurate when CompactionIterator was created
   // with `must_count_input_entries=false`.

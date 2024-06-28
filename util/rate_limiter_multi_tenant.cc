@@ -86,7 +86,8 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
       wait_until_refill_pending_(false),
       num_clients_(num_clients),
       rate_bytes_per_sec_(num_clients),
-      refill_bytes_per_period_(num_clients) {
+      refill_bytes_per_period_(num_clients),
+      mode_(mode) {
   // Initialize per-priority counters.
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
@@ -97,6 +98,7 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
     rate_bytes_per_sec_[i].store(bytes_per_sec[i]);
     refill_bytes_per_period_[i].store(CalculateRefillBytesPerPeriodLocked(bytes_per_sec[i]));
     calls_per_client_.emplace_back(0);
+    bytes_per_client_.emplace_back(0);
     available_bytes_.emplace_back(0);
   }
   // Create (empty) queue for each client-priority pair.
@@ -256,12 +258,15 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Extract client ID from thread-local metadata.
 
   int cid = TG_GetThreadMetadata().client_id;
+  if (cid == 2) {
+    // std::cout << "[TGRIGGS_LOG] Client 2 sending request" << std::endl;
+  }
   if (cid == 0) {
-    std::cout << "[TGRIGGS_LOG] Unassigned client id" << std::endl;
+    std::cout << "[TGRIGGS_LOG] Call to Request() has unassigned client id: " << bytes << "bytes" << std::endl;
     return;
   }
   if (cid < 0) {
-    std::cout << "[TGRIGGS_LOG] Error in client id assignment: " << cid << std::endl;
+    std::cout << "[TGRIGGS_LOG] Call to Request() has error in client id assignment: " << cid << std::endl;
     return;
   }
   int client_idx = ClientId2ClientIdx(cid);
@@ -270,10 +275,11 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   // std::cout << "[TGRIGGS_LOG] RL for client " << thread_metadata.client_id << std::endl;
   calls_per_client_[client_idx]++;
+  bytes_per_client_[client_idx] += bytes;
   if (total_calls_++ >= 1000) {
     total_calls_ = 0;
     std::cout << "[TGRIGGS_LOG] RL calls per-clients for ";
-    if (read_rate_bytes_per_sec_ == 0) {
+    if (mode_ == rocksdb::RateLimiter::Mode::kReadsOnly) {
       std::cout << "READ: ";
     } else {
       std::cout << "WRITE: ";
@@ -316,7 +322,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Request cannot be satisfied at this moment, enqueue.
   Req req(bytes, &request_mutex_);
 
-  std::cout << "[TGRIGGS_LOG] Pushing back for client_idx,pri,bytes: " << client_idx << "," << pri << "," << bytes << std::endl;
+  // std::cout << "[TGRIGGS_LOG] Pushing back for client_idx,pri,bytes: " << client_idx << "," << pri << "," << bytes << std::endl;
   request_queue_map_[ReqKey(client_idx, pri)].push_back(&req);
   // queue_[pri].push_back(&r);
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
@@ -446,12 +452,12 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
   //                will have 0 available bytes, but not all of them.
   // assert(available_bytes_ == 0);
 
-  std::cout << "[TGRIGS_LOG] Refilling client allocations\n";
+  // std::cout << "[TGRIGS_LOG] Refilling client allocations\n";
   for (int c_idx = 0; c_idx < num_clients_; ++c_idx) {
     int64_t refreshed_bytes = available_bytes_[c_idx] + refill_bytes_per_period[c_idx];
     int client_id = ClientIdx2ClientId(c_idx);
-    available_bytes_[c_idx] = std::max(refreshed_bytes, GetSingleBurstBytes(client_id));
-    std::cout << "[TGRIGGS_LOG] Client idx " << c_idx << " is at " << available_bytes_[c_idx] << std::endl;
+    available_bytes_[c_idx] = std::min(refreshed_bytes, GetSingleBurstBytes(client_id));
+    // std::cout << "[TGRIGGS_LOG] Client idx " << c_idx << " is at " << available_bytes_[c_idx] << std::endl;
   }
 
   // TODO(tgriggs): consider restructuring to just do RR
@@ -480,7 +486,7 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
           available_bytes_[client_idx] = 0;
           break;
         }
-        std::cout << "[TGRIGGS_LOG] Finished client_idx,pri,bytes: " << client_idx << "," << priority << "," << next_req->request_bytes << std::endl;
+        // std::cout << "[TGRIGGS_LOG] Finished client_idx,pri,bytes: " << client_idx << "," << priority << "," << next_req->request_bytes << std::endl;
         available_bytes_[client_idx] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[priority] += next_req->bytes;
