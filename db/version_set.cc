@@ -76,6 +76,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
+#include "util/tg_thread_local.h"
 
 // Generate the regular and coroutine versions of some methods by
 // including version_set_sync_and_async.h twice
@@ -2427,6 +2428,15 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                 internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
 
+  // Label the client ID for the read.
+  // TODO(tgriggs): allow arbitrary CFs.
+  auto& thread_metadata = TG_GetThreadMetadata();
+  if (cfd_->GetName() == "default") {
+    thread_metadata.client_id = 1;
+  } else if (cfd_->GetName() == "cf2") {
+    thread_metadata.client_id = 2;
+  }
+
   while (f != nullptr) {
     if (*max_covering_tombstone_seq > 0) {
       // The remaining files we look at will only contain covered keys, so we
@@ -2441,6 +2451,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
+    std::cout << "[TGRIGGS_LOG] table_cache_->Get\n";
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.block_protection_bytes_per_key,
@@ -2470,11 +2481,13 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     switch (get_context.State()) {
       case GetContext::kNotFound:
         // Keep searching in other files
+        std::cout << "[TGRIGGS_LOG] Not found\n";
         break;
       case GetContext::kMerge:
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
+        std::cout << "[TGRIGGS_LOG] Found\n";
         if (fp.GetHitFileLevel() == 0) {
           RecordTick(db_statistics_, GET_HIT_L0);
         } else if (fp.GetHitFileLevel() == 1) {
@@ -2576,6 +2589,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     *status = Status::NotFound();  // Use an empty error message for speed
   }
+  thread_metadata.client_id = 0;
 }
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
