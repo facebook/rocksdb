@@ -284,6 +284,9 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
   Status s = env_->RenameFile(fname, archived_log_name);
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:2");
+  // The sync point below is used in
+  // (CheckPointTest, CheckpointWithArchievedLog)
+  TEST_SYNC_POINT("WalManager::ArchiveWALFile");
   ROCKS_LOG_INFO(db_options_.info_log, "Move log file %s to %s -- %s\n",
                  fname.c_str(), archived_log_name.c_str(),
                  s.ToString().c_str());
