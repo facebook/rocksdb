@@ -148,6 +148,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       AlignedBuffer buf;
       buf.Alignment(alignment);
       buf.AllocateNewBuffer(read_size);
+      // NOTE(tgriggs): This is where rate limiter is called in client reads.
       while (buf.CurrentSize() < read_size) {
         size_t allowed;
         if (rate_limiter_priority != Env::IO_TOTAL &&

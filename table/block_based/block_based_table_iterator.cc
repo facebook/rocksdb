@@ -7,13 +7,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
+#include "util/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
 
 void BlockBasedTableIterator::Seek(const Slice& target) {
+  Slice cf_name = table_->get_rep()->cf_name_for_tracing();
+  auto& thread_metadata = TG_GetThreadMetadata();
+
+  if (cf_name.empty()) {
+    thread_metadata.client_id = -2;
+  } else if (cf_name.ToString() == "default") {
+    thread_metadata.client_id = 1;
+  } else if (cf_name.ToString() == "cf2") {
+    thread_metadata.client_id = 2;
+  }
   SeekImpl(&target, true);
+  thread_metadata.client_id = 0;
 }
 
 void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
@@ -154,12 +166,23 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
       CheckDataBlockWithinUpperBound();
     }
 
+    Slice cf_name = table_->get_rep()->cf_name_for_tracing();
+    auto& thread_metadata = TG_GetThreadMetadata();
+
+    if (cf_name.empty()) {
+      thread_metadata.client_id = -2;
+    } else if (cf_name.ToString() == "default") {
+      thread_metadata.client_id = 1;
+    } else if (cf_name.ToString() == "cf2") {
+      thread_metadata.client_id = 2;
+    }
     if (target) {
       block_iter_.Seek(*target);
     } else {
       block_iter_.SeekToFirst();
     }
     FindKeyForward();
+    thread_metadata.client_id = 0;
   }
 
   CheckOutOfBound();
@@ -271,9 +294,20 @@ void BlockBasedTableIterator::Next() {
     return;
   }
   assert(block_iter_points_to_real_block_);
+  Slice cf_name = table_->get_rep()->cf_name_for_tracing();
+  auto& thread_metadata = TG_GetThreadMetadata();
+
+  if (cf_name.empty()) {
+    thread_metadata.client_id = -2;
+  } else if (cf_name.ToString() == "default") {
+    thread_metadata.client_id = 1;
+  } else if (cf_name.ToString() == "cf2") {
+    thread_metadata.client_id = 2;
+  }
   block_iter_.Next();
   FindKeyForward();
   CheckOutOfBound();
+  thread_metadata.client_id = 0;
 }
 
 bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {

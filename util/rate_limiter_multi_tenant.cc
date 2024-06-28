@@ -183,7 +183,6 @@ void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
     if (client_id == 0) {
       std::cout << "[TGRIGGS_LOG] Call to GetSingleBurstBytes() has un-assigned id" << std::endl;
     }
-    // int client_id = 1;
     return GetSingleBurstBytes(client_id);
   }
 
@@ -225,12 +224,12 @@ Status MultiTenantRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
   }
 
 void MultiTenantRateLimiter::TGprintStackTrace() {
-  void *array[10];
+  void *array[20];
   size_t size;
   char **strings;
   size_t i;
 
-  size = backtrace(array, 10);
+  size = backtrace(array, 20);
   strings = backtrace_symbols(array, size);
 
   printf("Obtained %zd stack frames.\n", size);
@@ -260,7 +259,9 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   int cid = TG_GetThreadMetadata().client_id;
 
   if (cid == 0) {
-    std::cout << "[TGRIGGS_LOG] Call to Request() has unassigned client id: " << bytes << " bytes" << std::endl;
+    unassigned_calls_++;
+    unassigned_bytes_ += bytes;
+    // std::cout << "[TGRIGGS_LOG] Call to Request() has unassigned client id: " << bytes << " bytes" << std::endl;
     // TGprintStackTrace();
     return;
   }
@@ -282,10 +283,10 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       std::cout << "WRITE: ";
     }
     std::cout << std::endl;
-    for (int i = 0; i < calls_per_client_.size(); ++i) {
-      std::cout << "Client " << i << ":" << calls_per_client_[i] << " calls, " << (bytes_per_client_[i]/1024/1024) << " MB\n";
+    for (size_t i = 0; i < calls_per_client_.size(); ++i) {
+      std::cout << "Client " << i << ": " << calls_per_client_[i] << " calls, " << (bytes_per_client_[i]/1024/1024) << " MB\n";
     }
-    std::cout << std::endl;
+    std::cout << "Unassigned: " << unassigned_calls_ << " calls, " << (unassigned_bytes_/1024/1024) << " MB.\n";
   }
 
   assert(bytes <= GetSingleBurstBytes(cid));

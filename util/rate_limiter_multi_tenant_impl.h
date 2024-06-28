@@ -171,6 +171,8 @@ class MultiTenantRateLimiter : public RateLimiter {
   std::map<ReqKey, std::deque<Req*>> request_queue_map_;
   std::vector<int64_t> calls_per_client_;
   std::vector<int64_t> bytes_per_client_;
+  int64_t unassigned_calls_;
+  int64_t unassigned_bytes_;
   int total_calls_;
   RateLimiter* read_rate_limiter_ = nullptr;
   RateLimiter::Mode mode_;

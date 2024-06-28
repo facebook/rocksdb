@@ -292,7 +292,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
         this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
       });
 
-  // TODO(tgriggs): handle this write_controller_
+  // TODO(tgriggs): handle this write_controller_ to create multi-tenant stalls
   versions_.reset(new VersionSet(
       dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
       write_buffer_manager_, &write_controller_, write_controllers_, &block_cache_tracer_,
@@ -2215,7 +2215,7 @@ bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
-                       GetImplOptions& get_impl_options) {
+                       GetImplOptions& get_impl_options) { 
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr ||
          get_impl_options.columns != nullptr);
