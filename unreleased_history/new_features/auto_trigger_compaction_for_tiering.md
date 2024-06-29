@@ -1,1 +1,0 @@
-Added a `CompactForTieringCollectorFactory` to auto trigger compaction for tiering use case.
