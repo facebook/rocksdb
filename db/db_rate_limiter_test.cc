@@ -247,7 +247,7 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   // reads stay the same.
 #ifdef(OS_WIN)
   // No file system prefetch implemented for OS Win. During table open,
-  // we only do 1 read for BufferedIO. 
+  // we only do 1 read for BufferedIO.
   int num_read_per_file = 4;
 #else
   int num_read_per_file = (!use_direct_io_) ? 7 : 4;
