@@ -3457,8 +3457,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(new DbStressListener(
-        FLAGS_db, options_.db_paths, cf_descriptors, db_stress_listener_env));
+    options_.listeners.emplace_back(
+        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
+                             db_stress_listener_env, shared));
     RegisterAdditionalListeners();
 
     // If this is for DB reopen,  error injection may have been enabled.
@@ -3712,6 +3713,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+    exit(1);
+  }
+
+  if (shared->GetPersistSeqno() > db_->GetLatestSequenceNumber()) {
+    fprintf(stderr,
+            "DB of latest sequence number %" PRIu64
+            "did not recover to the persisted "
+            "sequence number %" PRIu64 "from last DB session\n",
+            db_->GetLatestSequenceNumber(), shared->GetPersistSeqno());
     exit(1);
   }
 }
