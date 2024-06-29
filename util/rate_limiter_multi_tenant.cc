@@ -150,6 +150,9 @@ MultiTenantRateLimiter::~MultiTenantRateLimiter() {
 // This API allows user to dynamically change rate limiter's bytes per second.
 // TODO(tgriggs): find where this is actually used in code, does it break our assumptions about resource limits?
 void MultiTenantRateLimiter::SetBytesPerSecond(int client_id, int64_t bytes_per_second) {
+  if (read_rate_limiter_ != nullptr) {
+    read_rate_limiter_->SetBytesPerSecond(client_id, bytes_per_second);
+  }
   MutexLock g(&request_mutex_);
   SetBytesPerSecondLocked(client_id, bytes_per_second);
 }
@@ -180,9 +183,9 @@ void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
 
  int64_t MultiTenantRateLimiter::GetSingleBurstBytes() const {
     int client_id = TG_GetThreadMetadata().client_id;
-    if (client_id == 0) {
-      std::cout << "[TGRIGGS_LOG] Call to GetSingleBurstBytes() has un-assigned id" << std::endl;
-    }
+    // if (client_id == 0) {
+    //   std::cout << "[TGRIGGS_LOG] Call to GetSingleBurstBytes() has un-assigned id" << std::endl;
+    // }
     return GetSingleBurstBytes(client_id);
   }
 
@@ -274,7 +277,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // TODO(tgriggs): Don't block flushes (for now) -- just go into deficit
   calls_per_client_[client_idx]++;
   bytes_per_client_[client_idx] += bytes;
-  if (total_calls_++ >= 1000) {
+  if (total_calls_++ >= 10000) {
     total_calls_ = 0;
     std::cout << "[TGRIGGS_LOG] RL calls and bytes per-client for ";
     if (mode_ == rocksdb::RateLimiter::Mode::kReadsOnly) {

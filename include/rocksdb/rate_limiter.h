@@ -40,6 +40,9 @@ class RateLimiter {
   // REQUIRED: bytes_per_second > 0
   virtual void SetBytesPerSecond(int64_t bytes_per_second) = 0;
 
+  // Set bytes_per_second at a per-client level. 
+  virtual void SetBytesPerSecond(int client_id, int64_t bytes_per_second) = 0;
+
   // This API allows user to dynamically change the max bytes can be granted in
   // a single call to `Request()`. Zero is a special value meaning the number of
   // bytes per refill.
