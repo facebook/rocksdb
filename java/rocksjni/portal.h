@@ -483,6 +483,13 @@ class StatusJni
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
+    return construct(env, status, jclazz, mid);
+  }
+
+  //StatusJni can't cache jclass because in descructor we need JniUtil,
+  //JniUtil need RocksDBExceptionJni, and RocksDBExceptionJni need StatusJni.
+  //So I can't even change the order of the classes in portal.h
+  static jobject construct(JNIEnv* env, const Status& status, jclass jclazz, jmethodID mid) {
 
     // convert the Status state for Java
     jstring jstate = nullptr;
@@ -8540,13 +8547,53 @@ class CompactionJobInfoJni : public JavaClass {
 };
 
 class TableFileCreationInfoJni : public JavaClass {
+ private:
+  JavaVM* m_jvm;
+  jclass jclazz;
+  jmethodID ctor;
+
+  jclass statusJclazz;
+  jmethodID statusCtor;
+
+  std::unique_ptr<TablePropertiesJni> tablePropertiesConverter;
+  std::unique_ptr<StatusJni> statusJniConverter;
+
  public:
-  static jobject fromCppTableFileCreationInfo(
-      JNIEnv* env, const ROCKSDB_NAMESPACE::TableFileCreationInfo* info) {
-    jclass jclazz = getJClass(env);
+  TableFileCreationInfoJni(JNIEnv* env) {
+    env->GetJavaVM(&m_jvm);
+    jclazz = TableFileCreationInfoJni::getJClass(env);
     assert(jclazz != nullptr);
-    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
+    assert(jclazz != nullptr);
+
+    ctor = TableFileCreationInfoJni::getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
+
+    tablePropertiesConverter = std::make_unique<TablePropertiesJni>(env);
+
+
+    statusJclazz = StatusJni::getJClass(env);
+    assert(statusJclazz != nullptr);
+    statusJclazz = static_cast<jclass>(env->NewGlobalRef(statusJclazz));
+    assert(statusJclazz != nullptr);
+
+    statusCtor =  env->GetMethodID(statusJclazz, "getCode", "()Lorg/rocksdb/Status$Code;");
+    assert(statusCtor != nullptr);
+
+  }
+
+  virtual ~TableFileCreationInfoJni() {
+    JNIEnv* env;
+    jboolean attached_thread = JNI_FALSE;
+    env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+    env->DeleteGlobalRef(jclazz);
+    env->DeleteGlobalRef(statusJclazz);
+    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  }
+
+  jobject fromCppTableFileCreationInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::TableFileCreationInfo* info) {
+
     jstring jdb_name = JniUtil::toJavaString(env, &info->db_name);
     if (env->ExceptionCheck()) {
       return nullptr;
@@ -8563,13 +8610,13 @@ class TableFileCreationInfoJni : public JavaClass {
       return nullptr;
     }
     jobject jtable_properties =
-        TablePropertiesJni::fromCppTableProperties(env, info->table_properties);
+        tablePropertiesConverter->fromCppTablePropertiesJni(env, info->table_properties);
     if (jtable_properties == nullptr) {
       env->DeleteLocalRef(jdb_name);
       env->DeleteLocalRef(jcf_name);
       return nullptr;
     }
-    jobject jstatus = StatusJni::construct(env, info->status);
+    jobject jstatus = StatusJni::construct(env, info->status, statusJclazz, statusCtor);
     if (jstatus == nullptr) {
       env->DeleteLocalRef(jdb_name);
       env->DeleteLocalRef(jcf_name);
@@ -8595,13 +8642,35 @@ class TableFileCreationInfoJni : public JavaClass {
 };
 
 class TableFileCreationBriefInfoJni : public JavaClass {
+ private:
+  JavaVM* m_jvm;
+  jclass jclazz;
+  jmethodID ctor;
+
  public:
-  static jobject fromCppTableFileCreationBriefInfo(
-      JNIEnv* env, const ROCKSDB_NAMESPACE::TableFileCreationBriefInfo* info) {
-    jclass jclazz = getJClass(env);
+  TableFileCreationBriefInfoJni(JNIEnv* env) {
+    env->GetJavaVM(&m_jvm);
+    jclazz = TableFileCreationBriefInfoJni::getJClass(env);
     assert(jclazz != nullptr);
-    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
+    assert(jclazz != nullptr);
+
+    ctor = TableFileCreationBriefInfoJni::getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
+
+  }
+
+  virtual ~TableFileCreationBriefInfoJni() {
+    JNIEnv* env;
+    jboolean attached_thread = JNI_FALSE;
+    env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+    env->DeleteGlobalRef(jclazz);
+    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  }
+
+  jobject fromCppTableFileCreationBriefInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::TableFileCreationBriefInfo* info) {
+
     jstring jdb_name = JniUtil::toJavaString(env, &info->db_name);
     if (env->ExceptionCheck()) {
       return nullptr;
