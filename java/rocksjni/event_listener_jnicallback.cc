@@ -120,6 +120,7 @@ EventListenerJniCallback::EventListenerJniCallback(
   compactionJobInfoJniConverter = std::make_unique<CompactionJobInfoJni>(env);
   tableFileCreationInfoJniConverter = std::make_unique<TableFileCreationInfoJni>(env);
   tableFileCreationBriefInfoJniConterter = std::make_unique<TableFileCreationBriefInfoJni>(env);
+  memTableInfoJniConverter = std::make_unique<MemTableInfoJni>(env);
 }
 
 EventListenerJniCallback::~EventListenerJniCallback() {}
@@ -246,7 +247,8 @@ void EventListenerJniCallback::OnTableFileCreated(
   env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
-  jobject jfile_creation_info = tableFileCreationInfoJniConverter->fromCppTableFileCreationInfo(env, &info);
+  jobject jfile_creation_info =
+      tableFileCreationInfoJniConverter->fromCppTableFileCreationInfo(env, &info);
 
   if (jfile_creation_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_table_file_created_mid,
@@ -286,9 +288,12 @@ void EventListenerJniCallback::OnMemTableSealed(const MemTableInfo& info) {
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jmem_table_info = SetupCallbackInvocation<MemTableInfo>(
-      env, attached_thread, info, MemTableInfoJni::fromCppMemTableInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jmem_table_info = memTableInfoJniConverter->fromCppMemTableInfo(env, &info);
 
   if (jmem_table_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_mem_table_sealed_mid,
