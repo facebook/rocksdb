@@ -93,6 +93,9 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
 
   std::unique_ptr<ROCKSDB_NAMESPACE::FlushJobInfoJni> flushJobInfoJniConverter = nullptr;
   std::unique_ptr<ROCKSDB_NAMESPACE::CompactionJobInfoJni> compactionJobInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationInfoJni> tableFileCreationInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationBriefInfoJni> tableFileCreationBriefInfoJniConterter = nullptr;
+
 
 };
 

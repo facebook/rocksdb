@@ -118,7 +118,8 @@ EventListenerJniCallback::EventListenerJniCallback(
 
   flushJobInfoJniConverter = std::make_unique<rocksdb::FlushJobInfoJni>(env);
   compactionJobInfoJniConverter = std::make_unique<CompactionJobInfoJni>(env);
-
+  tableFileCreationInfoJniConverter = std::make_unique<TableFileCreationInfoJni>(env);
+  tableFileCreationBriefInfoJniConterter = std::make_unique<TableFileCreationBriefInfoJni>(env);
 }
 
 EventListenerJniCallback::~EventListenerJniCallback() {}
@@ -240,10 +241,12 @@ void EventListenerJniCallback::OnTableFileCreated(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jfile_creation_info = SetupCallbackInvocation<TableFileCreationInfo>(
-      env, attached_thread, info,
-      TableFileCreationInfoJni::fromCppTableFileCreationInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jfile_creation_info = tableFileCreationInfoJniConverter->fromCppTableFileCreationInfo(env, &info);
 
   if (jfile_creation_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_table_file_created_mid,
@@ -260,11 +263,14 @@ void EventListenerJniCallback::OnTableFileCreationStarted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+
   jobject jcreation_brief_info =
-      SetupCallbackInvocation<TableFileCreationBriefInfo>(
-          env, attached_thread, info,
-          TableFileCreationBriefInfoJni::fromCppTableFileCreationBriefInfo);
+      tableFileCreationBriefInfoJniConterter->fromCppTableFileCreationBriefInfo(env, &info);
 
   if (jcreation_brief_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_table_file_creation_started_mid,
