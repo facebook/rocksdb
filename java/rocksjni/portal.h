@@ -397,6 +397,11 @@ class StatusJni
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/Status");
   }
 
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass jclazz) {
+    return env->GetMethodID(jclazz, "<init>", "(BBLjava/lang/String;)V");
+  }
+
+
   /**
    * Get the Java Method: Status#getCode
    *
@@ -477,8 +482,7 @@ class StatusJni
       return nullptr;
     }
 
-    jmethodID mid =
-        env->GetMethodID(jclazz, "<init>", "(BBLjava/lang/String;)V");
+    jmethodID mid = getConstructorMethodId(env, jclazz);
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -8577,7 +8581,7 @@ class TableFileCreationInfoJni : public JavaClass {
     statusJclazz = static_cast<jclass>(env->NewGlobalRef(statusJclazz));
     assert(statusJclazz != nullptr);
 
-    statusCtor =  env->GetMethodID(statusJclazz, "getCode", "()Lorg/rocksdb/Status$Code;");
+    statusCtor =  StatusJni::getConstructorMethodId(env, statusJclazz);
     assert(statusCtor != nullptr);
 
   }
@@ -8703,13 +8707,35 @@ class TableFileCreationBriefInfoJni : public JavaClass {
 };
 
 class MemTableInfoJni : public JavaClass {
+
+ private:
+  JavaVM* m_jvm;
+  jclass jclazz;
+  jmethodID ctor;
+
  public:
-  static jobject fromCppMemTableInfo(
-      JNIEnv* env, const ROCKSDB_NAMESPACE::MemTableInfo* info) {
-    jclass jclazz = getJClass(env);
+  MemTableInfoJni(JNIEnv* env) {
+    env->GetJavaVM(&m_jvm);
+    jclazz = MemTableInfoJni::getJClass(env);
     assert(jclazz != nullptr);
-    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
+    assert(jclazz != nullptr);
+
+    ctor = MemTableInfoJni::getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
+
+  }
+
+  ~MemTableInfoJni() {
+    JNIEnv* env;
+    jboolean attached_thread = JNI_FALSE;
+    env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+    env->DeleteGlobalRef(jclazz);
+    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  }
+
+  jobject fromCppMemTableInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::MemTableInfo* info) {
     jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
     if (env->ExceptionCheck()) {
       return nullptr;
