@@ -91,11 +91,20 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   jmethodID m_on_error_recovery_begin_proxy_mid;
   jmethodID m_on_error_recovery_completed_mid;
 
+  jclass statusJClazz;
+  jmethodID statusCtor;
+
   std::unique_ptr<ROCKSDB_NAMESPACE::FlushJobInfoJni> flushJobInfoJniConverter = nullptr;
   std::unique_ptr<ROCKSDB_NAMESPACE::CompactionJobInfoJni> compactionJobInfoJniConverter = nullptr;
   std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationInfoJni> tableFileCreationInfoJniConverter = nullptr;
   std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationBriefInfoJni> tableFileCreationBriefInfoJniConterter = nullptr;
   std::unique_ptr<ROCKSDB_NAMESPACE::MemTableInfoJni> memTableInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandleJni> columnFamilyHandleJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::ExternalFileIngestionInfoJni> externalFileIngestionInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WriteStallInfoJni> writeStallInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::FileOperationInfoJni> fileOperationInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileDeletionInfoJni> tableFileDeletionInfoJniConverter = nullptr;
+
 
 
 };
