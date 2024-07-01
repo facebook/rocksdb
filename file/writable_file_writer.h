@@ -304,6 +304,9 @@ class WritableFileWriter {
   // operating on the file after an error happens.
   void reset_seen_error() {
     seen_error_.store(false, std::memory_order_relaxed);
+#ifndef NDEBUG
+    seen_injected_error_.store(false, std::memory_order_relaxed);
+#endif  // NDEBUG
   }
   void set_seen_error(const Status& s) {
     seen_error_.store(true, std::memory_order_relaxed);
