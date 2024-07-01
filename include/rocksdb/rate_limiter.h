@@ -104,6 +104,9 @@ class RateLimiter {
   virtual int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const = 0;
 
+  // Total bytes that go through rate limiter for given client.
+  virtual int64_t GetTotalBytesThroughForClient(int client_id) const = 0;
+
   // Total # of requests that go through rate limiter
   virtual int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const = 0;
@@ -123,6 +126,9 @@ class RateLimiter {
   }
 
   virtual int64_t GetBytesPerSecond() const = 0;
+
+  // TODO(tgriggs): remove this when we separate RLs
+  virtual RateLimiter* GetReadRateLimiter() = 0;
 
   virtual bool IsRateLimited(OpType op_type) {
     if ((mode_ == RateLimiter::Mode::kWritesOnly &&
@@ -180,5 +186,7 @@ RateLimiter* NewMultiTenantRateLimiter(
     int32_t fairness /* = 10 */,
     RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */,
     int64_t single_burst_bytes /* = 0 */);
+
+class MultiTenantRateLimiter;
 
 }  // namespace ROCKSDB_NAMESPACE

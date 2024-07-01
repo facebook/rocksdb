@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <iostream>
 
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -72,6 +73,12 @@ class GenericRateLimiter : public RateLimiter {
     return total_bytes_through_[pri];
   }
 
+  int64_t GetTotalBytesThroughForClient(int client_id) const override {
+    std::cout << "[TGRIGGS_LOG] Multi-tenant GenericRateLimiter::GetTotalBytesThroughForClient unimplemented\n";
+    (void) client_id;
+    return 0;
+  };
+
   int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
@@ -104,6 +111,10 @@ class GenericRateLimiter : public RateLimiter {
 
   int64_t GetBytesPerSecond() const override {
     return rate_bytes_per_sec_.load(std::memory_order_relaxed);
+  }
+
+  RateLimiter* GetReadRateLimiter() override {
+    return nullptr;
   }
 
   virtual void TEST_SetClock(std::shared_ptr<SystemClock> clock) {

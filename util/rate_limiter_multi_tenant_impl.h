@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <iostream>
 
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -33,6 +34,21 @@ class MultiTenantRateLimiter : public RateLimiter {
     int64_t single_burst_bytes);
 
   virtual ~MultiTenantRateLimiter();
+
+  // TODO(tgriggs): update this based on column family IDs
+  int ClientId2ClientIdx(int client_id) const {
+    if (client_id > 0) {
+      return client_id - 1;
+    }
+    return client_id;
+  }
+
+  int ClientIdx2ClientId(int client_idx) const {
+    if (client_idx >= 0) {
+      return client_idx + 1;
+    }
+    return client_idx;
+  }
 
   // Permits dynamically change rate limiter's bytes per second.
   void SetBytesPerSecond(int64_t bytes_per_second) override;
@@ -72,6 +88,10 @@ class MultiTenantRateLimiter : public RateLimiter {
     return total_bytes_through_[pri];
   }
 
+  int64_t GetTotalBytesThroughForClient(int client_id) const override {
+    return bytes_per_client_[ClientId2ClientIdx(client_id)];
+  }
+
   int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
@@ -83,21 +103,6 @@ class MultiTenantRateLimiter : public RateLimiter {
       return total_requests_sum;
     }
     return total_requests_[pri];
-  }
-
-  // TODO(tgriggs): update this based on column family IDs
-  int ClientId2ClientIdx(int client_id) const {
-    if (client_id > 0) {
-      return client_id - 1;
-    }
-    return client_id;
-  }
-
-  int ClientIdx2ClientId(int client_idx) const {
-    if (client_idx >= 0) {
-      return client_idx + 1;
-    }
-    return client_idx;
   }
 
   // TODO(tgriggs): Make this per-client? Maybe thread-level storage?
@@ -112,7 +117,8 @@ class MultiTenantRateLimiter : public RateLimiter {
     return rate_bytes_per_sec_[client_idx].load(std::memory_order_relaxed);
   }
 
-  RateLimiter* GetReadRateLimiter() {
+  RateLimiter* GetReadRateLimiter() override {
+    std::cout << "[TGRIGGS_LOG] getting read_rate_limiter_\n";
     return read_rate_limiter_;
   }
 
