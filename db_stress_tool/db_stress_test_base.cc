@@ -1204,7 +1204,32 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
+        // TestGetProperty doesn't return status for us to tell whether it has
+        // failed due to injected error. So we disable fault injection to avoid
+        // false positive
+        if (fault_fs_guard) {
+          fault_fs_guard->DisableThreadLocalErrorInjection(
+              FaultInjectionIOType::kMetadataRead);
+          fault_fs_guard->DisableThreadLocalErrorInjection(
+              FaultInjectionIOType::kMetadataWrite);
+          fault_fs_guard->DisableThreadLocalErrorInjection(
+              FaultInjectionIOType::kRead);
+          fault_fs_guard->DisableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+
         TestGetProperty(thread);
+
+        if (fault_fs_guard) {
+          fault_fs_guard->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kMetadataWrite);
+          fault_fs_guard->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kMetadataRead);
+          fault_fs_guard->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kRead);
+          fault_fs_guard->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_properties_of_all_tables_one_in)) {
@@ -1230,26 +1255,30 @@ void StressTest::OperateDb(ThreadState* thread) {
           }
         }
 
-        if (total_size <= FLAGS_backup_max_size && fault_fs_guard) {
+        if (total_size <= FLAGS_backup_max_size) {
           // TODO(hx235): enable error injection with
           // backup/restore after fixing the various issues it surfaces
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataWrite);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kWrite);
+          if (fault_fs_guard) {
+            fault_fs_guard->DisableThreadLocalErrorInjection(
+                FaultInjectionIOType::kMetadataRead);
+            fault_fs_guard->DisableThreadLocalErrorInjection(
+                FaultInjectionIOType::kMetadataWrite);
+            fault_fs_guard->DisableThreadLocalErrorInjection(
+                FaultInjectionIOType::kRead);
+            fault_fs_guard->DisableThreadLocalErrorInjection(
+                FaultInjectionIOType::kWrite);
+          }
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataWrite);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataRead);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kRead);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kWrite);
+          if (fault_fs_guard) {
+            fault_fs_guard->EnableThreadLocalErrorInjection(
+                FaultInjectionIOType::kMetadataWrite);
+            fault_fs_guard->EnableThreadLocalErrorInjection(
+                FaultInjectionIOType::kMetadataRead);
+            fault_fs_guard->EnableThreadLocalErrorInjection(
+                FaultInjectionIOType::kRead);
+            fault_fs_guard->EnableThreadLocalErrorInjection(
+                FaultInjectionIOType::kWrite);
+          }
           ProcessStatus(shared, "Backup/restore", s);
         }
       }
