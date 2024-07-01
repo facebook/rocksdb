@@ -118,7 +118,6 @@ class MultiTenantRateLimiter : public RateLimiter {
   }
 
   RateLimiter* GetReadRateLimiter() override {
-    std::cout << "[TGRIGGS_LOG] getting read_rate_limiter_\n";
     return read_rate_limiter_;
   }
 

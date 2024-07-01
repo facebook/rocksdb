@@ -677,7 +677,6 @@ Status CompactionJob::Run() {
   // CPU_SET(14, &cpuset);
   // CPU_SET(15, &cpuset);
 
-  std::cout << "[TGRIGGS_LOG] Pinning compaction" << std::endl;
   int rc = pthread_setaffinity_np(pthread_self(),
                                   sizeof(cpu_set_t), &cpuset);
   if (rc != 0) {
@@ -694,13 +693,14 @@ Status CompactionJob::Run() {
   //   }
   // }
 
+  // TODO(tgriggs): Update this so that multiple clients can have the same key.
   TG_SetThreadMetadata(compact_->compaction->GetSmallestUserKey().ToString());
-  auto smallest_key = TG_StringKeyToIntKey(compact_->compaction->GetSmallestUserKey().ToString()) / (6250000 / 4);;
-  auto largest_key = TG_StringKeyToIntKey(compact_->compaction->GetLargestUserKey().ToString()) / (6250000 / 4);;
+  // auto smallest_key = TG_StringKeyToIntKey(compact_->compaction->GetSmallestUserKey().ToString()) / (6250000 / 4);;
+  // auto largest_key = TG_StringKeyToIntKey(compact_->compaction->GetLargestUserKey().ToString()) / (6250000 / 4);;
 
-  std::cout << "[TGRIGGS_LOG] level: " << compact_->compaction->output_level() << std::endl;
-  std::cout << "[TGRIGGS_LOG] start,end: " << compact_->compaction->GetSmallestUserKey().ToString() << ", " << compact_->compaction->GetLargestUserKey().ToString() << std::endl;
-  std::cout << "[TGRIGGS_LOG] compaction client_id: start_key client=" << smallest_key << ", end_key client=" << largest_key << std::endl;
+  std::cout << "[TGRIGGS_LOG] Compaction on level: " << compact_->compaction->output_level() << std::endl;
+  // std::cout << "[TGRIGGS_LOG] start,end: " << compact_->compaction->GetSmallestUserKey().ToString() << ", " << compact_->compaction->GetLargestUserKey().ToString() << std::endl;
+  // std::cout << "[TGRIGGS_LOG] compaction client_id: start_key client=" << smallest_key << ", end_key client=" << largest_key << std::endl;
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
