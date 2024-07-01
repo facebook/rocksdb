@@ -14,9 +14,9 @@
 #include <memory>
 #include <set>
 
-#include "rocksjni/portal.h"
 #include "rocksdb/listener.h"
 #include "rocksjni/jnicallback.h"
+#include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -94,19 +94,26 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   jclass statusJClazz;
   jmethodID statusCtor;
 
-  std::unique_ptr<ROCKSDB_NAMESPACE::FlushJobInfoJni> flushJobInfoJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::CompactionJobInfoJni> compactionJobInfoJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationInfoJni> tableFileCreationInfoJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationBriefInfoJni> tableFileCreationBriefInfoJniConterter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::MemTableInfoJni> memTableInfoJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandleJni> columnFamilyHandleJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::ExternalFileIngestionInfoJni> externalFileIngestionInfoJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::WriteStallInfoJni> writeStallInfoJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::FileOperationInfoJni> fileOperationInfoJniConverter = nullptr;
-  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileDeletionInfoJni> tableFileDeletionInfoJniConverter = nullptr;
-
-
-
+  std::unique_ptr<ROCKSDB_NAMESPACE::FlushJobInfoJni> flushJobInfoJniConverter =
+      nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::CompactionJobInfoJni>
+      compactionJobInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationInfoJni>
+      tableFileCreationInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileCreationBriefInfoJni>
+      tableFileCreationBriefInfoJniConterter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::MemTableInfoJni> memTableInfoJniConverter =
+      nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandleJni>
+      columnFamilyHandleJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::ExternalFileIngestionInfoJni>
+      externalFileIngestionInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WriteStallInfoJni>
+      writeStallInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::FileOperationInfoJni>
+      fileOperationInfoJniConverter = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::TableFileDeletionInfoJni>
+      tableFileDeletionInfoJniConverter = nullptr;
 };
 
 // The portal class for org.rocksdb.AbstractEventListener
@@ -488,13 +495,6 @@ class AbstractEventListenerJni
   }
 };
 
-
-
-
-
-
 }  // namespace ROCKSDB_NAMESPACE
-
-
 
 #endif  // JAVA_ROCKSJNI_EVENT_LISTENER_JNICALLBACK_H_
