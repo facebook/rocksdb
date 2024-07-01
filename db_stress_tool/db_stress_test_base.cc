@@ -3635,6 +3635,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
                 fault_fs_guard->DropRandomUnsyncedFileData(&rand);
               }
             }
+            fault_fs_guard->ResetState();
             continue;
           }
         }
