@@ -286,7 +286,6 @@ bool StressTest::BuildOptionsTable() {
            std::to_string(options_.write_buffer_size / 8),
        }},
       {"memtable_huge_page_size", {"0", std::to_string(2 * 1024 * 1024)}},
-      {"max_successive_merges", {"0", "2", "4"}},
       {"strict_max_successive_merges", {"false", "true"}},
       {"inplace_update_num_locks", {"100", "200", "300"}},
       // TODO: re-enable once internal task T124324915 is fixed.
@@ -343,6 +342,12 @@ bool StressTest::BuildOptionsTable() {
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
   };
+  if (FLAGS_unordered_write) {
+    options_tbl.emplace("max_successive_merges", std::vector<std::string>{"0"});
+  } else {
+    options_tbl.emplace("max_successive_merges",
+                        std::vector<std::string>{"0", "2", "4"});
+  }
 
   if (FLAGS_allow_setting_blob_options_dynamically) {
     options_tbl.emplace("enable_blob_files",
