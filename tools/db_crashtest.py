@@ -777,6 +777,8 @@ def finalize_and_sanitize(src_params):
         # Currently we trace all user writes regardless of whether it later succeeds or not.
         # To simplify, we disable any user write failure injection.
         # TODO(hx235): support tracing user writes with failure injection.
+        # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
+        # have to disable metadata write fault injection to other file
         dest_params["metadata_write_fault_one_in"] = 0
         dest_params["exclude_wal_from_write_fault_injection"] = 1
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
@@ -920,6 +922,16 @@ def finalize_and_sanitize(src_params):
         dest_params["prefixpercent"] = 0
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
+    if dest_params.get("disable_wal") == 0 and dest_params.get("reopen") > 0:
+        # Reopen with WAL currently requires persisting WAL data before closing for reopen.
+        # Previous injected WAL write errors may not be cleared by the time of closing and ready
+        # for persisting WAL.
+        # To simplify, we disable any WAL write error injection.
+        # TODO(hx235): support WAL write error injection with reopen
+        # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
+        # have to disable metadata write fault injection to other file
+        dest_params["exclude_wal_from_write_fault_injection"] = 1
+        dest_params["metadata_write_fault_one_in"] = 0
     if dest_params.get("disable_wal") == 1:
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
