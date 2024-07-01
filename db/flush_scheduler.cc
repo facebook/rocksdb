@@ -6,6 +6,7 @@
 #include "db/flush_scheduler.h"
 
 #include <cassert>
+#include <iostream>
 
 #include "db/column_family.h"
 
@@ -41,8 +42,12 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
 
     // dequeue the head
     Node* node = head_.load(std::memory_order_relaxed);
+    // std::cout << "[TGRIGGS_LOG]: is node nullptr  - " << (node == nullptr) << std::endl;
+    // std::cout << "[TGRIGGS_LOG]: is node->next nullptr  - " << (node->next == nullptr) << std::endl;
+    // std::cout << "[TGRIGGS_LOG]: is node->column_family nullptr  - " << (node->column_family == nullptr) << std::endl;
     head_.store(node->next, std::memory_order_relaxed);
     ColumnFamilyData* cfd = node->column_family;
+    // std::cout << "[TGRIGGS_LOG]: is cfd nullptr  - " << (cfd == nullptr) << std::endl;
     delete node;
 
 #ifndef NDEBUG
@@ -54,12 +59,14 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
     }
 #endif  // NDEBUG
 
+    // std::cout << "[TGRIGGS_LOG]: IsDropped " << std::endl;
     if (!cfd->IsDropped()) {
       // success
       return cfd;
     }
 
     // no longer relevant, retry
+    // std::cout << "[TGRIGGS_LOG]: UnrefAndTryDelete " << std::endl;
     cfd->UnrefAndTryDelete();
   }
 }

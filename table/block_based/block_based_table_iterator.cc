@@ -23,6 +23,10 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
     thread_metadata.client_id = 1;
   } else if (cf_name.ToString() == "cf2") {
     thread_metadata.client_id = 2;
+  } else if (cf_name.ToString() == "cf3") {
+    thread_metadata.client_id = 3;
+  } else if (cf_name.ToString() == "cf4") {
+    thread_metadata.client_id = 4;
   }
   SeekImpl(&target, true);
   thread_metadata.client_id = 0;
@@ -175,6 +179,10 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
       thread_metadata.client_id = 1;
     } else if (cf_name.ToString() == "cf2") {
       thread_metadata.client_id = 2;
+    } else if (cf_name.ToString() == "cf3") {
+      thread_metadata.client_id = 3;
+    } else if (cf_name.ToString() == "cf4") {
+      thread_metadata.client_id = 4;
     }
     if (target) {
       block_iter_.Seek(*target);
@@ -303,6 +311,10 @@ void BlockBasedTableIterator::Next() {
     thread_metadata.client_id = 1;
   } else if (cf_name.ToString() == "cf2") {
     thread_metadata.client_id = 2;
+  } else if (cf_name.ToString() == "cf3") {
+    thread_metadata.client_id = 3;
+  } else if (cf_name.ToString() == "cf4") {
+    thread_metadata.client_id = 4;
   }
   block_iter_.Next();
   FindKeyForward();

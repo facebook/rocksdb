@@ -349,6 +349,10 @@ Status DBImpl::FlushMemTableToOutputFile(
     thread_metadata.client_id = 1;
   } else if (cfd->GetName() == "cf2") {
     thread_metadata.client_id = 2;
+  } else if (cfd->GetName() == "cf3") {
+    thread_metadata.client_id = 3;
+  } else if (cfd->GetName() == "cf4") {
+    thread_metadata.client_id = 4;
   } else {
     thread_metadata.client_id = -3;
   }

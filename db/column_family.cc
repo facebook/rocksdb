@@ -961,7 +961,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
     // TODO(tgriggs): get the write_controller for this column family
     auto write_controller = column_family_set_->write_controller_;
 
-    std::shared_ptr<WriteController> cf_write_controller = column_family_set_->write_controllers_[id_];
+    // std::shared_ptr<WriteController> cf_write_controller = column_family_set_->write_controllers_[id_];
     // std::cout << "[TGRIGGS_LOG] CFID=" << id_ << ", wc addr = " << cf_write_controller.get() << std::endl;
     
     uint64_t compaction_needed_bytes =

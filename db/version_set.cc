@@ -2435,6 +2435,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     thread_metadata.client_id = 1;
   } else if (cfd_->GetName() == "cf2") {
     thread_metadata.client_id = 2;
+  }  else if (cfd_->GetName() == "cf3") {
+    thread_metadata.client_id = 3;
+  }  else if (cfd_->GetName() == "cf4") {
+    thread_metadata.client_id = 4;
   }
 
   while (f != nullptr) {

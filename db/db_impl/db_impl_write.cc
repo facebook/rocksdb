@@ -429,27 +429,27 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   last_batch_group_size_ =
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
 
-  size_t num_cfs = 2;
-  for (size_t i = 0; i < num_cfs; ++i) {
-    last_batch_sizes_[i] = 0;
-  }
+  // size_t num_cfs = 2;
+  // for (size_t i = 0; i < num_cfs; ++i) {
+  //   last_batch_sizes_[i] = 0;
+  // }
   
-  // size_t last_batch_sizes[num_cfs] = {0, 0};
+  // // size_t last_batch_sizes[num_cfs] = {0, 0};
 
-  for (auto w_it = write_group.begin(); w_it != write_group.end(); ++w_it) {
-    rocksdb::WriteThread::Writer* cur_w = w_it.writer;
-    size_t batch_size = WriteBatchInternal::ByteSize(cur_w->batch);
+  // for (auto w_it = write_group.begin(); w_it != write_group.end(); ++w_it) {
+  //   rocksdb::WriteThread::Writer* cur_w = w_it.writer;
+  //   size_t batch_size = WriteBatchInternal::ByteSize(cur_w->batch);
 
-    PutInspector inspector;
-    try {
-      w.batch->Iterate(&inspector);
-    } catch (const IterationStopException& e) {
-      // Stopped iteration after a single Put(). That's enough to identify CF.
-    }
-    uint32_t cf_id = inspector.GetCFID();
-    last_batch_sizes_[cf_id] += batch_size;
-    // std::cout << "[TGRIGGS_LOG] batch size = " << batch_size << ", cf_id = " << cf_id << std::endl;
-  }
+  //   PutInspector inspector;
+  //   try {
+  //     w.batch->Iterate(&inspector);
+  //   } catch (const IterationStopException& e) {
+  //     // Stopped iteration after a single Put(). That's enough to identify CF.
+  //   }
+  //   uint32_t cf_id = inspector.GetCFID();
+  //   last_batch_sizes_[cf_id] += batch_size;
+  //   // std::cout << "[TGRIGGS_LOG] batch size = " << batch_size << ", cf_id = " << cf_id << std::endl;
+  // }
 
   // for (int i = 0; i < num_cfs; ++i) {
   //   std::cout << "[TGRIGGS_LOG] cf_id=" << i << ", size=" << last_batch_sizes[i] << std::endl;
@@ -2126,6 +2126,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     flush_scheduler_.Clear();
   } else {
     ColumnFamilyData* tmp_cfd;
+    // TODO(tgriggs): getting error here
     while ((tmp_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
       cfds.push_back(tmp_cfd);
     }
