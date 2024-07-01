@@ -107,25 +107,13 @@ public class EventListenerTest {
   void compactRange(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
       throws RocksDBException {
     try (final Options opt =
-             new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el))
-                     .setCompactionStyle(CompactionStyle.LEVEL)
-                     .setTargetFileSizeBase(100l*1024l)
-                     .setTargetFileSizeMultiplier(100)
-                     .setIncreaseParallelism(20)
-                     .setMaxSubcompactions(5)
-                     .setAllowMmapReads(true)
-                     .setAllowMmapWrites(true)
-                     .setMaxOpenFiles(300);
-         final RocksDB db = RocksDB.open(opt, "/Users/rhubner/workspace/rocksdb/java/target/data")) {
+             new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
-      final byte[] value = new byte[1024];
-      for(int i = 0 ; i < 350 * 1000; i++) {
-        rand.nextBytes(value);
-        db.put(("testKey" + i).getBytes(), value);
-        if(i % 10000 == 0) {
-          System.out.println("i : " + i);
-        }
-      }
+      final byte[] value = new byte[24];
+      rand.nextBytes(value);
+      db.put("testKey".getBytes(), value);
+      db.compactRange();
       assertThat(wasCbCalled.get()).isTrue();
     }
   }
@@ -133,24 +121,12 @@ public class EventListenerTest {
   @Test
   public void onCompactionBegin() throws RocksDBException {
     final AtomicBoolean wasCbCalled = new AtomicBoolean();
-    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener(
-                EnabledEventCallback.ON_COMPACTION_BEGIN) {
-
+    final AbstractEventListener onCompactionBeginListener = new AbstractEventListener() {
       @Override
-      public void onFlushCompleted(RocksDB db, FlushJobInfo flushJobInfo) {
+      public void onCompactionBegin(final RocksDB db, final CompactionJobInfo compactionJobInfo) {
+        assertThat(compactionJobInfo.compactionReason())
+            .isEqualTo(CompactionReason.kManualCompaction);
         wasCbCalled.set(true);
-        System.out.println("On FlushCompleted");
-      }
-
-      @Override
-      public void onFlushBegin(RocksDB db, FlushJobInfo flushJobInfo) {
-        System.out.println("onFlushBegin");
-      }
-
-      @Override
-      public void onCompactionBegin(RocksDB db, CompactionJobInfo compactionJobInfo) {
-        wasCbCalled.set(true);
-        System.out.println("On CompactionBegin");
       }
     };
     compactRange(onCompactionBeginListener, wasCbCalled);
