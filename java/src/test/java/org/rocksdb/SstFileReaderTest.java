@@ -219,4 +219,138 @@ public class SstFileReaderTest {
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
     }
   }
+
+  private void assertInternalKey(final Options options, final ParsedEntryInfo parsedEntryInfo,
+    final byte[] internalKey, final String expectedUserKey, final EntryType expectedEntryType) {
+    parsedEntryInfo.parseEntry(options, internalKey);
+    assertThat(expectedUserKey.getBytes()).isEqualTo(parsedEntryInfo.getUserKey());
+    assertEquals(expectedEntryType, parsedEntryInfo.getEntryType());
+  }
+
+  private void seekTableIterator(final SstFileReaderIterator iterator, final ByteBuffer userKey,
+                                 final ByteBuffer internalKey, final Options options) {
+    int len = TypeUtil.getInternalKey(userKey, internalKey, options);
+    assertEquals(len, internalKey.limit());
+    iterator.seek(internalKey);
+    assertThat(internalKey.position()).isEqualTo(len);
+    assertThat(internalKey.limit()).isEqualTo(len);
+    internalKey.clear();
+  }
+
+  private void seekTableIteratorForPrev(final SstFileReaderIterator iterator, final ByteBuffer userKey,
+    final ByteBuffer internalKey, final Options options) {
+    int len = TypeUtil.getInternalKeyForPrev(userKey, internalKey, options);
+    assertEquals(len, internalKey.limit());
+    iterator.seekForPrev(internalKey);
+    assertThat(internalKey.position()).isEqualTo(len);
+    assertThat(internalKey.limit()).isEqualTo(len);
+    internalKey.clear();
+  }
+
+  @Test
+  public void readSstFileTableIterator() throws RocksDBException, IOException {
+    final List<KeyValueWithOp> keyValues = new ArrayList<>();
+    keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key11", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key12", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key21", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key22", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key31", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key32", "", OpType.DELETE));
+
+    final File sstFile = newSstFile(keyValues);
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options options =
+             new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+         final SstFileReader reader = new SstFileReader(options);
+         final ParsedEntryInfo parsedEntryInfo = new ParsedEntryInfo()) {
+      // Open the sst file and iterator
+      reader.open(sstFile.getAbsolutePath());
+      final ReadOptions readOptions = new ReadOptions();
+      final SstFileReaderIterator iterator = reader.newTableIterator();
+
+      // Use the iterator to read sst file
+      iterator.seekToFirst();
+
+      // Verify Checksum
+      reader.verifyChecksum();
+
+      // Verify Table Properties
+      assertEquals(reader.getTableProperties().getNumEntries(), 9);
+
+      // Check key and value
+      assertInternalKey(options, parsedEntryInfo, iterator.key(), "key1", EntryType.kEntryPut);
+      assertThat(iterator.value()).isEqualTo("value1".getBytes());
+
+      final ByteBuffer userByteBuffer = byteBufferAllocator.allocate(128);
+      final ByteBuffer internalKeyByteBuffer = byteBufferAllocator.allocate(128);
+      userByteBuffer.put("key1".getBytes()).flip();
+      seekTableIterator(iterator, userByteBuffer, internalKeyByteBuffer, options);
+      assertThat(iterator.isValid()).isTrue();
+      assertInternalKey(options, parsedEntryInfo, iterator.key(), "key1", EntryType.kEntryPut);
+      assertThat(iterator.value()).isEqualTo("value1".getBytes());
+
+      {
+        userByteBuffer.clear();
+        iterator.key(userByteBuffer);
+        final byte[] dst = new byte["key1".getBytes().length];
+        userByteBuffer.get(dst);
+        assertInternalKey(options, parsedEntryInfo, dst, "key1", EntryType.kEntryPut);
+      }
+
+      {
+        userByteBuffer.clear();
+        userByteBuffer.put("PREFIX".getBytes());
+        final ByteBuffer slice = userByteBuffer.slice();
+        iterator.key(userByteBuffer);
+        final byte[] dst = new byte["key1".getBytes().length];
+        slice.get(dst);
+        assertInternalKey(options, parsedEntryInfo, dst, "key1", EntryType.kEntryPut);
+      }
+
+      {
+        userByteBuffer.clear();
+        assertThat(iterator.value(userByteBuffer)).isEqualTo("value1".getBytes().length);
+        final byte[] dst = new byte["value1".getBytes().length];
+        userByteBuffer.get(dst);
+        assertThat(new String(dst)).isEqualTo("value1");
+      }
+
+      userByteBuffer.clear();
+      userByteBuffer.put("key10".getBytes()).flip();
+      seekTableIterator(iterator, userByteBuffer, internalKeyByteBuffer, options);
+      assertThat(iterator.isValid()).isTrue();
+      assertInternalKey(options, parsedEntryInfo, iterator.key(), "key11", EntryType.kEntryDelete);
+
+      userByteBuffer.clear();
+      userByteBuffer.put("key1point5".getBytes()).flip();
+      seekTableIteratorForPrev(iterator, userByteBuffer, internalKeyByteBuffer, options);
+      assertThat(iterator.isValid()).isTrue();
+      assertInternalKey(options, parsedEntryInfo, iterator.key(), "key12", EntryType.kEntryDelete);
+
+      userByteBuffer.clear();
+      userByteBuffer.put("key2point5".getBytes()).flip();
+      seekTableIterator(iterator, userByteBuffer, internalKeyByteBuffer, options);
+      assertThat(iterator.isValid()).isTrue();
+      assertInternalKey(options, parsedEntryInfo, iterator.key(), "key3", EntryType.kEntryPut);
+      assertThat(iterator.value()).isEqualTo("value3".getBytes());
+
+      userByteBuffer.clear();
+      userByteBuffer.put("key2point5".getBytes()).flip();
+      seekTableIteratorForPrev(iterator, userByteBuffer, internalKeyByteBuffer, options);
+      assertThat(iterator.isValid()).isTrue();
+      assertInternalKey(options, parsedEntryInfo, iterator.key(), "key22", EntryType.kEntryDelete);
+
+      userByteBuffer.clear();
+      internalKeyByteBuffer.put("PREFIX".getBytes());
+      final ByteBuffer slice = internalKeyByteBuffer.slice();
+      userByteBuffer.put("key1point5".getBytes()).flip();
+      seekTableIteratorForPrev(iterator, userByteBuffer, slice, options);
+      iterator.seekForPrev(slice);
+      assertThat(iterator.isValid()).isTrue();
+      assertInternalKey(options, parsedEntryInfo, iterator.key(), "key12", EntryType.kEntryDelete);
+    }
+  }
 }
