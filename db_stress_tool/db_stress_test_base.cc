@@ -3586,7 +3586,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         if (inject_sync_fault || inject_open_meta_read_error ||
             inject_open_meta_write_error || inject_open_read_error ||
             inject_open_write_error) {
-          fault_fs_guard->SetInjectUnsyncedDataLoss(false);
           fault_fs_guard->DisableThreadLocalErrorInjection(
               FaultInjectionIOType::kRead);
           fault_fs_guard->DisableThreadLocalErrorInjection(
