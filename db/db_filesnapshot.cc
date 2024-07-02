@@ -93,6 +93,11 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorWalPtr& files) {
+  return GetSortedWalFilesImpl(files,
+                               /*need_seqnos*/ true);
+}
+
+Status DBImpl::GetSortedWalFilesImpl(VectorWalPtr& files, bool need_seqnos) {
   // Record tracked WALs as a (minimum) cross-check for directory scan
   std::vector<uint64_t> required_by_manifest;
 
@@ -118,7 +123,10 @@ Status DBImpl::GetSortedWalFiles(VectorWalPtr& files) {
     }
   }
 
-  Status s = wal_manager_.GetSortedWalFiles(files);
+  // NOTE: need to include archived WALs because needed WALs might have been
+  // archived since getting required_by_manifest set
+  Status s = wal_manager_.GetSortedWalFiles(files, need_seqnos,
+                                            /*include_archived*/ true);
 
   // DisableFileDeletions / EnableFileDeletions not supported in read-only DB
   if (deletions_disabled.ok()) {
@@ -207,7 +215,12 @@ Status DBImpl::GetLiveFilesStorageInfo(
     } else if (opts.wal_size_for_flush > 0) {
       // FIXME: avoid querying the filesystem for current WAL state
       // If the outstanding WAL files are small, we skip the flush.
-      s = GetSortedWalFiles(live_wal_files);
+      // Don't take archived log size into account when calculating wal
+      // size for flush, and don't need to verify consistency with manifest
+      // here & now.
+      s = wal_manager_.GetSortedWalFiles(live_wal_files,
+                                         /* need_seqnos */ false,
+                                         /*include_archived*/ false);
 
       if (!s.ok()) {
         return s;
@@ -218,11 +231,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
       // We may be able to cover 2PC case too.
       uint64_t total_wal_size = 0;
       for (auto& wal : live_wal_files) {
-        // Don't take archived log size into account
-        // when calculating log size for flush
-        if (wal->Type() == kArchivedLogFile) {
-          continue;
-        }
+        assert(wal->Type() == kAliveLogFile);
         total_wal_size += wal->SizeFileBytes();
       }
       if (total_wal_size < opts.wal_size_for_flush) {
@@ -434,7 +443,8 @@ Status DBImpl::GetLiveFilesStorageInfo(
   // WAL files.
   if (s.ok()) {
     // FIXME: avoid querying the filesystem for current WAL state
-    s = GetSortedWalFiles(live_wal_files);
+    s = GetSortedWalFilesImpl(live_wal_files,
+                              /* need_seqnos */ false);
   }
   if (!s.ok()) {
     return s;

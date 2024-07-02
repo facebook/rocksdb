@@ -508,6 +508,8 @@ class DBImpl : public DB {
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
                       bool flush_memtable = true) override;
   Status GetSortedWalFiles(VectorWalPtr& files) override;
+  Status GetSortedWalFilesImpl(VectorWalPtr& files, bool need_seqnos);
+
   // Get the known flushed sizes of WALs that might still be written to
   // or have pending sync.
   // NOTE: unlike alive_log_files_, this function includes WALs that might
