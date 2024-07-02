@@ -308,9 +308,8 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kWalFile) {
       SequenceNumber sequence;
-      Status s;
       if (need_seqnos) {
-        s = ReadFirstRecord(log_type, number, &sequence);
+        Status s = ReadFirstRecord(log_type, number, &sequence);
         if (!s.ok()) {
           return s;
         }
@@ -329,11 +328,7 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       TEST_SYNC_POINT("WalManager::GetSortedWalsOfType:2");
 
       uint64_t size_bytes;
-      s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
-      if (size_bytes == 0) {
-        // empty file
-        continue;
-      }
+      Status s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
       // re-try in case the alive log file has been moved to archive.
       if (!s.ok() && log_type == kAliveLogFile) {
         std::string archived_file = ArchivedLogFileName(path, number);
