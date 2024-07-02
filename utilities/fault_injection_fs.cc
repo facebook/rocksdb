@@ -148,7 +148,8 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
       file_opts_(file_opts),
       target_(std::move(f)),
       writable_file_opened_(true),
-      fs_(fs) {
+      fs_(fs),
+      unsync_data_loss_(fs_->InjectUnsyncedDataLoss()) {
   assert(target_ != nullptr);
   state_.pos_at_last_append_ = 0;
 }
@@ -172,7 +173,7 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
     return s;
   }
 
-  if (target_->use_direct_io() || !fs_->InjectUnsyncedDataLoss()) {
+  if (target_->use_direct_io() || !unsync_data_loss_) {
     // TODO(hx235): buffer data for direct IO write to simulate data loss like
     // non-direct IO write
     s = target_->Append(data, options, dbg);
@@ -220,7 +221,7 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption(msg);
   }
 
-  if (target_->use_direct_io() || !fs_->InjectUnsyncedDataLoss()) {
+  if (target_->use_direct_io() || !unsync_data_loss_) {
     // TODO(hx235): buffer data for direct IO write to simulate data loss like
     // non-direct IO write
     s = target_->Append(data, options, dbg);
