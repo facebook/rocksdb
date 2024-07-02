@@ -57,7 +57,11 @@ JniMergeOperatorV2::JniMergeOperatorV2(JNIEnv* env, jobject java_merge_operator,
   }
   j_merge_class = static_cast<jclass>(env->NewGlobalRef(j_merge_class));
   if (j_merge_class == nullptr) {
-    return;  // Exception
+    if(env->ExceptionCheck() == JNI_FALSE) {
+      RocksDBExceptionJni::ThrowNew(
+          env, "Unable to obtain GlobalRef for merge operator");
+    }
+    return;
   }
 
   j_merge_internal =
