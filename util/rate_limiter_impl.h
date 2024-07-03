@@ -36,9 +36,9 @@ class GenericRateLimiter : public RateLimiter {
 
   // This API allows user to dynamically change rate limiter's bytes per second.
   void SetBytesPerSecond(int64_t bytes_per_second) override;
-  void SetBytesPerSecond(int client_id, int64_t bytes_per_second) override {
-    (void) client_id;
-    SetBytesPerSecond(bytes_per_second);
+  void SetBytesPerSecond(std::vector<int64_t> bytes_per_second) override {
+    (void) bytes_per_second;
+    std::cout << "[TGRIGGS_LOG] Multi-tenant GenericRateLimiter::SetBytesPerSecond unimplemented\n";
   };
 
   Status SetSingleBurstBytes(int64_t single_burst_bytes) override;

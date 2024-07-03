@@ -52,7 +52,7 @@ class MultiTenantRateLimiter : public RateLimiter {
 
   // Permits dynamically change rate limiter's bytes per second.
   void SetBytesPerSecond(int64_t bytes_per_second) override;
-  void SetBytesPerSecond(int client_id, int64_t bytes_per_second);
+  void SetBytesPerSecond(std::vector<int64_t> bytes_per_second);
 
   Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
 
@@ -134,7 +134,7 @@ class MultiTenantRateLimiter : public RateLimiter {
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
   Status TuneLocked();
   void SetBytesPerSecondLocked(int64_t bytes_per_second);
-  void SetBytesPerSecondLocked(int client_id, int64_t bytes_per_second);
+  void SetBytesPerSecondLocked(std::vector<int64_t> bytes_per_second);
 
   void TGprintStackTrace();
 

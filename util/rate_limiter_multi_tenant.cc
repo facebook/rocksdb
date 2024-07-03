@@ -149,21 +149,22 @@ MultiTenantRateLimiter::~MultiTenantRateLimiter() {
 
 // This API allows user to dynamically change rate limiter's bytes per second.
 // TODO(tgriggs): find where this is actually used in code, does it break our assumptions about resource limits?
-void MultiTenantRateLimiter::SetBytesPerSecond(int client_id, int64_t bytes_per_second) {
-  if (read_rate_limiter_ != nullptr) {
-    read_rate_limiter_->SetBytesPerSecond(client_id, bytes_per_second);
-  }
+void MultiTenantRateLimiter::SetBytesPerSecond(std::vector<int64_t> bytes_per_second) {
+  // if (read_rate_limiter_ != nullptr) {
+  //   read_rate_limiter_->SetBytesPerSecond(client_id, bytes_per_second);
+  // }
   MutexLock g(&request_mutex_);
-  SetBytesPerSecondLocked(client_id, bytes_per_second);
+  SetBytesPerSecondLocked(bytes_per_second);
 }
 
-void MultiTenantRateLimiter::SetBytesPerSecondLocked(int client_id, int64_t bytes_per_second) {
-  assert(bytes_per_second > 0);
-  int client_idx = ClientId2ClientIdx(client_id);
-  rate_bytes_per_sec_[client_idx].store(bytes_per_second, std::memory_order_relaxed);
-  refill_bytes_per_period_[client_idx].store(
-      CalculateRefillBytesPerPeriodLocked(bytes_per_second),
-      std::memory_order_relaxed);
+void MultiTenantRateLimiter::SetBytesPerSecondLocked(std::vector<int64_t> bytes_per_second) {
+  // assert(bytes_per_second > 0);
+  for (size_t i = 0; i < bytes_per_second.size(); ++i) {
+    rate_bytes_per_sec_[i].store(bytes_per_second[i], std::memory_order_relaxed);
+    refill_bytes_per_period_[i].store(
+        CalculateRefillBytesPerPeriodLocked(bytes_per_second[i]),
+        std::memory_order_relaxed);
+  }
 }
 
 void MultiTenantRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
