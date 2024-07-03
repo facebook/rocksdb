@@ -462,16 +462,9 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
     // std::cout << "[TGRIGGS_LOG] Client idx " << c_idx << " is at " << available_bytes_[c_idx] << std::endl;
   }
 
-  // TODO(tgriggs): consider restructuring to just do RR
-  // Random shuffle client order.
-  std::vector<int> client_order(num_clients_);
-  std::iota(client_order.begin(), client_order.end(), 0);
-  std::random_shuffle(client_order.begin(), client_order.end());
-
   // 1) iterate through clients
   // 2) for each client, do strict priority order from IO_USER to IO_LOW
-  for (int client_order_idx = 0; client_order_idx < num_clients_; ++client_order_idx) {
-    int client_idx = client_order[client_order_idx];
+  for (int client_idx = 0; client_idx < num_clients_; ++client_idx) {
     for (int priority = Env::IO_TOTAL - 1; priority >= Env::IO_LOW; --priority) {
       auto* queue = &request_queue_map_[ReqKey(client_idx, static_cast<Env::IOPriority>(priority))];
       while (!queue->empty()) {
