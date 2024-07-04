@@ -2757,6 +2757,35 @@ TEST_F(DBWALTest, EmptyWalReopenTest) {
   }
 }
 
+// Tests kPointInTimeRecovery when the first encountered corruption
+// during WAL replay is a bad write batch. RocksDB should open successfully
+// and recover just before the bad write batch.
+TEST_F(DBWALTest, PITWithBadWBContent) {
+  Options options = CurrentOptions();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  Reopen(options);
+
+  WriteOptions wo;
+  wo.sync = true;
+  ASSERT_OK(db_->Put(wo, Key(1), "val1"));
+  SequenceNumber seq = db_->GetLatestSequenceNumber();
+  ASSERT_OK(db_->Put(wo, Key(1), "val2"));
+  int count = 1;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:UpdateProtectionInfo::status", [&](void* s) {
+        if (count == 0) {
+          Status* status = static_cast<Status*>(s);
+          *status = Status::Corruption("bad WriteBatch Put");
+        }
+        --count;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_EQ(seq, db_->GetLatestSequenceNumber());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

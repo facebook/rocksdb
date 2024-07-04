@@ -3359,9 +3359,16 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
   }
 }
 
+Status WriteBatchInternal::VerifyChecksum(WriteBatch* wb, uint64_t expected) {
+  uint64_t actual = XXH3_64bits(wb->rep_.data(), wb->rep_.size());
+  if (actual != expected) {
+    return Status::Corruption("Write batch content corrupted.");
+  }
+  return Status::OK();
+}
+
 Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
-                                                size_t bytes_per_key,
-                                                uint64_t* checksum) {
+                                                size_t bytes_per_key) {
   if (bytes_per_key == 0) {
     if (wb->prot_info_ != nullptr) {
       wb->prot_info_.reset();
@@ -3374,14 +3381,7 @@ Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
     if (wb->prot_info_ == nullptr) {
       wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
       ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
-      Status s = wb->Iterate(&prot_info_updater);
-      if (s.ok() && checksum != nullptr) {
-        uint64_t expected_hash = XXH3_64bits(wb->rep_.data(), wb->rep_.size());
-        if (expected_hash != *checksum) {
-          return Status::Corruption("Write batch content corrupted.");
-        }
-      }
-      return s;
+      return wb->Iterate(&prot_info_updater);
     } else {
       // Already protected.
       return Status::OK();
