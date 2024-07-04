@@ -29,7 +29,7 @@ size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
                                  Env::IOPriority io_priority, Statistics* stats,
                                  RateLimiter::OpType op_type) {
   if (io_priority < Env::IO_TOTAL && IsRateLimited(op_type)) {
-    bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes()));
+    bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes(op_type)));
 
     if (alignment > 0) {
       // Here we may actually require more than burst and block
@@ -182,13 +182,24 @@ void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
   //     std::memory_order_relaxed);
 }
 
- int64_t MultiTenantRateLimiter::GetSingleBurstBytes() const {
-    int client_id = TG_GetThreadMetadata().client_id;
-    // if (client_id == 0) {
-    //   std::cout << "[TGRIGGS_LOG] Call to GetSingleBurstBytes() has un-assigned id" << std::endl;
-    // }
-    return GetSingleBurstBytes(client_id);
+int64_t MultiTenantRateLimiter::GetSingleBurstBytes() const {
+  int client_id = TG_GetThreadMetadata().client_id;
+  // if (client_id == 0) {
+  //   std::cout << "[TGRIGGS_LOG] Call to GetSingleBurstBytes() has un-assigned id" << std::endl;
+  // }
+  return GetSingleBurstBytes(client_id);
+}
+
+int64_t MultiTenantRateLimiter::GetSingleBurstBytes(OpType op_type) const {
+  if (op_type == RateLimiter::OpType::kRead) {
+    if (read_rate_limiter_ != nullptr) {
+      return read_rate_limiter_->GetSingleBurstBytes();
+    } else {
+      return 0;
+    }
   }
+  return GetSingleBurstBytes();
+}
 
 int64_t MultiTenantRateLimiter::GetSingleBurstBytes(int client_id) const {
   int client_idx = ClientId2ClientIdx(client_id);
@@ -255,11 +266,10 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     Request(bytes, pri, stats);
   }
 }
-                                
+
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   // Extract client ID from thread-local metadata.
-
   int cid = TG_GetThreadMetadata().client_id;
 
   if (cid == 0) {

@@ -72,8 +72,7 @@ class MultiTenantRateLimiter : public RateLimiter {
 
   // TODO(tgriggs): make this per-tenant
   int64_t GetSingleBurstBytes() const override;
-
-  int64_t GetSingleBurstBytes(int client_id) const; 
+  int64_t GetSingleBurstBytes(OpType op_type) const override; 
 
   int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
@@ -128,6 +127,7 @@ class MultiTenantRateLimiter : public RateLimiter {
   }
 
  private:
+  int64_t GetSingleBurstBytes(int client_id) const; 
   static constexpr int kMicrosecondsPerSecond = 1000000;
   void RefillBytesAndGrantRequestsLocked();
   std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();

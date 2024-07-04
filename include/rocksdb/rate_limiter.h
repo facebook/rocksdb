@@ -99,6 +99,7 @@ class RateLimiter {
 
   // Max bytes can be granted in a single call to `Request()`.
   virtual int64_t GetSingleBurstBytes() const = 0;
+  virtual int64_t GetSingleBurstBytes(OpType op_type) const = 0; 
 
   // Total bytes that go through rate limiter
   virtual int64_t GetTotalBytesThrough(

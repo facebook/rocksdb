@@ -60,6 +60,11 @@ class GenericRateLimiter : public RateLimiter {
     return raw_single_burst_bytes;
   }
 
+  int64_t GetSingleBurstBytes(OpType op_type) const override {
+    (void) op_type;
+    return GetSingleBurstBytes();
+  }
+
   int64_t GetTotalBytesThrough(
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);

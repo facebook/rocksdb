@@ -414,7 +414,7 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
         size_t request_bytes = 0;
         while (remaining_bytes > 0) {
           request_bytes = std::min(
-              static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()),
+              static_cast<size_t>(rate_limiter_->GetSingleBurstBytes(RateLimiter::OpType::kRead)),
               remaining_bytes);
           rate_limiter_->Request(request_bytes, rate_limiter_priority,
                                  nullptr /* stats */,
