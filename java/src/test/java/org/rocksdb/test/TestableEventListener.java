@@ -19,5 +19,10 @@ public class TestableEventListener extends AbstractEventListener {
     invokeAllCallbacks(nativeHandle_);
   }
 
+  public void invokeAllCallbacksInThread() {
+    invokeAllCallbacksInThread(nativeHandle_);
+  }
+
   private static native void invokeAllCallbacks(final long handle);
+  private static native void invokeAllCallbacksInThread(final long handle);
 }
