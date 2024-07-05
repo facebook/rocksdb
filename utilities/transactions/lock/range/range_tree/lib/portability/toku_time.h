@@ -165,7 +165,7 @@ static inline tokutime_t toku_time_now(void) {
 
 static inline uint64_t toku_current_time_microsec(void) {
   struct timeval t;
-  gettimeofday(&t, NULL);
+  gettimeofday(&t, nullptr);
   return t.tv_sec * (1UL * 1000 * 1000) + t.tv_usec;
 }
 

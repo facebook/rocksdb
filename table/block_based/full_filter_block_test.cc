@@ -23,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class TestFilterBitsBuilder : public FilterBitsBuilder {
  public:
-  explicit TestFilterBitsBuilder() {}
+  explicit TestFilterBitsBuilder() = default;
 
   // Add Key to filter
   void AddKey(const Slice& key) override {
@@ -115,9 +115,9 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr, Env::IO_TOTAL));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
 }
 
 TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
@@ -135,42 +135,34 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
-  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("bar",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("box",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("hello",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("missing",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
-                                  /*lookup_context=*/nullptr,
-                                  rate_limiter_priority));
+                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("other",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
-                                  /*lookup_context=*/nullptr,
-                                  rate_limiter_priority));
+                                  /*lookup_context=*/nullptr, ReadOptions()));
 }
 
 class FullFilterBlockTest : public mock::MockBlockBasedTableTester,
@@ -193,9 +185,9 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
   FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr, Env::IO_TOTAL));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
 }
 
 class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
@@ -205,7 +197,7 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
  public:
   explicit CountUniqueFilterBitsBuilderWrapper(FilterBitsBuilder* b) : b_(b) {}
 
-  ~CountUniqueFilterBitsBuilderWrapper() override {}
+  ~CountUniqueFilterBitsBuilderWrapper() override = default;
 
   void AddKey(const Slice& key) override {
     b_->AddKey(key);
@@ -292,42 +284,34 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
-  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("bar",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("box",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("hello",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr,
-                                 rate_limiter_priority));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("missing",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
-                                  /*lookup_context=*/nullptr,
-                                  rate_limiter_priority));
+                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("other",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
-                                  /*lookup_context=*/nullptr,
-                                  rate_limiter_priority));
+                                  /*lookup_context=*/nullptr, ReadOptions()));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

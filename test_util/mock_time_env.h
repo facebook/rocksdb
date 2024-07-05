@@ -8,7 +8,11 @@
 #include <atomic>
 #include <limits>
 
+#include "port/port.h"
 #include "rocksdb/system_clock.h"
+#include "test_util/mock_time_env.h"
+#include "test_util/sync_point.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -22,7 +26,7 @@ class MockSystemClock : public SystemClockWrapper {
 
   static const char* kClassName() { return "MockSystemClock"; }
   const char* Name() const override { return kClassName(); }
-  virtual Status GetCurrentTime(int64_t* time_sec) override {
+  Status GetCurrentTime(int64_t* time_sec) override {
     assert(time_sec != nullptr);
     *time_sec = static_cast<int64_t>(current_time_us_ / kMicrosInSecond);
     return Status::OK();
@@ -30,9 +34,9 @@ class MockSystemClock : public SystemClockWrapper {
 
   virtual uint64_t NowSeconds() { return current_time_us_ / kMicrosInSecond; }
 
-  virtual uint64_t NowMicros() override { return current_time_us_; }
+  uint64_t NowMicros() override { return current_time_us_; }
 
-  virtual uint64_t NowNanos() override {
+  uint64_t NowNanos() override {
     assert(current_time_us_ <= std::numeric_limits<uint64_t>::max() / 1000);
     return current_time_us_ * 1000;
   }
@@ -63,6 +67,33 @@ class MockSystemClock : public SystemClockWrapper {
     uint64_t micros = static_cast<uint64_t>(seconds) * kMicrosInSecond;
     assert(current_time_us_ + micros >= current_time_us_);
     current_time_us_.fetch_add(micros);
+  }
+
+  bool TimedWait(port::CondVar* cv,
+                 std::chrono::microseconds deadline) override {
+    uint64_t now_micros = NowMicros();
+    uint64_t deadline_micros = static_cast<uint64_t>(deadline.count());
+    uint64_t delay_micros;
+    if (deadline_micros > now_micros) {
+      delay_micros = deadline_micros - now_micros;
+    } else {
+      delay_micros = 0;
+    }
+    // To prevent slowdown, this `TimedWait()` is completely synthetic. First,
+    // it yields to coerce other threads to run while the lock is released.
+    // Second, it randomly selects between mocking an immediate wakeup and a
+    // timeout.
+    cv->GetMutex()->Unlock();
+    std::this_thread::yield();
+    bool mock_timeout = Random::GetTLSInstance()->OneIn(2);
+    if (mock_timeout) {
+      TEST_SYNC_POINT("MockSystemClock::TimedWait:UnlockedPreSleep");
+      current_time_us_.fetch_add(delay_micros);
+      TEST_SYNC_POINT("MockSystemClock::TimedWait:UnlockedPostSleep1");
+      TEST_SYNC_POINT("MockSystemClock::TimedWait:UnlockedPostSleep2");
+    }
+    cv->GetMutex()->Lock();
+    return mock_timeout;
   }
 
   // TODO: this is a workaround for the different behavior on different platform

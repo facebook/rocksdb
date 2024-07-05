@@ -64,7 +64,7 @@ uint64_t MurmurHash64A ( const void * key, int len, unsigned int seed )
     case 2: h ^= ((uint64_t)data2[1]) << 8;  FALLTHROUGH_INTENDED;
     case 1: h ^= ((uint64_t)data2[0]);
         h *= m;
-    };
+    }
 
     h ^= h >> r;
     h *= m;

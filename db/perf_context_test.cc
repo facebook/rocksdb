@@ -149,6 +149,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     ASSERT_TRUE(iter->Valid());
     StopWatchNano timer2(SystemClock::Default().get(), true);
     iter->Next();
+    ASSERT_OK(iter->status());
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
       std::cout << "next cmp: " << get_perf_context()->user_key_comparison_count
@@ -187,7 +188,8 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
   uint64_t elapsed = 0;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatch timer(SystemClock::Default().get(), nullptr, 0, &elapsed);
+  StopWatch timer(SystemClock::Default().get(), nullptr, 0,
+                  Histograms::HISTOGRAM_ENUM_MAX, &elapsed);
   for (auto& timing : timings) {
     timing = elapsed;
   }
@@ -261,7 +263,7 @@ void ProfileQueries(bool enabled_time = false) {
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
-      db->Flush(fo);
+      ASSERT_OK(db->Flush(fo));
       continue;
     }
 
@@ -941,15 +943,17 @@ TEST_F(PerfContextTest, CPUTimer) {
 
     // monotonically increasing
     get_perf_context()->Reset();
-    auto count = get_perf_context()->iter_seek_cpu_nanos;
+    uint64_t count = get_perf_context()->iter_seek_cpu_nanos;
+    uint64_t before_count = count;
     for (int i = 0; i < FLAGS_total_keys; ++i) {
       iter->Seek("k" + std::to_string(i));
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ("v" + std::to_string(i), iter->value().ToString());
       auto next_count = get_perf_context()->iter_seek_cpu_nanos;
-      ASSERT_GT(next_count, count);
+      ASSERT_GE(next_count, count);
       count = next_count;
     }
+    ASSERT_GT(count, before_count);
 
     // iterator creation/destruction; multiple iterators
     {
@@ -1048,7 +1052,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         std::vector<Status> statuses(num_keys);
 
         db->MultiGet(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                     &key_slices[0], &results[0], &statuses[0]);
+                     key_slices.data(), results.data(), statuses.data());
 
         for (size_t i = 0; i < num_keys; ++i) {
           ASSERT_OK(statuses[i]);
@@ -1066,7 +1070,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         std::vector<Status> statuses(num_keys);
 
         db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                           &key_slices[0], &results[0], &statuses[0]);
+                           key_slices.data(), results.data(), statuses.data());
 
         for (size_t i = 0; i < num_keys; ++i) {
           ASSERT_OK(statuses[i]);
@@ -1091,6 +1095,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
+      ASSERT_OK(it->status());
     }
 
     // Backward iteration
@@ -1103,6 +1108,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
+      ASSERT_OK(it->status());
     }
   };
 
@@ -1110,9 +1116,26 @@ TEST_F(PerfContextTest, MergeOperandCount) {
   verify();
 
   // Verify counters when reading from table files
-  db->Flush(FlushOptions());
+  ASSERT_OK(db->Flush(FlushOptions()));
 
   verify();
+}
+
+TEST_F(PerfContextTest, WriteMemtableTimePerfLevel) {
+  // Write and check time
+  ASSERT_OK(DestroyDB(kDbName, Options()));
+  std::shared_ptr<DB> db = OpenDb();
+
+  SetPerfLevel(PerfLevel::kEnableWait);
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "foo1", "bar"));
+  ASSERT_GT(perf_context.write_memtable_time, 0);
+
+  SetPerfLevel(PerfLevel::kEnableCount);
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "foo0", "bar"));
+  ASSERT_EQ(perf_context.write_memtable_time, 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

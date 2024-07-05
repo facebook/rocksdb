@@ -49,19 +49,16 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   // directly. and be deleted here
   ~FullFilterBlockBuilder() {}
 
-  virtual void Add(const Slice& key_without_ts) override;
-  virtual bool IsEmpty() const override { return !any_added_; }
-  virtual size_t EstimateEntriesAdded() override;
-  virtual Slice Finish(
-      const BlockHandle& tmp, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  void Add(const Slice& key_without_ts) override;
+  bool IsEmpty() const override { return !any_added_; }
+  size_t EstimateEntriesAdded() override;
+  Slice Finish(const BlockHandle& tmp, Status* status,
+               std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
 
-  virtual void ResetFilterBitsBuilder() override {
-    filter_bits_builder_.reset();
-  }
+  void ResetFilterBitsBuilder() override { filter_bits_builder_.reset(); }
 
-  virtual Status MaybePostVerifyFilter(const Slice& filter_content) override {
+  Status MaybePostVerifyFilter(const Slice& filter_content) override {
     return filter_bits_builder_->MaybePostVerify(filter_content);
   }
 
@@ -105,43 +102,40 @@ class FullFilterBlockReader
       FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
       bool pin, BlockCacheLookupContext* lookup_context);
 
-  bool KeyMayMatch(const Slice& key, const bool no_io,
-                   const Slice* const const_ikey_ptr, GetContext* get_context,
+  bool KeyMayMatch(const Slice& key, const Slice* const const_ikey_ptr,
+                   GetContext* get_context,
                    BlockCacheLookupContext* lookup_context,
-                   Env::IOPriority rate_limiter_priority) override;
+                   const ReadOptions& read_options) override;
 
-  bool PrefixMayMatch(const Slice& prefix, const bool no_io,
-                      const Slice* const const_ikey_ptr,
+  bool PrefixMayMatch(const Slice& prefix, const Slice* const const_ikey_ptr,
                       GetContext* get_context,
                       BlockCacheLookupContext* lookup_context,
-                      Env::IOPriority rate_limiter_priority) override;
+                      const ReadOptions& read_options) override;
 
-  void KeysMayMatch(MultiGetRange* range, const bool no_io,
+  void KeysMayMatch(MultiGetRange* range,
                     BlockCacheLookupContext* lookup_context,
-                    Env::IOPriority rate_limiter_priority) override;
+                    const ReadOptions& read_options) override;
   // Used in partitioned filter code
   void KeysMayMatch2(MultiGetRange* range,
                      const SliceTransform* /*prefix_extractor*/,
-                     const bool no_io, BlockCacheLookupContext* lookup_context,
-                     Env::IOPriority rate_limiter_priority) {
-    KeysMayMatch(range, no_io, lookup_context, rate_limiter_priority);
+                     BlockCacheLookupContext* lookup_context,
+                     const ReadOptions& read_options) {
+    KeysMayMatch(range, lookup_context, read_options);
   }
 
   void PrefixesMayMatch(MultiGetRange* range,
                         const SliceTransform* prefix_extractor,
-                        const bool no_io,
                         BlockCacheLookupContext* lookup_context,
-                        Env::IOPriority rate_limiter_priority) override;
+                        const ReadOptions& read_options) override;
   size_t ApproximateMemoryUsage() const override;
 
  private:
-  bool MayMatch(const Slice& entry, bool no_io, GetContext* get_context,
+  bool MayMatch(const Slice& entry, GetContext* get_context,
                 BlockCacheLookupContext* lookup_context,
-                Env::IOPriority rate_limiter_priority) const;
-  void MayMatch(MultiGetRange* range, bool no_io,
-                const SliceTransform* prefix_extractor,
+                const ReadOptions& read_options) const;
+  void MayMatch(MultiGetRange* range, const SliceTransform* prefix_extractor,
                 BlockCacheLookupContext* lookup_context,
-                Env::IOPriority rate_limiter_priority) const;
+                const ReadOptions& read_options) const;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

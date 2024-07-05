@@ -26,6 +26,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/unique_id_impl.h"
+#include "test_util/secondary_cache_test_util.h"
 #include "util/compression.h"
 #include "util/defer.h"
 #include "util/hash.h"
@@ -294,7 +295,9 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 
   Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
                 const CacheItemHelper* /*helper*/, size_t /*charge*/,
-                Handle** /*handle*/, Priority /*priority*/) override {
+                Handle** /*handle*/, Priority /*priority*/,
+                const Slice& /*compressed*/,
+                CompressionType /*type*/) override {
     return Status::NotSupported();
   }
 };
@@ -387,6 +390,7 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   while (iter->Valid()) {
     iter->Next();
   }
+  ASSERT_OK(iter->status());
   delete iter;
   iter = nullptr;
 }
@@ -620,21 +624,23 @@ class MockCache : public LRUCache {
   static uint32_t low_pri_insert_count;
 
   MockCache()
-      : LRUCache((size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
-                 false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/,
-                 0.0 /*low_pri_pool_ratio*/) {}
+      : LRUCache(LRUCacheOptions(
+            size_t{1} << 25 /*capacity*/, 0 /*num_shard_bits*/,
+            false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/)) {}
 
   using ShardedCache::Insert;
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
-                Handle** handle, Priority priority) override {
+                Handle** handle, Priority priority, const Slice& compressed,
+                CompressionType type) override {
     if (priority == Priority::LOW) {
       low_pri_insert_count++;
     } else {
       high_pri_insert_count++;
     }
-    return LRUCache::Insert(key, value, helper, charge, handle, priority);
+    return LRUCache::Insert(key, value, helper, charge, handle, priority,
+                            compressed, type);
   }
 };
 
@@ -734,113 +740,6 @@ class LookupLiarCache : public CacheWrapper {
 };
 
 }  // anonymous namespace
-
-TEST_F(DBBlockCacheTest, AddRedundantStats) {
-  const size_t capacity = size_t{1} << 25;
-  const int num_shard_bits = 0;  // 1 shard
-  int iterations_tested = 0;
-  for (std::shared_ptr<Cache> base_cache :
-       {NewLRUCache(capacity, num_shard_bits),
-        HyperClockCacheOptions(
-            capacity,
-            BlockBasedTableOptions().block_size /*estimated_value_size*/,
-            num_shard_bits)
-            .MakeSharedCache()}) {
-    if (!base_cache) {
-      // Skip clock cache when not supported
-      continue;
-    }
-    ++iterations_tested;
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-
-    std::shared_ptr<LookupLiarCache> cache =
-        std::make_shared<LookupLiarCache>(base_cache);
-
-    BlockBasedTableOptions table_options;
-    table_options.cache_index_and_filter_blocks = true;
-    table_options.block_cache = cache;
-    table_options.filter_policy.reset(NewBloomFilterPolicy(50));
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
-
-    // Create a new table.
-    ASSERT_OK(Put("foo", "value"));
-    ASSERT_OK(Put("bar", "value"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(1, NumTableFilesAtLevel(0));
-
-    // Normal access filter+index+data.
-    ASSERT_EQ("value", Get("foo"));
-
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
-    // --------
-    ASSERT_EQ(3, TestGetTickerCount(options, BLOCK_CACHE_ADD));
-
-    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
-    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
-    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
-    // --------
-    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
-
-    // Againt access filter+index+data, but force redundant load+insert on index
-    cache->SetNthLookupNotFound(2);
-    ASSERT_EQ("value", Get("bar"));
-
-    ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
-    // --------
-    ASSERT_EQ(4, TestGetTickerCount(options, BLOCK_CACHE_ADD));
-
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
-    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
-    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
-    // --------
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
-
-    // Access just filter (with high probability), and force redundant
-    // load+insert
-    cache->SetNthLookupNotFound(1);
-    ASSERT_EQ("NOT_FOUND", Get("this key was not added"));
-
-    EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
-    EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
-    EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
-    // --------
-    EXPECT_EQ(5, TestGetTickerCount(options, BLOCK_CACHE_ADD));
-
-    EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
-    EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
-    EXPECT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
-    // --------
-    EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
-
-    // Access just data, forcing redundant load+insert
-    ReadOptions read_options;
-    std::unique_ptr<Iterator> iter{db_->NewIterator(read_options)};
-    cache->SetNthLookupNotFound(1);
-    iter->SeekToFirst();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key(), "bar");
-
-    EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
-    EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
-    EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
-    // --------
-    EXPECT_EQ(6, TestGetTickerCount(options, BLOCK_CACHE_ADD));
-
-    EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
-    EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
-    EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
-    // --------
-    EXPECT_EQ(3, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
-  }
-  EXPECT_GE(iterations_tested, 1);
-}
 
 TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
   Options options = CurrentOptions();
@@ -979,12 +878,14 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   const size_t capacity = size_t{1} << 25;
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
-    for (std::shared_ptr<Cache> cache :
+    SCOPED_TRACE("Partition? " + std::to_string(partition));
+    for (const std::shared_ptr<Cache>& cache :
          {NewLRUCache(capacity),
           HyperClockCacheOptions(
               capacity,
               BlockBasedTableOptions().block_size /*estimated_value_size*/)
               .MakeSharedCache()}) {
+      SCOPED_TRACE(std::string("Cache: ") + cache->Name());
       ++iterations_tested;
 
       Options options = CurrentOptions();
@@ -1239,7 +1140,7 @@ void DummyFillCache(Cache& cache, size_t entry_size,
 
 class CountingLogger : public Logger {
  public:
-  ~CountingLogger() override {}
+  ~CountingLogger() override = default;
   using Logger::Logv;
   void Logv(const InfoLogLevel log_level, const char* format,
             va_list /*ap*/) override {
@@ -1278,6 +1179,7 @@ TEST_F(DBBlockCacheTest, HyperClockCacheReportProblems) {
   HyperClockCacheOptions hcc_opts{capacity, value_size_est};
   hcc_opts.num_shard_bits = 2;  // 4 shards
   hcc_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  hcc_opts.hash_seed = 0;  // deterministic hashing
   std::shared_ptr<Cache> cache = hcc_opts.MakeSharedCache();
   std::shared_ptr<CountingLogger> logger = std::make_shared<CountingLogger>();
 
@@ -1334,6 +1236,274 @@ TEST_F(DBBlockCacheTest, HyperClockCacheReportProblems) {
   EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
 }
 
+class DBBlockCacheTypeTest
+    : public DBBlockCacheTest,
+      public secondary_cache_test_util::WithCacheTypeParam {};
+
+INSTANTIATE_TEST_CASE_P(DBBlockCacheTypeTestInstance, DBBlockCacheTypeTest,
+                        secondary_cache_test_util::GetTestingCacheTypes());
+
+TEST_P(DBBlockCacheTypeTest, AddRedundantStats) {
+  BlockBasedTableOptions table_options;
+
+  const size_t capacity = size_t{1} << 25;
+  const int num_shard_bits = 0;  // 1 shard
+  estimated_value_size_ = table_options.block_size;
+  std::shared_ptr<Cache> base_cache =
+      NewCache(capacity, num_shard_bits, /*strict_capacity_limit=*/false);
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  std::shared_ptr<LookupLiarCache> cache =
+      std::make_shared<LookupLiarCache>(base_cache);
+
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.block_cache = cache;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(50));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Create a new table.
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Put("bar", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // Normal access filter+index+data.
+  ASSERT_EQ("value", Get("foo"));
+
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
+  // --------
+  ASSERT_EQ(3, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
+  // --------
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
+
+  // Againt access filter+index+data, but force redundant load+insert on index
+  cache->SetNthLookupNotFound(2);
+  ASSERT_EQ("value", Get("bar"));
+
+  ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
+  // --------
+  ASSERT_EQ(4, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
+  // --------
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
+
+  // Access just filter (with high probability), and force redundant
+  // load+insert
+  cache->SetNthLookupNotFound(1);
+  ASSERT_EQ("NOT_FOUND", Get("this key was not added"));
+
+  EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
+  EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
+  EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
+  // --------
+  EXPECT_EQ(5, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
+  EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
+  EXPECT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
+  // --------
+  EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
+
+  // Access just data, forcing redundant load+insert
+  ReadOptions read_options;
+  std::unique_ptr<Iterator> iter{db_->NewIterator(read_options)};
+  cache->SetNthLookupNotFound(1);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), "bar");
+
+  EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
+  EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));
+  EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD));
+  // --------
+  EXPECT_EQ(6, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD_REDUNDANT));
+  EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD_REDUNDANT));
+  EXPECT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_ADD_REDUNDANT));
+  // --------
+  EXPECT_EQ(3, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
+}
+
+namespace {
+std::string AltKey(int i) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "altkey%06d", i);
+  return std::string(buf);
+}
+}  // namespace
+
+TEST_P(DBBlockCacheTypeTest, Uncache) {
+  for (bool partitioned : {false, true}) {
+    SCOPED_TRACE("partitioned=" + std::to_string(partitioned));
+    for (uint32_t ua : {0, 1, 2, 10000}) {
+      SCOPED_TRACE("ua=" + std::to_string(ua));
+
+      BlockBasedTableOptions table_options;
+      Options options = CurrentOptions();
+      options.uncache_aggressiveness = ua;
+      options.create_if_missing = true;
+      // Don't allow background operations to keep Versions referenced
+      options.stats_dump_period_sec = 0;
+      options.stats_persist_period_sec = 0;
+      auto stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics = stats;
+
+      const size_t capacity = size_t{1} << 25;
+      const int num_shard_bits = 0;  // 1 shard
+      estimated_value_size_ = table_options.block_size;
+      std::shared_ptr<Cache> cache =
+          NewCache(capacity, num_shard_bits, /*strict_capacity_limit=*/false);
+
+      table_options.cache_index_and_filter_blocks = true;
+      table_options.block_cache = cache;
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+      table_options.partition_filters = partitioned;
+      table_options.index_type =
+          partitioned ? BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch
+                      : BlockBasedTableOptions::IndexType::kBinarySearch;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      DestroyAndReopen(options);
+
+      size_t kBaselineCount = 1;  // Because of entry stats collector
+
+      ASSERT_EQ(kBaselineCount, cache->GetOccupancyCount());
+      ASSERT_EQ(0U, cache->GetUsage());
+
+      constexpr uint8_t kNumDataBlocks = 10;
+      constexpr uint8_t kNumFiles = 3;
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        // Force some overlap with ordering
+        ASSERT_OK(Put(Key((i * 7) % kNumDataBlocks),
+                      Random::GetTLSInstance()->RandomBinaryString(
+                          static_cast<int>(table_options.block_size))));
+        if (i >= kNumDataBlocks - kNumFiles) {
+          ASSERT_OK(Flush());
+        }
+      }
+      ASSERT_EQ(int{kNumFiles}, NumTableFilesAtLevel(0));
+
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+      }
+
+      size_t meta_blocks_per_file = /*index & filter*/ 2U * (1U + partitioned);
+      ASSERT_EQ(
+          cache->GetOccupancyCount(),
+          kBaselineCount + kNumDataBlocks + meta_blocks_per_file * kNumFiles);
+      ASSERT_GE(cache->GetUsage(), kNumDataBlocks * table_options.block_size);
+
+      // Combine into one file, making the originals obsolete
+      ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+      ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+      }
+
+      if (ua == 0) {
+        // Expect to see cache entries for new file and obsolete files
+        EXPECT_EQ(cache->GetOccupancyCount(),
+                  kBaselineCount + kNumDataBlocks * 2U +
+                      meta_blocks_per_file * (kNumFiles + 1));
+        EXPECT_GE(cache->GetUsage(),
+                  kNumDataBlocks * table_options.block_size * 2U);
+      } else {
+        // Expect only to see cache entries for new file
+        EXPECT_EQ(cache->GetOccupancyCount(),
+                  kBaselineCount + kNumDataBlocks + meta_blocks_per_file);
+        EXPECT_GE(cache->GetUsage(), kNumDataBlocks * table_options.block_size);
+        EXPECT_LT(cache->GetUsage(),
+                  kNumDataBlocks * table_options.block_size * 2U);
+      }
+
+      size_t alt_baseline_count = cache->GetOccupancyCount();
+      size_t alt_baseline_usage = cache->GetUsage();
+      ASSERT_OK(stats->Reset());
+      // We aren't generally cleaning up cache entries on DB::Close, especially
+      // because someone might just re-open the same DB.
+      Reopen(options);
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+      }
+
+      EXPECT_EQ(cache->GetOccupancyCount(), alt_baseline_count);
+      EXPECT_EQ(cache->GetUsage(), alt_baseline_usage);
+
+      // Check for unnecessary unncessary cache churn
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_ADD), 0U);
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_MISS), 0U);
+      ASSERT_GT(stats->getTickerCount(BLOCK_CACHE_HIT), 0U);
+
+      // And now do a similar test as above except with trivial moves, making
+      // sure that we aren't falsely uncaching in that case, which would cause
+      // unnecessary cache misses. Using AltKey instead of Key to avoid
+      // interference.
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        // No overlap
+        ASSERT_OK(
+            Put(AltKey(i), Random::GetTLSInstance()->RandomBinaryString(
+                               static_cast<int>(table_options.block_size))));
+        if (i >= kNumDataBlocks - kNumFiles) {
+          ASSERT_OK(Flush());
+        }
+      }
+      ASSERT_EQ(int{kNumFiles}, NumTableFilesAtLevel(0));
+
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(AltKey(i)), "NOT_FOUND");
+      }
+
+      ASSERT_EQ(cache->GetOccupancyCount(),
+                alt_baseline_count + kNumDataBlocks +
+                    meta_blocks_per_file * kNumFiles);
+      ASSERT_GE(cache->GetUsage(),
+                alt_baseline_usage + kNumDataBlocks * table_options.block_size);
+
+      ASSERT_OK(stats->Reset());
+
+      // Make trivial move
+      {
+        auto a = AltKey(0);
+        auto b = AltKey(kNumDataBlocks);
+        Slice slice_a{a};
+        Slice slice_b{b};
+        ASSERT_OK(db_->CompactRange({}, &slice_a, &slice_b));
+      }
+      ASSERT_EQ(/*old*/ 1 + /*new*/ int{kNumFiles}, NumTableFilesAtLevel(1));
+
+      for (int i = 0; i < kNumDataBlocks; i++) {
+        ASSERT_NE(Get(AltKey(i)), "NOT_FOUND");
+      }
+
+      // Should be the same if trivial move
+      ASSERT_EQ(cache->GetOccupancyCount(),
+                alt_baseline_count + kNumDataBlocks +
+                    meta_blocks_per_file * kNumFiles);
+
+      // Check for unnecessary unncessary cache churn
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_ADD), 0U);
+      ASSERT_EQ(stats->getTickerCount(BLOCK_CACHE_MISS), 0U);
+      ASSERT_GT(stats->getTickerCount(BLOCK_CACHE_HIT), 0U);
+    }
+  }
+}
 
 class DBBlockCacheKeyTest
     : public DBTestBase,
@@ -1360,7 +1530,7 @@ class StableCacheKeyTestFS : public FaultInjectionTestFS {
     SetFailGetUniqueId(true);
   }
 
-  virtual ~StableCacheKeyTestFS() override {}
+  ~StableCacheKeyTestFS() override = default;
 
   IOStatus LinkFile(const std::string&, const std::string&, const IOOptions&,
                     IODebugContext*) override {
@@ -1411,7 +1581,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
         [&](void* arg) {
-          TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+          TableProperties* props = static_cast<TableProperties*>(arg);
           props->orig_file_number = 0;
         });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -1553,7 +1723,7 @@ class CacheKeyTest : public testing::Test {
     tp_.db_id = std::to_string(db_id_);
     tp_.orig_file_number = file_number;
     bool is_stable;
-    std::string cur_session_id = "";  // ignored
+    std::string cur_session_id;       // ignored
     uint64_t cur_file_number = 42;    // ignored
     OffsetableCacheKey rv;
     BlockBasedTable::SetupBaseCacheKey(&tp_, cur_session_id, cur_file_number,
@@ -1821,6 +1991,7 @@ class DBBlockCachePinningTest
   PinningTier unpartitioned_pinning_;
 };
 
+#ifdef LZ4
 TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   // Creates one file in L0 and one file in L1. Both files have enough data that
   // their index and filter blocks are partitioned. The L1 file will also have
@@ -1832,10 +2003,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   const int kNumKeysPerFile = kBlockSize * kNumBlocksPerFile / kKeySize;
 
   Options options = CurrentOptions();
-  // `kNoCompression` makes the unit test more portable. But it relies on the
-  // current behavior of persisting/accessing dictionary even when there's no
-  // (de)compression happening, which seems fairly likely to change over time.
-  options.compression = kNoCompression;
+  options.compression = kLZ4Compression;
   options.compression_opts.max_dict_bytes = 4 << 10;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
@@ -1948,6 +2116,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   ASSERT_EQ(expected_compression_dict_misses,
             TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
+#endif
 
 INSTANTIATE_TEST_CASE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,

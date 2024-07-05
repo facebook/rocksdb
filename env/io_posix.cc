@@ -10,23 +10,24 @@
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
 
-#include <errno.h>
 #include <fcntl.h>
 
 #include <algorithm>
+#include <cerrno>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #ifndef FALLOC_FL_KEEP_SIZE
 #include <linux/falloc.h>
 #endif
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
@@ -437,7 +438,7 @@ void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
 
 size_t LogicalBlockSizeCache::GetLogicalBlockSize(const std::string& fname,
                                                   int fd) {
-  std::string dir = fname.substr(0, fname.find_last_of("/"));
+  std::string dir = fname.substr(0, fname.find_last_of('/'));
   if (dir.empty()) {
     dir = "/";
   }
@@ -456,7 +457,6 @@ Status PosixHelper::GetLogicalBlockSizeOfDirectory(const std::string& directory,
                                                    size_t* size) {
   int fd = open(directory.c_str(), O_DIRECTORY | O_RDONLY);
   if (fd == -1) {
-    close(fd);
     return Status::IOError("Cannot open directory " + directory);
   }
   *size = PosixHelper::GetLogicalBlockSizeOfFd(fd);
@@ -654,7 +654,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     size_t this_reqs = (num_reqs - reqs_off) + incomplete_rq_list.size();
 
     // If requests exceed depth, split it into batches
-    if (this_reqs > kIoUringDepth) this_reqs = kIoUringDepth;
+    if (this_reqs > kIoUringDepth) {
+      this_reqs = kIoUringDepth;
+    }
 
     assert(incomplete_rq_list.size() <= this_reqs);
     for (size_t i = 0; i < this_reqs; i++) {
@@ -854,7 +856,7 @@ IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
 
 IOStatus PosixRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& /*opts*/,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
   if (use_direct_io()) {
     assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
@@ -965,7 +967,7 @@ IOStatus PosixMmapReadableFile::Read(uint64_t offset, size_t n,
   } else if (offset + n > length_) {
     n = static_cast<size_t>(length_ - offset);
   }
-  *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
+  *result = Slice(static_cast<char*>(mmapped_region_) + offset, n);
   return s;
 }
 
@@ -1064,7 +1066,7 @@ IOStatus PosixMmapFile::MapNewRegion() {
   }
   TEST_KILL_RANDOM("PosixMmapFile::Append:2");
 
-  base_ = reinterpret_cast<char*>(ptr);
+  base_ = static_cast<char*>(ptr);
   limit_ = base_ + map_size_;
   dst_ = base_;
   last_sync_ = base_;
@@ -1438,10 +1440,12 @@ void PosixWritableFile::SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
 #ifdef OS_LINUX
 // Suppress Valgrind "Unimplemented functionality" error.
 #ifndef ROCKSDB_VALGRIND_RUN
+  uint64_t fcntl_hint = hint;
+
   if (hint == write_hint_) {
     return;
   }
-  if (fcntl(fd_, F_SET_RW_HINT, &hint) == 0) {
+  if (fcntl(fd_, F_SET_RW_HINT, &fcntl_hint) == 0) {
     write_hint_ = hint;
   }
 #else

@@ -22,7 +22,6 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/types.h"
 #include "table/internal_iterator.h"
-#include "table/scoped_arena_iterator.h"
 #include "table/table_builder.h"
 #include "util/heap.h"
 #include "util/kv_map.h"
@@ -35,6 +34,10 @@ class TruncatedRangeDelIterator {
       std::unique_ptr<FragmentedRangeTombstoneIterator> iter,
       const InternalKeyComparator* icmp, const InternalKey* smallest,
       const InternalKey* largest);
+
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) {
+    iter_->SetRangeDelReadSeqno(read_seqno);
+  }
 
   bool Valid() const;
 

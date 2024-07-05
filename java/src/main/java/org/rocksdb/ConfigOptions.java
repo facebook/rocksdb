@@ -7,15 +7,11 @@
 package org.rocksdb;
 
 public class ConfigOptions extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * Construct with default Options
    */
   public ConfigOptions() {
-    super(newConfigOptions());
+    super(newConfigOptionsInstance());
   }
 
   public ConfigOptions setDelimiter(final String delimiter) {
@@ -42,12 +38,21 @@ public class ConfigOptions extends RocksObject {
     return this;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
 
-  private native static long newConfigOptions();
-  private native static void setEnv(final long handle, final long envHandle);
-  private native static void setDelimiter(final long handle, final String delimiter);
-  private native static void setIgnoreUnknownOptions(final long handle, final boolean ignore);
-  private native static void setInputStringsEscaped(final long handle, final boolean escaped);
-  private native static void setSanityLevel(final long handle, final byte level);
+  private static native void disposeInternalJni(final long handle);
+
+  private static long newConfigOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newConfigOptions();
+  }
+  private static native long newConfigOptions();
+  private static native void setEnv(final long handle, final long envHandle);
+  private static native void setDelimiter(final long handle, final String delimiter);
+  private static native void setIgnoreUnknownOptions(final long handle, final boolean ignore);
+  private static native void setInputStringsEscaped(final long handle, final boolean escaped);
+  private static native void setSanityLevel(final long handle, final byte level);
 }

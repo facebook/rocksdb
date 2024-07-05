@@ -220,6 +220,7 @@ TEST_P(DBRateLimiterOnReadTest, Iterator) {
       ++expected;
     }
   }
+  ASSERT_OK(iter->status());
   // Reverse scan does not read evenly (one block per iteration) due to
   // descending seqno ordering, so wait until after the loop to check total.
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
@@ -235,8 +236,24 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
   ASSERT_OK(db_->VerifyChecksum(GetReadOptions()));
-  // The files are tiny so there should have just been one read per file.
-  int expected = kNumFiles;
+  // In BufferedIO,
+  // there are 7 reads per file, each of which will be rate-limited.
+  // During open:  read footer, meta index block, properties block, index block.
+  // During actual checksum verification: read meta index block, verify checksum
+  // in meta blocks and verify checksum in file blocks.
+  //
+  // In DirectIO, where we support tail prefetching, during table open, we only
+  // do 1 read instead of 4 as described above. Actual checksum verification
+  // reads stay the same.
+#ifdef OS_WIN
+  // No file system prefetch implemented for OS Win. During table open,
+  // we only do 1 read for BufferedIO.
+  int num_read_per_file = 4;
+#else
+  int num_read_per_file = (!use_direct_io_) ? 7 : 4;
+#endif
+  int expected = kNumFiles * num_read_per_file;
+
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 

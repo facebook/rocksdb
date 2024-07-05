@@ -46,16 +46,19 @@ void MakeBuilder(
     const Options& options, const ImmutableOptions& ioptions,
     const MutableCFOptions& moptions,
     const InternalKeyComparator& internal_comparator,
-    const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
+    const InternalTblPropCollFactories* internal_tbl_prop_coll_factories,
     std::unique_ptr<WritableFileWriter>* writable,
     std::unique_ptr<TableBuilder>* builder) {
   std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
+  const ReadOptions read_options;
+  const WriteOptions write_options;
   TableBuilderOptions tboptions(
-      ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
-      options.compression, options.compression_opts, kTestColumnFamilyId,
-      kTestColumnFamilyName, kTestLevel);
+      ioptions, moptions, read_options, write_options, internal_comparator,
+      internal_tbl_prop_coll_factories, options.compression,
+      options.compression_opts, kTestColumnFamilyId, kTestColumnFamilyName,
+      kTestLevel);
   builder->reset(NewTableBuilder(tboptions, writable->get()));
 }
 }  // namespace
@@ -155,7 +158,7 @@ class RegularKeysStartWithABackwardCompatible
   uint32_t count_ = 0;
 };
 
-class RegularKeysStartWithAInternal : public IntTblPropCollector {
+class RegularKeysStartWithAInternal : public InternalTblPropColl {
  public:
   const char* Name() const override { return "RegularKeysStartWithA"; }
 
@@ -180,7 +183,6 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
                 uint64_t /* block_compressed_bytes_fast */,
                 uint64_t /* block_compressed_bytes_slow */) override {
     // Nothing to do.
-    return;
   }
 
   UserCollectedProperties GetReadableProperties() const override {
@@ -191,7 +193,7 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
   uint32_t count_ = 0;
 };
 
-class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
+class RegularKeysStartWithAFactory : public InternalTblPropCollFactory,
                                      public TablePropertiesCollectorFactory {
  public:
   explicit RegularKeysStartWithAFactory(bool backward_mode)
@@ -206,8 +208,10 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
       return new RegularKeysStartWithABackwardCompatible();
     }
   }
-  IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/, int /* level_at_creation */) override {
+  InternalTblPropColl* CreateInternalTblPropColl(
+      uint32_t /*column_family_id*/, int /* level_at_creation */,
+      int /* num_levels */,
+      SequenceNumber /* last_level_inclusive_max_seqno_threshold */) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }
@@ -227,7 +231,7 @@ class FlushBlockEveryThreePolicy : public FlushBlockPolicy {
 
 class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit FlushBlockEveryThreePolicyFactory() {}
+  explicit FlushBlockEveryThreePolicyFactory() = default;
 
   const char* Name() const override {
     return "FlushBlockEveryThreePolicyFactory";
@@ -240,11 +244,9 @@ class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
 namespace {
 void TestCustomizedTablePropertiesCollector(
-    bool backward_mode, uint64_t magic_number, bool test_int_tbl_prop_collector,
+    bool backward_mode, uint64_t magic_number, bool test_internal_tbl_prop_coll,
     const Options& options, const InternalKeyComparator& internal_comparator) {
   // make sure the entries will be inserted with order.
   std::map<std::pair<std::string, ValueType>, std::string> kvs = {
@@ -265,15 +267,15 @@ void TestCustomizedTablePropertiesCollector(
   std::unique_ptr<WritableFileWriter> writer;
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
-  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
-  if (test_int_tbl_prop_collector) {
-    int_tbl_prop_collector_factories.emplace_back(
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
+  if (test_internal_tbl_prop_coll) {
+    internal_tbl_prop_coll_factories.emplace_back(
         new RegularKeysStartWithAFactory(backward_mode));
   } else {
-    GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
+    GetInternalTblPropCollFactory(ioptions, &internal_tbl_prop_coll_factories);
   }
   MakeBuilder(options, ioptions, moptions, internal_comparator,
-              &int_tbl_prop_collector_factories, &writer, &builder);
+              &internal_tbl_prop_coll_factories, &writer, &builder);
 
   SequenceNumber seqNum = 0U;
   for (const auto& kv : kvs) {
@@ -281,7 +283,7 @@ void TestCustomizedTablePropertiesCollector(
     builder->Add(ikey.Encode(), kv.second);
   }
   ASSERT_OK(builder->Finish());
-  ASSERT_OK(writer->Flush());
+  ASSERT_OK(writer->Flush(IOOptions()));
 
   // -- Step 2: Read properties
   test::StringSink* fwf =
@@ -292,8 +294,9 @@ void TestCustomizedTablePropertiesCollector(
       new RandomAccessFileReader(std::move(source), "test"));
 
   std::unique_ptr<TableProperties> props;
+  const ReadOptions read_options;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props);
+                                 magic_number, ioptions, read_options, &props);
   ASSERT_OK(s);
 
   auto user_collected = props->user_collected_properties;
@@ -307,7 +310,7 @@ void TestCustomizedTablePropertiesCollector(
   ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
   ASSERT_EQ(3u, starts_with_A);
 
-  if (!backward_mode && !test_int_tbl_prop_collector) {
+  if (!backward_mode && !test_internal_tbl_prop_coll) {
     uint32_t num_puts;
     ASSERT_NE(user_collected.find("NumPuts"), user_collected.end());
     Slice key_puts(user_collected.at("NumPuts"));
@@ -391,7 +394,7 @@ void TestInternalKeyPropertiesCollector(
   Options options;
   test::PlainInternalKeyComparator pikc(options.comparator);
 
-  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
   options.table_factory = table_factory;
   if (sanitized) {
     options.table_properties_collector_factories.emplace_back(
@@ -405,7 +408,7 @@ void TestInternalKeyPropertiesCollector(
     options = SanitizeOptions("db",  // just a place holder
                               options);
     ImmutableOptions ioptions(options);
-    GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
+    GetInternalTblPropCollFactory(ioptions, &internal_tbl_prop_coll_factories);
     options.comparator = comparator;
   }
   const ImmutableOptions ioptions(options);
@@ -413,13 +416,13 @@ void TestInternalKeyPropertiesCollector(
 
   for (int iter = 0; iter < 2; ++iter) {
     MakeBuilder(options, ioptions, moptions, pikc,
-                &int_tbl_prop_collector_factories, &writable, &builder);
+                &internal_tbl_prop_coll_factories, &writable, &builder);
     for (const auto& k : keys) {
       builder->Add(k.Encode(), "val");
     }
 
     ASSERT_OK(builder->Finish());
-    ASSERT_OK(writable->Flush());
+    ASSERT_OK(writable->Flush(IOOptions()));
 
     test::StringSink* fwf =
         static_cast<test::StringSink*>(writable->writable_file());
@@ -429,8 +432,10 @@ void TestInternalKeyPropertiesCollector(
         new RandomAccessFileReader(std::move(source), "test"));
 
     std::unique_ptr<TableProperties> props;
-    Status s = ReadTableProperties(reader.get(), fwf->contents().size(),
-                                   magic_number, ioptions, &props);
+    const ReadOptions read_options;
+    Status s =
+        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
+                            ioptions, read_options, &props);
     ASSERT_OK(s);
 
     auto user_collected = props->user_collected_properties;

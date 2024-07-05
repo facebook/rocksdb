@@ -7,9 +7,7 @@
 
 #include <array>
 
-namespace ROCKSDB_NAMESPACE {
-
-namespace secondary_cache_test_util {
+namespace ROCKSDB_NAMESPACE::secondary_cache_test_util {
 
 namespace {
 using TestItem = WithCacheType::TestItem;
@@ -37,7 +35,8 @@ Status SaveToCallbackFail(Cache::ObjectPtr /*obj*/, size_t /*offset*/,
   return Status::NotSupported();
 }
 
-Status CreateCallback(const Slice& data, Cache::CreateContext* context,
+Status CreateCallback(const Slice& data, CompressionType /*type*/,
+                      CacheTier /*source*/, Cache::CreateContext* context,
                       MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
                       size_t* out_charge) {
   auto t = static_cast<TestCreateContext*>(context);
@@ -91,6 +90,4 @@ const Cache::CacheItemHelper* WithCacheType::GetHelperFail(CacheEntryRole r) {
   return GetHelper(r, true, true);
 }
 
-}  // namespace secondary_cache_test_util
-
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::secondary_cache_test_util

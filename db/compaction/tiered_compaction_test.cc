@@ -13,13 +13,13 @@
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/mock_time_env.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-
-class TieredCompactionTest : public DBTestBase,
-                             public testing::WithParamInterface<bool> {
+class TieredCompactionTest : public DBTestBase {
  public:
   TieredCompactionTest()
       : DBTestBase("tiered_compaction_test", /*env_do_fsync=*/true),
@@ -123,14 +123,8 @@ class TieredCompactionTest : public DBTestBase,
     pl_stats.Clear();
   }
 
-  // bottommost_temperature is renaming to last_level_temperature, set either
-  // of them should have the same effect.
   void SetColdTemperature(Options& options) {
-    if (GetParam()) {
-      options.bottommost_temperature = Temperature::kCold;
-    } else {
-      options.last_level_temperature = Temperature::kCold;
-    }
+    options.last_level_temperature = Temperature::kCold;
   }
 
  private:
@@ -172,7 +166,7 @@ class TieredCompactionTest : public DBTestBase,
   }
 };
 
-TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
+TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -209,7 +203,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // the penultimate level file temperature is not cold, all data are output to
   // the penultimate level.
@@ -334,7 +328,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
+TEST_F(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -374,7 +368,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
     ASSERT_OK(Flush());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -445,8 +439,8 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(
-      true));  // make sure the compaction is able to finish
+  // make sure the compaction is able to finish
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -508,7 +502,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
       1);
 }
 
-TEST_P(TieredCompactionTest, LevelColdRangeDelete) {
+TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -614,7 +608,7 @@ class SingleKeySstPartitionerFactory : public SstPartitionerFactory {
   }
 };
 
-TEST_P(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
+TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 3;
   const int kNumKeys = 10;
@@ -743,7 +737,7 @@ TEST_P(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, UniversalRangeDelete) {
+TEST_F(TieredCompactionTest, UniversalRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 10;
@@ -875,7 +869,7 @@ TEST_P(TieredCompactionTest, UniversalRangeDelete) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
+TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -911,7 +905,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // non last level is hot
   ASSERT_EQ("0,1", FilesPerLevel());
@@ -954,7 +948,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,1,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -1005,7 +999,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   latest_cold_seq = seq_history[0];
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -1099,7 +1093,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
+TEST_F(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -1111,6 +1105,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
   options.max_subcompactions = 10;
+  options.preclude_last_level_data_seconds = 10000;
   DestroyAndReopen(options);
   auto cmp = options.comparator;
 
@@ -1134,7 +1129,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -1201,20 +1196,123 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
   ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-
   ASSERT_EQ(
       options.statistics->getTickerCount(COMPACTION_RANGE_DEL_DROP_OBSOLETE),
       1);
+
+  // Tests that we only compact keys up to penultimate level
+  // that are within penultimate level input's internal key range.
+  {
+    MutexLock l(&mutex);
+    hot_start = Key(0);
+    hot_end = Key(100);
+  }
+  const Snapshot* temp_snap = db_->GetSnapshot();
+  // Key(0) and Key(1) here are inserted with higher sequence number
+  // than Key(0) and Key(1) inserted above.
+  // Only Key(0) in last level will be compacted up, not Key(1).
+  ASSERT_OK(Put(Key(0), "value" + std::to_string(0)));
+  ASSERT_OK(Put(Key(1), "value" + std::to_string(100)));
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  {
+    std::vector<LiveFileMetaData> metas;
+    db_->GetLiveFilesMetaData(&metas);
+    for (const auto& f : metas) {
+      if (f.temperature == Temperature::kUnknown) {
+        // Expect Key(0), Key(0), Key(1)
+        ASSERT_EQ(f.num_entries, 3);
+        ASSERT_EQ(f.smallestkey, Key(0));
+        ASSERT_EQ(f.largestkey, Key(1));
+      } else {
+        ASSERT_EQ(f.temperature, Temperature::kCold);
+        // Key(2)-Key(49) and Key(100).
+        ASSERT_EQ(f.num_entries, 50);
+      }
+    }
+  }
+  db_->ReleaseSnapshot(temp_snap);
 }
 
-INSTANTIATE_TEST_CASE_P(TieredCompactionTest, TieredCompactionTest,
-                        testing::Bool());
+TEST_F(TieredCompactionTest, CheckInternalKeyRange) {
+  // When compacting keys from the last level to penultimate level,
+  // output to penultimate level should be within internal key range
+  // of input files from penultimate level.
+  // Set up:
+  // L5:
+  //  File 1: DeleteRange[1, 3)@4, File 2: [3@5, 100@6]
+  // L6:
+  // File 3: [2@1, 3@2], File 4: [50@3]
+  //
+  // When File 1 and File 3 are being compacted,
+  // Key(3) cannot be compacted up, otherwise it causes
+  // inconsistency where File 3's Key(3) has a lower sequence number
+  // than File 2's Key(3).
+  const int kNumLevels = 7;
+  auto options = CurrentOptions();
+  SetColdTemperature(options);
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
+  options.statistics = CreateDBStatistics();
+  options.max_subcompactions = 10;
+  options.preclude_last_level_data_seconds = 10000;
+  DestroyAndReopen(options);
+  auto cmp = options.comparator;
+
+  std::string hot_start = Key(0);
+  std::string hot_end = Key(0);
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
+        auto context = static_cast<PerKeyPlacementContext*>(arg);
+        context->output_to_penultimate_level =
+            cmp->Compare(context->key, hot_start) >= 0 &&
+            cmp->Compare(context->key, hot_end) < 0;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  // File 1
+  ASSERT_OK(Put(Key(2), "val2"));
+  ASSERT_OK(Put(Key(3), "val3"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  // File 2
+  ASSERT_OK(Put(Key(50), "val50"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  hot_end = Key(100);
+  std::string start = Key(1);
+  std::string end = Key(3);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // File 3
+  ASSERT_OK(Put(Key(3), "vall"));
+  ASSERT_OK(Put(Key(100), "val100"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // Try to compact keys up
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  start = Key(1);
+  end = Key(2);
+  Slice begin_slice(start);
+  Slice end_slice(end);
+  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
+  // Without internal key range checking, we get the following error:
+  // Corruption: force_consistency_checks(DEBUG): VersionBuilder: L5 has
+  // overlapping ranges: file #18 largest key: '6B6579303030303033' seq:102,
+  // type:1 vs. file #15 smallest key: '6B6579303030303033' seq:104, type:1
+  db_->ReleaseSnapshot(snapshot);
+}
 
 class PrecludeLastLevelTest : public DBTestBase {
  public:
-  PrecludeLastLevelTest()
-      : DBTestBase("preclude_last_level_test", /*env_do_fsync=*/false) {
+  PrecludeLastLevelTest(std::string test_name = "preclude_last_level_test")
+      : DBTestBase(test_name, /*env_do_fsync=*/false) {
     mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    mock_clock_->SetCurrentTime(kMockStartTime);
     mock_env_ = std::make_unique<CompositeEnvWrapper>(env_, mock_clock_);
   }
 
@@ -1222,15 +1320,19 @@ class PrecludeLastLevelTest : public DBTestBase {
   std::unique_ptr<Env> mock_env_;
   std::shared_ptr<MockSystemClock> mock_clock_;
 
+  // Sufficient starting time that preserve time doesn't under-flow into
+  // pre-history
+  static constexpr uint32_t kMockStartTime = 10000000;
+
   void SetUp() override {
     mock_clock_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
           auto periodic_task_scheduler_ptr =
-              reinterpret_cast<PeriodicTaskScheduler*>(arg);
+              static_cast<PeriodicTaskScheduler*>(arg);
           periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
-    mock_clock_->SetCurrentTime(0);
+    mock_clock_->SetCurrentTime(kMockStartTime);
   }
 };
 
@@ -1248,11 +1350,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
   for (; sst_num < kNumTrigger; sst_num++) {
@@ -1264,7 +1361,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1310,11 +1407,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
   for (; sst_num < kNumTrigger; sst_num++) {
@@ -1326,7 +1418,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1359,7 +1451,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
       });
     }
     ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->WaitForCompact(true));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 
   // all data is moved up to the penultimate level
@@ -1386,11 +1478,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
   for (; sst_num < kNumTrigger; sst_num++) {
@@ -1402,7 +1489,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1479,9 +1566,8 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   ASSERT_EQ(tables_props.size(), 1);
   ASSERT_FALSE(tables_props.begin()->second->seqno_to_time_mapping.empty());
   SeqnoToTimeMapping tp_mapping;
-  ASSERT_OK(
-      tp_mapping.Add(tables_props.begin()->second->seqno_to_time_mapping));
-  ASSERT_OK(tp_mapping.Sort());
+  ASSERT_OK(tp_mapping.DecodeFrom(
+      tables_props.begin()->second->seqno_to_time_mapping));
   ASSERT_FALSE(tp_mapping.Empty());
   auto seqs = tp_mapping.TEST_GetInternalMapping();
   ASSERT_FALSE(seqs.empty());
@@ -1499,6 +1585,235 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   Close();
 }
 
+// Test Param: protection_bytes_per_key for WriteBatch
+class TimedPutPrecludeLastLevelTest
+    : public PrecludeLastLevelTest,
+      public testing::WithParamInterface<size_t> {
+ public:
+  TimedPutPrecludeLastLevelTest()
+      : PrecludeLastLevelTest("timed_put_preclude_last_level_test") {}
+};
+
+TEST_P(TimedPutPrecludeLastLevelTest, FastTrackTimedPutToLastLevel) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preclude_last_level_data_seconds = 60;
+  options.preserve_internal_time_seconds = 0;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  options.last_level_temperature = Temperature::kCold;
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  Random rnd(301);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(10) + 1));
+  });
+
+  for (int i = 0; i < kNumKeys / 2; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100), wo));
+    dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+      mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
+    });
+  }
+  // Create one file with regular Put.
+  ASSERT_OK(Flush());
+
+  // Create one file with TimedPut.
+  // With above mock clock operations, write_unix_time 50 should be before
+  // current_time - preclude_last_level_seconds.
+  // These data are eligible to be put on the last level once written to db
+  // and compaction will fast track them to the last level.
+  for (int i = kNumKeys / 2; i < kNumKeys; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
+  }
+  ASSERT_OK(Flush());
+
+  // TimedPut file moved to the last level immediately.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+
+  // Wait more than preclude_last_level time, Put file eventually moved to the
+  // last level.
+  mock_clock_->MockSleepForSeconds(100);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  Close();
+}
+
+TEST_P(TimedPutPrecludeLastLevelTest, InterleavedTimedPutAndPut) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.preclude_last_level_data_seconds = 1 * 24 * 60 * 60;
+  options.env = mock_env_.get();
+  options.num_levels = 7;
+  options.last_level_temperature = Temperature::kCold;
+  options.default_write_temperature = Temperature::kHot;
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  // Start time: kMockStartTime = 10000000;
+  ASSERT_OK(TimedPut(0, Key(0), "v0", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(Put(Key(1), "v1", wo));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  Close();
+}
+
+TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.preclude_last_level_data_seconds = 3 * 24 * 60 * 60;
+  int seconds_between_recording = (3 * 24 * 60 * 60) / kMaxSeqnoTimePairsPerCF;
+  options.env = mock_env_.get();
+  options.num_levels = 7;
+  options.last_level_temperature = Temperature::kCold;
+  options.default_write_temperature = Temperature::kHot;
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  // Creating a snapshot to manually control when preferred sequence number is
+  // swapped in. An entry's preferred seqno won't get swapped in until it's
+  // visible to the earliest snapshot. With this, we can test relevant seqno to
+  // time mapping recorded in SST file also covers preferred seqno, not just
+  // the seqno in the internal keys.
+  auto* snap1 = db_->GetSnapshot();
+  // Start time: kMockStartTime = 10000000;
+  ASSERT_OK(TimedPut(0, Key(0), "v0", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(TimedPut(0, Key(1), "v1", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(TimedPut(0, Key(2), "v2", kMockStartTime - 1 * 24 * 60 * 60, wo));
+  ASSERT_OK(Flush());
+
+  // Should still be in penultimate level.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Wait one more day and release snapshot. Data's preferred seqno should be
+  // swapped in, but data should still stay in penultimate level. SST file's
+  // seqno to time mapping should continue to cover preferred seqno after
+  // compaction.
+  db_->ReleaseSnapshot(snap1);
+  mock_clock_->MockSleepForSeconds(1 * 24 * 60 * 60);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Wait one more day and data are eligible to be placed on last level.
+  // Instead of waiting exactly one more day, here we waited
+  // `seconds_between_recording` less seconds to show that it's not precise.
+  // Data could start to be placed on cold tier one recording interval before
+  // they exactly become cold based on the setting. For this one column family
+  // setting preserving 3 days of recording, it's about 43 minutes.
+  mock_clock_->MockSleepForSeconds(1 * 24 * 60 * 60 -
+                                   seconds_between_recording);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  Close();
+}
+
+TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
+  const int kNumTrigger = 10;
+  const int kNumLevels = 7;
+  const int kNumKeys = 200;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preclude_last_level_data_seconds = 60;
+  options.preserve_internal_time_seconds = 0;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  options.last_level_temperature = Temperature::kCold;
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  std::shared_ptr<TablePropertiesCollectorFactory> factory;
+  std::string id = CompactForTieringCollectorFactory::kClassName();
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      config_options, "compaction_trigger_ratio=0.4; id=" + id, &factory));
+  auto collector_factory =
+      factory->CheckedCast<CompactForTieringCollectorFactory>();
+  options.table_properties_collector_factories.push_back(factory);
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  Random rnd(301);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(10) + 1));
+  });
+
+  for (int i = 0; i < kNumKeys / 4; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100), wo));
+    dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+      mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
+    });
+  }
+  // Create one file with regular Put.
+  ASSERT_OK(Flush());
+
+  // Create one file with TimedPut.
+  // These data are eligible to be put on the last level once written to db
+  // and compaction will fast track them to the last level.
+  for (int i = kNumKeys / 4; i < kNumKeys / 2; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
+  }
+  ASSERT_OK(Flush());
+
+  // TimedPut file moved to the last level via auto triggered compaction.
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  collector_factory->SetCompactionTriggerRatio(1.1);
+  for (int i = kNumKeys / 2; i < kNumKeys * 3 / 4; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("2,0,0,0,0,0,1", FilesPerLevel());
+
+  collector_factory->SetCompactionTriggerRatio(0);
+  for (int i = kNumKeys * 3 / 4; i < kNumKeys; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("3,0,0,0,0,0,1", FilesPerLevel());
+
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(TimedPutPrecludeLastLevelTest,
+                        TimedPutPrecludeLastLevelTest, ::testing::Values(0, 8));
+
 TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
@@ -1513,11 +1828,6 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
   for (; sst_num < kNumTrigger; sst_num++) {
@@ -1529,7 +1839,7 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1591,11 +1901,6 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   Random rnd(301);
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
@@ -1608,7 +1913,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1704,7 +2009,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
 
   manual_compaction_thread.join();
 
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   if (enable_preclude_last_level) {
     ASSERT_NE("0,0,0,0,0,1,1", FilesPerLevel());
@@ -1738,7 +2043,6 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
   options.env = mock_env_.get();
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
-  options.ignore_max_compaction_bytes_for_input = false;
   options.periodic_compaction_seconds = 10000;
   DestroyAndReopen(options);
 
@@ -1840,7 +2144,7 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
   }
   ASSERT_OK(Flush());
 
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   stop_token.reset();
 
@@ -1905,11 +2209,6 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
-
   Random rnd(301);
 
   for (int i = 0; i < 300; i++) {
@@ -1939,7 +2238,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
     ASSERT_OK(Flush());
   }
 
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // L5: [0,19] [20,39] [40,299]
   // L6: [0,                299]
@@ -2015,12 +2314,6 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   options.num_levels = kNumLevels;
   options.target_file_size_base = kFileBytes;
   DestroyAndReopen(options);
-
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
-    mock_clock_->MockSleepForSeconds(static_cast<int>(kSecondsPerKey));
-  });
 
   // Flush an L0 file with the following contents (new to old):
   //
@@ -2105,7 +2398,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   Slice begin_key(begin_key_buf), end_key(end_key_buf);
   ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
                                      &end_key));
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
   ASSERT_EQ(1, per_key_comp_num);
   verify_db();
@@ -2115,7 +2408,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   db_->ReleaseSnapshot(snap2);
   ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
                                      &end_key));
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
   ASSERT_EQ(2, per_key_comp_num);
   verify_db();
@@ -2125,7 +2418,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   db_->ReleaseSnapshot(snap1);
   ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
                                      &end_key));
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,2,3", FilesPerLevel());
   ASSERT_EQ(3, per_key_comp_num);
   verify_db();
@@ -2138,6 +2431,308 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   Close();
 }
 
+// Tests DBIter::GetProperty("rocksdb.iterator.write-time") return a data's
+// approximate write unix time.
+// Test Param:
+// 1) use tailing iterator or regular iterator (when it applies)
+class IteratorWriteTimeTest : public PrecludeLastLevelTest,
+                              public testing::WithParamInterface<bool> {
+ public:
+  IteratorWriteTimeTest() : PrecludeLastLevelTest("iterator_write_time_test") {}
+
+  uint64_t VerifyKeyAndGetWriteTime(Iterator* iter,
+                                    const std::string& expected_key) {
+    std::string prop;
+    uint64_t write_time = 0;
+    EXPECT_TRUE(iter->Valid());
+    EXPECT_EQ(expected_key, iter->key());
+    EXPECT_OK(iter->GetProperty("rocksdb.iterator.write-time", &prop));
+    Slice prop_slice = prop;
+    EXPECT_TRUE(GetFixed64(&prop_slice, &write_time));
+    return write_time;
+  }
+
+  void VerifyKeyAndWriteTime(Iterator* iter, const std::string& expected_key,
+                             uint64_t expected_write_time) {
+    std::string prop;
+    uint64_t write_time = 0;
+    EXPECT_TRUE(iter->Valid());
+    EXPECT_EQ(expected_key, iter->key());
+    EXPECT_OK(iter->GetProperty("rocksdb.iterator.write-time", &prop));
+    Slice prop_slice = prop;
+    EXPECT_TRUE(GetFixed64(&prop_slice, &write_time));
+    EXPECT_EQ(expected_write_time, write_time);
+  }
+};
+
+TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kSecondsPerRecording = 101;
+  const int kKeyWithWriteTime = 25;
+  const uint64_t kUserSpecifiedWriteTime =
+      kMockStartTime + kSecondsPerRecording * 15;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumKeys; i++) {
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+    if (i == kKeyWithWriteTime) {
+      ASSERT_OK(
+          TimedPut(Key(i), rnd.RandomString(100), kUserSpecifiedWriteTime));
+    } else {
+      ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    }
+  }
+
+  ReadOptions ropts;
+  ropts.tailing = GetParam();
+  int i;
+
+  // Forward iteration
+  uint64_t start_time = 0;
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToFirst(), i = 0; iter->Valid(); iter->Next(), i++) {
+      if (start_time == 0) {
+        start_time = VerifyKeyAndGetWriteTime(iter.get(), Key(i));
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), kUserSpecifiedWriteTime);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Backward iteration
+  {
+    ropts.tailing = false;
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToLast(), i = kNumKeys - 1; iter->Valid();
+         iter->Prev(), i--) {
+      if (i == 0) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), kUserSpecifiedWriteTime);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Reopen the DB and disable the seqno to time recording, data with user
+  // specified write time can still get a write time before it's flushed.
+  options.preserve_internal_time_seconds = 0;
+  DestroyAndReopen(options);
+  ASSERT_OK(TimedPut(Key(kKeyWithWriteTime), rnd.RandomString(100),
+                     kUserSpecifiedWriteTime));
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->Seek(Key(kKeyWithWriteTime));
+    VerifyKeyAndWriteTime(iter.get(), Key(kKeyWithWriteTime),
+                          kUserSpecifiedWriteTime);
+    ASSERT_OK(iter->status());
+  }
+
+  ASSERT_OK(Flush());
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->Seek(Key(kKeyWithWriteTime));
+    VerifyKeyAndWriteTime(iter.get(), Key(kKeyWithWriteTime),
+                          std::numeric_limits<uint64_t>::max());
+    ASSERT_OK(iter->status());
+  }
+
+  Close();
+}
+
+TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kSecondsPerRecording = 101;
+  const int kKeyWithWriteTime = 25;
+  const uint64_t kUserSpecifiedWriteTime =
+      kMockStartTime + kSecondsPerRecording * 15;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumKeys; i++) {
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+    if (i == kKeyWithWriteTime) {
+      ASSERT_OK(
+          TimedPut(Key(i), rnd.RandomString(100), kUserSpecifiedWriteTime));
+    } else {
+      ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    }
+  }
+
+  ASSERT_OK(Flush());
+  ReadOptions ropts;
+  ropts.tailing = GetParam();
+  std::string prop;
+  int i;
+
+  // Forward iteration
+  uint64_t start_time = 0;
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToFirst(), i = 0; iter->Valid(); iter->Next(), i++) {
+      if (start_time == 0) {
+        start_time = VerifyKeyAndGetWriteTime(iter.get(), Key(i));
+      } else if (i == kKeyWithWriteTime) {
+        // It's not precisely kUserSpecifiedWriteTime, instead it has a margin
+        // of error that is one recording apart while we convert write time to
+        // sequence number, and then back to write time.
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              kUserSpecifiedWriteTime - kSecondsPerRecording);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Backward iteration
+  {
+    ropts.tailing = false;
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    for (iter->SeekToLast(), i = kNumKeys - 1; iter->Valid();
+         iter->Prev(), i--) {
+      if (i == 0) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              kUserSpecifiedWriteTime - kSecondsPerRecording);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Reopen the DB and disable the seqno to time recording. Data retrieved from
+  // SST files still have write time available.
+  options.preserve_internal_time_seconds = 0;
+  DestroyAndReopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+  ASSERT_OK(Put("a", "val"));
+  ASSERT_TRUE(dbfull()->TEST_GetSeqnoToTimeMapping().Empty());
+
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    // "a" is retrieved from memtable, its write time is unknown because the
+    // seqno to time mapping recording is not available.
+    VerifyKeyAndWriteTime(iter.get(), "a",
+                          std::numeric_limits<uint64_t>::max());
+    for (iter->Next(), i = 0; iter->Valid(); iter->Next(), i++) {
+      if (i == 0) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i), start_time);
+      } else if (i == kKeyWithWriteTime) {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              kUserSpecifiedWriteTime - kSecondsPerRecording);
+      } else {
+        VerifyKeyAndWriteTime(iter.get(), Key(i),
+                              start_time + kSecondsPerRecording * (i + 1));
+      }
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // There is no write time info for "a" after it's flushed to SST file either.
+  ASSERT_OK(Flush());
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    VerifyKeyAndWriteTime(iter.get(), "a",
+                          std::numeric_limits<uint64_t>::max());
+  }
+
+  // Sequence number zeroed out after compacted to the last level, write time
+  // all becomes zero.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    for (iter->Next(), i = 0; iter->Valid(); iter->Next(), i++) {
+      VerifyKeyAndWriteTime(iter.get(), Key(i), 0);
+    }
+    ASSERT_OK(iter->status());
+  }
+  Close();
+}
+
+TEST_P(IteratorWriteTimeTest, MergeReturnsBaseValueWriteTime) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kSecondsPerRecording = 101;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+  ASSERT_OK(Put("foo", "fv1"));
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
+  ASSERT_OK(Put("bar", "bv1"));
+  ASSERT_OK(Merge("foo", "bv1"));
+
+  ReadOptions ropts;
+  ropts.tailing = GetParam();
+  {
+    std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
+    iter->SeekToFirst();
+    uint64_t bar_time = VerifyKeyAndGetWriteTime(iter.get(), "bar");
+    iter->Next();
+    uint64_t foo_time = VerifyKeyAndGetWriteTime(iter.get(), "foo");
+    // "foo" has an older write time because its base value's write time is used
+    ASSERT_GT(bar_time, foo_time);
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(IteratorWriteTimeTest, IteratorWriteTimeTest,
+                        testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
 

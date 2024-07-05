@@ -16,7 +16,7 @@
 
 #include "cache/secondary_cache_adapter.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "util/distributed_mutex.h"
 
@@ -277,8 +277,8 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInHighPriPool(false);
     e->SetInLowPriPool(true);
     low_pri_pool_usage_ += e->total_charge;
-    MaintainPoolSize();
     lru_low_pri_ = e;
+    MaintainPoolSize();
   } else {
     // Insert "e" to the head of bottom-pri pool.
     e->next = lru_bottom_pri_->next;
@@ -301,6 +301,7 @@ void LRUCacheShard::MaintainPoolSize() {
     // Overflow last entry in high-pri pool to low-pri pool.
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
+    assert(lru_low_pri_->InHighPriPool());
     lru_low_pri_->SetInHighPriPool(false);
     lru_low_pri_->SetInLowPriPool(true);
     assert(high_pri_pool_usage_ >= lru_low_pri_->total_charge);
@@ -312,6 +313,7 @@ void LRUCacheShard::MaintainPoolSize() {
     // Overflow last entry in low-pri pool to bottom-pri pool.
     lru_bottom_pri_ = lru_bottom_pri_->next;
     assert(lru_bottom_pri_ != &lru_);
+    assert(lru_bottom_pri_->InLowPriPool());
     lru_bottom_pri_->SetInHighPriPool(false);
     lru_bottom_pri_->SetInLowPriPool(false);
     assert(low_pri_pool_usage_ >= lru_bottom_pri_->total_charge);
@@ -339,8 +341,8 @@ void LRUCacheShard::NotifyEvicted(
   MemoryAllocator* alloc = table_.GetAllocator();
   for (LRUHandle* entry : evicted_handles) {
     if (eviction_callback_ &&
-        eviction_callback_(entry->key(),
-                           reinterpret_cast<Cache::Handle*>(entry))) {
+        eviction_callback_(entry->key(), static_cast<Cache::Handle*>(entry),
+                           entry->HasHit())) {
       // Callback took ownership of obj; just free handle
       free(entry);
     } else {
@@ -505,7 +507,8 @@ bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
     // Only call eviction callback if we're sure no one requested erasure
     // FIXME: disabled because of test churn
     if (false && was_in_cache && !erase_if_last_ref && eviction_callback_ &&
-        eviction_callback_(e->key(), reinterpret_cast<Cache::Handle*>(e))) {
+        eviction_callback_(e->key(), static_cast<Cache::Handle*>(e),
+                           e->HasHit())) {
       // Callback took ownership of obj; just free handle
       free(e);
     } else {
@@ -646,39 +649,31 @@ void LRUCacheShard::AppendPrintableOptions(std::string& str) const {
   str.append(buffer);
 }
 
-LRUCache::LRUCache(size_t capacity, int num_shard_bits,
-                   bool strict_capacity_limit, double high_pri_pool_ratio,
-                   double low_pri_pool_ratio,
-                   std::shared_ptr<MemoryAllocator> allocator,
-                   bool use_adaptive_mutex,
-                   CacheMetadataChargePolicy metadata_charge_policy)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
-                   std::move(allocator)) {
+LRUCache::LRUCache(const LRUCacheOptions& opts) : ShardedCache(opts) {
   size_t per_shard = GetPerShardCapacity();
   MemoryAllocator* alloc = memory_allocator();
-  const EvictionCallback* eviction_callback = &eviction_callback_;
-  InitShards([=](LRUCacheShard* cs) {
-    new (cs) LRUCacheShard(per_shard, strict_capacity_limit,
-                           high_pri_pool_ratio, low_pri_pool_ratio,
-                           use_adaptive_mutex, metadata_charge_policy,
-                           /* max_upper_hash_bits */ 32 - num_shard_bits, alloc,
-                           eviction_callback);
+  InitShards([&](LRUCacheShard* cs) {
+    new (cs) LRUCacheShard(per_shard, opts.strict_capacity_limit,
+                           opts.high_pri_pool_ratio, opts.low_pri_pool_ratio,
+                           opts.use_adaptive_mutex, opts.metadata_charge_policy,
+                           /* max_upper_hash_bits */ 32 - opts.num_shard_bits,
+                           alloc, &eviction_callback_);
   });
 }
 
 Cache::ObjectPtr LRUCache::Value(Handle* handle) {
-  auto h = reinterpret_cast<const LRUHandle*>(handle);
+  auto h = static_cast<const LRUHandle*>(handle);
   return h->value;
 }
 
 size_t LRUCache::GetCharge(Handle* handle) const {
-  return reinterpret_cast<const LRUHandle*>(handle)->GetCharge(
+  return static_cast<const LRUHandle*>(handle)->GetCharge(
       GetShard(0).metadata_charge_policy_);
 }
 
 const Cache::CacheItemHelper* LRUCache::GetCacheItemHelper(
     Handle* handle) const {
-  auto h = reinterpret_cast<const LRUHandle*>(handle);
+  auto h = static_cast<const LRUHandle*>(handle);
   return h->helper;
 }
 
@@ -692,13 +687,7 @@ double LRUCache::GetHighPriPoolRatio() {
 
 }  // namespace lru_cache
 
-std::shared_ptr<Cache> NewLRUCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    const std::shared_ptr<SecondaryCache>& secondary_cache,
-    double low_pri_pool_ratio) {
+std::shared_ptr<Cache> LRUCacheOptions::MakeSharedCache() const {
   if (num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
@@ -714,36 +703,24 @@ std::shared_ptr<Cache> NewLRUCache(
     // Invalid high_pri_pool_ratio and low_pri_pool_ratio combination
     return nullptr;
   }
-  if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+  // For sanitized options
+  LRUCacheOptions opts = *this;
+  if (opts.num_shard_bits < 0) {
+    opts.num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
-  std::shared_ptr<Cache> cache = std::make_shared<LRUCache>(
-      capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
-      low_pri_pool_ratio, std::move(memory_allocator), use_adaptive_mutex,
-      metadata_charge_policy);
+  std::shared_ptr<Cache> cache = std::make_shared<LRUCache>(opts);
   if (secondary_cache) {
     cache = std::make_shared<CacheWithSecondaryAdapter>(cache, secondary_cache);
   }
   return cache;
 }
 
-std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
-  return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
-                     cache_opts.strict_capacity_limit,
-                     cache_opts.high_pri_pool_ratio,
-                     cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-                     cache_opts.metadata_charge_policy,
-                     cache_opts.secondary_cache, cache_opts.low_pri_pool_ratio);
-}
-
-std::shared_ptr<Cache> NewLRUCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    double low_pri_pool_ratio) {
-  return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                     high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                     metadata_charge_policy, nullptr, low_pri_pool_ratio);
+std::shared_ptr<RowCache> LRUCacheOptions::MakeSharedRowCache() const {
+  if (secondary_cache) {
+    // Not allowed for a RowCache
+    return nullptr;
+  }
+  // Works while RowCache is an alias for Cache
+  return MakeSharedCache();
 }
 }  // namespace ROCKSDB_NAMESPACE

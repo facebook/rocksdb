@@ -32,9 +32,10 @@ using InternalIterator = InternalIteratorBase<Slice>;
 // key is present in K child iterators, it will be yielded K times.
 //
 // REQUIRES: n >= 0
-extern InternalIterator* NewMergingIterator(
-    const InternalKeyComparator* comparator, InternalIterator** children, int n,
-    Arena* arena = nullptr, bool prefix_seek_mode = false);
+InternalIterator* NewMergingIterator(const InternalKeyComparator* comparator,
+                                     InternalIterator** children, int n,
+                                     Arena* arena = nullptr,
+                                     bool prefix_seek_mode = false);
 
 // The iterator returned by NewMergingIterator() and
 // MergeIteratorBuilder::Finish(). MergingIterator handles the merging of data
@@ -69,8 +70,10 @@ class MergeIteratorBuilder {
   // point iterators are not LevelIterator, then range tombstone iterator is
   // only added to the merging iter if there is a non-null `tombstone_iter`.
   void AddPointAndTombstoneIterator(
-      InternalIterator* point_iter, TruncatedRangeDelIterator* tombstone_iter,
-      TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr);
+      InternalIterator* point_iter,
+      std::unique_ptr<TruncatedRangeDelIterator>&& tombstone_iter,
+      std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr =
+          nullptr);
 
   // Get arena used to build the merging iterator. It is called one a child
   // iterator needs to be allocated.
@@ -90,7 +93,7 @@ class MergeIteratorBuilder {
   Arena* arena;
   // Used to set LevelIterator.range_tombstone_iter_.
   // See AddRangeTombstoneIterator() implementation for more detail.
-  std::vector<std::pair<size_t, TruncatedRangeDelIterator***>>
+  std::vector<std::pair<size_t, std::unique_ptr<TruncatedRangeDelIterator>**>>
       range_del_iter_ptrs_;
 };
 

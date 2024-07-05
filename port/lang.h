@@ -68,3 +68,30 @@ constexpr bool kMustFreeHeapAllocations = false;
 #else
 #define TSAN_SUPPRESSION
 #endif  // TSAN_SUPPRESSION
+
+// Compile-time CPU feature testing compatibility
+//
+// A way to be extra sure these defines have been included.
+#define ASSERT_FEATURE_COMPAT_HEADER() static_assert(true, "Semicolon required") /* empty */
+
+// MSVC doesn't support the same defines that gcc and clang provide
+// but does some like __AVX__. Here we can infer some features from others.
+#ifdef __AVX__
+#define __SSE4_2__ 1
+#define __PCLMUL__ 1
+#endif  // __AVX__
+
+// A way to disable PCLMUL
+#ifdef NO_PCLMUL
+#undef __PCLMUL__
+#endif
+
+// popcnt is generally implied by SSE4.2
+#if defined(__SSE4_2__)
+#define __POPCNT__ 1
+#endif
+
+// A way to disable POPCNT
+#ifdef NO_POPCNT
+#undef __POPCNT__
+#endif

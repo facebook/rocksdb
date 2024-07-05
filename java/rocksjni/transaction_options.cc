@@ -29,7 +29,7 @@ jlong Java_org_rocksdb_TransactionOptions_newTransactionOptions(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_TransactionOptions_isSetSnapshot(JNIEnv* /*env*/,
-                                                           jobject /*jobj*/,
+                                                           jclass /*jcls*/,
                                                            jlong jhandle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -42,7 +42,7 @@ jboolean Java_org_rocksdb_TransactionOptions_isSetSnapshot(JNIEnv* /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_TransactionOptions_setSetSnapshot(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jboolean jset_snapshot) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle, jboolean jset_snapshot) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
   opts->set_snapshot = jset_snapshot;
@@ -54,7 +54,7 @@ void Java_org_rocksdb_TransactionOptions_setSetSnapshot(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_TransactionOptions_isDeadlockDetect(JNIEnv* /*env*/,
-                                                              jobject /*jobj*/,
+                                                              jclass /*jcls*/,
                                                               jlong jhandle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -67,7 +67,7 @@ jboolean Java_org_rocksdb_TransactionOptions_isDeadlockDetect(JNIEnv* /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_TransactionOptions_setDeadlockDetect(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jboolean jdeadlock_detect) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -80,7 +80,7 @@ void Java_org_rocksdb_TransactionOptions_setDeadlockDetect(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_TransactionOptions_getLockTimeout(JNIEnv* /*env*/,
-                                                         jobject /*jobj*/,
+                                                         jclass /*jcls*/,
                                                          jlong jhandle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -93,7 +93,7 @@ jlong Java_org_rocksdb_TransactionOptions_getLockTimeout(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_TransactionOptions_setLockTimeout(JNIEnv* /*env*/,
-                                                        jobject /*jobj*/,
+                                                        jclass /*jcls*/,
                                                         jlong jhandle,
                                                         jlong jlock_timeout) {
   auto* opts =
@@ -107,7 +107,7 @@ void Java_org_rocksdb_TransactionOptions_setLockTimeout(JNIEnv* /*env*/,
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_TransactionOptions_getExpiration(JNIEnv* /*env*/,
-                                                        jobject /*jobj*/,
+                                                        jclass /*jcls*/,
                                                         jlong jhandle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -120,7 +120,7 @@ jlong Java_org_rocksdb_TransactionOptions_getExpiration(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_TransactionOptions_setExpiration(JNIEnv* /*env*/,
-                                                       jobject /*jobj*/,
+                                                       jclass /*jcls*/,
                                                        jlong jhandle,
                                                        jlong jexpiration) {
   auto* opts =
@@ -134,7 +134,7 @@ void Java_org_rocksdb_TransactionOptions_setExpiration(JNIEnv* /*env*/,
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_TransactionOptions_getDeadlockDetectDepth(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
   return opts->deadlock_detect_depth;
@@ -146,7 +146,7 @@ jlong Java_org_rocksdb_TransactionOptions_getDeadlockDetectDepth(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_TransactionOptions_setDeadlockDetectDepth(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jlong jdeadlock_detect_depth) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -159,7 +159,7 @@ void Java_org_rocksdb_TransactionOptions_setDeadlockDetectDepth(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_TransactionOptions_getMaxWriteBatchSize(JNIEnv* /*env*/,
-                                                               jobject /*jobj*/,
+                                                               jclass /*jcls*/,
                                                                jlong jhandle) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -172,7 +172,7 @@ jlong Java_org_rocksdb_TransactionOptions_getMaxWriteBatchSize(JNIEnv* /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_TransactionOptions_setMaxWriteBatchSize(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jlong jmax_write_batch_size) {
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
@@ -184,8 +184,8 @@ void Java_org_rocksdb_TransactionOptions_setMaxWriteBatchSize(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_TransactionOptions_disposeInternal(JNIEnv* /*env*/,
-                                                         jobject /*jobj*/,
-                                                         jlong jhandle) {
+void Java_org_rocksdb_TransactionOptions_disposeInternalJni(JNIEnv* /*env*/,
+                                                            jclass /*jobj*/,
+                                                            jlong jhandle) {
   delete reinterpret_cast<ROCKSDB_NAMESPACE::TransactionOptions*>(jhandle);
 }

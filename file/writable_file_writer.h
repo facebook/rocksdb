@@ -13,6 +13,7 @@
 
 #include "db/version_edit.h"
 #include "env/file_system_tracer.h"
+#include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
@@ -149,16 +150,13 @@ class WritableFileWriter {
   bool pending_sync_;
   std::atomic<bool> seen_error_;
 #ifndef NDEBUG
-  // SyncWithoutFlush() is the function that is allowed to be called
-  // concurrently with other function. One of the concurrent call
-  // could set seen_error_, and the other one would hit assertion
-  // in debug mode.
-  std::atomic<bool> sync_without_flush_called_ = false;
+  std::atomic<bool> seen_injected_error_;
 #endif  // NDEBUG
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
   Statistics* stats_;
+  Histograms hist_type_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::unique_ptr<FileChecksumGenerator> checksum_generator_;
   bool checksum_finalized_;
@@ -173,6 +171,7 @@ class WritableFileWriter {
       const FileOptions& options, SystemClock* clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
+      Histograms hist_type = Histograms::HISTOGRAM_ENUM_MAX,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
       bool perform_data_verification = false,
@@ -187,10 +186,14 @@ class WritableFileWriter {
         next_write_offset_(0),
         pending_sync_(false),
         seen_error_(false),
+#ifndef NDEBUG
+        seen_injected_error_(false),
+#endif  // NDEBUG
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
         stats_(stats),
+        hist_type_(hist_type),
         listeners_(),
         checksum_generator_(nullptr),
         checksum_finalized_(false),
@@ -222,36 +225,45 @@ class WritableFileWriter {
                          const std::string& fname, const FileOptions& file_opts,
                          std::unique_ptr<WritableFileWriter>* writer,
                          IODebugContext* dbg);
+
+  static IOStatus PrepareIOOptions(const WriteOptions& wo, IOOptions& opts);
+
   WritableFileWriter(const WritableFileWriter&) = delete;
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
   ~WritableFileWriter() {
-    auto s = Close();
+    ThreadStatus::OperationType cur_op_type =
+        ThreadStatusUtil::GetThreadOperation();
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
+    auto s = Close(IOOptions());
     s.PermitUncheckedError();
+    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
 
   std::string file_name() const { return file_name_; }
 
   // When this Append API is called, if the crc32c_checksum is not provided, we
   // will calculate the checksum internally.
-  IOStatus Append(const Slice& data, uint32_t crc32c_checksum = 0,
-                  Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL);
+  IOStatus Append(const IOOptions& opts, const Slice& data,
+                  uint32_t crc32c_checksum = 0);
 
-  IOStatus Pad(const size_t pad_bytes,
-               Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL);
+  IOStatus Pad(const IOOptions& opts, const size_t pad_bytes);
 
-  IOStatus Flush(Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL);
+  IOStatus Flush(const IOOptions& opts);
 
-  IOStatus Close();
+  IOStatus Close(const IOOptions& opts);
 
-  IOStatus Sync(bool use_fsync);
+  IOStatus Sync(const IOOptions& opts, bool use_fsync);
 
   // Sync only the data that was already Flush()ed. Safe to call concurrently
   // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
   // returns NotSupported status.
-  IOStatus SyncWithoutFlush(bool use_fsync);
+  IOStatus SyncWithoutFlush(const IOOptions& opts, bool use_fsync);
 
+  // Size including unflushed data written to this writer. If the next op is
+  // a successful Close, the file size will be this.
   uint64_t GetFileSize() const {
     return filesize_.load(std::memory_order_acquire);
   }
@@ -272,7 +284,9 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
-  bool BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+  bool BufferIsEmpty() const { return buf_.CurrentSize() == 0; }
+
+  bool IsClosed() const { return writable_file_.get() == nullptr; }
 
   void TEST_SetFileChecksumGenerator(
       FileChecksumGenerator* checksum_generator) {
@@ -290,12 +304,31 @@ class WritableFileWriter {
   // operating on the file after an error happens.
   void reset_seen_error() {
     seen_error_.store(false, std::memory_order_relaxed);
+#ifndef NDEBUG
+    seen_injected_error_.store(false, std::memory_order_relaxed);
+#endif  // NDEBUG
   }
-  void set_seen_error() { seen_error_.store(true, std::memory_order_relaxed); }
+  void set_seen_error(const Status& s) {
+    seen_error_.store(true, std::memory_order_relaxed);
+    (void)s;
+#ifndef NDEBUG
+    if (s.getState() && std::strstr(s.getState(), "inject")) {
+      seen_injected_error_.store(true, std::memory_order_relaxed);
+    }
+#endif  // NDEBUG
+  }
+#ifndef NDEBUG
+  bool seen_injected_error() const {
+    return seen_injected_error_.load(std::memory_order_relaxed);
+  }
+#endif  // NDEBUG
 
-  IOStatus AssertFalseAndGetStatusForPrevError() {
-    // This should only happen if SyncWithoutFlush() was called.
-    assert(sync_without_flush_called_);
+  IOStatus GetWriterHasPreviousErrorStatus() {
+#ifndef NDEBUG
+    if (seen_injected_error_.load(std::memory_order_relaxed)) {
+      return IOStatus::IOError("Writer has previous injected error.");
+    }
+#endif  // NDEBUG
     return IOStatus::IOError("Writer has previous error.");
   }
 
@@ -307,14 +340,20 @@ class WritableFileWriter {
 
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
-  IOStatus WriteDirect(Env::IOPriority op_rate_limiter_priority);
-  IOStatus WriteDirectWithChecksum(Env::IOPriority op_rate_limiter_priority);
+  // `opts` should've been called with `FinalizeIOOptions()` before passing in
+  IOStatus WriteDirect(const IOOptions& opts);
+  // `opts` should've been called with `FinalizeIOOptions()` before passing in
+  IOStatus WriteDirectWithChecksum(const IOOptions& opts);
   // Normal write.
-  IOStatus WriteBuffered(const char* data, size_t size,
-                         Env::IOPriority op_rate_limiter_priority);
-  IOStatus WriteBufferedWithChecksum(const char* data, size_t size,
-                                     Env::IOPriority op_rate_limiter_priority);
-  IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
-  IOStatus SyncInternal(bool use_fsync);
+  // `opts` should've been called with `FinalizeIOOptions()` before passing in
+  IOStatus WriteBuffered(const IOOptions& opts, const char* data, size_t size);
+  // `opts` should've been called with `FinalizeIOOptions()` before passing in
+  IOStatus WriteBufferedWithChecksum(const IOOptions& opts, const char* data,
+                                     size_t size);
+  // `opts` should've been called with `FinalizeIOOptions()` before passing in
+  IOStatus RangeSync(const IOOptions& opts, uint64_t offset, uint64_t nbytes);
+  // `opts` should've been called with `FinalizeIOOptions()` before passing in
+  IOStatus SyncInternal(const IOOptions& opts, bool use_fsync);
+  IOOptions FinalizeIOOptions(const IOOptions& opts) const;
 };
 }  // namespace ROCKSDB_NAMESPACE

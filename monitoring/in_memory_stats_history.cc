@@ -12,7 +12,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-InMemoryStatsHistoryIterator::~InMemoryStatsHistoryIterator() {}
+InMemoryStatsHistoryIterator::~InMemoryStatsHistoryIterator() = default;
 
 bool InMemoryStatsHistoryIterator::Valid() const { return valid_; }
 

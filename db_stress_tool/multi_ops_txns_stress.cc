@@ -150,7 +150,7 @@ std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
   PutFixed32(&ret, kPrimaryIndexId);
   PutFixed32(&ret, a);
 
-  char* const buf = &ret[0];
+  char* const buf = ret.data();
   std::reverse(buf, buf + sizeof(kPrimaryIndexId));
   std::reverse(buf + sizeof(kPrimaryIndexId),
                buf + sizeof(kPrimaryIndexId) + sizeof(a));
@@ -162,7 +162,7 @@ std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c) {
   PutFixed32(&ret, kSecondaryIndexId);
   PutFixed32(&ret, c);
 
-  char* const buf = &ret[0];
+  char* const buf = ret.data();
   std::reverse(buf, buf + sizeof(kSecondaryIndexId));
   std::reverse(buf + sizeof(kSecondaryIndexId),
                buf + sizeof(kSecondaryIndexId) + sizeof(c));
@@ -176,7 +176,7 @@ std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c,
   PutFixed32(&ret, c);
   PutFixed32(&ret, a);
 
-  char* const buf = &ret[0];
+  char* const buf = ret.data();
   std::reverse(buf, buf + sizeof(kSecondaryIndexId));
   std::reverse(buf + sizeof(kSecondaryIndexId),
                buf + sizeof(kSecondaryIndexId) + sizeof(c));
@@ -373,10 +373,15 @@ Status MultiOpsTxnsStressTest::TestGet(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
+  ThreadStatus::OperationType cur_op_type =
+      ThreadStatusUtil::GetThreadOperation();
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   uint32_t a = 0;
   uint32_t pos = 0;
   std::tie(a, pos) = ChooseExistingA(thread);
-  return PointLookupTxn(thread, read_opts, a);
+  Status s = PointLookupTxn(thread, read_opts, a);
+  ThreadStatusUtil::SetThreadOperation(cur_op_type);
+  return s;
 }
 
 // Not used.
@@ -389,6 +394,12 @@ std::vector<Status> MultiOpsTxnsStressTest::TestMultiGet(
 
 // Wide columns are currently not supported by transactions.
 void MultiOpsTxnsStressTest::TestGetEntity(
+    ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+    const std::vector<int>& /* rand_column_families */,
+    const std::vector<int64_t>& /* rand_keys */) {}
+
+// Wide columns are currently not supported by transactions.
+void MultiOpsTxnsStressTest::TestMultiGetEntity(
     ThreadState* /* thread */, const ReadOptions& /* read_opts */,
     const std::vector<int>& /* rand_column_families */,
     const std::vector<int64_t>& /* rand_keys */) {}
@@ -410,10 +421,22 @@ Status MultiOpsTxnsStressTest::TestIterate(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
+  ThreadStatus::OperationType cur_op_type =
+      ThreadStatusUtil::GetThreadOperation();
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   uint32_t c = 0;
   uint32_t pos = 0;
   std::tie(c, pos) = ChooseExistingC(thread);
-  return RangeScanTxn(thread, read_opts, c);
+  Status s = RangeScanTxn(thread, read_opts, c);
+  ThreadStatusUtil::SetThreadOperation(cur_op_type);
+  return s;
+}
+
+Status MultiOpsTxnsStressTest::TestIterateAttributeGroups(
+    ThreadState* /*thread*/, const ReadOptions& /*read_opts*/,
+    const std::vector<int>& /*rand_column_families*/,
+    const std::vector<int64_t>& /*rand_keys*/) {
+  return Status::NotSupported();
 }
 
 // Not intended for use.
@@ -554,7 +577,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                    uint32_t new_a) {
   std::string old_pk = Record::EncodePrimaryKey(old_a);
   std::string new_pk = Record::EncodePrimaryKey(new_a);
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -566,7 +589,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   assert(txn);
   txn->SetSnapshotOnNextOperation(/*notifier=*/nullptr);
 
-  const Defer cleanup([new_a, &s, thread, txn, this]() {
+  const Defer cleanup([new_a, &s, thread, this, &txn]() {
     if (s.ok()) {
       // Two gets, one for existing pk, one for locking potential new pk.
       thread->stats.AddGets(/*ngets=*/2, /*nfounds=*/1);
@@ -588,7 +611,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     }
     auto& key_gen = key_gen_for_a_[thread->tid];
     key_gen->UndoAllocation(new_a);
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   ReadOptions ropts;
@@ -665,7 +688,6 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 
   auto& key_gen = key_gen_for_a_.at(thread->tid);
   if (s.ok()) {
-    delete txn;
     key_gen->Replace(old_a, old_a_pos, new_a);
   }
   return s;
@@ -675,7 +697,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
                                                      uint32_t old_c,
                                                      uint32_t old_c_pos,
                                                      uint32_t new_c) {
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -688,7 +710,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 
   Iterator* it = nullptr;
   long iterations = 0;
-  const Defer cleanup([new_c, &s, thread, &it, txn, this, &iterations]() {
+  const Defer cleanup([new_c, &s, thread, &txn, &it, this, &iterations]() {
     delete it;
     if (s.ok()) {
       thread->stats.AddIterations(iterations);
@@ -713,7 +735,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     }
     auto& key_gen = key_gen_for_c_[thread->tid];
     key_gen->UndoAllocation(new_c);
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   // TODO (yanqin) try SetSnapshotOnNextOperation(). We currently need to take
@@ -734,6 +756,10 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   ropts.iterate_upper_bound = &iter_ub;
   ropts.rate_limiter_priority =
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+  if (FLAGS_use_sqfc_for_range_queries) {
+    ropts.table_filter =
+        sqfc_factory_->GetTableFilterForRangeQuery(old_sk_prefix, iter_ub);
+  }
   it = txn->GetIterator(ropts);
 
   assert(it);
@@ -862,7 +888,6 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   s = CommitAndCreateTimestampedSnapshotIfNeeded(thread, *txn);
 
   if (s.ok()) {
-    delete txn;
     auto& key_gen = key_gen_for_c_.at(thread->tid);
     key_gen->Replace(old_c, old_c_pos, new_c);
   }
@@ -874,7 +899,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
                                                           uint32_t a,
                                                           uint32_t b_delta) {
   std::string pk_str = Record::EncodePrimaryKey(a);
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -885,7 +910,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
 
   assert(txn);
 
-  const Defer cleanup([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, &txn]() {
     if (s.ok()) {
       thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
       thread->stats.AddBytesForWrites(
@@ -902,7 +927,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
     } else {
       thread->stats.AddErrors(1);
     }
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
   ReadOptions ropts;
   ropts.rate_limiter_priority =
@@ -946,9 +971,6 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
 
   s = CommitAndCreateTimestampedSnapshotIfNeeded(thread, *txn);
 
-  if (s.ok()) {
-    delete txn;
-  }
   return s;
 }
 
@@ -958,7 +980,7 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
   // pk may or may not exist
   PinnableSlice value;
 
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -969,7 +991,7 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
 
   assert(txn);
 
-  const Defer cleanup([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, &txn]() {
     if (s.ok()) {
       thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
       return;
@@ -978,7 +1000,7 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
     } else {
       thread->stats.AddErrors(1);
     }
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   std::shared_ptr<const Snapshot> snapshot;
@@ -995,9 +1017,6 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
   if (s.ok()) {
     s = txn->Commit();
   }
-  if (s.ok()) {
-    delete txn;
-  }
   return s;
 }
 
@@ -1005,7 +1024,7 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
                                             ReadOptions ropts, uint32_t c) {
   std::string sk = Record::EncodeSecondaryKey(c);
 
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -1016,13 +1035,13 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
 
   assert(txn);
 
-  const Defer cleanup([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, &txn]() {
     if (s.ok()) {
       thread->stats.AddIterations(1);
       return;
     }
     thread->stats.AddErrors(1);
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   std::shared_ptr<const Snapshot> snapshot;
@@ -1048,10 +1067,6 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
     s = txn->Commit();
   } else {
     s = iter->status();
-  }
-
-  if (s.ok()) {
-    delete txn;
   }
 
   return s;
@@ -1103,6 +1118,10 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     ropts.snapshot = snapshot;
     ropts.total_order_seek = true;
     ropts.iterate_upper_bound = &iter_ub;
+    if (FLAGS_use_sqfc_for_range_queries) {
+      ropts.table_filter =
+          sqfc_factory_->GetTableFilterForRangeQuery(start_key, iter_ub);
+    }
 
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
     for (it->Seek(start_key); it->Valid(); it->Next()) {
@@ -1110,8 +1129,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
         oss << "Cannot decode primary index entry " << it->key().ToString(true)
-            << "=>" << it->value().ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+            << "=>" << it->value().ToString(true) << ". Status is "
+            << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1131,8 +1151,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       std::string value;
       s = db_->Get(ropts, sk, &value);
       if (!s.ok()) {
-        oss << "Cannot find secondary index entry " << sk.ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+        oss << "Cannot find secondary index entry " << sk.ToString(true)
+            << ". Status is " << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1159,8 +1180,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
         oss << "Cannot decode secondary index entry "
-            << it->key().ToString(true) << "=>" << it->value().ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+            << it->key().ToString(true) << "=>" << it->value().ToString(true)
+            << ". Status is " << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1174,7 +1196,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       if (!s.ok()) {
         oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
             << s.ToString() << ". sk " << it->key().ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1182,8 +1204,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       s = std::get<0>(result);
       if (!s.ok()) {
         oss << "Error decoding primary index value "
-            << Slice(value).ToString(true) << ". " << s.ToString();
-        VerificationAbort(thread->shared, oss.str(), s);
+            << Slice(value).ToString(true) << ". Status is " << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1193,7 +1215,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
             << Slice(value).ToString(true) << " (a=" << record.a_value()
             << ", c=" << c_in_primary << "), sk: " << it->key().ToString(true)
             << " (c=" << record.c_value() << ")";
-        VerificationAbort(thread->shared, oss.str(), s);
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1204,7 +1226,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     oss << "Pk/sk mismatch: primary index has " << primary_index_entries_count
         << " entries. Secondary index has " << secondary_index_entries_count
         << " entries.";
-    VerificationAbort(thread->shared, oss.str(), Status::OK());
+    VerificationAbort(thread->shared, oss.str());
     assert(false);
     return;
   }
@@ -1214,7 +1236,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
 // which can be called before TransactionDB::Open() returns to caller.
 // Therefore, at that time, db_ and txn_db_  may still be nullptr.
 // Caller has to make sure that the race condition does not happen.
-void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
+void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
+                                            int job_id) {
   DB* const db = db_aptr_.load(std::memory_order_acquire);
   if (db == nullptr) {
     return;
@@ -1223,7 +1246,11 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
   assert(db_ == db);
   assert(db_ != nullptr);
 
+  ThreadStatus::OperationType cur_op_type =
+      ThreadStatusUtil::GetThreadOperation();
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   const Snapshot* const snapshot = db_->GetSnapshot();
+  ThreadStatusUtil::SetThreadOperation(cur_op_type);
   assert(snapshot);
   ManagedSnapshot snapshot_guard(db_, snapshot);
 
@@ -1243,6 +1270,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
   ReadOptions ropts;
   ropts.snapshot = snapshot;
   ropts.total_order_seek = true;
+  ropts.io_activity = read_options.io_activity;
 
   std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
   for (it->Seek(start_key); it->Valid(); it->Next()) {
@@ -1318,14 +1346,16 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
 }
 
 void MultiOpsTxnsStressTest::ProcessRecoveredPreparedTxnsHelper(
-    Transaction* txn, SharedState*) {
+    Transaction* txn, SharedState* shared) {
   thread_local Random rand(static_cast<uint32_t>(FLAGS_seed));
   if (rand.OneIn(2)) {
     Status s = txn->Commit();
-    assert(s.ok());
+    ProcessStatus(shared, "ProcessRecoveredPreparedTxnsHelper", s,
+                  /*ignore_injected_error=*/false);
   } else {
     Status s = txn->Rollback();
-    assert(s.ok());
+    ProcessStatus(shared, "ProcessRecoveredPreparedTxnsHelper", s,
+                  /*ignore_injected_error=*/false);
   }
 }
 
@@ -1504,14 +1534,15 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     WriteBatch wb;
     const auto primary_index_entry = record.EncodePrimaryIndexEntry();
     Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
-    assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     const auto secondary_index_entry = record.EncodeSecondaryIndexEntry();
     s = wb.Put(secondary_index_entry.first, secondary_index_entry.second);
-    assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     s = txn_db_->Write(wopts, &wb);
     assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     // TODO (yanqin): make the following check optional, especially when data
     // size is large.
@@ -1519,7 +1550,7 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     tmp_rec.SetB(record.b_value());
     s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
                                           secondary_index_entry.second);
-    assert(s.ok());
+    ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
     assert(tmp_rec == record);
 
     existing_a_uniqs[tid].insert(a);
@@ -1599,6 +1630,10 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
     ropts.iterate_lower_bound = &pk_lb;
     ropts.iterate_upper_bound = &pk_ub;
     ropts.total_order_seek = true;
+    if (FLAGS_use_sqfc_for_range_queries) {
+      ropts.table_filter =
+          sqfc_factory_->GetTableFilterForRangeQuery(pk_lb, pk_ub);
+    }
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
 
     for (it->SeekToFirst(); it->Valid(); it->Next()) {

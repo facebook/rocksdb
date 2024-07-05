@@ -12,12 +12,12 @@ public class OptionsUtil {
    * A static method to construct the DBOptions and ColumnFamilyDescriptors by
    * loading the latest RocksDB options file stored in the specified rocksdb
    * database.
-   *
+   * <p>
    * Note that the all the pointer options (except table_factory, which will
    * be described in more details below) will be initialized with the default
    * values.  Developers can further initialize them after this function call.
    * Below is an example list of pointer options which will be initialized.
-   *
+   * <p>
    * - env
    * - memtable_factory
    * - compaction_filter_factory
@@ -25,7 +25,7 @@ public class OptionsUtil {
    * - comparator
    * - merge_operator
    * - compaction_filter
-   *
+   * <p>
    * For table_factory, this function further supports deserializing
    * BlockBasedTableFactory and its BlockBasedTableOptions except the
    * pointer options of BlockBasedTableOptions (flush_block_policy_factory,
@@ -43,9 +43,11 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static void loadLatestOptions(ConfigOptions configOptions, String dbPath,
-      DBOptions dbOptions, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+  public static void loadLatestOptions(final ConfigOptions configOptions, final String dbPath,
+      final DBOptions dbOptions, final List<ColumnFamilyDescriptor> cfDescs)
+      throws RocksDBException {
     loadLatestOptions(configOptions.nativeHandle_, dbPath, dbOptions.nativeHandle_, cfDescs);
+    loadTableFormatConfig(cfDescs);
   }
 
   /**
@@ -62,10 +64,12 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static void loadOptionsFromFile(ConfigOptions configOptions, String optionsFileName,
-      DBOptions dbOptions, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+  public static void loadOptionsFromFile(final ConfigOptions configOptions,
+      final String optionsFileName, final DBOptions dbOptions,
+      final List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
     loadOptionsFromFile(
         configOptions.nativeHandle_, optionsFileName, dbOptions.nativeHandle_, cfDescs);
+    loadTableFormatConfig(cfDescs);
   }
 
   /**
@@ -78,8 +82,18 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static String getLatestOptionsFileName(String dbPath, Env env) throws RocksDBException {
+  public static String getLatestOptionsFileName(final String dbPath, final Env env)
+      throws RocksDBException {
     return getLatestOptionsFileName(dbPath, env.nativeHandle_);
+  }
+
+  private static void loadTableFormatConfig(final List<ColumnFamilyDescriptor> cfDescs) {
+    for (final ColumnFamilyDescriptor columnFamilyDescriptor : cfDescs) {
+      @SuppressWarnings("PMD.CloseResource")
+      final ColumnFamilyOptions columnFamilyOptions = columnFamilyDescriptor.getOptions();
+      columnFamilyOptions.setFetchedTableFormatConfig(
+          readTableFormatConfig(columnFamilyOptions.nativeHandle_));
+    }
   }
 
   /**
@@ -89,10 +103,12 @@ public class OptionsUtil {
   private OptionsUtil() {}
 
   // native methods
-  private native static void loadLatestOptions(long cfgHandle, String dbPath, long dbOptionsHandle,
+  private static native void loadLatestOptions(long cfgHandle, String dbPath, long dbOptionsHandle,
       List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
-  private native static void loadOptionsFromFile(long cfgHandle, String optionsFileName,
+  private static native void loadOptionsFromFile(long cfgHandle, String optionsFileName,
       long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
-  private native static String getLatestOptionsFileName(String dbPath, long envHandle)
+  private static native String getLatestOptionsFileName(String dbPath, long envHandle)
       throws RocksDBException;
+
+  private static native TableFormatConfig readTableFormatConfig(final long nativeHandle_);
 }

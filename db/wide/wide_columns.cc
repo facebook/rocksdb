@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/wide_columns.h"
-
 #include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -14,8 +13,9 @@ const Slice kDefaultWideColumnName;
 const WideColumns kNoWideColumns;
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
-  Slice value_copy = value_;
+  columns_.clear();
 
+  Slice value_copy = value_;
   return WideColumnSerialization::Deserialize(value_copy, columns_);
 }
 

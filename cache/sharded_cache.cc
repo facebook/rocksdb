@@ -13,20 +13,57 @@
 #include <cstdint>
 #include <memory>
 
+#include "env/unique_id_gen.h"
+#include "rocksdb/env.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+// The generated seeds must fit in 31 bits so that
+// ShardedCacheOptions::hash_seed can be set to it explicitly, for
+// diagnostic/debugging purposes.
+constexpr uint32_t kSeedMask = 0x7fffffff;
+uint32_t DetermineSeed(int32_t hash_seed_option) {
+  if (hash_seed_option >= 0) {
+    // User-specified exact seed
+    return static_cast<uint32_t>(hash_seed_option);
+  }
+  static SemiStructuredUniqueIdGen gen;
+  if (hash_seed_option == ShardedCacheOptions::kHostHashSeed) {
+    std::string hostname;
+    Status s = Env::Default()->GetHostNameString(&hostname);
+    if (s.ok()) {
+      return GetSliceHash(hostname) & kSeedMask;
+    } else {
+      // Fall back on something stable within the process.
+      return BitwiseAnd(gen.GetBaseUpper(), kSeedMask);
+    }
+  } else {
+    // for kQuasiRandomHashSeed and fallback
+    uint32_t val = gen.GenerateNext<uint32_t>() & kSeedMask;
+    // Perform some 31-bit bijective transformations so that we get
+    // quasirandom, not just incrementing. (An incrementing seed from a
+    // random starting point would be fine, but hard to describe in a name.)
+    // See https://en.wikipedia.org/wiki/Quasirandom and using a murmur-like
+    // transformation here for our bijection in the lower 31 bits.
+    // See https://en.wikipedia.org/wiki/MurmurHash
+    val *= /*31-bit prime*/ 1150630961;
+    val ^= (val & kSeedMask) >> 17;
+    val *= /*31-bit prime*/ 1320603883;
+    return val & kSeedMask;
+  }
+}
+}  // namespace
 
-ShardedCacheBase::ShardedCacheBase(size_t capacity, int num_shard_bits,
-                                   bool strict_capacity_limit,
-                                   std::shared_ptr<MemoryAllocator> allocator)
-    : Cache(std::move(allocator)),
+ShardedCacheBase::ShardedCacheBase(const ShardedCacheOptions& opts)
+    : Cache(opts.memory_allocator),
       last_id_(1),
-      shard_mask_((uint32_t{1} << num_shard_bits) - 1),
-      strict_capacity_limit_(strict_capacity_limit),
-      capacity_(capacity) {}
+      shard_mask_((uint32_t{1} << opts.num_shard_bits) - 1),
+      hash_seed_(DetermineSeed(opts.hash_seed)),
+      strict_capacity_limit_(opts.strict_capacity_limit),
+      capacity_(opts.capacity) {}
 
 size_t ShardedCacheBase::ComputePerShardCapacity(size_t capacity) const {
   uint32_t num_shards = GetNumShards();
@@ -44,6 +81,16 @@ uint64_t ShardedCacheBase::NewId() {
 size_t ShardedCacheBase::GetCapacity() const {
   MutexLock l(&config_mutex_);
   return capacity_;
+}
+
+Status ShardedCacheBase::GetSecondaryCacheCapacity(size_t& size) const {
+  size = 0;
+  return Status::OK();
+}
+
+Status ShardedCacheBase::GetSecondaryCachePinnedUsage(size_t& size) const {
+  size = 0;
+  return Status::OK();
 }
 
 bool ShardedCacheBase::HasStrictCapacityLimit() const {

@@ -38,15 +38,18 @@ class SequenceIterWrapper : public InternalIterator {
   bool Valid() const override { return inner_iter_->Valid(); }
   Status status() const override { return inner_iter_->status(); }
   void Next() override {
-    num_itered_++;
+    if (!inner_iter_->IsDeleteRangeSentinelKey()) {
+      num_itered_++;
+    }
     inner_iter_->Next();
   }
   void Seek(const Slice& target) override {
     if (!need_count_entries_) {
+      has_num_itered_ = false;
       inner_iter_->Seek(target);
     } else {
-      // For flush cases, we need to count total number of entries, so we
-      // do Next() rather than Seek().
+      // Need to count total number of entries,
+      // so we do Next() rather than Seek().
       while (inner_iter_->Valid() &&
              icmp_.Compare(inner_iter_->key(), target) < 0) {
         Next();
@@ -62,7 +65,8 @@ class SequenceIterWrapper : public InternalIterator {
   void SeekForPrev(const Slice& /* target */) override { assert(false); }
   void SeekToLast() override { assert(false); }
 
-  uint64_t num_itered() const { return num_itered_; }
+  uint64_t NumItered() const { return num_itered_; }
+  bool HasNumItered() const { return has_num_itered_; }
   bool IsDeleteRangeSentinelKey() const override {
     assert(Valid());
     return inner_iter_->IsDeleteRangeSentinelKey();
@@ -73,6 +77,7 @@ class SequenceIterWrapper : public InternalIterator {
   InternalIterator* inner_iter_;  // not owned
   uint64_t num_itered_ = 0;
   bool need_count_entries_;
+  bool has_num_itered_ = true;
 };
 
 class CompactionIterator {
@@ -114,7 +119,8 @@ class CompactionIterator {
     virtual bool SupportsPerKeyPlacement() const = 0;
 
     // `key` includes timestamp if user-defined timestamp is enabled.
-    virtual bool WithinPenultimateLevelOutputRange(const Slice& key) const = 0;
+    virtual bool WithinPenultimateLevelOutputRange(
+        const ParsedInternalKey&) const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -181,17 +187,23 @@ class CompactionIterator {
     // Check if key is within penultimate level output range, to see if it's
     // safe to output to the penultimate level for per_key_placement feature.
     // `key` includes timestamp if user-defined timestamp is enabled.
-    bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
-      return compaction_->WithinPenultimateLevelOutputRange(key);
+    bool WithinPenultimateLevelOutputRange(
+        const ParsedInternalKey& ikey) const override {
+      return compaction_->WithinPenultimateLevelOutputRange(ikey);
     }
 
    private:
     const Compaction* compaction_;
   };
 
+  // @param must_count_input_entries  if true, `NumInputEntryScanned()` will
+  // return the number of input keys scanned. If false, `NumInputEntryScanned()`
+  // will return this number if no Seek was called on `input`. User should call
+  // `HasNumInputEntryScanned()` first in this case.
   CompactionIterator(
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
+      SequenceNumber earliest_snapshot,
       SequenceNumber earliest_write_conflict_snapshot,
       SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
       Env* env, bool report_detailed_time, bool expect_valid_internal_key,
@@ -199,7 +211,7 @@ class CompactionIterator {
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
-      const Compaction* compaction = nullptr,
+      bool must_count_input_entries, const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -211,6 +223,7 @@ class CompactionIterator {
   CompactionIterator(
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
+      SequenceNumber earliest_snapshot,
       SequenceNumber earliest_write_conflict_snapshot,
       SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
       Env* env, bool report_detailed_time, bool expect_valid_internal_key,
@@ -219,6 +232,7 @@ class CompactionIterator {
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
       std::unique_ptr<CompactionProxy> compaction,
+      bool must_count_input_entries,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -253,7 +267,8 @@ class CompactionIterator {
     return current_user_key_;
   }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
-  uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
+  bool HasNumInputEntryScanned() const { return input_.HasNumItered(); }
+  uint64_t NumInputEntryScanned() const { return input_.NumItered(); }
   // If the current key should be placed on penultimate level, only valid if
   // per_key_placement is supported
   bool output_to_penultimate_level() const {
@@ -397,6 +412,7 @@ class CompactionIterator {
     kKeepDel = 9,
     kNewUserKey = 10,
     kRangeDeletion = 11,
+    kSwapPreferredSeqno = 12,
   };
 
   struct ValidityInfo {
@@ -423,6 +439,17 @@ class CompactionIterator {
   // iterator output (or current key in the underlying iterator during
   // NextFromInput()).
   ParsedInternalKey ikey_;
+
+  // When a kTypeValuePreferredSeqno entry's preferred seqno is safely swapped
+  // in in this compaction, this field saves its original sequence number for
+  // range checking whether it's safe to be placed on the penultimate level.
+  // This is to ensure when such an entry happens to be the right boundary of
+  // penultimate safe range, it won't get excluded because with the preferred
+  // seqno swapped in, it's now larger than the right boundary (itself before
+  // the swap). This is safe to do, because preferred seqno is swapped in only
+  // when no entries with the same user key exist on lower levels and this entry
+  // is already visible in the earliest snapshot.
+  std::optional<SequenceNumber> saved_seq_for_penul_check_ = kMaxSequenceNumber;
   // Stores whether ikey_.user_key is valid. If set to false, the user key is
   // not compared against the current key in the underlying iterator.
   bool has_current_user_key_ = false;

@@ -168,6 +168,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ASSERT_EQ(iter->value().ToString(), blobs[i]);
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(i, num_blobs);
     ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
@@ -203,6 +204,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ASSERT_EQ(iter->value().ToString(), blobs[i]);
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(i, num_blobs);
     ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD),
               num_blobs);
@@ -224,6 +226,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ASSERT_EQ(iter->value().ToString(), blobs[i]);
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(i, num_blobs);
     ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
@@ -415,8 +418,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobs) {
     std::array<PinnableSlice, num_keys> values;
     std::array<Status, num_keys> statuses;
 
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(values[0], first_value);
@@ -438,8 +441,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobs) {
     std::array<PinnableSlice, num_keys> values;
     std::array<Status, num_keys> statuses;
 
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(values[0], first_value);
@@ -509,8 +512,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
     std::array<PinnableSlice, num_keys> values;
     std::array<Status, num_keys> statuses;
 
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(values[0], first_value);
@@ -531,8 +534,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
     std::array<PinnableSlice, num_keys> values;
     std::array<Status, num_keys> statuses;
 
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(values[0], first_value);
@@ -550,8 +553,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
     std::array<PinnableSlice, num_keys> values;
     std::array<Status, num_keys> statuses;
 
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(values[0], first_value);
@@ -571,8 +574,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
     std::array<PinnableSlice, num_keys> values;
     std::array<Status, num_keys> statuses;
 
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(values[0], first_value);
@@ -755,8 +758,8 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
     //
     // [offset=0, len=12288]
 
-    db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -826,8 +829,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   {
     std::array<PinnableSlice, kNumKeys> values;
     std::array<Status, kNumKeys> statuses;
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys,
+                  keys.data(), values.data(), statuses.data());
 
     for (size_t i = 0; i < kNumKeys; ++i) {
       ASSERT_OK(statuses[i]);
@@ -840,8 +843,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   {
     std::array<PinnableSlice, kNumKeys> values;
     std::array<Status, kNumKeys> statuses;
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys,
+                  keys.data(), values.data(), statuses.data());
 
     for (size_t i = 0; i < kNumKeys; ++i) {
       ASSERT_TRUE(statuses[i].IsIncomplete());
@@ -855,8 +858,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   {
     std::array<PinnableSlice, kNumKeys> values;
     std::array<Status, kNumKeys> statuses;
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys,
+                  keys.data(), values.data(), statuses.data());
 
     for (size_t i = 0; i < kNumKeys; ++i) {
       ASSERT_OK(statuses[i]);
@@ -869,8 +872,8 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   {
     std::array<PinnableSlice, kNumKeys> values;
     std::array<Status, kNumKeys> statuses;
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys,
+                  keys.data(), values.data(), statuses.data());
 
     for (size_t i = 0; i < kNumKeys; ++i) {
       ASSERT_OK(statuses[i]);
@@ -1179,6 +1182,30 @@ TEST_F(DBBlobBasicTest, GetMergeBlobWithPut) {
   ASSERT_EQ(Get("Key1"), "v1,v2,v3");
 }
 
+TEST_F(DBBlobBasicTest, GetMergeBlobFromMemoryTier) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  ASSERT_OK(Put(Key(0), "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge(Key(0), "v2"));
+  ASSERT_OK(Flush());
+
+  // Regular `Get()` loads data block to cache.
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), Key(0), &value));
+  ASSERT_EQ("v1,v2", value);
+
+  // Base value blob is still uncached, so an in-memory read will fail.
+  ReadOptions read_options;
+  read_options.read_tier = kBlockCacheTier;
+  ASSERT_TRUE(db_->Get(read_options, Key(0), &value).IsIncomplete());
+}
+
 TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
   constexpr size_t num_keys = 3;
 
@@ -1203,8 +1230,8 @@ TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
   std::array<PinnableSlice, num_keys> values;
   std::array<Status, num_keys> statuses;
 
-  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys, &keys[0],
-                &values[0], &statuses[0]);
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                keys.data(), values.data(), statuses.data());
 
   ASSERT_OK(statuses[0]);
   ASSERT_EQ(values[0], "v0_0,v0_1,v0_2");
@@ -1467,8 +1494,8 @@ TEST_P(DBBlobBasicIOErrorMultiGetTest, MultiGetBlobs_IOError) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys, &keys[0],
-                &values[0], &statuses[0]);
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                keys.data(), values.data(), statuses.data());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1522,6 +1549,57 @@ TEST_P(DBBlobBasicIOErrorMultiGetTest, MultipleBlobFiles) {
   ASSERT_OK(statuses[0]);
   ASSERT_EQ(value1, values[0]);
   ASSERT_TRUE(statuses[1].IsIOError());
+}
+
+TEST_F(DBBlobBasicTest, MultiGetFindTable_IOError) {
+  // Repro test for a specific bug where `MultiGet()` would fail to open a table
+  // in `FindTable()` and then proceed to return raw blob handles for the other
+  // keys.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  // Force no table cache so every read will preload the SST file.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+
+  constexpr size_t num_keys = 2;
+
+  constexpr char key1[] = "key1";
+  constexpr char value1[] = "blob1";
+
+  ASSERT_OK(Put(key1, value1));
+  ASSERT_OK(Flush());
+
+  constexpr char key2[] = "key2";
+  constexpr char value2[] = "blob2";
+
+  ASSERT_OK(Put(key2, value2));
+  ASSERT_OK(Flush());
+
+  std::atomic<int> num_files_opened = 0;
+  // This test would be more realistic if we injected an `IOError` from the
+  // `FileSystem`
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::MultiGet:FindTable", [&](void* status) {
+        num_files_opened++;
+        if (num_files_opened == 2) {
+          Status* s = static_cast<Status*>(status);
+          *s = Status::IOError();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::array<Slice, num_keys> keys{{key1, key2}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                keys.data(), values.data(), statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsIOError());
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(value2, values[1]);
 }
 
 namespace {
@@ -1817,7 +1895,7 @@ TEST_F(DBBlobBasicTest, GetEntityBlob) {
     std::array<Status, num_keys> statuses;
 
     db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
-                        &keys[0], &results[0], &statuses[0]);
+                        keys.data(), results.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(results[0].columns(), expected_columns);
@@ -1914,8 +1992,8 @@ TEST_F(DBBlobWithTimestampTest, MultiGetBlobs) {
     std::array<PinnableSlice, num_keys> values;
     std::array<Status, num_keys> statuses;
 
-    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                  &values[0], &statuses[0]);
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys,
+                  keys.data(), values.data(), statuses.data());
 
     ASSERT_OK(statuses[0]);
     ASSERT_EQ(values[0], first_value);
@@ -1998,8 +2076,8 @@ TEST_F(DBBlobWithTimestampTest, MultiGetMergeBlobWithPut) {
   std::array<PinnableSlice, num_keys> values;
   std::array<Status, num_keys> statuses;
 
-  db_->MultiGet(read_opts, db_->DefaultColumnFamily(), num_keys, &keys[0],
-                &values[0], &statuses[0]);
+  db_->MultiGet(read_opts, db_->DefaultColumnFamily(), num_keys, keys.data(),
+                values.data(), statuses.data());
 
   ASSERT_OK(statuses[0]);
   ASSERT_EQ(values[0], "v0_0,v0_1,v0_2");
@@ -2123,6 +2201,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
                        /*key_is_internal*/ false);
       iter->Prev();
     }
+    ASSERT_OK(iter->status());
   }
 
   // Backward iteration, then reverse to forward.
@@ -2169,6 +2248,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Next();
       }
     }
+    ASSERT_OK(iter->status());
   }
 
   // Backward iterating multiple versions of the same key, get in this order:
@@ -2187,6 +2267,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Prev();
       }
     }
+    ASSERT_OK(iter->status());
   }
 
   int upper_bound_idx = num_blobs - 2;
@@ -2209,6 +2290,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Next();
       }
     }
+    ASSERT_OK(iter->status());
   }
 
   // Backward iteration with upper and lower bound.
@@ -2224,6 +2306,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Prev();
       }
     }
+    ASSERT_OK(iter->status());
   }
 }
 

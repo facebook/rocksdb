@@ -34,10 +34,10 @@ struct ConfigOptions;
 // including data loss, unreported corruption, deadlocks, and more.
 class SliceTransform : public Customizable {
  public:
-  virtual ~SliceTransform(){};
+  virtual ~SliceTransform(){}
 
   // Return the name of this transformation.
-  virtual const char* Name() const override = 0;
+  const char* Name() const override = 0;
   static const char* Type() { return "SliceTransform"; }
 
   // Creates and configures a new SliceTransform from the input options and id.
@@ -123,13 +123,13 @@ class SliceTransform : public Customizable {
 
 // The prefix is the first `prefix_len` bytes of the key, and keys shorter
 // then `prefix_len` are not InDomain.
-extern const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
+const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
 
 // The prefix is the first min(length(key),`cap_len`) bytes of the key, and
 // all keys are InDomain.
-extern const SliceTransform* NewCappedPrefixTransform(size_t cap_len);
+const SliceTransform* NewCappedPrefixTransform(size_t cap_len);
 
 // Prefix is equal to key. All keys are InDomain.
-extern const SliceTransform* NewNoopTransform();
+const SliceTransform* NewNoopTransform();
 
 }  // namespace ROCKSDB_NAMESPACE

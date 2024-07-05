@@ -60,7 +60,7 @@ class RangeLockingTest : public ::testing::Test {
   PessimisticTransaction* NewTxn(
       TransactionOptions txn_opt = TransactionOptions()) {
     Transaction* txn = db->BeginTransaction(WriteOptions(), txn_opt);
-    return reinterpret_cast<PessimisticTransaction*>(txn);
+    return static_cast<PessimisticTransaction*>(txn);
   }
 };
 

@@ -7,17 +7,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/io_status.h"
 #ifdef GFLAGS
 #pragma once
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "rocksdb/experimental.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+class OptimisticTransactionDB;
 struct TransactionDBOptions;
+using experimental::SstQueryFilterConfigsManager;
 
 class StressTest {
  public:
@@ -40,8 +44,23 @@ class StressTest {
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
   void PrintStatistics();
+  bool MightHaveUnsyncedDataLoss() {
+    return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+           FLAGS_manual_wal_flush_one_in > 0;
+  }
 
  protected:
+  static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
+    if (error_count_1 > 0 && error_count_2 > 0) {
+      return std::min(error_count_1, error_count_2);
+    } else if (error_count_1 > 0) {
+      return error_count_1;
+    } else if (error_count_2 > 0) {
+      return error_count_2;
+    } else {
+      return 0;
+    }
+  }
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
 
@@ -63,11 +82,14 @@ class StressTest {
   virtual void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
                                                   SharedState* shared);
 
-  Status NewTxn(WriteOptions& write_opts, Transaction** txn);
+  // ExecuteTransaction is recommended instead
+  Status NewTxn(WriteOptions& write_opts,
+                std::unique_ptr<Transaction>* out_txn);
+  Status CommitTxn(Transaction& txn, ThreadState* thread = nullptr);
 
-  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
-
-  Status RollbackTxn(Transaction* txn);
+  // Creates a transaction, executes `ops`, and tries to commit
+  Status ExecuteTransaction(WriteOptions& write_opts, ThreadState* thread,
+                            std::function<Status(Transaction&)>&& ops);
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
@@ -85,6 +107,10 @@ class StressTest {
     return {rand_key};
   }
 
+  virtual void TestKeyMayExist(ThreadState*, const ReadOptions&,
+                               const std::vector<int>&,
+                               const std::vector<int64_t>&) {}
+
   virtual Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                          const std::vector<int>& rand_column_families,
                          const std::vector<int64_t>& rand_keys) = 0;
@@ -97,6 +123,11 @@ class StressTest {
   virtual void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys) = 0;
+
+  virtual void TestMultiGetEntity(ThreadState* thread,
+                                  const ReadOptions& read_opts,
+                                  const std::vector<int>& rand_column_families,
+                                  const std::vector<int64_t>& rand_keys) = 0;
 
   virtual Status TestPrefixScan(ThreadState* thread,
                                 const ReadOptions& read_opts,
@@ -127,6 +158,9 @@ class StressTest {
                                 const Slice& start_key,
                                 ColumnFamilyHandle* column_family);
 
+  virtual void TestPromoteL0(ThreadState* thread,
+                             ColumnFamilyHandle* column_family);
+
   // Calculate a hash value for all keys in range [start_key, end_key]
   // at a certain snapshot.
   uint32_t GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
@@ -153,6 +187,20 @@ class StressTest {
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
 
+  // Given a key K, this creates an attribute group iterator which scans to K
+  // and then does a random sequence of Next/Prev operations. Called only when
+  // use_attribute_group=1
+  virtual Status TestIterateAttributeGroups(
+      ThreadState* thread, const ReadOptions& read_opts,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys);
+
+  template <typename IterType, typename NewIterFunc, typename VerifyFunc>
+  Status TestIterateImpl(ThreadState* thread, const ReadOptions& read_opts,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys,
+                         NewIterFunc new_iter_func, VerifyFunc verify_func);
+
   virtual Status TestIterateAgainstExpected(
       ThreadState* /* thread */, const ReadOptions& /* read_opts */,
       const std::vector<int>& /* rand_column_families */,
@@ -176,14 +224,18 @@ class StressTest {
   // diverged = true if the two iterator is already diverged.
   // True if verification passed, false if not.
   // op_logs is the information to print when validation fails.
+  template <typename IterType, typename VerifyFuncType>
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
-                      const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
+                      const ReadOptions& ro, IterType* iter, Iterator* cmp_iter,
                       LastIterateOp op, const Slice& seek_key,
-                      const std::string& op_logs, bool* diverged);
+                      const std::string& op_logs, VerifyFuncType verifyFunc,
+                      bool* diverged);
 
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
                                    const std::vector<int64_t>& rand_keys);
+
+  virtual Status PrepareOptionsForRestoredDB(Options* options);
 
   virtual Status TestCheckpoint(ThreadState* thread,
                                 const std::vector<int>& rand_column_families,
@@ -193,16 +245,28 @@ class StressTest {
 
   Status TestFlush(const std::vector<int>& rand_column_families);
 
+  Status TestResetStats();
+
   Status TestPauseBackground(ThreadState* thread);
+
+  Status TestDisableFileDeletions(ThreadState* thread);
+
+  Status TestDisableManualCompaction(ThreadState* thread);
 
   void TestAcquireSnapshot(ThreadState* thread, int rand_column_family,
                            const std::string& keystr, uint64_t i);
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
-  Status VerifyGetLiveFiles() const;
-  Status VerifyGetSortedWalFiles() const;
-  Status VerifyGetCurrentWalFile() const;
+
+  Status TestGetLiveFiles() const;
+  Status TestGetLiveFilesMetaData() const;
+  Status TestGetLiveFilesStorageInfo() const;
+  Status TestGetAllColumnFamilyMetaData() const;
+
+  Status TestGetSortedWalFiles() const;
+  Status TestGetCurrentWalFile() const;
   void TestGetProperty(ThreadState* thread) const;
+  Status TestGetPropertiesOfAllTables() const;
 
   virtual Status TestApproximateSize(
       ThreadState* thread, uint64_t iteration,
@@ -215,7 +279,16 @@ class StressTest {
     return Status::NotSupported("TestCustomOperations() must be overridden");
   }
 
-  void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
+  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
+    assert(!error_s.ok());
+    return error_s.getState() && std::strstr(error_s.getState(), "inject") &&
+           !status_to_io_status(Status(error_s)).GetDataLoss();
+  }
+
+  void ProcessStatus(SharedState* shared, std::string msg, const Status& s,
+                     bool ignore_injected_error = true) const;
+
+  void VerificationAbort(SharedState* shared, std::string msg) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key) const;
@@ -232,7 +305,7 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open(SharedState* shared);
+  void Open(SharedState* shared, bool reopen = false);
 
   void Reopen(ThreadState* thread);
 
@@ -256,6 +329,7 @@ class StressTest {
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
   TransactionDB* txn_db_;
+  OptimisticTransactionDB* optimistic_txn_db_;
 
   // Currently only used in MultiOpsTxnsStressTest
   std::atomic<DB*> db_aptr_;
@@ -269,6 +343,7 @@ class StressTest {
   std::unordered_map<std::string, std::vector<std::string>> options_table_;
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
+  std::shared_ptr<SstQueryFilterConfigsManager::Factory> sqfc_factory_;
 
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
@@ -277,13 +352,13 @@ class StressTest {
 };
 
 // Load options from OPTIONS file and populate `options`.
-extern bool InitializeOptionsFromFile(Options& options);
+bool InitializeOptionsFromFile(Options& options);
 
 // Initialize `options` using command line arguments.
 // When this function is called, `cache`, `block_cache_compressed`,
 // `filter_policy` have all been initialized. Therefore, we just pass them as
 // input arguments.
-extern void InitializeOptionsFromFlags(
+void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
     const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
 
@@ -308,15 +383,17 @@ extern void InitializeOptionsFromFlags(
 //
 // InitializeOptionsGeneral() must not overwrite fields of `options` loaded
 // from OPTIONS file.
-extern void InitializeOptionsGeneral(
+void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+    const std::shared_ptr<const FilterPolicy>& filter_policy,
+    const std::shared_ptr<SstQueryFilterConfigsManager::Factory>& sqfc_factory,
+    Options& options);
 
 // If no OPTIONS file is specified, set up `options` so that we can test
 // user-defined timestamp which requires `-user_timestamp_size=8`.
 // This function also checks for known (currently) incompatible features with
 // user-defined timestamp.
-extern void CheckAndSetOptionsForUserTimestamp(Options& options);
+void CheckAndSetOptionsForUserTimestamp(Options& options);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

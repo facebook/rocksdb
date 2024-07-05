@@ -18,9 +18,11 @@
 #include "cache/lru_cache.h"
 #include "cache/typed_cache.h"
 #include "port/stack_trace.h"
+#include "table/block_based/block_cache.h"
 #include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/hash_containers.h"
 #include "util/string_util.h"
 
 // HyperClockCache only supports 16-byte keys, so some of the tests
@@ -69,18 +71,11 @@ const Cache::CacheItemHelper kDumbHelper{
     CacheEntryRole::kMisc,
     [](Cache::ObjectPtr /*value*/, MemoryAllocator* /*alloc*/) {}};
 
-const Cache::CacheItemHelper kEraseOnDeleteHelper1{
+const Cache::CacheItemHelper kInvokeOnDeleteHelper{
     CacheEntryRole::kMisc,
     [](Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
-      Cache* cache = static_cast<Cache*>(value);
-      cache->Erase("foo");
-    }};
-
-const Cache::CacheItemHelper kEraseOnDeleteHelper2{
-    CacheEntryRole::kMisc,
-    [](Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
-      Cache* cache = static_cast<Cache*>(value);
-      cache->Erase(EncodeKey16Bytes(1234));
+      auto& fn = *static_cast<std::function<void()>*>(value);
+      fn();
     }};
 }  // anonymous namespace
 
@@ -112,15 +107,14 @@ class CacheTest : public testing::Test,
     type_ = GetParam();
   }
 
-  ~CacheTest() override {}
+  ~CacheTest() override = default;
 
   // These functions encode/decode keys in tests cases that use
   // int keys.
   // Currently, HyperClockCache requires keys to be 16B long, whereas
   // LRUCache doesn't, so the encoding depends on the cache type.
   std::string EncodeKey(int k) {
-    auto type = GetParam();
-    if (type == kHyperClock) {
+    if (IsHyperClock()) {
       return EncodeKey16Bytes(k);
     } else {
       return EncodeKey32Bits(k);
@@ -128,8 +122,7 @@ class CacheTest : public testing::Test,
   }
 
   int DecodeKey(const Slice& k) {
-    auto type = GetParam();
-    if (type == kHyperClock) {
+    if (IsHyperClock()) {
       return DecodeKey16Bytes(k);
     } else {
       return DecodeKey32Bits(k);
@@ -181,15 +174,13 @@ std::string CacheTest::type_;
 class LRUCacheTest : public CacheTest {};
 
 TEST_P(CacheTest, UsageTest) {
-  auto type = GetParam();
-
   // cache is std::shared_ptr and will be automatically cleaned up.
   const size_t kCapacity = 100000;
-  auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
+  auto cache = NewCache(kCapacity, 6, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
   size_t baseline_meta_usage = precise_cache->GetUsage();
-  if (type != kHyperClock) {
+  if (!IsHyperClock()) {
     ASSERT_EQ(0, baseline_meta_usage);
   }
 
@@ -197,20 +188,19 @@ TEST_P(CacheTest, UsageTest) {
   char value[10] = "abcdef";
   // make sure everything will be cached
   for (int i = 1; i < 100; ++i) {
-    std::string key;
-    if (type == kLRU) {
-      key = std::string(i, 'a');
-    } else {
-      key = EncodeKey(i);
-    }
+    std::string key = EncodeKey(i);
     auto kv_size = key.size() + 5;
     ASSERT_OK(cache->Insert(key, value, &kDumbHelper, kv_size));
     ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, kv_size));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
-    if (type == kHyperClock) {
+    if (GetParam() == kFixedHyperClock) {
       ASSERT_EQ(baseline_meta_usage + usage, precise_cache->GetUsage());
     } else {
+      // AutoHyperClockCache meta usage grows in proportion to lifetime
+      // max number of entries. LRUCache in proportion to resident number of
+      // entries, though there is an untracked component proportional to
+      // lifetime max number of entries.
       ASSERT_LT(usage, precise_cache->GetUsage());
     }
   }
@@ -218,16 +208,15 @@ TEST_P(CacheTest, UsageTest) {
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  if (GetParam() != kAutoHyperClock) {
+    // NOTE: AutoHyperClockCache meta usage grows in proportion to lifetime
+    // max number of entries.
+    ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  }
 
   // make sure the cache will be overloaded
   for (size_t i = 1; i < kCapacity; ++i) {
-    std::string key;
-    if (type == kLRU) {
-      key = std::to_string(i);
-    } else {
-      key = EncodeKey(static_cast<int>(1000 + i));
-    }
+    std::string key = EncodeKey(static_cast<int>(1000 + i));
     ASSERT_OK(cache->Insert(key, value, &kDumbHelper, key.size() + 5));
     ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, key.size() + 5));
   }
@@ -236,7 +225,7 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_GT(kCapacity, cache->GetUsage());
   ASSERT_GT(kCapacity, precise_cache->GetUsage());
   ASSERT_LT(kCapacity * 0.95, cache->GetUsage());
-  if (type != kHyperClock) {
+  if (!IsHyperClock()) {
     ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
   } else {
     // estimated value size of 1 is weird for clock cache, because
@@ -247,22 +236,20 @@ TEST_P(CacheTest, UsageTest) {
   }
 }
 
-// TODO: This test takes longer than expected on ClockCache. This is
-// because the values size estimate at construction is too sloppy.
+// TODO: This test takes longer than expected on FixedHyperClockCache.
+// This is because the values size estimate at construction is too sloppy.
 // Fix this.
 // Why is it so slow? The cache is constructed with an estimate of 1, but
 // then the charge is claimed to be 21. This will cause the hash table
 // to be extremely sparse, which in turn means clock needs to scan too
 // many slots to find victims.
 TEST_P(CacheTest, PinnedUsageTest) {
-  auto type = GetParam();
-
   // cache is std::shared_ptr and will be automatically cleaned up.
   const size_t kCapacity = 200000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 8, false, kFullChargeCacheMetadata);
   size_t baseline_meta_usage = precise_cache->GetUsage();
-  if (type != kHyperClock) {
+  if (!IsHyperClock()) {
     ASSERT_EQ(0, baseline_meta_usage);
   }
 
@@ -275,12 +262,7 @@ TEST_P(CacheTest, PinnedUsageTest) {
   // Add entries. Unpin some of them after insertion. Then, pin some of them
   // again. Check GetPinnedUsage().
   for (int i = 1; i < 100; ++i) {
-    std::string key;
-    if (type == kLRU) {
-      key = std::string(i, 'a');
-    } else {
-      key = EncodeKey(i);
-    }
+    std::string key = EncodeKey(i);
     auto kv_size = key.size() + 5;
     Cache::Handle* handle;
     Cache::Handle* handle_in_precise_cache;
@@ -321,12 +303,7 @@ TEST_P(CacheTest, PinnedUsageTest) {
 
   // check that overloading the cache does not change the pinned usage
   for (size_t i = 1; i < 2 * kCapacity; ++i) {
-    std::string key;
-    if (type == kLRU) {
-      key = std::to_string(i);
-    } else {
-      key = EncodeKey(static_cast<int>(1000 + i));
-    }
+    std::string key = EncodeKey(static_cast<int>(1000 + i));
     ASSERT_OK(cache->Insert(key, value, &kDumbHelper, key.size() + 5));
     ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, key.size() + 5));
   }
@@ -350,7 +327,11 @@ TEST_P(CacheTest, PinnedUsageTest) {
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  if (GetParam() != kAutoHyperClock) {
+    // NOTE: AutoHyperClockCache meta usage grows in proportion to lifetime
+    // max number of entries.
+    ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  }
 }
 
 TEST_P(CacheTest, HitAndMiss) {
@@ -367,7 +348,7 @@ TEST_P(CacheTest, HitAndMiss) {
   ASSERT_EQ(-1, Lookup(300));
 
   Insert(100, 102);
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     // ClockCache usually doesn't overwrite on Insert
     ASSERT_EQ(101, Lookup(100));
   } else {
@@ -377,7 +358,7 @@ TEST_P(CacheTest, HitAndMiss) {
   ASSERT_EQ(-1, Lookup(300));
 
   ASSERT_EQ(1U, deleted_values_.size());
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ASSERT_EQ(102, deleted_values_[0]);
   } else {
     ASSERT_EQ(101, deleted_values_[0]);
@@ -385,7 +366,7 @@ TEST_P(CacheTest, HitAndMiss) {
 }
 
 TEST_P(CacheTest, InsertSameKey) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS(
         "ClockCache doesn't guarantee Insert overwrite same key.");
     return;
@@ -414,7 +395,7 @@ TEST_P(CacheTest, Erase) {
 }
 
 TEST_P(CacheTest, EntriesArePinned) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS(
         "ClockCache doesn't guarantee Insert overwrite same key.");
     return;
@@ -478,7 +459,7 @@ TEST_P(CacheTest, ExternalRefPinsEntries) {
       Insert(1000 + j, 2000 + j);
     }
     // Clock cache is even more stateful and needs more churn to evict
-    if (GetParam() == kHyperClock) {
+    if (IsHyperClock()) {
       for (int j = 0; j < kCacheSize; j++) {
         Insert(11000 + j, 11000 + j);
       }
@@ -516,20 +497,20 @@ TEST_P(CacheTest, EvictionPolicyRef) {
   // Check whether the entries inserted in the beginning
   // are evicted. Ones without extra ref are evicted and
   // those with are not.
-  ASSERT_EQ(-1, Lookup(100));
-  ASSERT_EQ(-1, Lookup(101));
-  ASSERT_EQ(-1, Lookup(102));
-  ASSERT_EQ(-1, Lookup(103));
+  EXPECT_EQ(-1, Lookup(100));
+  EXPECT_EQ(-1, Lookup(101));
+  EXPECT_EQ(-1, Lookup(102));
+  EXPECT_EQ(-1, Lookup(103));
 
-  ASSERT_EQ(-1, Lookup(300));
-  ASSERT_EQ(-1, Lookup(301));
-  ASSERT_EQ(-1, Lookup(302));
-  ASSERT_EQ(-1, Lookup(303));
+  EXPECT_EQ(-1, Lookup(300));
+  EXPECT_EQ(-1, Lookup(301));
+  EXPECT_EQ(-1, Lookup(302));
+  EXPECT_EQ(-1, Lookup(303));
 
-  ASSERT_EQ(101, Lookup(200));
-  ASSERT_EQ(102, Lookup(201));
-  ASSERT_EQ(103, Lookup(202));
-  ASSERT_EQ(104, Lookup(203));
+  EXPECT_EQ(101, Lookup(200));
+  EXPECT_EQ(102, Lookup(201));
+  EXPECT_EQ(103, Lookup(202));
+  EXPECT_EQ(104, Lookup(203));
 
   // Cleaning up all the handles
   cache_->Release(h201);
@@ -539,37 +520,22 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 }
 
 TEST_P(CacheTest, EvictEmptyCache) {
-  auto type = GetParam();
-
   // Insert item large than capacity to trigger eviction on empty cache.
   auto cache = NewCache(1, 0, false);
-  if (type == kLRU) {
-    ASSERT_OK(cache->Insert("foo", nullptr, &kDumbHelper, 10));
-  } else {
-    ASSERT_OK(cache->Insert(EncodeKey(1000), nullptr, &kDumbHelper, 10));
-  }
+  ASSERT_OK(cache->Insert(EncodeKey(1000), nullptr, &kDumbHelper, 10));
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
-  auto type = GetParam();
-
   // Have deleter which will erase item from cache, which will re-enter
   // the cache at that point.
   std::shared_ptr<Cache> cache = NewCache(10, 0, false);
-  std::string foo, bar;
-  const Cache::CacheItemHelper* erase_helper;
-  if (type == kLRU) {
-    foo = "foo";
-    bar = "bar";
-    erase_helper = &kEraseOnDeleteHelper1;
-  } else {
-    foo = EncodeKey(1234);
-    bar = EncodeKey(5678);
-    erase_helper = &kEraseOnDeleteHelper2;
-  }
+  std::string foo = EncodeKey(1234);
+  std::string bar = EncodeKey(5678);
+
+  std::function<void()> erase_fn = [&]() { cache->Erase(foo); };
 
   ASSERT_OK(cache->Insert(foo, nullptr, &kDumbHelper, 1));
-  ASSERT_OK(cache->Insert(bar, cache.get(), erase_helper, 1));
+  ASSERT_OK(cache->Insert(bar, &erase_fn, &kInvokeOnDeleteHelper, 1));
 
   cache->Erase(bar);
   ASSERT_EQ(nullptr, cache->Lookup(foo));
@@ -677,10 +643,10 @@ using TypedHandle = SharedCache::TypedHandle;
 }  // namespace
 
 TEST_P(CacheTest, SetCapacity) {
-  auto type = GetParam();
-  if (type == kHyperClock) {
+  if (IsHyperClock()) {
+    // TODO: update test & code for limited supoort
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and HyperClockCache don't support arbitrary capacity "
+        "HyperClockCache doesn't support arbitrary capacity "
         "adjustments.");
     return;
   }
@@ -801,7 +767,9 @@ TEST_P(CacheTest, OverCapacity) {
     std::string key = EncodeKey(i + 1);
     auto h = cache.Lookup(key);
     ASSERT_TRUE(h != nullptr);
-    if (h) cache.Release(h);
+    if (h) {
+      cache.Release(h);
+    }
   }
 
   // the cache is over capacity since nothing could be evicted
@@ -810,9 +778,9 @@ TEST_P(CacheTest, OverCapacity) {
     cache.Release(handles[i]);
   }
 
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     // Make sure eviction is triggered.
-    ASSERT_OK(cache.Insert(EncodeKey(-1), nullptr, 1, &handles[0]));
+    ASSERT_OK(cache.Insert(EncodeKey(-1), nullptr, 1, handles.data()));
 
     // cache is under capacity now since elements were released
     ASSERT_GE(n, cache.get()->GetUsage());
@@ -922,8 +890,7 @@ TEST_P(CacheTest, DefaultShardBits) {
   // Prevent excessive allocation (to save time & space)
   estimated_value_size_ = 100000;
   // Implementations use different minimum shard sizes
-  size_t min_shard_size =
-      (GetParam() == kHyperClock ? 32U * 1024U : 512U) * 1024U;
+  size_t min_shard_size = (IsHyperClock() ? 32U * 1024U : 512U) * 1024U;
 
   std::shared_ptr<Cache> cache = NewCache(32U * min_shard_size);
   ShardedCacheBase* sc = dynamic_cast<ShardedCacheBase*>(cache.get());
@@ -955,10 +922,158 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
   cache_->Release(h1);
 }
 
+namespace {
+bool AreTwoCacheKeysOrdered(Cache* cache) {
+  std::vector<std::string> keys;
+  const auto callback = [&](const Slice& key, Cache::ObjectPtr /*value*/,
+                            size_t /*charge*/,
+                            const Cache::CacheItemHelper* /*helper*/) {
+    keys.push_back(key.ToString());
+  };
+  cache->ApplyToAllEntries(callback, /*opts*/ {});
+  EXPECT_EQ(keys.size(), 2U);
+  EXPECT_NE(keys[0], keys[1]);
+  return keys[0] < keys[1];
+}
+}  // namespace
+
+TEST_P(CacheTest, CacheUniqueSeeds) {
+  // kQuasiRandomHashSeed should generate unique seeds (up to 2 billion before
+  // repeating)
+  UnorderedSet<uint32_t> seeds_seen;
+  // Roughly sqrt(number of possible values) for a decent chance at detecting
+  // a random collision if it's possible (shouldn't be)
+  uint16_t kSamples = 20000;
+  seeds_seen.reserve(kSamples);
+
+  // Hash seed should affect ordering of entries in the table, so we should
+  // have extremely high chance of seeing two entries ordered both ways.
+  bool seen_forward_order = false;
+  bool seen_reverse_order = false;
+
+  for (int i = 0; i < kSamples; ++i) {
+    auto cache = NewCache(2, [=](ShardedCacheOptions& opts) {
+      opts.hash_seed = LRUCacheOptions::kQuasiRandomHashSeed;
+      opts.num_shard_bits = 0;
+      opts.metadata_charge_policy = kDontChargeCacheMetadata;
+    });
+    auto val = cache->GetHashSeed();
+    ASSERT_TRUE(seeds_seen.insert(val).second);
+
+    ASSERT_OK(cache->Insert(EncodeKey(1), nullptr, &kHelper, /*charge*/ 1));
+    ASSERT_OK(cache->Insert(EncodeKey(2), nullptr, &kHelper, /*charge*/ 1));
+
+    if (AreTwoCacheKeysOrdered(cache.get())) {
+      seen_forward_order = true;
+    } else {
+      seen_reverse_order = true;
+    }
+  }
+
+  ASSERT_TRUE(seen_forward_order);
+  ASSERT_TRUE(seen_reverse_order);
+}
+
+TEST_P(CacheTest, CacheHostSeed) {
+  // kHostHashSeed should generate a consistent seed within this process
+  // (and other processes on the same host, but not unit testing that).
+  // And we should be able to use that chosen seed as an explicit option
+  // (for debugging).
+  // And we should verify consistent ordering of entries.
+  uint32_t expected_seed = 0;
+  bool expected_order = false;
+  // 10 iterations -> chance of a random seed falsely appearing consistent
+  // should be low, just 1 in 2^9.
+  for (int i = 0; i < 10; ++i) {
+    auto cache = NewCache(2, [=](ShardedCacheOptions& opts) {
+      if (i != 5) {
+        opts.hash_seed = LRUCacheOptions::kHostHashSeed;
+      } else {
+        // Can be used as explicit seed
+        opts.hash_seed = static_cast<int32_t>(expected_seed);
+        ASSERT_GE(opts.hash_seed, 0);
+      }
+      opts.num_shard_bits = 0;
+      opts.metadata_charge_policy = kDontChargeCacheMetadata;
+    });
+    ASSERT_OK(cache->Insert(EncodeKey(1), nullptr, &kHelper, /*charge*/ 1));
+    ASSERT_OK(cache->Insert(EncodeKey(2), nullptr, &kHelper, /*charge*/ 1));
+    uint32_t val = cache->GetHashSeed();
+    bool order = AreTwoCacheKeysOrdered(cache.get());
+    if (i != 0) {
+      ASSERT_EQ(val, expected_seed);
+      ASSERT_EQ(order, expected_order);
+    } else {
+      expected_seed = val;
+      expected_order = order;
+    }
+  }
+  // Printed for reference in case it's needed to reproduce other unit test
+  // failures on another host
+  fprintf(stderr, "kHostHashSeed -> %u\n", (unsigned)expected_seed);
+}
+
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
                         secondary_cache_test_util::GetTestingCacheTypes());
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
                         testing::Values(secondary_cache_test_util::kLRU));
+
+TEST(MiscBlockCacheTest, UncacheAggressivenessAdvisor) {
+  // Aggressiveness to a sequence of Report() calls (as string of 0s and 1s)
+  // exactly until the first ShouldContinue() == false.
+  const std::vector<std::pair<uint32_t, Slice>> expectedTraces{
+      // Aggressiveness 1 aborts on first unsuccessful erasure.
+      {1, "0"},
+      {1, "11111111111111111111110"},
+      // For sufficient evidence, aggressiveness 2 requires a minimum of two
+      // unsuccessful erasures.
+      {2, "00"},
+      {2, "0110"},
+      {2, "1100"},
+      {2, "011111111111111111111111111111111111111111111111111111111111111100"},
+      {2, "0111111111111111111111111111111111110"},
+      // For sufficient evidence, aggressiveness 3 and higher require a minimum
+      // of three unsuccessful erasures.
+      {3, "000"},
+      {3, "01010"},
+      {3, "111000"},
+      {3, "00111111111111111111111111111111111100"},
+      {3, "00111111111111111111110"},
+
+      {4, "000"},
+      {4, "01010"},
+      {4, "111000"},
+      {4, "001111111111111111111100"},
+      {4, "0011111111111110"},
+
+      {6, "000"},
+      {6, "01010"},
+      {6, "111000"},
+      {6, "00111111111111100"},
+      {6, "0011111110"},
+
+      // 69 -> 50% threshold, now up to minimum of 4
+      {69, "0000"},
+      {69, "010000"},
+      {69, "01010000"},
+      {69, "101010100010101000"},
+
+      // 230 -> 10% threshold, appropriately higher minimum
+      {230, "000000000000"},
+      {230, "0000000000010000000000"},
+      {230, "00000000000100000000010000000000"}};
+  for (const auto& [aggressiveness, t] : expectedTraces) {
+    SCOPED_TRACE("aggressiveness=" + std::to_string(aggressiveness) + " with " +
+                 t.ToString());
+    UncacheAggressivenessAdvisor uaa(aggressiveness);
+    for (size_t i = 0; i < t.size(); ++i) {
+      SCOPED_TRACE("i=" + std::to_string(i));
+      ASSERT_TRUE(uaa.ShouldContinue());
+      uaa.Report(t[i] & 1);
+    }
+    ASSERT_FALSE(uaa.ShouldContinue());
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

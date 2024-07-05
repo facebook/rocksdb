@@ -61,7 +61,7 @@ class autovector {
     using iterator_category = std::random_access_iterator_tag;
 
     iterator_impl(TAutoVector* vect, size_t index)
-        : vect_(vect), index_(index){};
+        : vect_(vect), index_(index){}
     iterator_impl(const iterator_impl&) = default;
     ~iterator_impl() {}
     iterator_impl& operator=(const iterator_impl&) = default;
@@ -371,6 +371,9 @@ autovector<T, kSize>& autovector<T, kSize>::assign(
 
   // copy array
   num_stack_items_ = other.num_stack_items_;
+  for (size_t i = 0; i < num_stack_items_; ++i) {
+    new ((void*)(&values_[i])) value_type();
+  }
   std::copy(other.values_, other.values_ + num_stack_items_, values_);
 
   return *this;
@@ -385,6 +388,7 @@ autovector<T, kSize>& autovector<T, kSize>::operator=(
   num_stack_items_ = n;
   other.num_stack_items_ = 0;
   for (size_t i = 0; i < n; ++i) {
+    new ((void*)(&values_[i])) value_type();
     values_[i] = std::move(other.values_[i]);
   }
   return *this;

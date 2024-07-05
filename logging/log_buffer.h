@@ -49,9 +49,9 @@ class LogBuffer {
 // Add log to the LogBuffer for a delayed info logging. It can be used when
 // we want to add some logs inside a mutex.
 // max_log_size indicates maximize log size, including some metadata.
-extern void LogToBuffer(LogBuffer* log_buffer, size_t max_log_size,
-                        const char* format, ...);
+void LogToBuffer(LogBuffer* log_buffer, size_t max_log_size, const char* format,
+                 ...);
 // Same as previous function, but with default max log size.
-extern void LogToBuffer(LogBuffer* log_buffer, const char* format, ...);
+void LogToBuffer(LogBuffer* log_buffer, const char* format, ...);
 
 }  // namespace ROCKSDB_NAMESPACE

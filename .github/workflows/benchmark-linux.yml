@@ -1,0 +1,15 @@
+name: facebook/rocksdb/benchmark-linux
+on: workflow_dispatch
+jobs:
+  # FIXME: when this job is fixed, it should be given a cron schedule like
+  # schedule:
+  # - cron: 0 * * * *
+  # workflow_dispatch:
+  benchmark-linux:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/build-for-benchmarks"
+    - uses: "./.github/actions/perform-benchmarks"
+    - uses: "./.github/actions/post-benchmarks"

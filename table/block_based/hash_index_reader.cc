@@ -74,17 +74,17 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
   // Read contents for the blocks
   BlockContents prefixes_contents;
   BlockFetcher prefixes_block_fetcher(
-      file, prefetch_buffer, footer, ReadOptions(), prefixes_handle,
-      &prefixes_contents, ioptions, true /*decompress*/,
-      true /*maybe_compressed*/, BlockType::kHashIndexPrefixes,
-      UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
+      file, prefetch_buffer, footer, ro, prefixes_handle, &prefixes_contents,
+      ioptions, true /*decompress*/, true /*maybe_compressed*/,
+      BlockType::kHashIndexPrefixes, UncompressionDict::GetEmptyDict(),
+      cache_options, memory_allocator);
   s = prefixes_block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
   }
   BlockContents prefixes_meta_contents;
   BlockFetcher prefixes_meta_block_fetcher(
-      file, prefetch_buffer, footer, ReadOptions(), prefixes_meta_handle,
+      file, prefetch_buffer, footer, ro, prefixes_meta_handle,
       &prefixes_meta_contents, ioptions, true /*decompress*/,
       true /*maybe_compressed*/, BlockType::kHashIndexMetadata,
       UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
@@ -114,11 +114,9 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
     IndexBlockIter* iter, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
   const BlockBasedTable::Rep* rep = table()->get_rep();
-  const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s =
-      GetOrReadIndexBlock(no_io, read_options.rate_limiter_priority,
-                          get_context, lookup_context, &index_block);
+  const Status s = GetOrReadIndexBlock(get_context, lookup_context,
+                                       &index_block, read_options);
   if (!s.ok()) {
     if (iter != nullptr) {
       iter->Invalidate(s);
@@ -138,7 +136,7 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats,
       total_order_seek, index_has_first_key(), index_key_includes_seq(),
       index_value_is_full(), false /* block_contents_pinned */,
-      prefix_index_.get());
+      user_defined_timestamps_persisted(), prefix_index_.get());
 
   assert(it != nullptr);
   index_block.TransferTo(it);

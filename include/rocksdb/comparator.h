@@ -120,6 +120,33 @@ class Comparator : public Customizable, public CompareInterface {
 
   inline size_t timestamp_size() const { return timestamp_size_; }
 
+  // Return what this Comparator considers as the maximum timestamp.
+  // The default implementation only works for when `timestamp_size_` is 0,
+  // subclasses for which this is not the case needs to override this function.
+  virtual Slice GetMaxTimestamp() const {
+    if (timestamp_size_ == 0) {
+      return Slice();
+    }
+    assert(false);
+    return Slice();
+  }
+
+  // Return what this Comparator considers as the min timestamp.
+  // The default implementation only works for when `timestamp_size_` is 0,
+  // subclasses for which this is not the case needs to override this function.
+  virtual Slice GetMinTimestamp() const {
+    if (timestamp_size_ == 0) {
+      return Slice();
+    }
+    assert(false);
+    return Slice();
+  }
+
+  // Return a human readable user-defined timestamp for debugging.
+  virtual std::string TimestampToString(const Slice& /*timestamp*/) const {
+    return "";
+  }
+
   int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
     return CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
   }
@@ -155,10 +182,50 @@ class Comparator : public Customizable, public CompareInterface {
 // Return a builtin comparator that uses lexicographic byte-wise
 // ordering.  The result remains the property of this module and
 // must not be deleted.
-extern const Comparator* BytewiseComparator();
+const Comparator* BytewiseComparator();
 
 // Return a builtin comparator that uses reverse lexicographic byte-wise
 // ordering.
-extern const Comparator* ReverseBytewiseComparator();
+const Comparator* ReverseBytewiseComparator();
+
+// Returns a builtin comparator that enables user-defined timestamps (formatted
+// as uint64_t) while ordering the user key part without UDT with a
+// BytewiseComparator.
+// For the same user key with different timestamps, larger (newer) timestamp
+// comes first.
+const Comparator* BytewiseComparatorWithU64Ts();
+
+// Returns a builtin comparator that enables user-defined timestamps (formatted
+// as uint64_t) while ordering the user key part without UDT with a
+// ReverseBytewiseComparator.
+// For the same user key with different timestamps, larger (newer) timestamp
+// comes first.
+const Comparator* ReverseBytewiseComparatorWithU64Ts();
+
+// Decode a `U64Ts` timestamp returned by RocksDB to uint64_t.
+// When a column family enables user-defined timestamp feature
+// with `BytewiseComparatorWithU64Ts` or `ReverseBytewiseComparatorWithU64Ts`
+// comparator, the `Iterator::timestamp()` API returns timestamp in `Slice`
+// format. This util function helps to translate that `Slice` into an uint64_t
+// type.
+Status DecodeU64Ts(const Slice& ts, uint64_t* int_ts);
+
+// Encode an uint64_t timestamp into a U64Ts `Slice`, to be used as
+// `ReadOptions.timestamp` for a column family that enables user-defined
+// timestamp feature with `BytewiseComparatorWithU64Ts` or
+// `ReverseBytewiseComparatorWithU64Ts` comparator.
+// Be mindful that the returned `Slice` is backed by `ts_buf`. When `ts_buf`
+// is deconstructed, the returned `Slice` can no longer be used.
+Slice EncodeU64Ts(uint64_t ts, std::string* ts_buf);
+
+// Returns a `Slice` representing the maximum U64Ts timestamp.
+// The returned `Slice` is backed by some static storage, so it's valid until
+// program destruction.
+Slice MaxU64Ts();
+
+// Returns a `Slice` representing the minimum U64Ts timestamp.
+// The returned `Slice` is backed by some static storage, so it's valid until
+// program destruction.
+Slice MinU64Ts();
 
 }  // namespace ROCKSDB_NAMESPACE

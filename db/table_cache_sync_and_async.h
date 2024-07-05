@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
 (const ReadOptions& options, const InternalKeyComparator& internal_comparator,
  const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
+ uint8_t block_protection_bytes_per_key,
  const std::shared_ptr<const SliceTransform>& prefix_extractor,
  HistogramImpl* file_read_hist, bool skip_filters, bool skip_range_deletions,
  int level, TypedHandle* handle) {
@@ -49,8 +50,14 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
 
       GetContext* get_context = miter->get_context;
 
-      if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
-                          get_context)) {
+      Status read_status;
+      bool ret =
+          GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
+                          get_context, &read_status);
+      if (!read_status.ok()) {
+        CO_RETURN read_status;
+      }
+      if (ret) {
         table_range.SkipKey(miter);
       } else {
         row_cache_entries.emplace_back();
@@ -65,10 +72,10 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     if (t == nullptr) {
       assert(handle == nullptr);
       s = FindTable(options, file_options_, internal_comparator, file_meta,
-                    &handle, prefix_extractor,
+                    &handle, block_protection_bytes_per_key, prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
-                    true /* record_read_stats */, file_read_hist, skip_filters,
-                    level, true /* prefetch_index_and_filter_in_cache */,
+                    file_read_hist, skip_filters, level,
+                    true /* prefetch_index_and_filter_in_cache */,
                     0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       if (s.ok()) {
@@ -102,7 +109,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
          ++miter) {
       std::string& row_cache_entry = row_cache_entries[row_idx++];
       const Slice& user_key = miter->ukey_with_ts;
-      ;
       GetContext* get_context = miter->get_context;
 
       get_context->SetReplayLog(nullptr);

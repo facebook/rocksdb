@@ -145,8 +145,8 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_OptimisticTransactionDB_disposeInternal(JNIEnv*, jobject,
-                                                              jlong jhandle) {
+void Java_org_rocksdb_OptimisticTransactionDB_disposeInternalJni(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
   assert(optimistic_txn_db != nullptr);
@@ -173,7 +173,7 @@ void Java_org_rocksdb_OptimisticTransactionDB_closeDatabase(JNIEnv* env, jclass,
  * Signature: (JJ)J
  */
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJ(
-    JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle) {
+    JNIEnv*, jclass, jlong jhandle, jlong jwrite_options_handle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
   auto* write_options =
@@ -189,7 +189,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJ(
  * Signature: (JJJ)J
  */
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle,
     jlong jwrite_options_handle, jlong joptimistic_txn_options_handle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
@@ -209,7 +209,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJJ(
  * Signature: (JJJ)J
  */
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJ(
-    JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle,
+    JNIEnv*, jclass, jlong jhandle, jlong jwrite_options_handle,
     jlong jold_txn_handle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
@@ -235,7 +235,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJ(
  * Signature: (JJJJ)J
  */
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
-    JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle,
+    JNIEnv*, jclass, jlong jhandle, jlong jwrite_options_handle,
     jlong joptimistic_txn_options_handle, jlong jold_txn_handle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
@@ -262,7 +262,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
  * Method:    getBaseDB
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(JNIEnv*, jobject,
+jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(JNIEnv*, jclass,
                                                          jlong jhandle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);

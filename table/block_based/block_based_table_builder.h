@@ -53,7 +53,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   ~BlockBasedTableBuilder();
 
   // Add key,value to the table being constructed.
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: Unless key has type kTypeRangeDeletion, key is after any
+  //           previously added non-kTypeRangeDeletion key according to
+  //           comparator.
   // REQUIRES: Finish(), Abandon() have not been called
   void Add(const Slice& key, const Slice& value) override;
 
@@ -89,6 +91,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // is enabled.
   uint64_t EstimatedFileSize() const override;
 
+  // Get the size of the "tail" part of a SST file. "Tail" refers to
+  // all blocks after data blocks till the end of the SST file.
+  uint64_t GetTailSize() const override;
+
   bool NeedCompact() const override;
 
   // Get table properties
@@ -100,9 +106,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
-  void SetSeqnoTimeTableProperties(
-      const std::string& encoded_seqno_to_time_mapping,
-      uint64_t oldest_ancestor_time) override;
+  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
+                                   uint64_t oldest_ancestor_time) override;
 
  private:
   bool ok() const { return status().ok(); }

@@ -255,7 +255,7 @@ std::shared_ptr<PersistentCacheTier> MakeTieredCache(
 
 #ifdef OS_LINUX
 static void UniqueIdCallback(void* arg) {
-  int* result = reinterpret_cast<int*>(arg);
+  int* result = static_cast<int*>(arg);
   if (*result == -1) {
     *result = 0;
   }

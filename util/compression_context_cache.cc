@@ -67,7 +67,7 @@ static_assert(sizeof(ZSTDCachedData) % CACHE_LINE_SIZE == 0,
 
 class CompressionContextCache::Rep {
  public:
-  Rep() {}
+  Rep() = default;
   ZSTDUncompressCachedData GetZSTDUncompressData() {
     auto p = per_core_uncompr_.AccessElementAndIndex();
     int64_t idx = static_cast<int64_t>(p.second);

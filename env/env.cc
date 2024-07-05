@@ -159,8 +159,7 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
       req.len = fs_reqs[i].len;
       req.scratch = fs_reqs[i].scratch;
       req.status = Status::OK();
-
-      reqs.emplace_back(req);
+      reqs.emplace_back(std::move(req));
     }
     status = target_->MultiRead(reqs.data(), num_reqs);
     for (size_t i = 0; i < num_reqs; ++i) {
@@ -356,11 +355,17 @@ class LegacyDirectoryWrapper : public FSDirectory {
   std::unique_ptr<Directory> target_;
 };
 
+// A helper class to make legacy `Env` implementations be backward compatible
+// now that all `Env` implementations are expected to have a `FileSystem` type
+// member `file_system_` and a `SystemClock` type member `clock_`.
+// This class wraps a legacy `Env` object and expose its file system related
+// APIs as a `FileSystem` interface. Also check `LegacySystemClock` that does
+// the same thing for the clock related APIs.
 class LegacyFileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit LegacyFileSystemWrapper(Env* t) : target_(t) {}
-  ~LegacyFileSystemWrapper() override {}
+  ~LegacyFileSystemWrapper() override = default;
 
   static const char* kClassName() { return "LegacyFileSystem"; }
   const char* Name() const override { return kClassName(); }
@@ -625,7 +630,7 @@ Env::Env(const std::shared_ptr<FileSystem>& fs,
          const std::shared_ptr<SystemClock>& clock)
     : thread_status_updater_(nullptr), file_system_(fs), system_clock_(clock) {}
 
-Env::~Env() {}
+Env::~Env() = default;
 
 Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
@@ -798,7 +803,7 @@ std::string Env::GenerateUniqueId() {
 
     // Use 36 character format of RFC 4122
     result.resize(36U);
-    char* buf = &result[0];
+    char* buf = result.data();
     PutBaseChars<16>(&buf, 8, upper >> 32, /*!uppercase*/ false);
     *(buf++) = '-';
     PutBaseChars<16>(&buf, 4, upper >> 16, /*!uppercase*/ false);
@@ -818,15 +823,24 @@ std::string Env::GenerateUniqueId() {
   return result;
 }
 
-SequentialFile::~SequentialFile() {}
+SequentialFile::~SequentialFile() = default;
 
-RandomAccessFile::~RandomAccessFile() {}
+RandomAccessFile::~RandomAccessFile() = default;
 
-WritableFile::~WritableFile() {}
+WritableFile::~WritableFile() = default;
 
-MemoryMappedFileBuffer::~MemoryMappedFileBuffer() {}
+MemoryMappedFileBuffer::~MemoryMappedFileBuffer() = default;
 
-Logger::~Logger() {}
+// This const variable can be used in public headers without introducing the
+// possibility of ODR violations due to varying macro definitions.
+const InfoLogLevel Logger::kDefaultLogLevel =
+#ifdef NDEBUG
+    INFO_LEVEL;
+#else
+    DEBUG_LEVEL;
+#endif  // NDEBUG
+
+Logger::~Logger() = default;
 
 Status Logger::Close() {
   if (!closed_) {
@@ -839,7 +853,7 @@ Status Logger::Close() {
 
 Status Logger::CloseImpl() { return Status::NotSupported(); }
 
-FileLock::~FileLock() {}
+FileLock::~FileLock() = default;
 
 void LogFlush(Logger* info_log) {
   if (info_log) {
@@ -1052,9 +1066,10 @@ void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
 }
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
-                         bool should_sync) {
+                         bool should_sync, const IOOptions* io_options) {
   const auto& fs = env->GetFileSystem();
-  return WriteStringToFile(fs.get(), data, fname, should_sync);
+  return WriteStringToFile(fs.get(), data, fname, should_sync,
+                           io_options ? *io_options : IOOptions());
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
@@ -1229,5 +1244,10 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     });
     return LoadSharedObject<SystemClock>(config_options, value, result);
   }
+}
+
+bool SystemClock::TimedWait(port::CondVar* cv,
+                            std::chrono::microseconds deadline) {
+  return cv->TimedWait(deadline.count());
 }
 }  // namespace ROCKSDB_NAMESPACE

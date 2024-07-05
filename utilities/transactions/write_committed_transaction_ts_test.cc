@@ -3,12 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "utilities/merge_operators.h"
-
 #include "test_util/testutil.h"
+#include "utilities/merge_operators.h"
 #include "utilities/transactions/transaction_test.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -98,6 +98,38 @@ TEST_P(WriteCommittedTxnWithTsTest, SanityChecks) {
   txn1.reset();
 }
 
+void CheckKeyValueTsWithIterator(
+    Iterator* iter,
+    std::vector<std::tuple<std::string, std::string, std::string>> entries) {
+  size_t num_entries = entries.size();
+  // test forward iteration
+  for (size_t i = 0; i < num_entries; i++) {
+    auto [key, value, timestamp] = entries[i];
+    if (i == 0) {
+      iter->Seek(key);
+    } else {
+      iter->Next();
+    }
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key);
+    ASSERT_EQ(iter->value(), value);
+    ASSERT_EQ(iter->timestamp(), timestamp);
+  }
+  // test backward iteration
+  for (size_t i = 0; i < num_entries; i++) {
+    auto [key, value, timestamp] = entries[num_entries - 1 - i];
+    if (i == 0) {
+      iter->SeekForPrev(key);
+    } else {
+      iter->Prev();
+    }
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key);
+    ASSERT_EQ(iter->value(), value);
+    ASSERT_EQ(iter->timestamp(), timestamp);
+  }
+}
+
 TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   options.merge_operator = MergeOperators::CreateUInt64AddOperator();
   ASSERT_OK(ReOpenNoDelete());
@@ -128,17 +160,57 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   std::unique_ptr<Transaction> txn1(
       NewTxn(WriteOptions(), TransactionOptions()));
   assert(txn1);
+
+  std::string write_ts;
+  uint64_t write_ts_int = 23;
+  PutFixed64(&write_ts, write_ts_int);
+  ReadOptions read_opts;
+  std::string read_ts;
+  PutFixed64(&read_ts, write_ts_int + 1);
+  Slice read_ts_slice = read_ts;
+  read_opts.timestamp = &read_ts_slice;
+
+  ASSERT_OK(txn1->Put(handles_[1], "bar", "value0"));
   ASSERT_OK(txn1->Put(handles_[1], "foo", "value1"));
+  // (key, value, ts) pairs to check.
+  std::vector<std::tuple<std::string, std::string, std::string>>
+      entries_to_check;
+  entries_to_check.emplace_back("bar", "value0", "");
+  entries_to_check.emplace_back("foo", "value1", "");
+
   {
     std::string buf;
     PutFixed64(&buf, 23);
     ASSERT_OK(txn1->Put("id", buf));
     ASSERT_OK(txn1->Merge("id", buf));
   }
+
+  // Check (key, value, ts) with overwrites in txn before `SetCommitTimestamp`.
+  if (std::get<2>(GetParam())) {  // enable_indexing = true
+    std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
+  }
+
   ASSERT_OK(txn1->SetName("txn1"));
   ASSERT_OK(txn1->Prepare());
-  ASSERT_OK(txn1->SetCommitTimestamp(/*ts=*/23));
+  ASSERT_OK(txn1->SetCommitTimestamp(write_ts_int));
+
+  // Check (key, value, ts) with overwrites in txn after `SetCommitTimestamp`.
+  if (std::get<2>(GetParam())) {  // enable_indexing = true
+    std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
+  }
+
   ASSERT_OK(txn1->Commit());
+  entries_to_check.clear();
+  entries_to_check.emplace_back("bar", "value0", write_ts);
+  entries_to_check.emplace_back("foo", "value1", write_ts);
+
+  // Check (key, value, ts) pairs with overwrites in txn after `Commit`.
+  {
+    std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
+  }
   txn1.reset();
 
   {
@@ -158,6 +230,14 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
     bool result = GetFixed64(&value_slc, &ival);
     assert(result);
     ASSERT_EQ(46, ival);
+  }
+
+  // Check (key, value, ts) pairs without overwrites in txn.
+  {
+    std::unique_ptr<Transaction> txn2(
+        NewTxn(WriteOptions(), TransactionOptions()));
+    std::unique_ptr<Iterator> iter(txn2->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
   }
 }
 
@@ -373,13 +453,17 @@ TEST_P(WriteCommittedTxnWithTsTest, GetForUpdate) {
   std::unique_ptr<Transaction> txn0(
       NewTxn(WriteOptions(), TransactionOptions()));
 
+  // Not set read timestamp, use blind write
   std::unique_ptr<Transaction> txn1(
       NewTxn(WriteOptions(), TransactionOptions()));
   ASSERT_OK(txn1->Put(handles_[1], "key", "value1"));
+  ASSERT_OK(txn1->Put(handles_[1], "foo", "value1"));
   ASSERT_OK(txn1->SetCommitTimestamp(24));
   ASSERT_OK(txn1->Commit());
   txn1.reset();
 
+  // Set read timestamp, use it for validation in GetForUpdate, validation fail
+  // with conflict: timestamp from db(24) > read timestamp(23)
   std::string value;
   ASSERT_OK(txn0->SetReadTimestampForValidation(23));
   ASSERT_TRUE(
@@ -387,13 +471,71 @@ TEST_P(WriteCommittedTxnWithTsTest, GetForUpdate) {
   ASSERT_OK(txn0->Rollback());
   txn0.reset();
 
+  // Set read timestamp, use it for validation in GetForUpdate, validation pass
+  // with no conflict: timestamp from db(24) < read timestamp (25)
   std::unique_ptr<Transaction> txn2(
       NewTxn(WriteOptions(), TransactionOptions()));
   ASSERT_OK(txn2->SetReadTimestampForValidation(25));
   ASSERT_OK(txn2->GetForUpdate(ReadOptions(), handles_[1], "key", &value));
+  // Use a different read timestamp in ReadOptions while doing validation is
+  // invalid.
+  ReadOptions read_options;
+  std::string read_timestamp;
+  Slice diff_read_ts = EncodeU64Ts(24, &read_timestamp);
+  read_options.timestamp = &diff_read_ts;
+  ASSERT_TRUE(txn2->GetForUpdate(read_options, handles_[1], "foo", &value)
+                  .IsInvalidArgument());
   ASSERT_OK(txn2->SetCommitTimestamp(26));
   ASSERT_OK(txn2->Commit());
   txn2.reset();
+
+  // Set read timestamp, call GetForUpdate without validation, invalid
+  std::unique_ptr<Transaction> txn3(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn3->SetReadTimestampForValidation(27));
+  ASSERT_TRUE(txn3->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                                 /*exclusive=*/true, /*do_validate=*/false)
+                  .IsInvalidArgument());
+  ASSERT_OK(txn3->Rollback());
+  txn3.reset();
+
+  // Not set read timestamp, call GetForUpdate with validation, invalid
+  std::unique_ptr<Transaction> txn4(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  // ReadOptions.timestamp is not set, invalid
+  ASSERT_TRUE(txn4->GetForUpdate(ReadOptions(), handles_[1], "key", &value)
+                  .IsInvalidArgument());
+  // ReadOptions.timestamp is set, also invalid.
+  // `SetReadTimestampForValidation` must have been called with the same
+  // timestamp as in ReadOptions.timestamp for validation.
+  Slice read_ts = EncodeU64Ts(27, &read_timestamp);
+  read_options.timestamp = &read_ts;
+  ASSERT_TRUE(txn4->GetForUpdate(read_options, handles_[1], "key", &value)
+                  .IsInvalidArgument());
+  ASSERT_OK(txn4->Rollback());
+  txn4.reset();
+
+  // Not set read timestamp, call GetForUpdate without validation, pass
+  std::unique_ptr<Transaction> txn5(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  // ReadOptions.timestamp is not set, pass
+  ASSERT_OK(txn5->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /*exclusive=*/true, /*do_validate=*/false));
+  // ReadOptions.timestamp explicitly set to max timestamp, pass
+  Slice max_ts = MaxU64Ts();
+  read_options.timestamp = &max_ts;
+  ASSERT_OK(txn5->GetForUpdate(read_options, handles_[1], "foo", &value,
+                               /*exclusive=*/true, /*do_validate=*/false));
+  // NOTE: this commit timestamp is smaller than the db's timestamp (26), but
+  // this commit can still go through, that breaks the user-defined timestamp
+  // invariant: newer user-defined timestamp should have newer sequence number.
+  // So be aware of skipping UDT based validation. Unless users have their own
+  // ways to ensure the UDT invariant is met, DO NOT skip it. Ways to ensure
+  // the UDT invariant include: manage a monotonically increasing timestamp,
+  // commit transactions in a single thread etc.
+  ASSERT_OK(txn5->SetCommitTimestamp(3));
+  ASSERT_OK(txn5->Commit());
+  txn5.reset();
 }
 
 TEST_P(WriteCommittedTxnWithTsTest, BlindWrite) {
@@ -548,7 +690,7 @@ TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::GetLatestSequenceForKey:mem", [&](void* arg) {
-        auto* const ts_ptr = reinterpret_cast<std::string*>(arg);
+        auto* const ts_ptr = static_cast<std::string*>(arg);
         assert(ts_ptr);
         Slice ts_slc = *ts_ptr;
         uint64_t last_ts = 0;
@@ -564,8 +706,156 @@ TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
   ASSERT_TRUE(txn1->GetForUpdate(ReadOptions(), "foo", &dontcare).IsBusy());
   ASSERT_TRUE(called);
 
+  Transaction* reused_txn =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), txn1.get());
+  ASSERT_EQ(reused_txn, txn1.get());
+  ASSERT_OK(reused_txn->Put("foo", "v1"));
+  ASSERT_OK(reused_txn->SetCommitTimestamp(40));
+  ASSERT_OK(reused_txn->Commit());
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WriteCommittedTxnWithTsTest, GetEntityForUpdate) {
+  ASSERT_OK(ReOpenNoDelete());
+
+  ColumnFamilyOptions cf_options;
+  cf_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+  const std::string test_cf_name = "test_cf";
+
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf_options, test_cf_name, &cfh));
+  std::unique_ptr<ColumnFamilyHandle> cfh_guard(cfh);
+
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr char baz[] = "baz";
+  constexpr char quux[] = "quux";
+
+  {
+    std::unique_ptr<Transaction> txn0(
+        NewTxn(WriteOptions(), TransactionOptions()));
+
+    {
+      std::unique_ptr<Transaction> txn1(
+          NewTxn(WriteOptions(), TransactionOptions()));
+      ASSERT_OK(txn1->Put(cfh, foo, bar));
+      ASSERT_OK(txn1->Put(cfh, baz, quux));
+      ASSERT_OK(txn1->SetCommitTimestamp(24));
+      ASSERT_OK(txn1->Commit());
+    }
+
+    ASSERT_OK(txn0->SetReadTimestampForValidation(23));
+
+    // Validation fails: timestamp from db(24) > validation timestamp(23)
+    PinnableWideColumns columns;
+    ASSERT_TRUE(
+        txn0->GetEntityForUpdate(ReadOptions(), cfh, foo, &columns).IsBusy());
+
+    ASSERT_OK(txn0->Rollback());
+  }
+
+  {
+    std::unique_ptr<Transaction> txn2(
+        NewTxn(WriteOptions(), TransactionOptions()));
+
+    ASSERT_OK(txn2->SetReadTimestampForValidation(25));
+
+    // Validation successful: timestamp from db(24) < validation timestamp (25)
+    {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn2->GetEntityForUpdate(ReadOptions(), cfh, foo, &columns));
+    }
+
+    // Using a different read timestamp in ReadOptions while doing validation is
+    // not allowed
+    {
+      ReadOptions read_options;
+      std::string read_timestamp;
+      Slice diff_read_ts = EncodeU64Ts(24, &read_timestamp);
+      read_options.timestamp = &diff_read_ts;
+
+      PinnableWideColumns columns;
+      ASSERT_TRUE(txn2->GetEntityForUpdate(read_options, cfh, foo, &columns)
+                      .IsInvalidArgument());
+
+      ASSERT_OK(txn2->SetCommitTimestamp(26));
+      ASSERT_OK(txn2->Commit());
+    }
+  }
+
+  // GetEntityForUpdate with validation timestamp set but no validation is not
+  // allowed
+  {
+    std::unique_ptr<Transaction> txn3(
+        NewTxn(WriteOptions(), TransactionOptions()));
+
+    ASSERT_OK(txn3->SetReadTimestampForValidation(27));
+
+    PinnableWideColumns columns;
+    ASSERT_TRUE(txn3->GetEntityForUpdate(ReadOptions(), cfh, foo, &columns,
+                                         /*exclusive=*/true,
+                                         /*do_validate=*/false)
+                    .IsInvalidArgument());
+
+    ASSERT_OK(txn3->Rollback());
+  }
+
+  // GetEntityForUpdate with validation but no validation timestamp is not
+  // allowed
+  {
+    std::unique_ptr<Transaction> txn4(
+        NewTxn(WriteOptions(), TransactionOptions()));
+
+    // ReadOptions.timestamp is not set
+    {
+      PinnableWideColumns columns;
+      ASSERT_TRUE(txn4->GetEntityForUpdate(ReadOptions(), cfh, foo, &columns)
+                      .IsInvalidArgument());
+    }
+
+    // ReadOptions.timestamp is set
+    {
+      ReadOptions read_options;
+      std::string read_timestamp;
+      Slice read_ts = EncodeU64Ts(27, &read_timestamp);
+      read_options.timestamp = &read_ts;
+
+      PinnableWideColumns columns;
+      ASSERT_TRUE(txn4->GetEntityForUpdate(read_options, cfh, foo, &columns)
+                      .IsInvalidArgument());
+    }
+
+    ASSERT_OK(txn4->Rollback());
+  }
+
+  // Validation disabled
+  {
+    std::unique_ptr<Transaction> txn5(
+        NewTxn(WriteOptions(), TransactionOptions()));
+
+    // ReadOptions.timestamp is not set => success
+    {
+      PinnableWideColumns columns;
+      ASSERT_OK(txn5->GetEntityForUpdate(ReadOptions(), cfh, foo, &columns,
+                                         /*exclusive=*/true,
+                                         /*do_validate=*/false));
+    }
+
+    // ReadOptions.timestamp explicitly set to max timestamp => success
+    {
+      ReadOptions read_options;
+      Slice max_ts = MaxU64Ts();
+      read_options.timestamp = &max_ts;
+
+      PinnableWideColumns columns;
+      ASSERT_OK(txn5->GetEntityForUpdate(read_options, cfh, baz, &columns,
+                                         /*exclusive=*/true,
+                                         /*do_validate=*/false));
+    }
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
@@ -575,4 +865,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

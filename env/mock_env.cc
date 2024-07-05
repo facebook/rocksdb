@@ -21,7 +21,7 @@
 #include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -483,7 +483,7 @@ class TestMemLogger : public Logger {
         options_(options),
         dbg_(dbg),
         flush_pending_(false) {}
-  ~TestMemLogger() override {}
+  ~TestMemLogger() override = default;
 
   void Flush() override {
     if (flush_pending_) {

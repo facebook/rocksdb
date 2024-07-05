@@ -29,8 +29,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
-namespace ROCKSDB_NAMESPACE {
-namespace test {
+namespace ROCKSDB_NAMESPACE::test {
 class StringLogger : public Logger {
  public:
   using Logger::Logv;
@@ -436,7 +435,7 @@ TEST_F(ConfigurableTest, AliasOptionsTest) {
         OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
       {"alias",
        {offsetof(struct TestOptions, b), OptionType::kBoolean,
-        OptionVerificationType::kAlias, OptionTypeFlags::kNone, 0}}};
+        OptionVerificationType::kAlias, OptionTypeFlags::kNone, nullptr}}};
   std::unique_ptr<Configurable> orig;
   orig.reset(SimpleConfigurable::Create("simple", TestConfigMode::kDefaultMode,
                                         &alias_option_info));
@@ -758,7 +757,7 @@ void ConfigurableParamTest::TestConfigureOptions(
   ASSERT_OK(base->GetOptionNames(config_options, &names));
   std::unordered_map<std::string, std::string> unused;
   bool found_one = false;
-  for (auto name : names) {
+  for (const auto& name : names) {
     std::string value;
     Status s = base->GetOption(config_options, name, &value);
     if (s.ok()) {
@@ -849,8 +848,7 @@ INSTANTIATE_TEST_CASE_P(
                                             "block_size=1024;"
                                             "no_block_cache=true;")));
 
-}  // namespace test
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::test
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);

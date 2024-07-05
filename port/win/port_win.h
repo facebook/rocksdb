@@ -117,7 +117,7 @@ class Mutex {
 
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld() {
+  void AssertHeld() const {
 #ifndef NDEBUG
     assert(locked_);
 #endif
@@ -159,7 +159,7 @@ class RWMutex {
   void WriteUnlock() { ReleaseSRWLockExclusive(&srwLock_); }
 
   // Empty as in POSIX
-  void AssertHeld() {}
+  void AssertHeld() const {}
 
  private:
   SRWLOCK srwLock_;
@@ -170,6 +170,9 @@ class CondVar {
   explicit CondVar(Mutex* mu) : mu_(mu) {}
 
   ~CondVar();
+
+  Mutex* GetMutex() const { return mu_; }
+
   void Wait();
   bool TimedWait(uint64_t expiration_time);
   void Signal();
@@ -210,7 +213,7 @@ struct OnceType {
 };
 
 #define LEVELDB_ONCE_INIT port::OnceType::Init()
-extern void InitOnce(OnceType* once, void (*initializer)());
+void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64U
@@ -250,7 +253,7 @@ static inline void AsmVolatilePause() {
   // it would be nice to get "wfe" on ARM here
 }
 
-extern int PhysicalCoreID();
+int PhysicalCoreID();
 
 // For Thread Local Storage abstraction
 using pthread_key_t = DWORD;
@@ -300,13 +303,13 @@ inline void* pthread_getspecific(pthread_key_t key) {
 int truncate(const char* path, int64_t length);
 int Truncate(std::string path, int64_t length);
 void Crash(const std::string& srcfile, int srcline);
-extern int GetMaxOpenFiles();
+int GetMaxOpenFiles();
 std::string utf16_to_utf8(const std::wstring& utf16);
 std::wstring utf8_to_utf16(const std::string& utf8);
 
 using ThreadId = int;
 
-extern void SetCpuPriority(ThreadId id, CpuPriority priority);
+void SetCpuPriority(ThreadId id, CpuPriority priority);
 
 int64_t GetProcessID();
 

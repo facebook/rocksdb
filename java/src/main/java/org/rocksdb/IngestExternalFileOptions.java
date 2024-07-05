@@ -136,15 +136,15 @@ public class IngestExternalFileOptions extends RocksObject {
   /**
    * Set to true if you would like duplicate keys in the file being ingested
    * to be skipped rather than overwriting existing data under that key.
-   *
+   * <p>
    * Usecase: back-fill of some historical data in the database without
    * over-writing existing newer version of data.
-   *
+   * <p>
    * This option could only be used if the DB has been running
    * with DBOptions#allowIngestBehind() == true since the dawn of time.
-   *
+   * <p>
    * All files will be ingested at the bottommost level with seqno=0.
-   *
+   * <p>
    * Default: false
    *
    * @param ingestBehind true if you would like duplicate keys in the file being
@@ -160,7 +160,7 @@ public class IngestExternalFileOptions extends RocksObject {
   /**
    * Returns true write if the global_seqno is written to a given offset
    * in the external SST file for backward compatibility.
-   *
+   * <p>
    * See {@link #setWriteGlobalSeqno(boolean)}.
    *
    * @return true if the global_seqno is written to a given offset,
@@ -173,21 +173,21 @@ public class IngestExternalFileOptions extends RocksObject {
   /**
    * Set to true if you would like to write the global_seqno to a given offset
    * in the external SST file for backward compatibility.
-   *
+   * <p>
    * Older versions of RocksDB write the global_seqno to a given offset within
    * the ingested SST files, and new versions of RocksDB do not.
-   *
+   * <p>
    * If you ingest an external SST using new version of RocksDB and would like
    * to be able to downgrade to an older version of RocksDB, you should set
    * {@link #writeGlobalSeqno()} to true.
-   *
+   * <p>
    * If your service is just starting to use the new RocksDB, we recommend that
    * you set this option to false, which brings two benefits:
    *    1. No extra random write for global_seqno during ingestion.
    *    2. Without writing external SST file, it's possible to do checksum.
-   *
+   * <p>
    * We have a plan to set this option to false by default in the future.
-   *
+   * <p>
    * Default: true
    *
    * @param writeGlobalSeqno true to write the gloal_seqno to a given offset,
@@ -201,27 +201,29 @@ public class IngestExternalFileOptions extends RocksObject {
     return this;
   }
 
-  private native static long newIngestExternalFileOptions();
-  private native static long newIngestExternalFileOptions(
-      final boolean moveFiles, final boolean snapshotConsistency,
-      final boolean allowGlobalSeqNo, final boolean allowBlockingFlush);
-  @Override protected final native void disposeInternal(final long handle);
-
-  private native boolean moveFiles(final long handle);
-  private native void setMoveFiles(final long handle, final boolean move_files);
-  private native boolean snapshotConsistency(final long handle);
-  private native void setSnapshotConsistency(final long handle,
-      final boolean snapshotConsistency);
-  private native boolean allowGlobalSeqNo(final long handle);
-  private native void setAllowGlobalSeqNo(final long handle,
-      final boolean allowGloablSeqNo);
-  private native boolean allowBlockingFlush(final long handle);
-  private native void setAllowBlockingFlush(final long handle,
+  private static native long newIngestExternalFileOptions();
+  private static native long newIngestExternalFileOptions(final boolean moveFiles,
+      final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
       final boolean allowBlockingFlush);
-  private native boolean ingestBehind(final long handle);
-  private native void setIngestBehind(final long handle,
-      final boolean ingestBehind);
-  private native boolean writeGlobalSeqno(final long handle);
-  private native void setWriteGlobalSeqno(final long handle,
-      final boolean writeGlobalSeqNo);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+
+  private static native void disposeInternalJni(final long handle);
+
+  private static native boolean moveFiles(final long handle);
+  private static native void setMoveFiles(final long handle, final boolean move_files);
+  private static native boolean snapshotConsistency(final long handle);
+  private static native void setSnapshotConsistency(
+      final long handle, final boolean snapshotConsistency);
+  private static native boolean allowGlobalSeqNo(final long handle);
+  private static native void setAllowGlobalSeqNo(final long handle, final boolean allowGloablSeqNo);
+  private static native boolean allowBlockingFlush(final long handle);
+  private static native void setAllowBlockingFlush(
+      final long handle, final boolean allowBlockingFlush);
+  private static native boolean ingestBehind(final long handle);
+  private static native void setIngestBehind(final long handle, final boolean ingestBehind);
+  private static native boolean writeGlobalSeqno(final long handle);
+  private static native void setWriteGlobalSeqno(final long handle, final boolean writeGlobalSeqNo);
 }

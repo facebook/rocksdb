@@ -1,0 +1,54 @@
+name: windows-build-steps
+runs:
+  using: composite
+  steps:
+  - name: Add msbuild to PATH
+    uses: microsoft/setup-msbuild@v1.3.1
+  - name: Custom steps
+    env:
+      THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
+      JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
+      SNAPPY_HOME: ${{ github.workspace }}/thirdparty/snappy-1.1.8
+      SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.1.8;${{ github.workspace }}/thirdparty/snappy-1.1.8/build
+      SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+    run: |-
+      # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
+      echo ===================== Install Dependencies =====================
+      choco install liberica8jdk -y
+      if(!$?) { Exit $LASTEXITCODE }
+      mkdir $Env:THIRDPARTY_HOME
+      cd $Env:THIRDPARTY_HOME
+      echo "Building Snappy dependency..."
+      curl -Lo snappy-1.1.8.zip https://github.com/google/snappy/archive/refs/tags/1.1.8.zip
+      if(!$?) { Exit $LASTEXITCODE }
+      unzip -q snappy-1.1.8.zip
+      if(!$?) { Exit $LASTEXITCODE }
+      cd snappy-1.1.8
+      mkdir build
+      cd build
+      & cmake -G "$Env:CMAKE_GENERATOR" ..
+      if(!$?) { Exit $LASTEXITCODE }
+      msbuild Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      if(!$?) { Exit $LASTEXITCODE }
+      echo ======================== Build RocksDB =========================
+      cd ${{ github.workspace }}
+      $env:Path = $env:JAVA_HOME + ";" + $env:Path
+      mkdir build
+      cd build
+      & cmake -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DJNI=1 ..
+      if(!$?) { Exit $LASTEXITCODE }
+      cd ..
+      echo "Building with VS version: $Env:CMAKE_GENERATOR"
+      msbuild build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      if(!$?) { Exit $LASTEXITCODE }
+      echo ========================= Test RocksDB =========================
+      build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
+      if(!$?) { Exit $LASTEXITCODE }
+      echo ======================== Test RocksJava ========================
+      cd build\java
+      & ctest -C Debug -j 16
+      if(!$?) { Exit $LASTEXITCODE }
+    shell: pwsh

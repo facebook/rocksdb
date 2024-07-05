@@ -65,7 +65,7 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
   BlobLogHeader header(column_family_id, compression, has_ttl,
                        expiration_range_header);
 
-  ASSERT_OK(blob_log_writer.WriteHeader(header));
+  ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
 
   std::vector<std::string> compressed_blobs(num);
   std::vector<Slice> blobs_to_write(num);
@@ -76,7 +76,7 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
     }
   } else {
     CompressionOptions opts;
-    CompressionContext context(compression);
+    CompressionContext context(compression, opts);
     constexpr uint64_t sample_for_compression = 0;
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                          compression, sample_for_compression);
@@ -93,7 +93,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
   for (size_t i = 0; i < num; ++i) {
     uint64_t key_offset = 0;
-    ASSERT_OK(blob_log_writer.AddRecord(keys[i], blobs_to_write[i], &key_offset,
+    ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), keys[i],
+                                        blobs_to_write[i], &key_offset,
                                         &blob_offsets[i]));
   }
 
@@ -103,8 +104,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
   std::string checksum_method;
   std::string checksum_value;
-  ASSERT_OK(
-      blob_log_writer.AppendFooter(footer, &checksum_method, &checksum_value));
+  ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
+                                         &checksum_method, &checksum_value));
 }
 
 }  // anonymous namespace
@@ -167,8 +168,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
 
   uint64_t file_size = BlobLogHeader::kSize;
   for (size_t i = 0; i < num_blobs; ++i) {
-    keys.push_back({key_strs[i]});
-    blobs.push_back({blob_strs[i]});
+    keys.emplace_back(key_strs[i]);
+    blobs.emplace_back(blob_strs[i]);
     file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
   }
   file_size += BlobLogFooter::kSize;
@@ -481,8 +482,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   std::vector<Slice> blobs;
 
   for (size_t i = 0; i < num_blobs; ++i) {
-    keys.push_back({key_strs[i]});
-    blobs.push_back({blob_strs[i]});
+    keys.emplace_back(key_strs[i]);
+    blobs.emplace_back(blob_strs[i]);
   }
 
   std::vector<uint64_t> blob_offsets(keys.size());
@@ -517,7 +518,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                   compression, blob_offsets, blob_sizes);
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    ASSERT_OK(blob_source.GetBlobFileReader(file_number, &blob_file_reader));
+    ASSERT_OK(blob_source.GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader));
     ASSERT_NE(blob_file_reader.GetValue(), nullptr);
 
     const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
@@ -608,8 +610,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
   uint64_t file_size = BlobLogHeader::kSize;
   uint64_t blob_value_bytes = 0;
   for (size_t i = 0; i < num_blobs; ++i) {
-    keys.push_back({key_strs[i]});
-    blobs.push_back({blob_strs[i]});
+    keys.emplace_back(key_strs[i]);
+    blobs.emplace_back(blob_strs[i]);
     blob_value_bytes += blobs[i].size();
     file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
   }
@@ -800,8 +802,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
 
   uint64_t file_size = BlobLogHeader::kSize;
   for (size_t i = 0; i < num_blobs; ++i) {
-    keys.push_back({key_strs[i]});
-    blobs.push_back({blob_strs[i]});
+    keys.emplace_back(key_strs[i]);
+    blobs.emplace_back(blob_strs[i]);
     file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
   }
   file_size += BlobLogFooter::kSize;
@@ -1139,12 +1141,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                          blob_file_cache.get());
 
   CacheHandleGuard<BlobFileReader> file_reader;
-  ASSERT_OK(blob_source.GetBlobFileReader(file_number, &file_reader));
+  ReadOptions read_options;
+  ASSERT_OK(
+      blob_source.GetBlobFileReader(read_options, file_number, &file_reader));
   ASSERT_NE(file_reader.GetValue(), nullptr);
   const uint64_t file_size = file_reader.GetValue()->GetFileSize();
   ASSERT_EQ(file_reader.GetValue()->GetCompressionType(), kNoCompression);
 
-  ReadOptions read_options;
   read_options.verify_checksums = true;
 
   auto blob_cache = options_.blob_cache;
@@ -1161,7 +1164,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
                                   blob_offsets[0], file_size, blob_sizes[0],
                                   kNoCompression, nullptr /* prefetch_buffer */,
-                                  &values[0], nullptr /* bytes_read */));
+                                  values.data(), nullptr /* bytes_read */));
     // Release cache handle
     values[0].Reset();
 
@@ -1180,7 +1183,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
                                   blob_offsets[0], file_size, blob_sizes[0],
                                   kNoCompression, nullptr /* prefetch_buffer */,
-                                  &values[0], nullptr /* bytes_read */));
+                                  values.data(), nullptr /* bytes_read */));
     ASSERT_EQ(values[0], blobs[0]);
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[0]));
@@ -1218,7 +1221,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto sec_handle0 = secondary_cache->Lookup(
           key0, BlobSource::SharedCacheInterface::GetFullHelper(),
           /*context*/ nullptr, true,
-          /*advise_erase=*/true, kept_in_sec_cache);
+          /*advise_erase=*/true, /*stats=*/nullptr, kept_in_sec_cache);
       ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
@@ -1246,7 +1249,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto sec_handle1 = secondary_cache->Lookup(
           key1, BlobSource::SharedCacheInterface::GetFullHelper(),
           /*context*/ nullptr, true,
-          /*advise_erase=*/true, kept_in_sec_cache);
+          /*advise_erase=*/true, /*stats=*/nullptr, kept_in_sec_cache);
       ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
@@ -1260,7 +1263,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys[0], file_number, blob_offsets[0], file_size,
           blob_sizes[0], kNoCompression, nullptr /* prefetch_buffer */,
-          &values[0], nullptr /* bytes_read */));
+          values.data(), nullptr /* bytes_read */));
       ASSERT_EQ(values[0], blobs[0]);
 
       // Release cache handle
@@ -1362,8 +1365,8 @@ class BlobSourceCacheReservationTest : public DBTestBase {
 
     blob_file_size_ = BlobLogHeader::kSize;
     for (size_t i = 0; i < kNumBlobs; ++i) {
-      keys_.push_back({key_strs_[i]});
-      blobs_.push_back({blob_strs_[i]});
+      keys_.emplace_back(key_strs_[i]);
+      blobs_.emplace_back(blob_strs_[i]);
       blob_file_size_ +=
           BlobLogRecord::kHeaderSize + keys_[i].size() + blobs_[i].size();
     }

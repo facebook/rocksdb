@@ -49,7 +49,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     BlockType block_type, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     FilePrefetchBuffer* prefetch_buffer, bool for_compaction, bool async_read,
-    Status& s) const {
+    Status& s, bool use_block_cache_for_lookup) const {
   using IterBlocklike = typename IterTraits<TBlockIter>::IterBlocklike;
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
@@ -62,14 +62,16 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   CachableEntry<Block> block;
   if (rep_->uncompression_dict_reader && block_type == BlockType::kData) {
     CachableEntry<UncompressionDict> uncompression_dict;
-    const bool no_io = (ro.read_tier == kBlockCacheTier);
     // For async scans, don't use the prefetch buffer since an async prefetch
     // might already be under way and this would invalidate it. Also, the
     // uncompression dict is typically at the end of the file and would
     // most likely break the sequentiality of the access pattern.
+    // Same is with auto_readahead_size. It iterates over index to lookup for
+    // data blocks. And this could break the the sequentiality of the access
+    // pattern.
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        ro.async_io ? nullptr : prefetch_buffer, no_io, ro.verify_checksums,
-        get_context, lookup_context, &uncompression_dict);
+        ((ro.async_io || ro.auto_readahead_size) ? nullptr : prefetch_buffer),
+        ro, get_context, lookup_context, &uncompression_dict);
     if (!s.ok()) {
       iter->Invalidate(s);
       return iter;
@@ -77,15 +79,15 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const UncompressionDict& dict = uncompression_dict.GetValue()
                                         ? *uncompression_dict.GetValue()
                                         : UncompressionDict::GetEmptyDict();
-    s = RetrieveBlock(prefetch_buffer, ro, handle, dict,
-                      &block.As<IterBlocklike>(), get_context, lookup_context,
-                      for_compaction,
-                      /* use_cache */ true, async_read);
+    s = RetrieveBlock(
+        prefetch_buffer, ro, handle, dict, &block.As<IterBlocklike>(),
+        get_context, lookup_context, for_compaction,
+        /* use_cache */ true, async_read, use_block_cache_for_lookup);
   } else {
     s = RetrieveBlock(
         prefetch_buffer, ro, handle, UncompressionDict::GetEmptyDict(),
         &block.As<IterBlocklike>(), get_context, lookup_context, for_compaction,
-        /* use_cache */ true, async_read);
+        /* use_cache */ true, async_read, use_block_cache_for_lookup);
   }
 
   if (s.IsTryAgain() && async_read) {

@@ -55,7 +55,8 @@ class ArenaWrappedDBIter : public Iterator {
     db_iter_->SetIter(iter);
   }
 
-  void SetMemtableRangetombstoneIter(TruncatedRangeDelIterator** iter) {
+  void SetMemtableRangetombstoneIter(
+      std::unique_ptr<TruncatedRangeDelIterator>* iter) {
     memtable_range_tombstone_iter_ = iter;
   }
 
@@ -80,21 +81,21 @@ class ArenaWrappedDBIter : public Iterator {
   Status GetProperty(std::string prop_name, std::string* prop) override;
 
   Status Refresh() override;
+  Status Refresh(const Snapshot*) override;
 
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableOptions& ioptions,
             const MutableCFOptions& mutable_cf_options, const Version* version,
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-            ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+            ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
             bool expose_blob_index, bool allow_refresh);
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
-  void StoreRefreshInfo(DBImpl* db_impl, ColumnFamilyData* cfd,
+  void StoreRefreshInfo(ColumnFamilyHandleImpl* cfh,
                         ReadCallback* read_callback, bool expose_blob_index) {
-    db_impl_ = db_impl;
-    cfd_ = cfd;
+    cfh_ = cfh;
     read_callback_ = read_callback;
     expose_blob_index_ = expose_blob_index;
   }
@@ -103,25 +104,25 @@ class ArenaWrappedDBIter : public Iterator {
   DBIter* db_iter_ = nullptr;
   Arena arena_;
   uint64_t sv_number_;
-  ColumnFamilyData* cfd_ = nullptr;
-  DBImpl* db_impl_ = nullptr;
+  ColumnFamilyHandleImpl* cfh_ = nullptr;
   ReadOptions read_options_;
   ReadCallback* read_callback_;
   bool expose_blob_index_ = false;
   bool allow_refresh_ = true;
   // If this is nullptr, it means the mutable memtable does not contain range
   // tombstone when added under this DBIter.
-  TruncatedRangeDelIterator** memtable_range_tombstone_iter_ = nullptr;
+  std::unique_ptr<TruncatedRangeDelIterator>* memtable_range_tombstone_iter_ =
+      nullptr;
 };
 
 // Generate the arena wrapped iterator class.
-// `db_impl` and `cfd` are used for reneweal. If left null, renewal will not
+// `cfh` is used for reneweal. If left null, renewal will not
 // be supported.
-extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
+ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, ReadCallback* read_callback,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool expose_blob_index = false, bool allow_refresh = true);
+    ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false,
+    bool allow_refresh = true);
 }  // namespace ROCKSDB_NAMESPACE

@@ -40,7 +40,7 @@ enum CacheDumpUnitType : unsigned char {
   kBlockTypeMax,
 };
 
-// The metadata of a dump unit. After it is serilized, its size is fixed 16
+// The metadata of a dump unit. After it is serialized, its size is fixed 16
 // bytes.
 struct DumpUnitMeta {
   // sequence number is a monotonically increasing number to indicate the order
@@ -48,7 +48,7 @@ struct DumpUnitMeta {
   uint32_t sequence_num;
   // The Crc32c checksum of its dump unit.
   uint32_t dump_unit_checksum;
-  // The dump unit size after the dump unit is serilized to a string.
+  // The dump unit size after the dump unit is serialized to a string.
   uint64_t dump_unit_size;
 
   void reset() {
@@ -96,14 +96,16 @@ class CacheDumperImpl : public CacheDumper {
   CacheDumperImpl(const CacheDumpOptions& dump_options,
                   const std::shared_ptr<Cache>& cache,
                   std::unique_ptr<CacheDumpWriter>&& writer)
-      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {}
+      : options_(dump_options), cache_(cache), writer_(std::move(writer)) {
+    dumped_size_bytes_ = 0;
+  }
   ~CacheDumperImpl() { writer_.reset(); }
   Status SetDumpFilter(std::vector<DB*> db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
 
  private:
   IOStatus WriteBlock(CacheDumpUnitType type, const Slice& key,
-                      const Slice& value);
+                      const Slice& value, uint64_t timestamp);
   IOStatus WriteHeader();
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
@@ -121,6 +123,11 @@ class CacheDumperImpl : public CacheDumper {
   // improvement can be applied like BloomFilter or others to speedup the
   // filtering.
   std::set<std::string> prefix_filter_;
+  // Deadline for dumper in microseconds.
+  std::chrono::microseconds deadline_;
+  uint64_t dumped_size_bytes_;
+  // dump all keys of cache if user doesn't call SetDumpFilter
+  bool dump_all_keys_ = true;
 };
 
 // The default implementation of CacheDumpedLoader
@@ -158,35 +165,41 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
   ~ToFileCacheDumpWriter() { Close().PermitUncheckedError(); }
 
   // Write the serialized metadata to the file
-  virtual IOStatus WriteMetadata(const Slice& metadata) override {
+  IOStatus WriteMetadata(const Slice& metadata) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(metadata.size()));
-    IOStatus io_s = file_writer_->Append(Slice(prefix));
+    const IOOptions opts;
+    IOStatus io_s = file_writer_->Append(opts, Slice(prefix));
     if (!io_s.ok()) {
       return io_s;
     }
-    io_s = file_writer_->Append(metadata);
+    io_s = file_writer_->Append(opts, metadata);
     return io_s;
   }
 
   // Write the serialized data to the file
-  virtual IOStatus WritePacket(const Slice& data) override {
+  IOStatus WritePacket(const Slice& data) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(data.size()));
-    IOStatus io_s = file_writer_->Append(Slice(prefix));
+    const IOOptions opts;
+    IOStatus io_s = file_writer_->Append(opts, Slice(prefix));
     if (!io_s.ok()) {
       return io_s;
     }
-    io_s = file_writer_->Append(data);
+    io_s = file_writer_->Append(opts, data);
     return io_s;
   }
 
   // Reset the writer
-  virtual IOStatus Close() override {
+  IOStatus Close() override {
+    IOStatus io_s;
+    if (file_writer_ != nullptr && !file_writer_->seen_error()) {
+      io_s = file_writer_->Sync(IOOptions(), false /* use_fsync */);
+    }
     file_writer_.reset();
-    return IOStatus::OK();
+    return io_s;
   }
 
  private:
@@ -206,7 +219,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 
   ~FromFileCacheDumpReader() { delete[] buffer_; }
 
-  virtual IOStatus ReadMetadata(std::string* metadata) override {
+  IOStatus ReadMetadata(std::string* metadata) override {
     uint32_t metadata_len = 0;
     IOStatus io_s = ReadSizePrefix(&metadata_len);
     if (!io_s.ok()) {
@@ -215,7 +228,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
     return Read(metadata_len, metadata);
   }
 
-  virtual IOStatus ReadPacket(std::string* data) override {
+  IOStatus ReadPacket(std::string* data) override {
     uint32_t data_len = 0;
     IOStatus io_s = ReadSizePrefix(&data_len);
     if (!io_s.ok()) {
@@ -249,8 +262,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 
     while (to_read > 0) {
       io_s = file_reader_->Read(IOOptions(), offset_, to_read, &result_,
-                                buffer_, nullptr,
-                                Env::IO_TOTAL /* rate_limiter_priority */);
+                                buffer_, nullptr);
       if (!io_s.ok()) {
         return io_s;
       }

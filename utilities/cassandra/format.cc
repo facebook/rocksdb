@@ -11,8 +11,7 @@
 
 #include "utilities/cassandra/serialize.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 namespace {
 const int32_t kDefaultLocalDeletionTime = std::numeric_limits<int32_t>::max();
 const int64_t kDefaultMarkedForDeleteAt = std::numeric_limits<int64_t>::min();
@@ -363,5 +362,4 @@ RowValue RowValue::Merge(std::vector<RowValue>&& values) {
   return RowValue(std::move(columns), last_modified_time);
 }
 
-}  // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra

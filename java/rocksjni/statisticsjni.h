@@ -13,7 +13,7 @@
 #include <set>
 #include <string>
 
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -23,7 +23,7 @@ class StatisticsJni : public StatisticsImpl {
   StatisticsJni(std::shared_ptr<Statistics> stats);
   StatisticsJni(std::shared_ptr<Statistics> stats,
                 const std::set<uint32_t> ignore_histograms);
-  virtual bool HistEnabledForType(uint32_t type) const override;
+  bool HistEnabledForType(uint32_t type) const override;
 
  private:
   const std::set<uint32_t> m_ignore_histograms;

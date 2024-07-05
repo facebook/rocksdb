@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * RestoreOptions to control the behavior of restore.
- *
+ * <p>
  * Note that dispose() must be called before this instance become out-of-scope
  * to release the allocated memory in c++.
  *
@@ -27,6 +27,10 @@ public class RestoreOptions extends RocksObject {
     super(newRestoreOptions(keepLogFiles));
   }
 
-  private native static long newRestoreOptions(boolean keepLogFiles);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native long newRestoreOptions(boolean keepLogFiles);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

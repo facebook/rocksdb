@@ -22,10 +22,13 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
     IOStatus s = awaiter->file_->ReadAsync(
         awaiter->read_reqs_[i], awaiter->opts_,
-        [](const FSReadRequest& req, void* cb_arg) {
+        [](FSReadRequest& req, void* cb_arg) {
           FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
           read_req->status = req.status;
           read_req->result = req.result;
+          if (req.fs_scratch != nullptr) {
+            read_req->fs_scratch = std::move(req.fs_scratch);
+          }
         },
         &awaiter->read_reqs_[i], &awaiter->io_handle_[i], &awaiter->del_fn_[i],
         /*aligned_buf=*/nullptr);

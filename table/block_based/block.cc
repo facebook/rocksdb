@@ -30,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 // Helper routine: decode the next block entry starting at "p",
 // storing the number of shared key bytes, non_shared key bytes,
 // and the length of the value in "*shared", "*non_shared", and
-// "*value_length", respectively.  Will not derefence past "limit".
+// "*value_length", respectively.  Will not dereference past "limit".
 //
 // If any errors are detected, returns nullptr.  Otherwise, returns a
 // pointer to the key delta (just past the three decoded values).
@@ -49,8 +49,12 @@ struct DecodeEntry {
       // Fast path: all three values are encoded in one byte each
       p += 3;
     } else {
-      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
-      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) {
+        return nullptr;
+      }
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) {
+        return nullptr;
+      }
       if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) {
         return nullptr;
       }
@@ -82,8 +86,12 @@ struct CheckAndDecodeEntry {
       // Fast path: all three values are encoded in one byte each
       p += 3;
     } else {
-      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
-      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) {
+        return nullptr;
+      }
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) {
+        return nullptr;
+      }
       if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) {
         return nullptr;
       }
@@ -113,15 +121,21 @@ struct DecodeKeyV4 {
     // We need 2 bytes for shared and non_shared size. We also need one more
     // byte either for value size or the actual value in case of value delta
     // encoding.
-    if (limit - p < 3) return nullptr;
+    if (limit - p < 3) {
+      return nullptr;
+    }
     *shared = reinterpret_cast<const unsigned char*>(p)[0];
     *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
     if ((*shared | *non_shared) < 128) {
       // Fast path: all three values are encoded in one byte each
       p += 2;
     } else {
-      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
-      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
+      if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) {
+        return nullptr;
+      }
+      if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) {
+        return nullptr;
+      }
     }
     return p;
   }
@@ -137,17 +151,28 @@ struct DecodeEntryV4 {
     return DecodeKeyV4()(p, limit, shared, non_shared);
   }
 };
+
 void DataBlockIter::NextImpl() {
+#ifndef NDEBUG
+  if (TEST_Corrupt_Callback("DataBlockIter::NextImpl")) {
+    return;
+  }
+#endif
   bool is_shared = false;
   ParseNextDataKey(&is_shared);
+  ++cur_entry_idx_;
 }
 
 void MetaBlockIter::NextImpl() {
   bool is_shared = false;
   ParseNextKey<CheckAndDecodeEntry>(&is_shared);
+  ++cur_entry_idx_;
 }
 
-void IndexBlockIter::NextImpl() { ParseNextIndexKey(); }
+void IndexBlockIter::NextImpl() {
+  ParseNextIndexKey();
+  ++cur_entry_idx_;
+}
 
 void IndexBlockIter::PrevImpl() {
   assert(Valid());
@@ -166,6 +191,7 @@ void IndexBlockIter::PrevImpl() {
   // Loop until end of current entry hits the start of original entry
   while (ParseNextIndexKey() && NextEntryOffset() < original) {
   }
+  --cur_entry_idx_;
 }
 
 void MetaBlockIter::PrevImpl() {
@@ -187,6 +213,7 @@ void MetaBlockIter::PrevImpl() {
   while (ParseNextKey<CheckAndDecodeEntry>(&is_shared) &&
          NextEntryOffset() < original) {
   }
+  --cur_entry_idx_;
 }
 
 // Similar to IndexBlockIter::PrevImpl but also caches the prev entries
@@ -195,6 +222,7 @@ void DataBlockIter::PrevImpl() {
 
   assert(prev_entries_idx_ == -1 ||
          static_cast<size_t>(prev_entries_idx_) < prev_entries_.size());
+  --cur_entry_idx_;
   // Check if we can use cached prev_entries_
   if (prev_entries_idx_ > 0 &&
       prev_entries_[prev_entries_idx_].offset == current_) {
@@ -307,11 +335,12 @@ void MetaBlockIter::SeekImpl(const Slice& target) {
 // target = "seek_user_key @ type | seqno".
 //
 // For any type other than kTypeValue, kTypeDeletion, kTypeSingleDeletion,
-// kTypeBlobIndex, or kTypeWideColumnEntity, this function behaves identically
-// to Seek().
+// kTypeBlobIndex, kTypeWideColumnEntity, kTypeValuePreferredSeqno or
+// kTypeMerge, this function behaves identically to Seek().
 //
 // For any type in kTypeValue, kTypeDeletion, kTypeSingleDeletion,
-// kTypeBlobIndex, or kTypeWideColumnEntity:
+// kTypeBlobIndex, kTypeWideColumnEntity, kTypeValuePreferredSeqno or
+// kTypeMerge:
 //
 // If the return value is FALSE, iter location is undefined, and it means:
 // 1) there is no key in this block falling into the range:
@@ -319,10 +348,10 @@ void MetaBlockIter::SeekImpl(const Slice& target) {
 //    inclusive; AND
 // 2) the last key of this block has a greater user_key from seek_user_key
 //
-// If the return value is TRUE, iter location has two possibilies:
-// 1) If iter is valid, it is set to a location as if set by BinarySeek. In
-//    this case, it points to the first key with a larger user_key or a matching
-//    user_key with a seqno no greater than the seeking seqno.
+// If the return value is TRUE, iter location has two possibilities:
+// 1) If iter is valid, it is set to a location as if set by SeekImpl(target).
+//    In this case, it points to the first key with a larger user_key or a
+//    matching user_key with a seqno no greater than the seeking seqno.
 // 2) If the iter is invalid, it means that either all the user_key is less
 //    than the seek_user_key, or the block ends with a matching user_key but
 //    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
@@ -347,11 +376,11 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // boundary key: axy@50 (we make minimal assumption about a boundary key)
     // Block N+1:  [axy@10, ...   ]
     //
-    // If seek_key = axy@60, the search will starts from Block N.
+    // If seek_key = axy@60, the search will start from Block N.
     // Even if the user_key is not found in the hash map, the caller still
     // have to continue searching the next block.
     //
-    // In this case, we pretend the key is the the last restart interval.
+    // In this case, we pretend the key is in the last restart interval.
     // The while-loop below will search the last restart interval for the
     // key. It will stop at the first key that is larger than the seek_key,
     // or to the end of the block if no one is larger.
@@ -364,12 +393,15 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   assert(restart_index < num_restarts_);
   SeekToRestartPoint(restart_index);
   current_ = GetRestartPoint(restart_index);
+  cur_entry_idx_ =
+      static_cast<int32_t>(restart_index * block_restart_interval_) - 1;
 
   uint32_t limit = restarts_;
   if (restart_index + 1 < num_restarts_) {
     limit = GetRestartPoint(restart_index + 1);
   }
   while (current_ < limit) {
+    ++cur_entry_idx_;
     bool shared;
     // Here we only linear seek the target key inside the restart interval.
     // If a key does not exist inside a restart interval, we avoid
@@ -381,14 +413,20 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
       // we stop at the first potential matching user key.
       break;
     }
+    // If the loop exits due to CompareCurrentKey(target) >= 0, then current key
+    // exists, and its checksum verification will be done in UpdateKey() called
+    // in SeekForGet().
+    // TODO(cbi): If this loop exits with current_ == restart_, per key-value
+    //  checksum will not be verified in UpdateKey() since Valid()
+    //  will return false.
   }
 
   if (current_ == restarts_) {
-    // Search reaches to the end of the block. There are three possibilites:
-    // 1) there is only one user_key match in the block (otherwise collsion).
+    // Search reaches to the end of the block. There are three possibilities:
+    // 1) there is only one user_key match in the block (otherwise collision).
     //    the matching user_key resides in the last restart interval, and it
     //    is the last key of the restart interval and of the block as well.
-    //    ParseNextKey() skiped it as its [ type | seqno ] is smaller.
+    //    ParseNextKey() skipped it as its [ type | seqno ] is smaller.
     //
     // 2) The seek_key is not found in the HashIndex Lookup(), i.e. kNoEntry,
     //    AND all existing user_keys in the restart interval are smaller than
@@ -412,11 +450,12 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   ValueType value_type = ExtractValueType(raw_key_.GetInternalKey());
   if (value_type != ValueType::kTypeValue &&
       value_type != ValueType::kTypeDeletion &&
+      value_type != ValueType::kTypeMerge &&
       value_type != ValueType::kTypeSingleDeletion &&
       value_type != ValueType::kTypeBlobIndex &&
-      value_type != ValueType::kTypeWideColumnEntity) {
+      value_type != ValueType::kTypeWideColumnEntity &&
+      value_type != ValueType::kTypeValuePreferredSeqno) {
     SeekImpl(target);
-    return true;
   }
 
   // Result found, and the iter is correctly set.
@@ -424,6 +463,11 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
 }
 
 void IndexBlockIter::SeekImpl(const Slice& target) {
+#ifndef NDEBUG
+  if (TEST_Corrupt_Callback("IndexBlockIter::SeekImpl")) {
+    return;
+  }
+#endif
   TEST_SYNC_POINT("IndexBlockIter::Seek:0");
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
@@ -478,7 +522,9 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 
   if (!Valid()) {
-    SeekToLastImpl();
+    if (status_.ok()) {
+      SeekToLastImpl();
+    }
   } else {
     while (Valid() && CompareCurrentKey(seek_key) > 0) {
       PrevImpl();
@@ -502,7 +548,9 @@ void MetaBlockIter::SeekForPrevImpl(const Slice& target) {
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 
   if (!Valid()) {
-    SeekToLastImpl();
+    if (status_.ok()) {
+      SeekToLastImpl();
+    }
   } else {
     while (Valid() && CompareCurrentKey(seek_key) > 0) {
       PrevImpl();
@@ -517,6 +565,7 @@ void DataBlockIter::SeekToFirstImpl() {
   SeekToRestartPoint(0);
   bool is_shared = false;
   ParseNextDataKey(&is_shared);
+  cur_entry_idx_ = 0;
 }
 
 void MetaBlockIter::SeekToFirstImpl() {
@@ -526,15 +575,22 @@ void MetaBlockIter::SeekToFirstImpl() {
   SeekToRestartPoint(0);
   bool is_shared = false;
   ParseNextKey<CheckAndDecodeEntry>(&is_shared);
+  cur_entry_idx_ = 0;
 }
 
 void IndexBlockIter::SeekToFirstImpl() {
+#ifndef NDEBUG
+  if (TEST_Corrupt_Callback("IndexBlockIter::SeekToFirstImpl")) {
+    return;
+  }
+#endif
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   status_ = Status::OK();
   SeekToRestartPoint(0);
   ParseNextIndexKey();
+  cur_entry_idx_ = 0;
 }
 
 void DataBlockIter::SeekToLastImpl() {
@@ -543,8 +599,10 @@ void DataBlockIter::SeekToLastImpl() {
   }
   SeekToRestartPoint(num_restarts_ - 1);
   bool is_shared = false;
+  cur_entry_idx_ = (num_restarts_ - 1) * block_restart_interval_;
   while (ParseNextDataKey(&is_shared) && NextEntryOffset() < restarts_) {
     // Keep skipping
+    ++cur_entry_idx_;
   }
 }
 
@@ -554,9 +612,13 @@ void MetaBlockIter::SeekToLastImpl() {
   }
   SeekToRestartPoint(num_restarts_ - 1);
   bool is_shared = false;
+  assert(num_restarts_ >= 1);
+  cur_entry_idx_ =
+      static_cast<int32_t>((num_restarts_ - 1) * block_restart_interval_);
   while (ParseNextKey<CheckAndDecodeEntry>(&is_shared) &&
          NextEntryOffset() < restarts_) {
-    // Keep skipping
+    // Will probably never reach here since restart_interval is always 1
+    ++cur_entry_idx_;
   }
 }
 
@@ -566,18 +628,10 @@ void IndexBlockIter::SeekToLastImpl() {
   }
   status_ = Status::OK();
   SeekToRestartPoint(num_restarts_ - 1);
+  cur_entry_idx_ = (num_restarts_ - 1) * block_restart_interval_;
   while (ParseNextIndexKey() && NextEntryOffset() < restarts_) {
-    // Keep skipping
+    ++cur_entry_idx_;
   }
-}
-
-template <class TValue>
-void BlockIter<TValue>::CorruptionError() {
-  current_ = restarts_;
-  restart_index_ = num_restarts_;
-  status_ = Status::Corruption("bad entry in block");
-  raw_key_.Clear();
-  value_.clear();
 }
 
 template <class TValue>
@@ -602,13 +656,22 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
   } else {
     if (shared == 0) {
       *is_shared = false;
-      // If this key doesn't share any bytes with prev key then we don't need
-      // to decode it and can use its address in the block directly.
-      raw_key_.SetKey(Slice(p, non_shared), false /* copy */);
+      // If this key doesn't share any bytes with prev key, and no min timestamp
+      // needs to be padded to the key, then we don't need to decode it and
+      // can use its address in the block directly (no copy).
+      UpdateRawKeyAndMaybePadMinTimestamp(Slice(p, non_shared));
     } else {
       // This key share `shared` bytes with prev key, we need to decode it
       *is_shared = true;
-      raw_key_.TrimAppend(shared, p, non_shared);
+      // If user-defined timestamp is stripped from user key before keys are
+      // delta encoded, the decoded key consisting of the shared and non shared
+      // bytes do not have user-defined timestamp yet. We need to pad min
+      // timestamp to it.
+      if (pad_min_timestamp_) {
+        raw_key_.TrimAppendWithTimestamp(shared, p, non_shared, ts_sz_);
+      } else {
+        raw_key_.TrimAppend(shared, p, non_shared);
+      }
     }
     value_ = Slice(p + non_shared, value_length);
     if (shared == 0) {
@@ -630,7 +693,8 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
       // If we are reading a file with a global sequence number we should
       // expect that all encoded sequence numbers are zeros and any value
       // type is kTypeValue, kTypeMerge, kTypeDeletion,
-      // kTypeDeletionWithTimestamp, or kTypeRangeDeletion.
+      // kTypeDeletionWithTimestamp, kTypeRangeDeletion, or
+      // kTypeWideColumnEntity.
       uint64_t packed = ExtractInternalKeyFooter(raw_key_.GetKey());
       SequenceNumber seqno;
       ValueType value_type;
@@ -639,7 +703,8 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
              value_type == ValueType::kTypeMerge ||
              value_type == ValueType::kTypeDeletion ||
              value_type == ValueType::kTypeDeletionWithTimestamp ||
-             value_type == ValueType::kTypeRangeDeletion);
+             value_type == ValueType::kTypeRangeDeletion ||
+             value_type == ValueType::kTypeWideColumnEntity);
       assert(seqno == 0);
     }
 #endif  // NDEBUG
@@ -654,7 +719,8 @@ bool IndexBlockIter::ParseNextIndexKey() {
   bool ok = (value_delta_encoded_) ? ParseNextKey<DecodeEntryV4>(&is_shared)
                                    : ParseNextKey<DecodeEntry>(&is_shared);
   if (ok) {
-    if (value_delta_encoded_ || global_seqno_state_ != nullptr) {
+    if (value_delta_encoded_ || global_seqno_state_ != nullptr ||
+        pad_min_timestamp_) {
       DecodeCurrentValue(is_shared);
     }
   }
@@ -666,12 +732,12 @@ bool IndexBlockIter::ParseNextIndexKey() {
 // restart_point   1: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
 // ...
 // restart_point n-1: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
-// where, k is key, v is value, and its encoding is in parenthesis.
+// where, k is key, v is value, and its encoding is in parentheses.
 // The format of each key is (shared_size, non_shared_size, shared, non_shared)
 // The format of each value, i.e., block handle, is (offset, size) whenever the
 // is_shared is false, which included the first entry in each restart point.
-// Otherwise the format is delta-size = block handle size - size of last block
-// handle.
+// Otherwise, the format is delta-size = the size of current block - the size o
+// last block.
 void IndexBlockIter::DecodeCurrentValue(bool is_shared) {
   Slice v(value_.data(), data_ + restarts_ - value_.data());
   // Delta encoding is used if `shared` != 0.
@@ -694,11 +760,18 @@ void IndexBlockIter::DecodeCurrentValue(bool is_shared) {
     assert(value_type == ValueType::kTypeValue ||
            value_type == ValueType::kTypeMerge ||
            value_type == ValueType::kTypeDeletion ||
-           value_type == ValueType::kTypeRangeDeletion);
+           value_type == ValueType::kTypeRangeDeletion ||
+           value_type == ValueType::kTypeWideColumnEntity);
 
     first_internal_key.UpdateInternalKey(global_seqno_state_->global_seqno,
                                          value_type);
     decoded_value_.first_internal_key = first_internal_key.GetKey();
+  }
+  if (pad_min_timestamp_ && !decoded_value_.first_internal_key.empty()) {
+    first_internal_key_with_ts_.clear();
+    PadInternalKeyWithMinTimestamp(&first_internal_key_with_ts_,
+                                   decoded_value_.first_internal_key, ts_sz_);
+    decoded_value_.first_internal_key = first_internal_key_with_ts_;
   }
 }
 
@@ -710,6 +783,7 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
   // to follow it up with NextImpl() to position the iterator at the restart
   // key.
   SeekToRestartPoint(index);
+  cur_entry_idx_ = static_cast<int32_t>(index * block_restart_interval_) - 1;
   NextImpl();
 
   if (!skip_linear_scan) {
@@ -728,6 +802,8 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
     while (true) {
       NextImpl();
       if (!Valid()) {
+        // TODO(cbi): per key-value checksum will not be verified in UpdateKey()
+        //  since Valid() will returns false.
         break;
       }
       if (current_ == max_offset) {
@@ -782,7 +858,7 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
       return false;
     }
     Slice mid_key(key_ptr, non_shared);
-    raw_key_.SetKey(mid_key, false /* copy */);
+    UpdateRawKeyAndMaybePadMinTimestamp(mid_key);
     int cmp = CompareCurrentKey(target);
     if (cmp < 0) {
       // Key at "mid" is smaller than "target". Therefore all
@@ -825,7 +901,7 @@ int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
     return 1;  // Return target is smaller
   }
   Slice block_key(key_ptr, non_shared);
-  raw_key_.SetKey(block_key, false /* copy */);
+  UpdateRawKeyAndMaybePadMinTimestamp(block_key);
   return CompareCurrentKey(target);
 }
 
@@ -856,7 +932,9 @@ bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
       // Key at "target" is <= "mid". Therefore all blocks
       // after "mid" are uninteresting.
       // If there is only one block left, we found it.
-      if (left == right) break;
+      if (left == right) {
+        break;
+      }
       right = mid;
     }
   }
@@ -976,6 +1054,7 @@ Block::~Block() {
   // This sync point can be re-enabled if RocksDB can control the
   // initialization order of any/all static options created by the user.
   // TEST_SYNC_POINT("Block::~Block");
+  delete[] kv_checksum_;
 }
 
 Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
@@ -1010,10 +1089,8 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
 
         uint16_t map_offset;
         data_block_hash_index_.Initialize(
-            contents.data.data(),
-            static_cast<uint16_t>(contents.data.size() -
-                                  sizeof(uint32_t)), /*chop off
-                                                 NUM_RESTARTS*/
+            data_, static_cast<uint16_t>(size_ - sizeof(uint32_t)), /*chop off
+                                                                NUM_RESTARTS*/
             &map_offset);
 
         restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
@@ -1035,6 +1112,132 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
   }
 }
 
+void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
+                                              const Comparator* raw_ucmp) {
+  protection_bytes_per_key_ = 0;
+  if (protection_bytes_per_key > 0 && num_restarts_ > 0) {
+    // NewDataIterator() is called with protection_bytes_per_key_ = 0.
+    // This is intended since checksum is not constructed yet.
+    //
+    // We do not know global_seqno yet, so checksum computation and
+    // verification all assume global_seqno = 0.
+    // TODO(yuzhangyu): handle the implication of padding timestamp for kv
+    // protection.
+    std::unique_ptr<DataBlockIter> iter{NewDataIterator(
+        raw_ucmp, kDisableGlobalSequenceNumber, nullptr /* iter */,
+        nullptr /* stats */, true /* block_contents_pinned */,
+        true /* user_defined_timestamps_persisted */)};
+    if (iter->status().ok()) {
+      block_restart_interval_ = iter->GetRestartInterval();
+    }
+    uint32_t num_keys = 0;
+    if (iter->status().ok()) {
+      num_keys = iter->NumberOfKeys(block_restart_interval_);
+    }
+    if (iter->status().ok()) {
+      checksum_size_ = num_keys * protection_bytes_per_key;
+      kv_checksum_ = new char[(size_t)checksum_size_];
+      size_t i = 0;
+      iter->SeekToFirst();
+      while (iter->Valid()) {
+        GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
+                           iter->key(), iter->value());
+        iter->Next();
+        i += protection_bytes_per_key;
+      }
+      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
+    }
+    if (!iter->status().ok()) {
+      size_ = 0;  // Error marker
+      return;
+    }
+    protection_bytes_per_key_ = protection_bytes_per_key;
+  }
+}
+
+void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
+                                               const Comparator* raw_ucmp,
+                                               bool value_is_full,
+                                               bool index_has_first_key) {
+  protection_bytes_per_key_ = 0;
+  if (num_restarts_ > 0 && protection_bytes_per_key > 0) {
+    // Note that `global_seqno` and `key_includes_seq` are hardcoded here. They
+    // do not impact how the index block is parsed. During checksum
+    // construction/verification, we use the entire key buffer from
+    // raw_key_.GetKey() returned by iter->key() as the `key` part of key-value
+    // checksum, and the content of this buffer do not change for different
+    // values of `global_seqno` or `key_includes_seq`.
+    // TODO(yuzhangyu): handle the implication of padding timestamp for kv
+    // protection.
+    std::unique_ptr<IndexBlockIter> iter{NewIndexIterator(
+        raw_ucmp, kDisableGlobalSequenceNumber /* global_seqno */, nullptr,
+        nullptr /* Statistics */, true /* total_order_seek */,
+        index_has_first_key /* have_first_key */, false /* key_includes_seq */,
+        value_is_full, true /* block_contents_pinned */,
+        true /* user_defined_timestamps_persisted*/,
+        nullptr /* prefix_index */)};
+    if (iter->status().ok()) {
+      block_restart_interval_ = iter->GetRestartInterval();
+    }
+    uint32_t num_keys = 0;
+    if (iter->status().ok()) {
+      num_keys = iter->NumberOfKeys(block_restart_interval_);
+    }
+    if (iter->status().ok()) {
+      checksum_size_ = num_keys * protection_bytes_per_key;
+      kv_checksum_ = new char[(size_t)checksum_size_];
+      iter->SeekToFirst();
+      size_t i = 0;
+      while (iter->Valid()) {
+        GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
+                           iter->key(), iter->raw_value());
+        iter->Next();
+        i += protection_bytes_per_key;
+      }
+      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
+    }
+    if (!iter->status().ok()) {
+      size_ = 0;  // Error marker
+      return;
+    }
+    protection_bytes_per_key_ = protection_bytes_per_key;
+  }
+}
+
+void Block::InitializeMetaIndexBlockProtectionInfo(
+    uint8_t protection_bytes_per_key) {
+  protection_bytes_per_key_ = 0;
+  if (num_restarts_ > 0 && protection_bytes_per_key > 0) {
+    std::unique_ptr<MetaBlockIter> iter{
+        NewMetaIterator(true /* block_contents_pinned */)};
+    if (iter->status().ok()) {
+      block_restart_interval_ = iter->GetRestartInterval();
+    }
+    uint32_t num_keys = 0;
+    if (iter->status().ok()) {
+      num_keys = iter->NumberOfKeys(block_restart_interval_);
+    }
+    if (iter->status().ok()) {
+      checksum_size_ = num_keys * protection_bytes_per_key;
+      kv_checksum_ = new char[(size_t)checksum_size_];
+      iter->SeekToFirst();
+      size_t i = 0;
+      while (iter->Valid()) {
+        GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
+                           iter->key(), iter->value());
+        iter->Next();
+        i += protection_bytes_per_key;
+      }
+      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
+    }
+    if (!iter->status().ok()) {
+      size_ = 0;  // Error marker
+      return;
+    }
+    protection_bytes_per_key_ = protection_bytes_per_key;
+  }
+}
+
 MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
   MetaBlockIter* iter = new MetaBlockIter();
   if (size_ < 2 * sizeof(uint32_t)) {
@@ -1045,7 +1248,8 @@ MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
     iter->Invalidate(Status::OK());
   } else {
     iter->Initialize(data_, restart_offset_, num_restarts_,
-                     block_contents_pinned);
+                     block_contents_pinned, protection_bytes_per_key_,
+                     kv_checksum_, block_restart_interval_);
   }
   return iter;
 }
@@ -1053,7 +1257,8 @@ MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
 DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
                                       SequenceNumber global_seqno,
                                       DataBlockIter* iter, Statistics* stats,
-                                      bool block_contents_pinned) {
+                                      bool block_contents_pinned,
+                                      bool user_defined_timestamps_persisted) {
   DataBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1072,7 +1277,9 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
     ret_iter->Initialize(
         raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
-        data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
+        user_defined_timestamps_persisted,
+        data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
+        protection_bytes_per_key_, kv_checksum_, block_restart_interval_);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
@@ -1088,7 +1295,8 @@ IndexBlockIter* Block::NewIndexIterator(
     const Comparator* raw_ucmp, SequenceNumber global_seqno,
     IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
     bool have_first_key, bool key_includes_seq, bool value_is_full,
-    bool block_contents_pinned, BlockPrefixIndex* prefix_index) {
+    bool block_contents_pinned, bool user_defined_timestamps_persisted,
+    BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1106,10 +1314,11 @@ IndexBlockIter* Block::NewIndexIterator(
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
-    ret_iter->Initialize(raw_ucmp, data_, restart_offset_, num_restarts_,
-                         global_seqno, prefix_index_ptr, have_first_key,
-                         key_includes_seq, value_is_full,
-                         block_contents_pinned);
+    ret_iter->Initialize(
+        raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
+        prefix_index_ptr, have_first_key, key_includes_seq, value_is_full,
+        block_contents_pinned, user_defined_timestamps_persisted,
+        protection_bytes_per_key_, kv_checksum_, block_restart_interval_);
   }
 
   return ret_iter;
@@ -1125,6 +1334,7 @@ size_t Block::ApproximateMemoryUsage() const {
   if (read_amp_bitmap_) {
     usage += read_amp_bitmap_->ApproximateMemoryUsage();
   }
+  usage += checksum_size_;
   return usage;
 }
 

@@ -62,6 +62,6 @@ class ThreadPool {
 
 // NewThreadPool() is a function that could be used to create a ThreadPool
 // with `num_threads` background threads.
-extern ThreadPool* NewThreadPool(int num_threads);
+ThreadPool* NewThreadPool(int num_threads);
 
 }  // namespace ROCKSDB_NAMESPACE
