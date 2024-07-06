@@ -684,13 +684,14 @@ class DbMemtableKVChecksumTest : public DbKvChecksumTest {
   DbMemtableKVChecksumTest() : DbKvChecksumTest() {}
 
  protected:
+  const size_t kValueLenOffset = 12;
   // Indices in the memtable entry that we will not corrupt.
   // For memtable entry format, see comments in MemTable::Add().
   // We do not corrupt key length and value length fields in this test
   // case since it causes segfault and ASAN will complain.
   // For this test case, key and value are all of length 3, so
   // key length field is at index 0 and value length field is at index 12.
-  const std::set<size_t> index_not_to_corrupt{0, 12};
+  const std::set<size_t> index_not_to_corrupt{0, kValueLenOffset};
 
   void SkipNotToCorruptEntry() {
     if (index_not_to_corrupt.find(corrupt_byte_offset_) !=
@@ -737,6 +738,8 @@ TEST_P(DbMemtableKVChecksumTest, GetWithCorruptAfterMemtableInsert) {
         buf[corrupt_byte_offset_] += corrupt_byte_addend_;
         ++corrupt_byte_offset_;
       });
+  // Corrupt value only so that MultiGet below can find the key.
+  corrupt_byte_offset_ = kValueLenOffset + 1;
   SyncPoint::GetInstance()->EnableProcessing();
   Options options = CurrentOptions();
   options.memtable_protection_bytes_per_key =
@@ -745,12 +748,17 @@ TEST_P(DbMemtableKVChecksumTest, GetWithCorruptAfterMemtableInsert) {
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
 
+  std::string key = "key";
   SkipNotToCorruptEntry();
   while (MoreBytesToCorrupt()) {
     Reopen(options);
     ASSERT_OK(ExecuteWrite(nullptr));
     std::string val;
-    ASSERT_TRUE(db_->Get(ReadOptions(), "key", &val).IsCorruption());
+    ASSERT_TRUE(db_->Get(ReadOptions(), key, &val).IsCorruption());
+    std::vector<std::string> vals = {val};
+    std::vector<Status> statuses = db_->MultiGet(
+        ReadOptions(), {db_->DefaultColumnFamily()}, {key}, &vals, nullptr);
+    ASSERT_TRUE(statuses[0].IsCorruption());
     Destroy(options);
     SkipNotToCorruptEntry();
   }
