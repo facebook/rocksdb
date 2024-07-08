@@ -105,6 +105,7 @@ class TestFSWritableFile : public FSWritableFile {
   bool writable_file_opened_;
   FaultInjectionTestFS* fs_;
   port::Mutex mutex_;
+  const bool unsync_data_loss_;
 };
 
 // A wrapper around WritableFileWriter* file

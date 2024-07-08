@@ -645,9 +645,7 @@ struct DBOptions {
   bool verify_sst_unique_id_in_manifest = true;
 
   // Use the specified object to interact with the environment,
-  // e.g. to read/write files, schedule background work, etc. In the near
-  // future, support for doing storage operations such as read/write files
-  // through env will be deprecated in favor of file_system (see below)
+  // e.g. to read/write files, schedule background work, etc.
   // Default: Env::Default()
   Env* env = Env::Default();
 

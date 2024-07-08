@@ -13,6 +13,7 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+#include <cstdlib>
 #include <iostream>
 #include <thread>
 #include <utility>
@@ -23,6 +24,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -252,6 +254,13 @@ class CheckpointTest : public testing::Test {
       result = s.ToString();
     }
     return result;
+  }
+
+  int NumTableFilesAtLevel(int level) {
+    std::string property;
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
+    return atoi(property.c_str());
   }
 };
 
@@ -983,6 +992,43 @@ TEST_F(CheckpointTest, CheckpointWithDbPath) {
   // Currently not supported
   ASSERT_TRUE(checkpoint->CreateCheckpoint(snapshot_name_).IsNotSupported());
   delete checkpoint;
+}
+
+TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WalManager::ArchiveWALFile",
+        "CheckpointTest:CheckpointWithArchievedLog"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.WAL_ttl_seconds = 3600;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", std::string(1024 * 1024, 'a')));
+  // flush and archive the first log
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", std::string(1024, 'a')));
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  TEST_SYNC_POINT("CheckpointTest:CheckpointWithArchievedLog");
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1024 * 1024));
+  // unflushed log size < 1024 * 1024 < total file size including archived log,
+  // so flush shouldn't occur, there is only one file at level 0
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  delete checkpoint;
+  checkpoint = nullptr;
+
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "key1", &get_result));
+  ASSERT_EQ(std::string(1024 * 1024, 'a'), get_result);
+  get_result.clear();
+  ASSERT_OK(snapshot_db->Get(read_opts, "key2", &get_result));
+  ASSERT_EQ(std::string(1024, 'a'), get_result);
+  delete snapshot_db;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
