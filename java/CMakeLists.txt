@@ -887,24 +887,29 @@ add_custom_target(rocksdbjava ALL
 
 enable_testing()
 get_target_property(ROCKSDBJNI_CLASSES_TEST_JAR_FILE rocksdbjni_test_classes JAR_FILE)
-get_target_property(ROCKSDBJNI_CLASSES_JAR_FILE rocksdbjni_classes JAR_FILE)
 get_target_property(ROCKSDBJNI_CLASSES_TEST_DIR rocksdbjni_test_classes CLASSDIR)
 
-
 file(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/java/cl-test/org/rocksdb)
-add_custom_target(cltest-before
+add_custom_command(
+        TARGET rocksdbjni_test_classes POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
         ${ROCKSDBJNI_CLASSES_TEST_DIR}/org/rocksdb/EventListenerClassloaderTest.class
         ${PROJECT_BINARY_DIR}/java/cl-test/org/rocksdb/EventListenerClassloaderTest.class
-        DEPENDS rocksdbjava
+        VERBATIM
 )
 
-add_test(
-        NAME cltest
-        COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Drocks-jar=${ROCKSDBJNI_CLASSES_JAR_FILE} -classpath ${JAVA_RUN_TESTCLASSPATH}:${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
-)
-
-set_tests_properties(cltest PROPERTIES DEPENDS cltest-before)
+#This test must be run with different classpath.
+if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    add_test(
+        NAME jtest_org.rocksdb.EventListenerClassloaderTest
+        COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
+    )
+else()
+    add_test(
+        NAME jtest_org.rocksdb.EventListenerClassloaderTest
+        COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}:${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
+    )
+endif()
 
 foreach (CLAZZ ${JAVA_TEST_RUNNING_CLASSES})
   if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
