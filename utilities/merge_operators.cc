@@ -17,6 +17,7 @@
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
+#include "utilities/merge_operators/int64add.h"
 #include "utilities/merge_operators/uint64add.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -53,6 +54,14 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new BytesXOROperator());
+        return guard->get();
+      });
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(Int64AddOperator::kClassName())
+          .AnotherName(Int64AddOperator::kNickName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new Int64AddOperator());
         return guard->get();
       });
   library.AddFactory<MergeOperator>(
