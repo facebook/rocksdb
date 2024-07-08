@@ -103,12 +103,16 @@ StressTest::StressTest()
   }
 }
 
-StressTest::~StressTest() {
+void StressTest::CleanUp() {
   for (auto cf : column_families_) {
     delete cf;
   }
   column_families_.clear();
+  if (db_) {
+    db_->Close();
+  }
   delete db_;
+  db_ = nullptr;
 
   for (auto* cf : cmp_cfhs_) {
     delete cf;
