@@ -43,16 +43,17 @@ Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   }
   return s;
 }
-
-Status WalManager::GetSortedWalFiles(VectorWalPtr& files) {
+Status WalManager::GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos,
+                                     bool include_archived) {
   // First get sorted files in db dir, then get sorted files from archived
   // dir, to avoid a race condition where a log file is moved to archived
   // dir in between.
   Status s;
   // list wal files in main db dir.
   VectorWalPtr logs;
-  s = GetSortedWalsOfType(wal_dir_, logs, kAliveLogFile);
-  if (!s.ok()) {
+  s = GetSortedWalsOfType(wal_dir_, logs, kAliveLogFile, need_seqnos);
+
+  if (!include_archived || !s.ok()) {
     return s;
   }
 
@@ -67,7 +68,7 @@ Status WalManager::GetSortedWalFiles(VectorWalPtr& files) {
   std::string archivedir = ArchivalDirectory(wal_dir_);
   Status exists = env_->FileExists(archivedir);
   if (exists.ok()) {
-    s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile);
+    s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile, need_seqnos);
     if (!s.ok()) {
       return s;
     }
@@ -249,7 +250,8 @@ void WalManager::PurgeObsoleteWALFiles() {
 
   size_t files_del_num = log_files_num - files_keep_num;
   VectorWalPtr archived_logs;
-  s = GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
+  s = GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile,
+                          /*need_seqno=*/false);
   if (!s.ok()) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Unable to get archived WALs from: %s: %s",
@@ -294,7 +296,7 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
 
 Status WalManager::GetSortedWalsOfType(const std::string& path,
                                        VectorWalPtr& log_files,
-                                       WalFileType log_type) {
+                                       WalFileType log_type, bool need_seqnos) {
   std::vector<std::string> all_files;
   const Status status = env_->GetChildren(path, &all_files);
   if (!status.ok()) {
@@ -306,13 +308,17 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kWalFile) {
       SequenceNumber sequence;
-      Status s = ReadFirstRecord(log_type, number, &sequence);
-      if (!s.ok()) {
-        return s;
-      }
-      if (sequence == 0) {
-        // empty file
-        continue;
+      if (need_seqnos) {
+        Status s = ReadFirstRecord(log_type, number, &sequence);
+        if (!s.ok()) {
+          return s;
+        }
+        if (sequence == 0) {
+          // empty file
+          continue;
+        }
+      } else {
+        sequence = 0;
       }
 
       // Reproduce the race condition where a log file is moved
@@ -322,7 +328,7 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       TEST_SYNC_POINT("WalManager::GetSortedWalsOfType:2");
 
       uint64_t size_bytes;
-      s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
+      Status s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
       // re-try in case the alive log file has been moved to archive.
       if (!s.ok() && log_type == kAliveLogFile) {
         std::string archived_file = ArchivedLogFileName(path, number);
