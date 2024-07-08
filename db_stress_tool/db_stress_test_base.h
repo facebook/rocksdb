@@ -27,7 +27,7 @@ class StressTest {
  public:
   StressTest();
 
-  virtual ~StressTest(){};
+  virtual ~StressTest() {}
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
