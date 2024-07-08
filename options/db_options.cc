@@ -72,10 +72,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, avoid_flush_during_shutdown),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"avoid_sync_during_shutdown",
-         {offsetof(struct MutableDBOptions, avoid_sync_during_shutdown),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
         {"writable_file_max_buffer_size",
          {offsetof(struct MutableDBOptions, writable_file_max_buffer_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -391,6 +387,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"wal_compression",
          {offsetof(struct ImmutableDBOptions, wal_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"background_close_inactive_wals",
+         {offsetof(struct ImmutableDBOptions, background_close_inactive_wals),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"seq_per_batch",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
@@ -759,6 +759,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       two_write_queues(options.two_write_queues),
       manual_wal_flush(options.manual_wal_flush),
       wal_compression(options.wal_compression),
+      background_close_inactive_wals(options.background_close_inactive_wals),
       atomic_flush(options.atomic_flush),
       avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io),
       persist_stats_to_disk(options.persist_stats_to_disk),
@@ -925,6 +926,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    manual_wal_flush);
   ROCKS_LOG_HEADER(log, "            Options.wal_compression: %d",
                    wal_compression);
+  ROCKS_LOG_HEADER(log,
+                   "            Options.background_close_inactive_wals: %d",
+                   background_close_inactive_wals);
   ROCKS_LOG_HEADER(log, "            Options.atomic_flush: %d", atomic_flush);
   ROCKS_LOG_HEADER(log,
                    "            Options.avoid_unnecessary_blocking_io: %d",
@@ -994,7 +998,6 @@ MutableDBOptions::MutableDBOptions()
       max_background_compactions(-1),
       max_subcompactions(0),
       avoid_flush_during_shutdown(false),
-      avoid_sync_during_shutdown(true),
       writable_file_max_buffer_size(1024 * 1024),
       delayed_write_rate(2 * 1024U * 1024U),
       max_total_wal_size(0),
@@ -1014,7 +1017,6 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
-      avoid_sync_during_shutdown(options.avoid_sync_during_shutdown),
       writable_file_max_buffer_size(options.writable_file_max_buffer_size),
       delayed_write_rate(options.delayed_write_rate),
       max_total_wal_size(options.max_total_wal_size),
@@ -1040,8 +1042,6 @@ void MutableDBOptions::Dump(Logger* log) const {
                    max_subcompactions);
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",
                    avoid_flush_during_shutdown);
-  ROCKS_LOG_HEADER(log, "            Options.avoid_sync_during_shutdown: %d",
-                   avoid_sync_during_shutdown);
   ROCKS_LOG_HEADER(
       log, "          Options.writable_file_max_buffer_size: %" ROCKSDB_PRIszt,
       writable_file_max_buffer_size);

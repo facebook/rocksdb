@@ -156,4 +156,35 @@ template <typename TUse, typename TBlocklike>
 using WithBlocklikeCheck = std::enable_if_t<
     TBlocklike::kCacheEntryRole == CacheEntryRole::kMisc || true, TUse>;
 
+// Helper for the uncache_aggressiveness option
+class UncacheAggressivenessAdvisor {
+ public:
+  UncacheAggressivenessAdvisor(uint32_t uncache_aggressiveness) {
+    assert(uncache_aggressiveness > 0);
+    allowance_ = std::min(uncache_aggressiveness, uint32_t{3});
+    threshold_ = std::pow(0.99, uncache_aggressiveness - 1);
+  }
+  void Report(bool erased) { ++(erased ? useful_ : not_useful_); }
+  bool ShouldContinue() {
+    if (not_useful_ < allowance_) {
+      return true;
+    } else {
+      // See UncacheAggressivenessAdvisor unit test
+      return (useful_ + 1.0) / (useful_ + not_useful_ - allowance_ + 1.5) >=
+             threshold_;
+    }
+  }
+
+ private:
+  // Baseline minimum number of "not useful" to consider stopping, to allow
+  // sufficient evidence for checking the threshold. Actual minimum will be
+  // higher as threshold gets well below 1.0.
+  int allowance_;
+  // After allowance, stop if useful ratio is below this threshold
+  double threshold_;
+  // Counts
+  int useful_ = 0;
+  int not_useful_ = 0;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

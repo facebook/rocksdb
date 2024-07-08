@@ -19,8 +19,6 @@
 
 ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
-// If non-null, injects read error at a rate specified by the
-// read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
 std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
@@ -200,7 +198,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         // Lower by upto 50% of usable block cache capacity
         adjustment = (adjustment * thread->rand.Uniform(50)) / 100;
         block_cache->SetCapacity(capacity - adjustment);
-        fprintf(stdout, "New cache capacity = %lu\n",
+        fprintf(stdout, "New cache capacity = %zu\n",
                 block_cache->GetCapacity());
         db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
         block_cache->SetCapacity(capacity);
@@ -393,6 +391,16 @@ bool VerifyWideColumns(const WideColumns& columns) {
   const Slice& value_of_default = WideColumnsHelper::GetDefaultColumn(columns);
 
   return VerifyWideColumns(value_of_default, columns);
+}
+
+bool VerifyIteratorAttributeGroups(
+    const IteratorAttributeGroups& attribute_groups) {
+  for (const auto& attribute_group : attribute_groups) {
+    if (!VerifyWideColumns(attribute_group.columns())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 std::string GetNowNanos() {

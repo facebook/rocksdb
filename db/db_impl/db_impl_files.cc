@@ -312,6 +312,26 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         // logs_ could have changed while we were waiting.
         continue;
       }
+      // This WAL file is not live, so it's OK if we never sync the rest of it.
+      // If it's already closed, then it's been fully synced. If
+      // !background_close_inactive_wals then we need to Close it before
+      // removing from logs_ but not blocking while holding log_write_mutex_.
+      if (!immutable_db_options_.background_close_inactive_wals &&
+          log.writer->file()) {
+        // We are taking ownership of and pinning the front entry, so we can
+        // expect it to be the same after releasing and re-acquiring the lock
+        log.PrepareForSync();
+        log_write_mutex_.Unlock();
+        // TODO: maybe check the return value of Close.
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        auto s = log.writer->file()->Close({});
+        s.PermitUncheckedError();
+        log_write_mutex_.Lock();
+        log.writer->PublishIfClosed();
+        assert(&log == &logs_.front());
+        log.FinishSync();
+        log_sync_cv_.SignalAll();
+      }
       logs_to_free_.push_back(log.ReleaseWriter());
       logs_.pop_front();
     }
@@ -410,12 +430,24 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   for (auto& file : state.sst_delete_files) {
-    if (!file.only_delete_metadata) {
-      candidate_files.emplace_back(
-          MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
-    }
-    if (file.metadata->table_reader_handle) {
-      table_cache_->Release(file.metadata->table_reader_handle);
+    auto* handle = file.metadata->table_reader_handle;
+    if (file.only_delete_metadata) {
+      if (handle) {
+        // Simply release handle of file that is not being deleted
+        table_cache_->Release(handle);
+      }
+    } else {
+      // File is being deleted (actually obsolete)
+      auto number = file.metadata->fd.GetNumber();
+      candidate_files.emplace_back(MakeTableFileName(number), file.path);
+      if (handle == nullptr) {
+        // For files not "pinned" in table cache
+        handle = TableCache::Lookup(table_cache_.get(), number);
+      }
+      if (handle) {
+        TableCache::ReleaseObsolete(table_cache_.get(), handle,
+                                    file.uncache_aggressiveness);
+      }
     }
     file.DeleteMetadata();
   }
@@ -491,7 +523,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   for (const auto w : state.logs_to_free) {
     // TODO: maybe check the return value of Close.
     // TODO: plumb Env::IOActivity, Env::IOPriority
-    auto s = w->Close(WriteOptions());
+    auto s = w->Close({});
     s.PermitUncheckedError();
   }
 
@@ -577,8 +609,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     std::string fname;
     std::string dir_to_sync;
     if (type == kTableFile) {
-      // evict from cache
-      TableCache::Evict(table_cache_.get(), number);
       fname = MakeTableFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
     } else if (type == kBlobFile) {

@@ -7,7 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/dbformat.h"
+#include "db_stress_tool/db_stress_listener.h"
+#include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/expected_state.h"
+#include "rocksdb/status.h"
 #ifdef GFLAGS
 #include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
@@ -507,12 +511,6 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string from_db;
-    int error_count = 0;
-
-    if (fault_fs_guard) {
-      fault_fs_guard->EnableErrorInjection();
-      SharedState::ignore_read_error = false;
-    }
 
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
@@ -525,26 +523,43 @@ class NonBatchedOpsStressTest : public StressTest {
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
+    if (fault_fs_guard) {
+      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          FaultInjectionIOType::kRead);
+      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
+    }
+
     const ExpectedValue pre_read_expected_value =
         thread->shared->Get(rand_column_families[0], rand_keys[0]);
     Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
     const ExpectedValue post_read_expected_value =
         thread->shared->Get(rand_column_families[0], rand_keys[0]);
+
+    int injected_error_count = 0;
     if (fault_fs_guard) {
-      error_count = fault_fs_guard->GetAndResetErrorCount();
-    }
-    if (s.ok()) {
-      if (fault_fs_guard) {
-        if (error_count && !SharedState::ignore_read_error) {
-          // Grab mutex so multiple thread don't try to print the
-          // stack trace at the same time
-          MutexLock l(thread->shared->GetMutex());
-          fprintf(stderr, "Didn't get expected error from Get\n");
-          fprintf(stderr, "Callstack that injected the fault\n");
-          fault_fs_guard->PrintFaultBacktrace();
-          std::terminate();
-        }
+      injected_error_count = GetMinInjectedErrorCount(
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kRead),
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kMetadataRead));
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
+          (s.ok() || s.IsNotFound())) {
+        // Grab mutex so multiple thread don't try to print the
+        // stack trace at the same time
+        MutexLock l(thread->shared->GetMutex());
+        fprintf(stderr, "Didn't get expected error from Get\n");
+        fprintf(stderr, "Callstack that injected the fault\n");
+        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            FaultInjectionIOType::kMetadataRead);
+        std::terminate();
       }
+    }
+
+    if (s.ok()) {
       // found case
       thread->stats.AddGets(1, 1);
       // we only have the latest expected state
@@ -584,16 +599,10 @@ class NonBatchedOpsStressTest : public StressTest {
                   key.ToString(true).c_str());
         }
       }
-    } else {
-      if (error_count == 0) {
-        // errors case
-        thread->stats.AddErrors(1);
-      } else {
-        thread->stats.AddVerifiedErrors(1);
-      }
-    }
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableErrorInjection();
+    } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr, "error : Get() returns %s for key: %s.\n",
+              s.ToString().c_str(), key.ToString(true).c_str());
     }
     return s;
   }
@@ -617,7 +626,6 @@ class NonBatchedOpsStressTest : public StressTest {
 
     int column_family = rand_column_families[0];
     ColumnFamilyHandle* cfh = column_families_[column_family];
-    int error_count = 0;
 
     bool do_consistency_check = FLAGS_check_multiget_consistency;
 
@@ -643,6 +651,13 @@ class NonBatchedOpsStressTest : public StressTest {
     // will be rolled back once MultiGet returns.
     std::unique_ptr<Transaction> txn;
     if (use_txn) {
+      // TODO(hx235): test fault injection with MultiGet() with transactions
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
       WriteOptions wo;
       if (FLAGS_rate_limit_auto_wal_flush) {
         wo.rate_limiter_priority = Env::IO_USER;
@@ -663,44 +678,54 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
+    int injected_error_count = 0;
+
     if (!use_txn) {
       if (fault_fs_guard) {
-        fault_fs_guard->EnableErrorInjection();
+        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            FaultInjectionIOType::kMetadataRead);
         SharedState::ignore_read_error = false;
       }
       db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
       if (fault_fs_guard) {
-        error_count = fault_fs_guard->GetAndResetErrorCount();
+        injected_error_count = GetMinInjectedErrorCount(
+            fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+                FaultInjectionIOType::kRead),
+            fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+                FaultInjectionIOType::kMetadataRead));
+
+        if (injected_error_count > 0) {
+          int stat_nok_nfound = 0;
+          for (const auto& s : statuses) {
+            if (!s.ok() && !s.IsNotFound()) {
+              stat_nok_nfound++;
+            }
+          }
+          if (!SharedState::ignore_read_error &&
+              stat_nok_nfound < injected_error_count) {
+            // Grab mutex so multiple thread don't try to print the
+            // stack trace at the same time
+            MutexLock l(shared->GetMutex());
+            fprintf(stderr, "Didn't get expected error from MultiGet. \n");
+            fprintf(stderr,
+                    "num_keys %zu Expected %d errors, seen at least %d\n",
+                    num_keys, injected_error_count, stat_nok_nfound);
+            fprintf(stderr, "Callstack that injected the fault\n");
+            fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+                FaultInjectionIOType::kRead);
+            fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+                FaultInjectionIOType::kMetadataRead);
+            std::terminate();
+          }
+        }
       }
     } else {
       assert(txn);
       txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-    }
-
-    if (fault_fs_guard && error_count && !SharedState::ignore_read_error) {
-      int stat_nok = 0;
-      for (const auto& s : statuses) {
-        if (!s.ok() && !s.IsNotFound()) {
-          stat_nok++;
-        }
-      }
-
-      if (stat_nok < error_count) {
-        // Grab mutex so multiple thread don't try to print the
-        // stack trace at the same time
-        MutexLock l(shared->GetMutex());
-        fprintf(stderr, "Didn't get expected error from MultiGet. \n");
-        fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n", num_keys,
-                error_count, stat_nok);
-        fprintf(stderr, "Callstack that injected the fault\n");
-        fault_fs_guard->PrintFaultBacktrace();
-        std::terminate();
-      }
-    }
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableErrorInjection();
     }
 
     auto ryw_check =
@@ -757,63 +782,69 @@ class NonBatchedOpsStressTest : public StressTest {
         [&](const Slice& key, const PinnableSlice& expected_value,
             const Status& s,
             const std::optional<ExpectedValue>& ryw_expected_value) -> bool {
+      //  Temporarily disable error injection for verification
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+
+      bool check_multiget_res = true;
       bool is_consistent = true;
       bool is_ryw_correct = true;
-      // Only do the consistency check if no error was injected and
-      // MultiGet didn't return an unexpected error. If test does not use
-      // transaction, the consistency check for each key included check results
-      // from db `Get` and db `MultiGet` are consistent.
+
+      // If test does not use transaction, the consistency check for each key
+      // included check results from db `Get` and db `MultiGet` are consistent.
       // If test use transaction, after consistency check, also do a read your
       // own write check.
-      if (do_consistency_check && !error_count && (s.ok() || s.IsNotFound())) {
-        Status tmp_s;
-        std::string value;
+      Status tmp_s;
+      std::string value;
 
-        if (use_txn) {
-          assert(txn);
-          ThreadStatusUtil::SetThreadOperation(
-              ThreadStatus::OperationType::OP_GET);
-          tmp_s = txn->Get(readoptionscopy, cfh, key, &value);
-          ThreadStatusUtil::SetThreadOperation(
-              ThreadStatus::OperationType::OP_MULTIGET);
-        } else {
-          ThreadStatusUtil::SetThreadOperation(
-              ThreadStatus::OperationType::OP_GET);
-          tmp_s = db_->Get(readoptionscopy, cfh, key, &value);
-          ThreadStatusUtil::SetThreadOperation(
-              ThreadStatus::OperationType::OP_MULTIGET);
-        }
-        if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
-          fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
-          is_consistent = false;
-        } else if (!s.ok() && tmp_s.ok()) {
-          fprintf(stderr,
-                  "MultiGet(%d) returned different results with key %s. "
-                  "Snapshot Seq No: %" PRIu64 "\n",
-                  column_family, key.ToString(true).c_str(),
-                  readoptionscopy.snapshot->GetSequenceNumber());
-          fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
-          is_consistent = false;
-        } else if (s.ok() && tmp_s.IsNotFound()) {
-          fprintf(stderr,
-                  "MultiGet(%d) returned different results with key %s. "
-                  "Snapshot Seq No: %" PRIu64 "\n",
-                  column_family, key.ToString(true).c_str(),
-                  readoptionscopy.snapshot->GetSequenceNumber());
-          fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
-          is_consistent = false;
-        } else if (s.ok() && value != expected_value.ToString()) {
-          fprintf(stderr,
-                  "MultiGet(%d) returned different results with key %s. "
-                  "Snapshot Seq No: %" PRIu64 "\n",
-                  column_family, key.ToString(true).c_str(),
-                  readoptionscopy.snapshot->GetSequenceNumber());
-          fprintf(stderr, "MultiGet returned value %s\n",
-                  expected_value.ToString(true).c_str());
-          fprintf(stderr, "Get returned value %s\n",
-                  Slice(value).ToString(true /* hex */).c_str());
-          is_consistent = false;
-        }
+      if (use_txn) {
+        assert(txn);
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_GET);
+        tmp_s = txn->Get(readoptionscopy, cfh, key, &value);
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_MULTIGET);
+      } else {
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_GET);
+        tmp_s = db_->Get(readoptionscopy, cfh, key, &value);
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_MULTIGET);
+      }
+      if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
+        fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
+        is_consistent = false;
+      } else if (!s.ok() && tmp_s.ok()) {
+        fprintf(stderr,
+                "MultiGet(%d) returned different results with key %s. "
+                "Snapshot Seq No: %" PRIu64 "\n",
+                column_family, key.ToString(true).c_str(),
+                readoptionscopy.snapshot->GetSequenceNumber());
+        fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
+        is_consistent = false;
+      } else if (s.ok() && tmp_s.IsNotFound()) {
+        fprintf(stderr,
+                "MultiGet(%d) returned different results with key %s. "
+                "Snapshot Seq No: %" PRIu64 "\n",
+                column_family, key.ToString(true).c_str(),
+                readoptionscopy.snapshot->GetSequenceNumber());
+        fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
+        is_consistent = false;
+      } else if (s.ok() && value != expected_value.ToString()) {
+        fprintf(stderr,
+                "MultiGet(%d) returned different results with key %s. "
+                "Snapshot Seq No: %" PRIu64 "\n",
+                column_family, key.ToString(true).c_str(),
+                readoptionscopy.snapshot->GetSequenceNumber());
+        fprintf(stderr, "MultiGet returned value %s\n",
+                expected_value.ToString(true).c_str());
+        fprintf(stderr, "Get returned value %s\n",
+                Slice(value).ToString(true /* hex */).c_str());
+        is_consistent = false;
       }
 
       // If test uses transaction, continue to do a read your own write check.
@@ -824,15 +855,15 @@ class NonBatchedOpsStressTest : public StressTest {
       if (!is_consistent) {
         fprintf(stderr, "TestMultiGet error: is_consistent is false\n");
         thread->stats.AddErrors(1);
+        check_multiget_res = false;
         // Fail fast to preserve the DB state
         shared->SetVerificationFailure();
-        return false;
       } else if (!is_ryw_correct) {
         fprintf(stderr, "TestMultiGet error: is_ryw_correct is false\n");
         thread->stats.AddErrors(1);
+        check_multiget_res = false;
         // Fail fast to preserve the DB state
         shared->SetVerificationFailure();
-        return false;
       } else if (s.ok()) {
         // found case
         thread->stats.AddGets(1, 1);
@@ -842,39 +873,46 @@ class NonBatchedOpsStressTest : public StressTest {
       } else if (s.IsMergeInProgress() && use_txn) {
         // With txn this is sometimes expected.
         thread->stats.AddGets(1, 1);
-      } else {
-        if (error_count == 0) {
-          // errors case
-          fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
-          thread->stats.AddErrors(1);
-        } else {
-          thread->stats.AddVerifiedErrors(1);
-        }
+      } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
+        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
+        thread->stats.AddErrors(1);
+        shared->SetVerificationFailure();
       }
-      return true;
+
+      // Enable back error injection disbled for checking results
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+      return check_multiget_res;
     };
 
-    size_t num_of_keys = keys.size();
-    assert(values.size() == num_of_keys);
-    assert(statuses.size() == num_of_keys);
-    for (size_t i = 0; i < num_of_keys; ++i) {
-      bool check_result = true;
-      if (use_txn) {
-        std::optional<ExpectedValue> ryw_expected_value;
+    // Consistency check
+    if (do_consistency_check && injected_error_count == 0) {
+      size_t num_of_keys = keys.size();
+      assert(values.size() == num_of_keys);
+      assert(statuses.size() == num_of_keys);
+      for (size_t i = 0; i < num_of_keys; ++i) {
+        bool check_result = true;
+        if (use_txn) {
+          std::optional<ExpectedValue> ryw_expected_value;
 
-        const auto it = ryw_expected_values.find(key_str[i]);
-        if (it != ryw_expected_values.end()) {
-          ryw_expected_value = it->second;
+          const auto it = ryw_expected_values.find(key_str[i]);
+          if (it != ryw_expected_values.end()) {
+            ryw_expected_value = it->second;
+          }
+
+          check_result = check_multiget(keys[i], values[i], statuses[i],
+                                        ryw_expected_value);
+        } else {
+          check_result = check_multiget(keys[i], values[i], statuses[i],
+                                        std::nullopt /* ryw_expected_value */);
         }
-
-        check_result =
-            check_multiget(keys[i], values[i], statuses[i], ryw_expected_value);
-      } else {
-        check_result = check_multiget(keys[i], values[i], statuses[i],
-                                      std::nullopt /* ryw_expected_value */);
-      }
-      if (!check_result) {
-        break;
+        if (!check_result) {
+          break;
+        }
       }
     }
 
@@ -883,6 +921,13 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     if (use_txn) {
       txn->Rollback().PermitUncheckedError();
+      // Enable back error injection disbled for transactions
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
     }
     return statuses;
   }
@@ -890,11 +935,6 @@ class NonBatchedOpsStressTest : public StressTest {
   void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
                      const std::vector<int>& rand_column_families,
                      const std::vector<int64_t>& rand_keys) override {
-    if (fault_fs_guard) {
-      fault_fs_guard->EnableErrorInjection();
-      SharedState::ignore_read_error = false;
-    }
-
     assert(thread);
 
     SharedState* const shared = thread->shared;
@@ -932,6 +972,14 @@ class NonBatchedOpsStressTest : public StressTest {
     const ExpectedValue pre_read_expected_value =
         thread->shared->Get(column_family, key);
 
+    if (fault_fs_guard) {
+      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          FaultInjectionIOType::kRead);
+      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
+    }
+
     Status s;
     if (FLAGS_use_attribute_group) {
       attribute_groups_from_db.emplace_back(cfh);
@@ -946,25 +994,29 @@ class NonBatchedOpsStressTest : public StressTest {
     const ExpectedValue post_read_expected_value =
         thread->shared->Get(column_family, key);
 
-    int error_count = 0;
-
+    int injected_error_count = 0;
     if (fault_fs_guard) {
-      error_count = fault_fs_guard->GetAndResetErrorCount();
+      injected_error_count = GetMinInjectedErrorCount(
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kRead),
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kMetadataRead));
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
+          (s.ok() || s.IsNotFound())) {
+        // Grab mutex so multiple thread don't try to print the
+        // stack trace at the same time
+        MutexLock l(thread->shared->GetMutex());
+        fprintf(stderr, "Didn't get expected error from GetEntity\n");
+        fprintf(stderr, "Callstack that injected the fault\n");
+        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            FaultInjectionIOType::kMetadataRead);
+        std::terminate();
+      }
     }
 
     if (s.ok()) {
-      if (fault_fs_guard) {
-        if (error_count && !SharedState::ignore_read_error) {
-          // Grab mutex so multiple threads don't try to print the
-          // stack trace at the same time
-          MutexLock l(shared->GetMutex());
-          fprintf(stderr, "Didn't get expected error from GetEntity\n");
-          fprintf(stderr, "Call stack that injected the fault\n");
-          fault_fs_guard->PrintFaultBacktrace();
-          std::terminate();
-        }
-      }
-
       thread->stats.AddGets(1, 1);
 
       if (!FLAGS_skip_verifydb && !read_older_ts) {
@@ -1020,16 +1072,10 @@ class NonBatchedOpsStressTest : public StressTest {
                   StringToHex(key_str).c_str());
         }
       }
-    } else {
-      if (error_count == 0) {
-        thread->stats.AddErrors(1);
-      } else {
-        thread->stats.AddVerifiedErrors(1);
-      }
-    }
-
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableErrorInjection();
+    } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
+      fprintf(stderr, "error : GetEntity() returns %s for key: %s.\n",
+              s.ToString().c_str(), StringToHex(key_str).c_str());
+      thread->shared->SetVerificationFailure();
     }
   }
 
@@ -1044,46 +1090,78 @@ class NonBatchedOpsStressTest : public StressTest {
     read_opts_copy.snapshot = snapshot_guard.snapshot();
 
     assert(!rand_column_families.empty());
-    assert(rand_column_families[0] >= 0);
-    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
-    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    const int column_family = rand_column_families[0];
+
+    assert(column_family >= 0);
+    assert(column_family < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[column_family];
     assert(cfh);
 
     assert(!rand_keys.empty());
 
     const size_t num_keys = rand_keys.size();
 
+    std::unique_ptr<Transaction> txn;
+
+    if (FLAGS_use_txn) {
+      // TODO(hx235): test fault injection with MultiGetEntity() with
+      // transactions
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+      WriteOptions write_options;
+      if (FLAGS_rate_limit_auto_wal_flush) {
+        write_options.rate_limiter_priority = Env::IO_USER;
+      }
+
+      const Status s = NewTxn(write_options, &txn);
+      if (!s.ok()) {
+        fprintf(stderr, "NewTxn error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
+      }
+    }
+
     std::vector<std::string> keys(num_keys);
     std::vector<Slice> key_slices(num_keys);
-
-    if (fault_fs_guard) {
-      fault_fs_guard->EnableErrorInjection();
-      SharedState::ignore_read_error = false;
-    }
+    std::unordered_map<std::string, ExpectedValue> ryw_expected_values;
 
     for (size_t i = 0; i < num_keys; ++i) {
-      keys[i] = Key(rand_keys[i]);
+      const int64_t key = rand_keys[i];
+
+      keys[i] = Key(key);
       key_slices[i] = keys[i];
+
+      if (FLAGS_use_txn) {
+        MaybeAddKeyToTxnForRYW(thread, column_family, key, txn.get(),
+                               ryw_expected_values);
+      }
     }
 
-    int error_count = 0;
+    int injected_error_count = 0;
 
     auto verify_expected_errors = [&](auto get_status) {
       assert(fault_fs_guard);
-
-      error_count = fault_fs_guard->GetAndResetErrorCount();
-
-      if (error_count && !SharedState::ignore_read_error) {
-        int stat_nok = 0;
+      injected_error_count = GetMinInjectedErrorCount(
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kRead),
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kMetadataRead));
+      if (injected_error_count) {
+        int stat_nok_nfound = 0;
         for (size_t i = 0; i < num_keys; ++i) {
           const Status& s = get_status(i);
           if (!s.ok() && !s.IsNotFound()) {
-            ++stat_nok;
+            ++stat_nok_nfound;
           }
         }
 
-        if (stat_nok < error_count) {
+        if (!SharedState::ignore_read_error &&
+            stat_nok_nfound < injected_error_count) {
           // Grab mutex so multiple threads don't try to print the
           // stack trace at the same time
           assert(thread->shared);
@@ -1091,17 +1169,28 @@ class NonBatchedOpsStressTest : public StressTest {
 
           fprintf(stderr, "Didn't get expected error from MultiGetEntity\n");
           fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n",
-                  num_keys, error_count, stat_nok);
+                  num_keys, injected_error_count, stat_nok_nfound);
           fprintf(stderr, "Call stack that injected the fault\n");
-          fault_fs_guard->PrintFaultBacktrace();
+          fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+              FaultInjectionIOType::kRead);
+          fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+              FaultInjectionIOType::kMetadataRead);
           std::terminate();
         }
       }
     };
 
-    auto check_results = [&](auto get_columns, auto get_status) {
+    auto check_results = [&](auto get_columns, auto get_status,
+                             auto do_extra_check, auto call_get_entity) {
+      // Temporarily disable error injection for checking results
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
       const bool check_get_entity =
-          !error_count && FLAGS_check_multiget_entity_consistency;
+          !injected_error_count && FLAGS_check_multiget_entity_consistency;
 
       for (size_t i = 0; i < num_keys; ++i) {
         const WideColumns& columns = get_columns(i);
@@ -1116,49 +1205,53 @@ class NonBatchedOpsStressTest : public StressTest {
               "%s: %s\n",
               StringToHex(keys[i]).c_str(), WideColumnsToHex(columns).c_str());
           is_consistent = false;
-        } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
-          PinnableWideColumns cmp_result;
-          ThreadStatusUtil::SetThreadOperation(
-              ThreadStatus::OperationType::OP_GETENTITY);
-          const Status cmp_s =
-              db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
-
-          if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
-            fprintf(stderr, "GetEntity error: %s\n", cmp_s.ToString().c_str());
+        } else if (s.ok() || s.IsNotFound()) {
+          if (!do_extra_check(keys[i], columns, s)) {
             is_consistent = false;
-          } else if (cmp_s.IsNotFound()) {
-            if (s.ok()) {
-              fprintf(
-                  stderr,
-                  "Inconsistent results for key %s: MultiGetEntity returned "
-                  "ok, GetEntity returned not found\n",
-                  StringToHex(keys[i]).c_str());
+          } else if (check_get_entity) {
+            PinnableWideColumns cmp_result;
+            ThreadStatusUtil::SetThreadOperation(
+                ThreadStatus::OperationType::OP_GETENTITY);
+            const Status cmp_s = call_get_entity(key_slices[i], &cmp_result);
+
+            if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
+              fprintf(stderr, "GetEntity error: %s\n",
+                      cmp_s.ToString().c_str());
               is_consistent = false;
-            }
-          } else {
-            assert(cmp_s.ok());
-
-            if (s.IsNotFound()) {
-              fprintf(
-                  stderr,
-                  "Inconsistent results for key %s: MultiGetEntity returned "
-                  "not found, GetEntity returned ok\n",
-                  StringToHex(keys[i]).c_str());
-              is_consistent = false;
-            } else {
-              assert(s.ok());
-
-              const WideColumns& cmp_columns = cmp_result.columns();
-
-              if (columns != cmp_columns) {
+            } else if (cmp_s.IsNotFound()) {
+              if (s.ok()) {
                 fprintf(
                     stderr,
                     "Inconsistent results for key %s: MultiGetEntity returned "
-                    "%s, GetEntity returned %s\n",
-                    StringToHex(keys[i]).c_str(),
-                    WideColumnsToHex(columns).c_str(),
-                    WideColumnsToHex(cmp_columns).c_str());
+                    "ok, GetEntity returned not found\n",
+                    StringToHex(keys[i]).c_str());
                 is_consistent = false;
+              }
+            } else {
+              assert(cmp_s.ok());
+
+              if (s.IsNotFound()) {
+                fprintf(
+                    stderr,
+                    "Inconsistent results for key %s: MultiGetEntity returned "
+                    "not found, GetEntity returned ok\n",
+                    StringToHex(keys[i]).c_str());
+                is_consistent = false;
+              } else {
+                assert(s.ok());
+
+                const WideColumns& cmp_columns = cmp_result.columns();
+
+                if (columns != cmp_columns) {
+                  fprintf(stderr,
+                          "Inconsistent results for key %s: MultiGetEntity "
+                          "returned "
+                          "%s, GetEntity returned %s\n",
+                          StringToHex(keys[i]).c_str(),
+                          WideColumnsToHex(columns).c_str(),
+                          WideColumnsToHex(cmp_columns).c_str());
+                  is_consistent = false;
+                }
               }
             }
           }
@@ -1175,19 +1268,116 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->stats.AddGets(1, 1);
         } else if (s.IsNotFound()) {
           thread->stats.AddGets(1, 0);
-        } else {
-          if (error_count == 0) {
-            fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
-            thread->stats.AddErrors(1);
-          } else {
-            thread->stats.AddVerifiedErrors(1);
-          }
+        } else if (injected_error_count == 0 ||
+                   !IsErrorInjectedAndRetryable(s)) {
+          fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
+          thread->stats.AddErrors(1);
+          thread->shared->SetVerificationFailure();
         }
+      }
+      // Enable back error injection disbled for checking results
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
       }
     };
 
-    if (FLAGS_use_attribute_group) {
+    if (FLAGS_use_txn) {
+      // Transactional/read-your-own-writes MultiGetEntity verification
+      std::vector<PinnableWideColumns> results(num_keys);
+      std::vector<Status> statuses(num_keys);
+
+      assert(txn);
+      txn->MultiGetEntity(read_opts_copy, cfh, num_keys, key_slices.data(),
+                          results.data(), statuses.data());
+
+      auto ryw_check = [&](const std::string& key, const WideColumns& columns,
+                           const Status& s) -> bool {
+        const auto it = ryw_expected_values.find(key);
+        if (it == ryw_expected_values.end()) {
+          return true;
+        }
+
+        const auto& ryw_expected_value = it->second;
+
+        if (s.ok()) {
+          if (ryw_expected_value.IsDeleted()) {
+            fprintf(
+                stderr,
+                "MultiGetEntity failed the read-your-own-write check for key "
+                "%s\n",
+                Slice(key).ToString(true).c_str());
+            fprintf(stderr,
+                    "MultiGetEntity returned ok, transaction has non-committed "
+                    "delete\n");
+            return false;
+          } else {
+            const uint32_t value_base = ryw_expected_value.GetValueBase();
+            char expected_value[100];
+            const size_t sz = GenerateValue(value_base, expected_value,
+                                            sizeof(expected_value));
+            const Slice expected_slice(expected_value, sz);
+            const WideColumns expected_columns =
+                GenerateExpectedWideColumns(value_base, expected_slice);
+
+            if (columns != expected_columns) {
+              fprintf(
+                  stderr,
+                  "MultiGetEntity failed the read-your-own-write check for key "
+                  "%s\n",
+                  Slice(key).ToString(true).c_str());
+              fprintf(stderr, "MultiGetEntity returned %s\n",
+                      WideColumnsToHex(columns).c_str());
+              fprintf(stderr, "Transaction has non-committed write %s\n",
+                      WideColumnsToHex(expected_columns).c_str());
+              return false;
+            }
+
+            return true;
+          }
+        }
+
+        assert(s.IsNotFound());
+        if (!ryw_expected_value.IsDeleted()) {
+          fprintf(stderr,
+                  "MultiGetEntity failed the read-your-own-write check for key "
+                  "%s\n",
+                  Slice(key).ToString(true).c_str());
+          fprintf(stderr,
+                  "MultiGetEntity returned not found, transaction has "
+                  "non-committed write\n");
+          return false;
+        }
+
+        return true;
+      };
+
+      check_results([&](size_t i) { return results[i].columns(); },
+                    [&](size_t i) { return statuses[i]; }, ryw_check,
+                    [&](const Slice& key, PinnableWideColumns* result) {
+                      return txn->GetEntity(read_opts_copy, cfh, key, result);
+                    });
+
+      txn->Rollback().PermitUncheckedError();
+      // Enable back error injection disbled for transactions
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+    } else if (FLAGS_use_attribute_group) {
       // AttributeGroup MultiGetEntity verification
+
+      if (fault_fs_guard) {
+        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
+      }
 
       std::vector<PinnableAttributeGroups> results;
       results.reserve(num_keys);
@@ -1203,15 +1393,26 @@ class NonBatchedOpsStressTest : public StressTest {
       if (fault_fs_guard) {
         verify_expected_errors(
             [&](size_t i) { return results[i][0].status(); });
-
-        fault_fs_guard->DisableErrorInjection();
       }
 
       // Compare against non-attribute-group GetEntity result
       check_results([&](size_t i) { return results[i][0].columns(); },
-                    [&](size_t i) { return results[i][0].status(); });
+                    [&](size_t i) { return results[i][0].status(); },
+                    [](const Slice& /* key */, const WideColumns& /* columns */,
+                       const Status& /* s */) { return true; },
+                    [&](const Slice& key, PinnableWideColumns* result) {
+                      return db_->GetEntity(read_opts_copy, cfh, key, result);
+                    });
     } else {
       // Non-AttributeGroup MultiGetEntity verification
+
+      if (fault_fs_guard) {
+        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            FaultInjectionIOType::kMetadataRead);
+        SharedState::ignore_read_error = false;
+      }
 
       std::vector<PinnableWideColumns> results(num_keys);
       std::vector<Status> statuses(num_keys);
@@ -1221,12 +1422,15 @@ class NonBatchedOpsStressTest : public StressTest {
 
       if (fault_fs_guard) {
         verify_expected_errors([&](size_t i) { return statuses[i]; });
-
-        fault_fs_guard->DisableErrorInjection();
       }
 
       check_results([&](size_t i) { return results[i].columns(); },
-                    [&](size_t i) { return statuses[i]; });
+                    [&](size_t i) { return statuses[i]; },
+                    [](const Slice& /* key */, const WideColumns& /* columns */,
+                       const Status& /* s */) { return true; },
+                    [&](const Slice& key, PinnableWideColumns* result) {
+                      return db_->GetEntity(read_opts_copy, cfh, key, result);
+                    });
     }
   }
 
@@ -1252,6 +1456,10 @@ class NonBatchedOpsStressTest : public StressTest {
       // For half of the time, set the upper bound to the next prefix
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
+      if (FLAGS_use_sqfc_for_range_queries) {
+        ro_copy.table_filter =
+            sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
+      }
     }
 
     std::string read_ts_str;
@@ -1259,15 +1467,18 @@ class NonBatchedOpsStressTest : public StressTest {
     MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
                                        ro_copy);
 
+    if (fault_fs_guard) {
+      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          FaultInjectionIOType::kRead);
+      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          FaultInjectionIOType::kMetadataRead);
+      SharedState::ignore_read_error = false;
+    }
+
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
 
     uint64_t count = 0;
     Status s;
-
-    if (fault_fs_guard) {
-      fault_fs_guard->EnableErrorInjection();
-      SharedState::ignore_read_error = false;
-    }
 
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
@@ -1299,23 +1510,36 @@ class NonBatchedOpsStressTest : public StressTest {
       s = iter->status();
     }
 
-    uint64_t error_count = 0;
+    int injected_error_count = 0;
     if (fault_fs_guard) {
-      error_count = fault_fs_guard->GetAndResetErrorCount();
+      injected_error_count = GetMinInjectedErrorCount(
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kRead),
+          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+              FaultInjectionIOType::kMetadataRead));
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
+          s.ok()) {
+        // Grab mutex so multiple thread don't try to print the
+        // stack trace at the same time
+        MutexLock l(thread->shared->GetMutex());
+        fprintf(stderr, "Didn't get expected error from PrefixScan\n");
+        fprintf(stderr, "Callstack that injected the fault\n");
+        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            FaultInjectionIOType::kMetadataRead);
+        std::terminate();
+      }
     }
-    if (!s.ok() && (!fault_fs_guard || (fault_fs_guard && !error_count))) {
+
+    if (s.ok()) {
+      thread->stats.AddPrefixes(1, count);
+    } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
-      thread->stats.AddErrors(1);
-
-      return s;
+      thread->shared->SetVerificationFailure();
     }
 
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableErrorInjection();
-    }
-    thread->stats.AddPrefixes(1, count);
-
-    return Status::OK();
+    return s;
   }
 
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
@@ -1361,11 +1585,28 @@ class NonBatchedOpsStressTest : public StressTest {
     assert(cfh);
 
     if (FLAGS_verify_before_write) {
+      // Temporarily disable error injection for preparation
+      if (fault_fs_guard) {
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
-      if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
-                             /* msg_prefix */ "Pre-Put Get verification",
-                             from_db, s)) {
+      bool res = VerifyOrSyncValue(
+          rand_column_family, rand_key, read_opts, shared,
+          /* msg_prefix */ "Pre-Put Get verification", from_db, s);
+
+      // Enable back error injection disabled for preparation
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kRead);
+        fault_fs_guard->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      }
+      if (!res) {
         return s;
       }
     }
@@ -1430,7 +1671,9 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (!s.ok()) {
       pending_expected_value.Rollback();
-      if (FLAGS_inject_error_severity >= 2) {
+      if (IsErrorInjectedAndRetryable(s)) {
+        return s;
+      } else if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
@@ -1488,7 +1731,9 @@ class NonBatchedOpsStressTest : public StressTest {
 
       if (!s.ok()) {
         pending_expected_value.Rollback();
-        if (FLAGS_inject_error_severity >= 2) {
+        if (IsErrorInjectedAndRetryable(s)) {
+          return s;
+        } else if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -1521,7 +1766,9 @@ class NonBatchedOpsStressTest : public StressTest {
 
       if (!s.ok()) {
         pending_expected_value.Rollback();
-        if (FLAGS_inject_error_severity >= 2) {
+        if (IsErrorInjectedAndRetryable(s)) {
+          return s;
+        } else if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -1589,7 +1836,9 @@ class NonBatchedOpsStressTest : public StressTest {
            pending_expected_values) {
         pending_expected_value.Rollback();
       }
-      if (FLAGS_inject_error_severity >= 2) {
+      if (IsErrorInjectedAndRetryable(s)) {
+        return s;
+      } else if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
@@ -1618,10 +1867,25 @@ class NonBatchedOpsStressTest : public StressTest {
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
     std::ostringstream ingest_options_oss;
+
+    // Temporarily disable error injection for preparation
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+      fault_fs_guard->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataWrite);
+    }
+
     if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file
       // ingestion a clean slate
       s = db_stress_env->DeleteFile(sst_filename);
+    }
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+      fault_fs_guard->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataWrite);
     }
 
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);
@@ -1704,15 +1968,14 @@ class NonBatchedOpsStressTest : public StressTest {
            pending_expected_values) {
         pending_expected_value.Rollback();
       }
-      if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+
+      if (!IsErrorInjectedAndRetryable(s)) {
         fprintf(stderr,
                 "file ingestion error: %s under specified "
                 "IngestExternalFileOptions: %s (Empty string or "
                 "missing field indicates default option or value is used)\n",
                 s.ToString().c_str(), ingest_options_oss.str().c_str());
         thread->shared->SafeTerminate();
-      } else {
-        fprintf(stdout, "file ingestion error: %s\n", s.ToString().c_str());
       }
     } else {
       for (PendingExpectedValue& pending_expected_value :
@@ -1779,6 +2042,13 @@ class NonBatchedOpsStressTest : public StressTest {
       // GetIntVal().
       ro.iterate_upper_bound = &max_key_slice;
     }
+    std::string ub_str, lb_str;
+    if (FLAGS_use_sqfc_for_range_queries) {
+      ub_str = Key(ub);
+      lb_str = Key(lb);
+      ro.table_filter =
+          sqfc_factory_->GetTableFilterForRangeQuery(lb_str, ub_str);
+    }
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_family];
     assert(cfh);
@@ -1791,7 +2061,19 @@ class NonBatchedOpsStressTest : public StressTest {
       pre_read_expected_values.push_back(
           shared->Get(rand_column_family, i + lb));
     }
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
+    std::unique_ptr<Iterator> iter;
+    if (FLAGS_use_multi_cf_iterator) {
+      std::vector<ColumnFamilyHandle*> cfhs;
+      cfhs.reserve(rand_column_families.size());
+      for (auto cf_index : rand_column_families) {
+        cfhs.emplace_back(column_families_[cf_index]);
+      }
+      assert(!cfhs.empty());
+      iter = db_->NewCoalescingIterator(ro, cfhs);
+    } else {
+      iter = std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+    }
+
     for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
       post_read_expected_values.push_back(
           shared->Get(rand_column_family, i + lb));
@@ -1876,13 +2158,17 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(last_key < ub);
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
-          thread->shared->SetVerificationFailure();
-          fprintf(stderr, "TestIterate against expected state error: %s\n",
-                  iter->status().ToString().c_str());
-          fprintf(stderr, "Column family: %s, op_logs: %s\n",
-                  cfh->GetName().c_str(), op_logs.c_str());
-          thread->stats.AddErrors(1);
-          return iter->status();
+          if (IsErrorInjectedAndRetryable(iter->status())) {
+            return iter->status();
+          } else {
+            thread->shared->SetVerificationFailure();
+            fprintf(stderr, "TestIterate against expected state error: %s\n",
+                    iter->status().ToString().c_str());
+            fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                    cfh->GetName().c_str(), op_logs.c_str());
+            thread->stats.AddErrors(1);
+            return iter->status();
+          }
         }
         if (!check_no_key_in_range(last_key + 1, ub)) {
           return Status::OK();
@@ -1934,13 +2220,17 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(lb < last_key);
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
-          thread->shared->SetVerificationFailure();
-          fprintf(stderr, "TestIterate against expected state error: %s\n",
-                  iter->status().ToString().c_str());
-          fprintf(stderr, "Column family: %s, op_logs: %s\n",
-                  cfh->GetName().c_str(), op_logs.c_str());
-          thread->stats.AddErrors(1);
-          return iter->status();
+          if (IsErrorInjectedAndRetryable(iter->status())) {
+            return iter->status();
+          } else {
+            thread->shared->SetVerificationFailure();
+            fprintf(stderr, "TestIterate against expected state error: %s\n",
+                    iter->status().ToString().c_str());
+            fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                    cfh->GetName().c_str(), op_logs.c_str());
+            thread->stats.AddErrors(1);
+            return iter->status();
+          }
         }
         if (!check_no_key_in_range(lb, last_key)) {
           return Status::OK();
@@ -1981,9 +2271,10 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
-    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    // Write-prepared/write-unprepared transactions and multi-CF iterator do not
+    // support Refresh() yet.
     if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0) &&
-        thread->rand.OneIn(2)) {
+        !FLAGS_use_multi_cf_iterator && thread->rand.OneIn(2)) {
       pre_read_expected_values.clear();
       post_read_expected_values.clear();
       // Refresh after forward/backward scan to allow higher chance of SV
@@ -1993,6 +2284,9 @@ class NonBatchedOpsStressTest : public StressTest {
             shared->Get(rand_column_family, i + lb));
       }
       Status rs = iter->Refresh();
+      if (!rs.ok() && IsErrorInjectedAndRetryable(rs)) {
+        return rs;
+      }
       assert(rs.ok());
       op_logs += "Refresh ";
       for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
@@ -2154,13 +2448,17 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!iter->status().ok()) {
-      thread->shared->SetVerificationFailure();
-      fprintf(stderr, "TestIterate against expected state error: %s\n",
-              iter->status().ToString().c_str());
-      fprintf(stderr, "Column family: %s, op_logs: %s\n",
-              cfh->GetName().c_str(), op_logs.c_str());
-      thread->stats.AddErrors(1);
-      return iter->status();
+      if (IsErrorInjectedAndRetryable(iter->status())) {
+        return iter->status();
+      } else {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr, "TestIterate against expected state error: %s\n",
+                iter->status().ToString().c_str());
+        fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                cfh->GetName().c_str(), op_logs.c_str());
+        thread->stats.AddErrors(1);
+        return iter->status();
+      }
     }
 
     thread->stats.AddIterations(1);

@@ -99,7 +99,10 @@ class PrefetchTest
 
   virtual void SetGenericOptions(Env* env, bool use_direct_io,
                                  Options& options) {
-    options = CurrentOptions();
+    anon::OptionsOverride options_override;
+    // for !disable_io in PrefetchTest.Basic
+    options_override.full_block_cache = true;
+    options = CurrentOptions(options_override);
     options.write_buffer_size = 1024;
     options.create_if_missing = true;
     options.compression = kNoCompression;
@@ -254,26 +257,38 @@ TEST_P(PrefetchTest, Basic) {
               prev_table_open_prefetch_tail_miss);
   }
 
-  // count the keys
-  {
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
-    int num_keys = 0;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      num_keys++;
+  for (bool disable_io : {false, true}) {
+    SCOPED_TRACE("disable_io: " + std::to_string(disable_io));
+    ReadOptions ro;
+    if (disable_io) {
+      // When this is set on the second iteration, all blocks should be in
+      // block cache
+      ro.read_tier = ReadTier::kBlockCacheTier;
     }
-    ASSERT_OK(iter->status());
-    (void)num_keys;
-  }
+    // count the keys
+    {
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+      int num_keys = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        num_keys++;
+      }
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(num_keys, kNumKeys);
+    }
 
-  // To verify prefetch during user scan
-  if (support_prefetch && !use_direct_io) {
-    ASSERT_TRUE(fs->IsPrefetchCalled());
-    fs->ClearPrefetchCount();
-    ASSERT_EQ(0, buff_prefetch_count);
-  } else {
-    ASSERT_FALSE(fs->IsPrefetchCalled());
-    ASSERT_GT(buff_prefetch_count, 0);
-    buff_prefetch_count = 0;
+    // To verify prefetch during user scan, when IO allowed
+    if (disable_io) {
+      ASSERT_FALSE(fs->IsPrefetchCalled());
+      ASSERT_EQ(0, buff_prefetch_count);
+    } else if (support_prefetch && !use_direct_io) {
+      ASSERT_TRUE(fs->IsPrefetchCalled());
+      fs->ClearPrefetchCount();
+      ASSERT_EQ(0, buff_prefetch_count);
+    } else {
+      ASSERT_FALSE(fs->IsPrefetchCalled());
+      ASSERT_GT(buff_prefetch_count, 0);
+      buff_prefetch_count = 0;
+    }
   }
   Close();
 }

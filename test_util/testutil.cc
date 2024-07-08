@@ -46,6 +46,7 @@ const std::set<uint32_t> kFooterFormatVersionsToTest{
     kDefaultFormatVersion,
     kLatestFormatVersion,
 };
+const ReadOptionsNoIo kReadOptionsNoIo;
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we

@@ -149,6 +149,9 @@ class WritableFileWriter {
   uint64_t next_write_offset_;
   bool pending_sync_;
   std::atomic<bool> seen_error_;
+#ifndef NDEBUG
+  std::atomic<bool> seen_injected_error_;
+#endif  // NDEBUG
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
@@ -183,6 +186,9 @@ class WritableFileWriter {
         next_write_offset_(0),
         pending_sync_(false),
         seen_error_(false),
+#ifndef NDEBUG
+        seen_injected_error_(false),
+#endif  // NDEBUG
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
@@ -256,6 +262,8 @@ class WritableFileWriter {
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(const IOOptions& opts, bool use_fsync);
 
+  // Size including unflushed data written to this writer. If the next op is
+  // a successful Close, the file size will be this.
   uint64_t GetFileSize() const {
     return filesize_.load(std::memory_order_acquire);
   }
@@ -276,7 +284,9 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
-  bool BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+  bool BufferIsEmpty() const { return buf_.CurrentSize() == 0; }
+
+  bool IsClosed() const { return writable_file_.get() == nullptr; }
 
   void TEST_SetFileChecksumGenerator(
       FileChecksumGenerator* checksum_generator) {
@@ -294,10 +304,31 @@ class WritableFileWriter {
   // operating on the file after an error happens.
   void reset_seen_error() {
     seen_error_.store(false, std::memory_order_relaxed);
+#ifndef NDEBUG
+    seen_injected_error_.store(false, std::memory_order_relaxed);
+#endif  // NDEBUG
   }
-  void set_seen_error() { seen_error_.store(true, std::memory_order_relaxed); }
+  void set_seen_error(const Status& s) {
+    seen_error_.store(true, std::memory_order_relaxed);
+    (void)s;
+#ifndef NDEBUG
+    if (s.getState() && std::strstr(s.getState(), "inject")) {
+      seen_injected_error_.store(true, std::memory_order_relaxed);
+    }
+#endif  // NDEBUG
+  }
+#ifndef NDEBUG
+  bool seen_injected_error() const {
+    return seen_injected_error_.load(std::memory_order_relaxed);
+  }
+#endif  // NDEBUG
 
   IOStatus GetWriterHasPreviousErrorStatus() {
+#ifndef NDEBUG
+    if (seen_injected_error_.load(std::memory_order_relaxed)) {
+      return IOStatus::IOError("Writer has previous injected error.");
+    }
+#endif  // NDEBUG
     return IOStatus::IOError("Writer has previous error.");
   }
 

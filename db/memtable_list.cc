@@ -235,19 +235,19 @@ void MemTableListVersion::AddIterators(
       SequenceNumber read_seq = options.snapshot != nullptr
                                     ? options.snapshot->GetSequenceNumber()
                                     : kMaxSequenceNumber;
-      TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+      std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
       auto range_del_iter = m->NewRangeTombstoneIterator(
           options, read_seq, true /* immutale_memtable */);
       if (range_del_iter == nullptr || range_del_iter->empty()) {
         delete range_del_iter;
       } else {
-        mem_tombstone_iter = new TruncatedRangeDelIterator(
+        mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
             std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
             &m->GetInternalKeyComparator(), nullptr /* smallest */,
             nullptr /* largest */);
       }
-      merge_iter_builder->AddPointAndTombstoneIterator(mem_iter,
-                                                       mem_tombstone_iter);
+      merge_iter_builder->AddPointAndTombstoneIterator(
+          mem_iter, std::move(mem_tombstone_iter));
     }
   }
 }

@@ -143,6 +143,13 @@ class FlushJob {
   // `MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT` for details.
   void GetEffectiveCutoffUDTForPickedMemTables();
 
+  // If this column family enables tiering feature, it will find the current
+  // `preclude_last_level_min_seqno_`, and the smaller one between this and
+  // the `earliset_snapshot_` will later be announced to user property
+  // collectors. It indicates to tiering use cases which data are old enough to
+  // be placed on the last level.
+  void GetPrecludeLastLevelMinSeqno();
+
   Status MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
 
   const std::string& dbname_;
@@ -161,6 +168,7 @@ class FlushJob {
   InstrumentedMutex* db_mutex_;
   std::atomic<bool>* shutting_down_;
   std::vector<SequenceNumber> existing_snapshots_;
+  SequenceNumber earliest_snapshot_;
   SequenceNumber earliest_write_conflict_snapshot_;
   SnapshotChecker* snapshot_checker_;
   JobContext* job_context_;
@@ -221,6 +229,12 @@ class FlushJob {
   // Keeps track of the newest user-defined timestamp for this flush job if
   // `persist_user_defined_timestamps` flag is false.
   std::string cutoff_udt_;
+
+  // The current minimum seqno that compaction jobs will preclude the data from
+  // the last level. Data with seqnos larger than this or larger than
+  // `earliest_snapshot_` will be output to the penultimate level had it gone
+  // through a compaction to the last level.
+  SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

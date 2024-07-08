@@ -342,8 +342,7 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
   autovector<UserKeyRange> ranges;
   ranges.reserve(n);
   for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-    ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
-                        file_to_ingest.largest_internal_key.user_key());
+    ranges.emplace_back(file_to_ingest.start_ukey, file_to_ingest.limit_ukey);
   }
   Status status = cfd_->RangesOverlapWithMemtables(
       ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
@@ -930,6 +929,17 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     }
   }
 
+  const size_t ts_sz = ucmp->timestamp_size();
+  Slice smallest = file_to_ingest->smallest_internal_key.user_key();
+  Slice largest = file_to_ingest->largest_internal_key.user_key();
+  if (ts_sz > 0) {
+    AppendUserKeyWithMaxTimestamp(&file_to_ingest->start_ukey, smallest, ts_sz);
+    AppendUserKeyWithMinTimestamp(&file_to_ingest->limit_ukey, largest, ts_sz);
+  } else {
+    file_to_ingest->start_ukey.assign(smallest.data(), smallest.size());
+    file_to_ingest->limit_ukey.assign(largest.data(), largest.size());
+  }
+
   auto s =
       GetSstInternalUniqueId(file_to_ingest->table_properties.db_id,
                              file_to_ingest->table_properties.db_session_id,
@@ -982,9 +992,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
     }
-    if (cfd_->RangeOverlapWithCompaction(
-            file_to_ingest->smallest_internal_key.user_key(),
-            file_to_ingest->largest_internal_key.user_key(), lvl)) {
+    if (cfd_->RangeOverlapWithCompaction(file_to_ingest->start_ukey,
+                                         file_to_ingest->limit_ukey, lvl)) {
       // We must use L0 or any level higher than `lvl` to be able to overwrite
       // the compaction output keys that we overlap with in this level, We also
       // need to assign this file a seqno to overwrite the compaction output
@@ -994,9 +1003,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     } else if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = sv->current->OverlapWithLevelIterator(
-          ro, env_options_, file_to_ingest->smallest_internal_key.user_key(),
-          file_to_ingest->largest_internal_key.user_key(), lvl,
-          &overlap_with_level);
+          ro, env_options_, file_to_ingest->start_ukey,
+          file_to_ingest->limit_ukey, lvl, &overlap_with_level);
       if (!status.ok()) {
         return status;
       }
@@ -1165,9 +1173,8 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
   }
 
   auto* vstorage = cfd_->current()->storage_info();
-  Slice file_smallest_user_key(
-      file_to_ingest->smallest_internal_key.user_key());
-  Slice file_largest_user_key(file_to_ingest->largest_internal_key.user_key());
+  Slice file_smallest_user_key(file_to_ingest->start_ukey);
+  Slice file_largest_user_key(file_to_ingest->limit_ukey);
 
   if (vstorage->OverlapInLevel(level, &file_smallest_user_key,
                                &file_largest_user_key)) {

@@ -145,6 +145,11 @@ struct EnvOptions {
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
+// An interface that abstracts RocksDB's interactions with the operating system
+// environment. There are three main types of APIs:
+// 1) File system operations, like creating a file, writing to a file, etc.
+// 2) Thread management.
+// 3) Misc functions, like getting the current time.
 class Env : public Customizable {
  public:
   static const char* kDefaultName() { return "DefaultEnv"; }

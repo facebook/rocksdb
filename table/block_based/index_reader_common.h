@@ -24,6 +24,9 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     assert(table_ != nullptr);
   }
 
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
+
  protected:
   static Status ReadIndexBlock(const BlockBasedTable* table,
                                FilePrefetchBuffer* prefetch_buffer,
@@ -71,7 +74,7 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     return table_->get_rep()->user_defined_timestamps_persisted;
   }
 
-  Status GetOrReadIndexBlock(bool no_io, GetContext* get_context,
+  Status GetOrReadIndexBlock(GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
                              CachableEntry<Block>* index_block,
                              const ReadOptions& read_options) const;

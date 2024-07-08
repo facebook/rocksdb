@@ -378,7 +378,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   // WriteImpl should not overwrite that value, so set log_used to nullptr if
   // log_number_ is already set.
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &last_log_number_,
+                          /*callback*/ nullptr, /*user_write_cb=*/nullptr,
+                          &last_log_number_,
                           /*log ref*/ 0, !DISABLE_MEMTABLE, &seq_used,
                           prepare_batch_cnt_, &add_prepared_callback);
   if (log_number_ == 0) {
@@ -595,7 +596,7 @@ Status WriteUnpreparedTxn::CommitInternal() {
   const uint64_t zero_log_number = 0ull;
   size_t batch_cnt = UNLIKELY(commit_batch_cnt) ? commit_batch_cnt : 1;
   s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                          zero_log_number, disable_memtable, &seq_used,
+                          nullptr, zero_log_number, disable_memtable, &seq_used,
                           batch_cnt, pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   const SequenceNumber commit_batch_seq = seq_used;
@@ -639,8 +640,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
   const size_t ONE_BATCH = 1;
   const uint64_t NO_REF_LOG = 0;
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_with_commit_batch);
+                          nullptr, NO_REF_LOG, DISABLE_MEMTABLE, &seq_used,
+                          ONE_BATCH, &update_commit_map_with_commit_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Note RemovePrepared should be called after WriteImpl that publishsed the
   // seq. Otherwise SmallestUnCommittedSeq optimization breaks.
@@ -771,8 +772,8 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   // data that is written to DB but not yet committed, while the rollback
   // batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, rollback_batch.GetWriteBatch(),
-                          nullptr, nullptr, NO_REF_LOG, !DISABLE_MEMTABLE,
-                          &seq_used, rollback_batch_cnt,
+                          nullptr, nullptr, nullptr, NO_REF_LOG,
+                          !DISABLE_MEMTABLE, &seq_used, rollback_batch_cnt,
                           do_one_write ? &update_commit_map : nullptr);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
@@ -807,8 +808,8 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   s = WriteBatchInternal::InsertNoop(&empty_batch);
   assert(s.ok());
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_with_rollback_batch);
+                          nullptr, NO_REF_LOG, DISABLE_MEMTABLE, &seq_used,
+                          ONE_BATCH, &update_commit_map_with_rollback_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Mark the txn as rolled back
   if (s.ok()) {

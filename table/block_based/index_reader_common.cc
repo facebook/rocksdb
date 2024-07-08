@@ -35,9 +35,8 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, CachableEntry<Block>* index_block,
-    const ReadOptions& ro) const {
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    CachableEntry<Block>* index_block, const ReadOptions& ro) const {
   assert(index_block != nullptr);
 
   if (!index_block_.IsEmpty()) {
@@ -45,13 +44,19 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
     return Status::OK();
   }
 
-  ReadOptions read_options = ro;
-  if (no_io) {
-    read_options.read_tier = kBlockCacheTier;
-  }
-
-  return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,
+  return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, ro,
                         cache_index_blocks(), get_context, lookup_context,
                         index_block);
+}
+
+void BlockBasedTable::IndexReaderCommon::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  if (uncache_aggressiveness > 0) {
+    if (index_block_.IsCached()) {
+      index_block_.ResetEraseIfLastRef();
+    } else {
+      table()->EraseFromCache(table()->get_rep()->index_handle);
+    }
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE

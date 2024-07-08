@@ -13,6 +13,7 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+#include <cstdlib>
 #include <iostream>
 #include <thread>
 #include <utility>
@@ -23,6 +24,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -252,6 +254,13 @@ class CheckpointTest : public testing::Test {
       result = s.ToString();
     }
     return result;
+  }
+
+  int NumTableFilesAtLevel(int level) {
+    std::string property;
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
+    return atoi(property.c_str());
   }
 };
 
@@ -760,18 +769,65 @@ TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
   thread.join();
 }
 
-TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
+class CheckpointTestWithWalParams
+    : public CheckpointTest,
+      public testing::WithParamInterface<
+          std::tuple<uint64_t, bool, bool, bool>> {
+ public:
+  uint64_t GetLogSizeForFlush() { return std::get<0>(GetParam()); }
+  bool GetWalsInManifest() { return std::get<1>(GetParam()); }
+  bool GetManualWalFlush() { return std::get<2>(GetParam()); }
+  bool GetBackgroundCloseInactiveWals() { return std::get<3>(GetParam()); }
+};
+
+INSTANTIATE_TEST_CASE_P(NormalWalParams, CheckpointTestWithWalParams,
+                        ::testing::Combine(::testing::Values(0U, 100000000U),
+                                           ::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Values(false)));
+
+INSTANTIATE_TEST_CASE_P(DeprecatedWalParams, CheckpointTestWithWalParams,
+                        ::testing::Values(std::make_tuple(100000000U, true,
+                                                          false, true)));
+
+TEST_P(CheckpointTestWithWalParams, CheckpointWithUnsyncedDataDropped) {
   Options options = CurrentOptions();
-  std::unique_ptr<FaultInjectionTestEnv> env(new FaultInjectionTestEnv(env_));
-  options.env = env.get();
+  options.max_write_buffer_number = 4;
+  options.track_and_verify_wals_in_manifest = GetWalsInManifest();
+  options.manual_wal_flush = GetManualWalFlush();
+  options.background_close_inactive_wals = GetBackgroundCloseInactiveWals();
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+
+  if (options.background_close_inactive_wals) {
+    // Disable this hygiene check when the fix is disabled
+    fault_fs->SetAllowLinkOpenFile();
+  }
+
+  options.env = fault_fs_env.get();
   Reopen(options);
   ASSERT_OK(Put("key1", "val1"));
+  if (GetLogSizeForFlush() > 0) {
+    // When not flushing memtable for checkpoint, this is the simplest way
+    // to get
+    // * one inactive WAL, synced
+    // * one inactive WAL, not synced, and
+    // * one active WAL, not synced
+    // with a single thread, so that we have at least one that can be hard
+    // linked, etc.
+    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->PauseBackgroundWork());
+    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+    ASSERT_OK(db_->SyncWAL());
+  }
+  ASSERT_OK(Put("key2", "val2"));
+  if (GetLogSizeForFlush() > 0) {
+    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  }
+  ASSERT_OK(Put("key3", "val3"));
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, GetLogSizeForFlush()));
   delete checkpoint;
-  ASSERT_OK(env->DropUnsyncedFileData());
-
+  ASSERT_OK(fault_fs->DropUnsyncedFileData());
   // make sure it's openable even though whatever data that wasn't synced got
   // dropped.
   options.env = env_;
@@ -781,6 +837,10 @@ TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
   std::string get_result;
   ASSERT_OK(snapshot_db->Get(read_opts, "key1", &get_result));
   ASSERT_EQ("val1", get_result);
+  ASSERT_OK(snapshot_db->Get(read_opts, "key2", &get_result));
+  ASSERT_EQ("val2", get_result);
+  ASSERT_OK(snapshot_db->Get(read_opts, "key3", &get_result));
+  ASSERT_EQ("val3", get_result);
   delete snapshot_db;
   delete db_;
   db_ = nullptr;
@@ -797,15 +857,19 @@ TEST_F(CheckpointTest, CheckpointOptionsFileFailedToPersist) {
   // Setup `FaultInjectionTestFS` and `SyncPoint` callbacks to fail one
   // operation when inside the OPTIONS file persisting code.
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
-  fault_fs->SetRandomMetadataWriteError(1 /* one_in */);
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kWrite, 7 /* seed*/, 1 /* one_in */,
+      false /* retryable */, false /* has_data_loss*/);
   SyncPoint::GetInstance()->SetCallBack(
       "PersistRocksDBOptions:start", [fault_fs](void* /* arg */) {
-        fault_fs->EnableMetadataWriteErrorInjection();
+        fault_fs->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataWrite);
       });
   SyncPoint::GetInstance()->SetCallBack(
       "FaultInjectionTestFS::InjectMetadataWriteError:Injected",
       [fault_fs](void* /* arg */) {
-        fault_fs->DisableMetadataWriteErrorInjection();
+        fault_fs->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataWrite);
       });
   options.env = fault_fs_env.get();
   SyncPoint::GetInstance()->EnableProcessing();
@@ -930,49 +994,41 @@ TEST_F(CheckpointTest, CheckpointWithDbPath) {
   delete checkpoint;
 }
 
-TEST_F(CheckpointTest, PutRaceWithCheckpointTrackedWalSync) {
-  // Repro for a race condition where a user write comes in after the checkpoint
-  // syncs WAL for `track_and_verify_wals_in_manifest` but before the
-  // corresponding MANIFEST update. With the bug, that scenario resulted in an
-  // unopenable DB with error "Corruption: Size mismatch: WAL ...".
-  Options options = CurrentOptions();
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(env_));
-  options.env = fault_env.get();
-  options.track_and_verify_wals_in_manifest = true;
-  Reopen(options);
-
-  ASSERT_OK(Put("key1", "val1"));
-
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SyncWAL:BeforeMarkLogsSynced:1",
-      [this](void* /* arg */) { ASSERT_OK(Put("key2", "val2")); });
+TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WalManager::ArchiveWALFile",
+        "CheckpointTest:CheckpointWithArchievedLog"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.WAL_ttl_seconds = 3600;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
 
-  std::unique_ptr<Checkpoint> checkpoint;
-  {
-    Checkpoint* checkpoint_ptr;
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint_ptr));
-    checkpoint.reset(checkpoint_ptr);
-  }
+  ASSERT_OK(Put("key1", std::string(1024 * 1024, 'a')));
+  // flush and archive the first log
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", std::string(1024, 'a')));
 
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  TEST_SYNC_POINT("CheckpointTest:CheckpointWithArchievedLog");
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1024 * 1024));
+  // unflushed log size < 1024 * 1024 < total file size including archived log,
+  // so flush shouldn't occur, there is only one file at level 0
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  delete checkpoint;
+  checkpoint = nullptr;
 
-  // Ensure callback ran.
-  ASSERT_EQ("val2", Get("key2"));
-
-  Close();
-
-  // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
-  // DB WAL.
-  ASSERT_OK(fault_env->DropUnsyncedFileData());
-
-  // Before the bug fix, reopening the DB would fail because the MANIFEST's
-  // AddWal entry indicated the WAL should be synced through "key2" -> "val2".
-  Reopen(options);
-
-  // Need to close before `fault_env` goes out of scope.
-  Close();
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "key1", &get_result));
+  ASSERT_EQ(std::string(1024 * 1024, 'a'), get_result);
+  get_result.clear();
+  ASSERT_OK(snapshot_db->Get(read_opts, "key2", &get_result));
+  ASSERT_EQ(std::string(1024, 'a'), get_result);
+  delete snapshot_db;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

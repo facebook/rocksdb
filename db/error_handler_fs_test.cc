@@ -851,13 +851,17 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_TRUE(s.IsNoSpace());
+  ASSERT_EQ(dbfull()->TEST_GetBGError().severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   fault_fs_->SetFilesystemActive(true);
 
   // This Resume() will attempt to create a new manifest file and fail again
   s = dbfull()->Resume();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_TRUE(s.IsNoSpace());
+  ASSERT_EQ(dbfull()->TEST_GetBGError().severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();

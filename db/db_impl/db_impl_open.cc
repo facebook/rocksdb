@@ -301,7 +301,10 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   }
   if (immutable_db_options_.write_dbid_to_manifest) {
     std::string temp_db_id;
-    GetDbIdentityFromIdentityFile(&temp_db_id);
+    s = GetDbIdentityFromIdentityFile(&temp_db_id);
+    if (!s.ok()) {
+      return s;
+    }
     new_db.SetDBId(temp_db_id);
   }
   new_db.SetLogNumber(0);
@@ -1670,6 +1673,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       SequenceNumber earliest_write_conflict_snapshot;
       std::vector<SequenceNumber> snapshot_seqs =
           snapshots_.GetAll(&earliest_write_conflict_snapshot);
+      SequenceNumber earliest_snapshot =
+          (snapshot_seqs.empty() ? kMaxSequenceNumber : snapshot_seqs.at(0));
       auto snapshot_checker = snapshot_checker_.get();
       if (use_custom_gc_ && snapshot_checker == nullptr) {
         snapshot_checker = DisableGCSnapshotChecker::Instance();
@@ -1689,6 +1694,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       IOStatus io_s;
       const ReadOptions read_option(Env::IOActivity::kDBOpen);
       const WriteOptions write_option(Env::IO_HIGH, Env::IOActivity::kDBOpen);
+
       TableBuilderOptions tboptions(
           *cfd->ioptions(), mutable_cf_options, read_option, write_option,
           cfd->internal_comparator(), cfd->internal_tbl_prop_coll_factories(),
@@ -1697,21 +1703,22 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           0 /* level */, false /* is_bottommost */,
           TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
           0 /* file_creation_time */, db_id_, db_session_id_,
-          0 /* target_file_size */, meta.fd.GetNumber());
+          0 /* target_file_size */, meta.fd.GetNumber(), kMaxSequenceNumber);
       Version* version = cfd->current();
       version->Ref();
       uint64_t num_input_entries = 0;
-      s = BuildTable(
-          dbname_, versions_.get(), immutable_db_options_, tboptions,
-          file_options_for_compaction_, cfd->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta, &blob_file_additions,
-          snapshot_seqs, earliest_write_conflict_snapshot, kMaxSequenceNumber,
-          snapshot_checker, paranoid_file_checks, cfd->internal_stats(), &io_s,
-          io_tracer_, BlobFileCreationReason::kRecovery,
-          nullptr /* seqno_to_time_mapping */, &event_logger_, job_id,
-          nullptr /* table_properties */, write_hint,
-          nullptr /*full_history_ts_low*/, &blob_callback_, version,
-          &num_input_entries);
+      s = BuildTable(dbname_, versions_.get(), immutable_db_options_, tboptions,
+                     file_options_for_compaction_, cfd->table_cache(),
+                     iter.get(), std::move(range_del_iters), &meta,
+                     &blob_file_additions, snapshot_seqs, earliest_snapshot,
+                     earliest_write_conflict_snapshot, kMaxSequenceNumber,
+                     snapshot_checker, paranoid_file_checks,
+                     cfd->internal_stats(), &io_s, io_tracer_,
+                     BlobFileCreationReason::kRecovery,
+                     nullptr /* seqno_to_time_mapping */, &event_logger_,
+                     job_id, nullptr /* table_properties */, write_hint,
+                     nullptr /*full_history_ts_low*/, &blob_callback_, version,
+                     &num_input_entries);
       version->Unref();
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
