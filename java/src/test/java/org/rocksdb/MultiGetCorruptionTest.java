@@ -3,11 +3,13 @@ package org.rocksdb;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.List;
+import org.hamcrest.CustomTypeSafeMatcher;
 import org.hamcrest.Description;
-import org.hamcrest.TypeSafeMatcher;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -50,15 +52,17 @@ public class MultiGetCorruptionTest {
     try (Options options = new Options().setCreateIfMissing(true).setParanoidChecks(true);
          RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
       exception.expect(RocksDBException.class);
-      exception.expect(new TypeSafeMatcher<RocksDBException>() {
+      exception.expect(new CustomTypeSafeMatcher<RocksDBException>(
+          "Status.Code equal to Corruption") {
         @Override
         protected boolean matchesSafely(RocksDBException e) {
           return e.getStatus().getCode() == Status.Code.Corruption;
         }
 
         @Override
-        public void describeTo(Description description) {
-          description.appendText("Status.Code is not equal to Corruption");
+        protected void describeMismatchSafely(RocksDBException e, Description mismatchDescription) {
+          mismatchDescription.appendText(
+              "was " + e.getStatus().getCodeString() + " " + e.getMessage());
         }
       });
 
@@ -72,7 +76,9 @@ public class MultiGetCorruptionTest {
     try (Options options = new Options().setCreateIfMissing(true).setParanoidChecks(true);
          RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put(KEY, VALUE);
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
     }
 
     File[] files = dbFolder.getRoot().listFiles((dir, name) -> name.endsWith("sst"));
