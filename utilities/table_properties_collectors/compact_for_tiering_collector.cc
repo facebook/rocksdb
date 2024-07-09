@@ -139,8 +139,6 @@ std::shared_ptr<CompactForTieringCollectorFactory>
 NewCompactForTieringCollectorFactory(double compaction_trigger_ratio) {
   return std::make_shared<CompactForTieringCollectorFactory>(
       compaction_trigger_ratio);
-  return std::shared_ptr<CompactForTieringCollectorFactory>(
-      new CompactForTieringCollectorFactory(compaction_trigger_ratio));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
