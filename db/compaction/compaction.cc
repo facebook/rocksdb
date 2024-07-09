@@ -864,6 +864,11 @@ bool Compaction::ShouldFormSubcompactions() const {
     return false;
   }
 
+  if (cfd_->ioptions()->table_factory->Name() ==
+      TableFactory::kPlainTableName()) {
+    return false;
+  }
+
   // Round-Robin pri under leveled compaction allows subcompactions by default
   // and the number of subcompactions can be larger than max_subcompactions_
   if (cfd_->ioptions()->compaction_pri == kRoundRobin &&

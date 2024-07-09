@@ -468,6 +468,11 @@ void CompactionJob::GenSubcompactionBoundaries() {
   ReadOptions read_options(Env::IOActivity::kCompaction);
   read_options.rate_limiter_priority = GetRateLimiterPriority();
   auto* c = compact_->compaction;
+  if (c->immutable_options()->table_factory->Name() ==
+      TableFactory::kPlainTableName()) {
+    return;
+  }
+
   if (c->max_subcompactions() <= 1 &&
       !(c->immutable_options()->compaction_pri == kRoundRobin &&
         c->immutable_options()->compaction_style == kCompactionStyleLevel)) {
