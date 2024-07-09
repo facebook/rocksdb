@@ -103,7 +103,7 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
   // Work around https://github.com/microsoft/STL/issues/369
   // std::condition_variable_any::wait_for had a fix, but
   // std::condition_variable still doesn't have a fix in STL yet
-#if defined(_MSC_VER) 
+#if defined(_MSC_VER)
   if (relTimeUs == std::chrono::microseconds::zero()) {
     lk.unlock();
     lk.lock();
