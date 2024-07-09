@@ -1,1 +1,1 @@
-Exposed WriteBatch Iterator column family specific methods: put_cf, delete_cf and merge_cf via C API. Introduced new function `rocksdb_writebatch_iterate_cf` for backwards compatibility.
+Introduced new C API function rocksdb_writebatch_iterate_cf for column family-aware iteration over the contents of a WriteBatch
