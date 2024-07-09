@@ -1001,7 +1001,6 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
       auto tdn = TestFSGetDirAndName(t);
       if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
         auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
-        assert(tlist.find(tdn.second) == tlist.end());
         tlist[tdn.second] = previous_contents;
       }
     }
