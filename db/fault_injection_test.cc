@@ -613,7 +613,7 @@ TEST(FaultInjectionFSTest, ReadUnsyncedData) {
     ASSERT_OK(w->Sync({}, nullptr));
   }
   if (rnd.OneIn(2)) {
-    size_t more_len = rnd.Uniform(1000) + 1;
+    uint32_t more_len = rnd.Uniform(1000) + 1;
     std::string more_data = rnd.RandomString(more_len);
     ASSERT_OK(w->Append(more_data, {}, nullptr));
     data += more_data;
