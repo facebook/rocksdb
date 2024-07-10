@@ -606,10 +606,27 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
     return s;
   }
 
+  if (read_pos_ > target_read_pos_) {
+    // We must have previously read buffered data (unsynced) not written to
+    // target. Either there has been a sync since then, in which case we can
+    // get target up to the last read_pos_, or there hasn't been a sync and
+    // we continue to serve reads from the buffer of unsynced data.
+    s = target()->Skip(read_pos_ - target_read_pos_);
+    if (s.ok()) {
+      target_read_pos_ = read_pos_;
+    } else {
+      // Wasn't synced. That's ok.
+      s = IOStatus::OK();
+    }
+  }
+
   s = target()->Read(n, options, result, scratch, dbg);
   if (!s.ok()) {
     return s;
   }
+
+  assert(result->size() == 0 || target_read_pos_ == read_pos_);
+  target_read_pos_ += result->size();
 
   if (fs_->ReadUnsyncedData() && result->size() < n) {
     fs_->AddUnsyncedToRead(fname_, read_pos_, n, result, scratch);

@@ -179,6 +179,7 @@ class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
   FaultInjectionTestFS* fs_;
   std::string fname_;
   size_t read_pos_ = 0;
+  size_t target_read_pos_ = 0;
 };
 
 class TestFSDirectory : public FSDirectory {
