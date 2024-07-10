@@ -523,6 +523,8 @@ txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 # For optimistic transaction db
@@ -536,6 +538,8 @@ optimistic_txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 best_efforts_recovery_params = {
