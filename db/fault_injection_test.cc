@@ -620,17 +620,23 @@ TEST(FaultInjectionFSTest, ReadUnsyncedData) {
     len += more_len;
   }
   if (rnd.OneIn(2)) {
+    ASSERT_OK(w->Sync({}, nullptr));
+  }
+  if (rnd.OneIn(2)) {
     ASSERT_OK(w->Close({}, nullptr));
     w.reset();
   }
 
-  // Second read rest of the file
-  uint32_t second_read_len = len - first_read_len;
+  // Second read some of, all of, or more than rest of file
+  uint32_t second_read_len = rnd.Uniform(len + 1);
   scratch.reset(new char[second_read_len]);
   ASSERT_OK(r->Read(second_read_len, {}, &sl, scratch.get(), nullptr));
-  ASSERT_EQ(second_read_len, sl.size());
-  ASSERT_EQ(0,
-            sl.compare(Slice(data.data() + first_read_len, second_read_len)));
+  if (len - first_read_len < second_read_len) {
+    ASSERT_EQ(len - first_read_len, sl.size());
+  } else {
+    ASSERT_EQ(second_read_len, sl.size());
+  }
+  ASSERT_EQ(0, sl.compare(Slice(data.data() + first_read_len, sl.size())));
 }
 }  // namespace ROCKSDB_NAMESPACE
 
