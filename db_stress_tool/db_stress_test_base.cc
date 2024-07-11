@@ -296,12 +296,6 @@ bool StressTest::BuildOptionsTable() {
       // {"experimental_mempurge_threshold", {"0.0", "1.0"}},
       // TODO(ljin): enable test for this option
       // {"disable_auto_compactions", {"100", "200", "300"}},
-      {"level0_file_num_compaction_trigger",
-       {
-           std::to_string(options_.level0_file_num_compaction_trigger),
-           std::to_string(options_.level0_file_num_compaction_trigger + 2),
-           std::to_string(options_.level0_file_num_compaction_trigger + 4),
-       }},
       {"level0_slowdown_writes_trigger",
        {
            std::to_string(options_.level0_slowdown_writes_trigger),
@@ -346,6 +340,29 @@ bool StressTest::BuildOptionsTable() {
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
   };
+  if (FLAGS_compaction_style == kCompactionStyleUniversal &&
+      FLAGS_universal_max_read_amp > 0) {
+    // level0_file_num_compaction_trigger needs to be at most max_read_amp
+    options_tbl.emplace(
+        "level0_file_num_compaction_trigger",
+        std::vector<std::string>{
+            std::to_string(options_.level0_file_num_compaction_trigger),
+            std::to_string(
+                std::min(options_.level0_file_num_compaction_trigger + 2,
+                         FLAGS_universal_max_read_amp)),
+            std::to_string(
+                std::min(options_.level0_file_num_compaction_trigger + 4,
+                         FLAGS_universal_max_read_amp)),
+        });
+  } else {
+    options_tbl.emplace(
+        "level0_file_num_compaction_trigger",
+        std::vector<std::string>{
+            std::to_string(options_.level0_file_num_compaction_trigger),
+            std::to_string(options_.level0_file_num_compaction_trigger + 2),
+            std::to_string(options_.level0_file_num_compaction_trigger + 4),
+        });
+  }
   if (FLAGS_unordered_write) {
     options_tbl.emplace("max_successive_merges", std::vector<std::string>{"0"});
   } else {
@@ -3777,7 +3794,7 @@ void StressTest::Reopen(ThreadState* thread) {
   // crash-recovery verification does. Therefore it always expects no data loss
   // and we should ensure no data loss in testing.
   // TODO(hx235): eliminate the FlushWAL(true /* sync */)/SyncWAL() below
-  if (!FLAGS_disable_wal) {
+  if (!FLAGS_disable_wal && !FLAGS_avoid_flush_during_shutdown) {
     Status s;
     if (FLAGS_manual_wal_flush_one_in > 0) {
       s = db_->FlushWAL(/*sync=*/true);
