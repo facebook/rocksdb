@@ -556,7 +556,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // more data is available from the target file when not available from
   // unsynced.
   void ReadUnsynced(const std::string& fname, uint64_t offset, size_t n,
-                    Slice* result, char* scratch, ssize_t* pos_at_last_sync);
+                    Slice* result, char* scratch, int64_t* pos_at_last_sync);
 
  private:
   port::Mutex mutex_;
