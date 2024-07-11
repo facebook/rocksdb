@@ -574,7 +574,7 @@ void MoveToScratchIfNeeded(Slice* result, char* scratch) {
 void FaultInjectionTestFS::ReadUnsynced(const std::string& fname,
                                         uint64_t offset, size_t n,
                                         Slice* result, char* scratch,
-                                        ssize_t* pos_at_last_sync) {
+                                        int64_t* pos_at_last_sync) {
   *result = Slice(scratch, 0);  // default empty result
 
   MutexLock l(&mutex_);
