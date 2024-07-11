@@ -288,12 +288,25 @@ TEST_P(WriteCommittedTxnWithTsTest, RecoverFromWal) {
 
   txn0.reset();
 
+  std::unique_ptr<Transaction> txn3(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn3);
+  ASSERT_OK(txn3->Put(handles_[1], "baz", "baz_value"));
+  ASSERT_OK(txn3->SetName("txn3"));
+  ASSERT_OK(txn3->Prepare());
+  txn3.reset();
+
   ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
 
   {
+    Transaction* recovered_txn0 = db->GetTransactionByName("txn0");
+    ASSERT_OK(recovered_txn0->SetCommitTimestamp(23));
+    ASSERT_OK(recovered_txn0->Commit());
+    delete recovered_txn0;
     std::string value;
     Status s = GetFromDb(ReadOptions(), handles_[1], "foo", /*ts=*/23, &value);
-    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_OK(s);
+    ASSERT_EQ("foo_value", value);
 
     s = db->Get(ReadOptions(), handles_[0], "bar", &value);
     ASSERT_OK(s);
@@ -314,6 +327,9 @@ TEST_P(WriteCommittedTxnWithTsTest, RecoverFromWal) {
     s = GetFromDb(ReadOptions(), handles_[1], "key1", /*ts=*/24, &value);
     ASSERT_OK(s);
     ASSERT_EQ("value_3", value);
+
+    s = GetFromDb(ReadOptions(), handles_[1], "baz", /*ts=*/24, &value);
+    ASSERT_TRUE(s.IsNotFound());
   }
 }
 
