@@ -581,19 +581,18 @@ void FaultInjectionTestFS::ReadUnsynced(const std::string& fname,
   auto it = db_file_state_.find(fname);
   if (it != db_file_state_.end()) {
     auto& st = it->second;
-    *pos_at_last_sync = st.pos_at_last_sync_;
+    // Use 0 to mean "tracked but nothing synced"
+    *pos_at_last_sync = std::max(st.pos_at_last_sync_, int64_t{0});
     // Find overlap between [offset, offset + n) and
-    // [st.pos_at_last_sync_, st.pos_at_last_sync_ + st.buffer_.size())
-    int64_t begin =
-        std::max(static_cast<int64_t>(offset), st.pos_at_last_sync_);
-    int64_t end = std::min(
-        static_cast<int64_t>(offset + n),
-        st.pos_at_last_sync_ + static_cast<int64_t>(st.buffer_.size()));
+    // [*pos_at_last_sync, *pos_at_last_sync + st.buffer_.size())
+    int64_t begin = std::max(static_cast<int64_t>(offset), *pos_at_last_sync);
+    int64_t end =
+        std::min(static_cast<int64_t>(offset + n),
+                 *pos_at_last_sync + static_cast<int64_t>(st.buffer_.size()));
 
     // Copy and return overlap if there is any
     if (begin < end) {
-      size_t offset_in_buffer =
-          static_cast<size_t>(begin - st.pos_at_last_sync_);
+      size_t offset_in_buffer = static_cast<size_t>(begin - *pos_at_last_sync);
       size_t offset_in_scratch = static_cast<size_t>(begin - offset);
       std::copy_n(st.buffer_.data() + offset_in_buffer, end - begin,
                   scratch + offset_in_scratch);

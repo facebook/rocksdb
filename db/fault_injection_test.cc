@@ -585,7 +585,9 @@ TEST(FaultInjectionFSTest, ReadUnsyncedData) {
   ASSERT_OK(fault_fs->NewWritableFile(f, {}, &w, nullptr));
   uint32_t synced_len = rnd.Uniform(len + 1);
   ASSERT_OK(w->Append(Slice(data.data(), synced_len), {}, nullptr));
-  ASSERT_OK(w->Sync({}, nullptr));
+  if (synced_len > 0) {
+    ASSERT_OK(w->Sync({}, nullptr));
+  }
   ASSERT_OK(w->Append(Slice(data.data() + synced_len, len - synced_len), {},
                       nullptr));
 
