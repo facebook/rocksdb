@@ -41,17 +41,15 @@ enum class FaultInjectionIOType {
 
 struct FSFileState {
   std::string filename_;
-  int64_t pos_at_last_append_;
-  int64_t pos_at_last_sync_;
+  uint64_t pos_at_last_append_ = 0;
+  uint64_t pos_at_last_sync_ = 0;
   std::string buffer_;
 
-  explicit FSFileState(const std::string& filename)
-      : filename_(filename), pos_at_last_append_(-1), pos_at_last_sync_(-1) {}
-
-  FSFileState() : pos_at_last_append_(-1), pos_at_last_sync_(-1) {}
+  explicit FSFileState(const std::string& filename = {})
+      : filename_(filename) {}
 
   bool IsFullySynced() const {
-    return pos_at_last_append_ <= 0 || pos_at_last_append_ == pos_at_last_sync_;
+    return pos_at_last_append_ == pos_at_last_sync_;
   }
 
   IOStatus DropUnsyncedData();

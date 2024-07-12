@@ -573,72 +573,77 @@ TEST(FaultInjectionFSTest, ReadUnsyncedData) {
 
   // This is a randomized mini-stress test, to reduce the chances of bugs in
   // FaultInjectionTestFS being caught only in db_stress, where they are
-  // difficult to debug.
-  uint32_t len = Random::GetTLSInstance()->Uniform(10000) + 1;
-  Random rnd(len);
+  // difficult to debug. ~1000 iterations might be needed to debug relevant
+  // code changes. Limiting to 10 for each regular unit test run.
+  auto seed = Random::GetTLSInstance()->Next();
+  for (int i = 0; i < 10; i++, seed++) {
+    Random rnd(seed);
+    uint32_t len = rnd.Uniform(10000) + 1;
 
-  std::string f = test::PerThreadDBPath("read_unsynced.data");
-  std::string data = rnd.RandomString(len);
+    std::string f =
+        test::PerThreadDBPath("read_unsynced." + std::to_string(seed));
+    std::string data = rnd.RandomString(len);
 
-  // Create partially synced file
-  std::unique_ptr<FSWritableFile> w;
-  ASSERT_OK(fault_fs->NewWritableFile(f, {}, &w, nullptr));
-  uint32_t synced_len = rnd.Uniform(len + 1);
-  ASSERT_OK(w->Append(Slice(data.data(), synced_len), {}, nullptr));
-  if (synced_len > 0) {
-    ASSERT_OK(w->Sync({}, nullptr));
-  }
-  ASSERT_OK(w->Append(Slice(data.data() + synced_len, len - synced_len), {},
-                      nullptr));
+    // Create partially synced file
+    std::unique_ptr<FSWritableFile> w;
+    ASSERT_OK(fault_fs->NewWritableFile(f, {}, &w, nullptr));
+    uint32_t synced_len = rnd.Uniform(len + 1);
+    ASSERT_OK(w->Append(Slice(data.data(), synced_len), {}, nullptr));
+    if (synced_len > 0) {
+      ASSERT_OK(w->Sync({}, nullptr));
+    }
+    ASSERT_OK(w->Append(Slice(data.data() + synced_len, len - synced_len), {},
+                        nullptr));
 
-  // Test file size includes unsynced data
-  {
-    uint64_t file_size;
-    ASSERT_OK(fault_fs->GetFileSize(f, {}, &file_size, nullptr));
-    ASSERT_EQ(len, file_size);
-  }
+    // Test file size includes unsynced data
+    {
+      uint64_t file_size;
+      ASSERT_OK(fault_fs->GetFileSize(f, {}, &file_size, nullptr));
+      ASSERT_EQ(len, file_size);
+    }
 
-  // Test read file contents, with two reads that probably don't
-  // align with the unsynced split. And maybe a sync or write between
-  // the two reads.
-  std::unique_ptr<FSSequentialFile> r;
-  ASSERT_OK(fault_fs->NewSequentialFile(f, {}, &r, nullptr));
-  uint32_t first_read_len = rnd.Uniform(len + 1);
-  Slice sl;
-  std::unique_ptr<char[]> scratch(new char[first_read_len]);
-  ASSERT_OK(r->Read(first_read_len, {}, &sl, scratch.get(), nullptr));
-  ASSERT_EQ(first_read_len, sl.size());
-  ASSERT_EQ(0, sl.compare(Slice(data.data(), first_read_len)));
+    // Test read file contents, with two reads that probably don't
+    // align with the unsynced split. And maybe a sync or write between
+    // the two reads.
+    std::unique_ptr<FSSequentialFile> r;
+    ASSERT_OK(fault_fs->NewSequentialFile(f, {}, &r, nullptr));
+    uint32_t first_read_len = rnd.Uniform(len + 1);
+    Slice sl;
+    std::unique_ptr<char[]> scratch(new char[first_read_len]);
+    ASSERT_OK(r->Read(first_read_len, {}, &sl, scratch.get(), nullptr));
+    ASSERT_EQ(first_read_len, sl.size());
+    ASSERT_EQ(0, sl.compare(Slice(data.data(), first_read_len)));
 
-  // Maybe a sync and/or write and/or close between the two reads.
-  if (rnd.OneIn(2)) {
-    ASSERT_OK(w->Sync({}, nullptr));
-  }
-  if (rnd.OneIn(2)) {
-    uint32_t more_len = rnd.Uniform(1000) + 1;
-    std::string more_data = rnd.RandomString(more_len);
-    ASSERT_OK(w->Append(more_data, {}, nullptr));
-    data += more_data;
-    len += more_len;
-  }
-  if (rnd.OneIn(2)) {
-    ASSERT_OK(w->Sync({}, nullptr));
-  }
-  if (rnd.OneIn(2)) {
-    ASSERT_OK(w->Close({}, nullptr));
-    w.reset();
-  }
+    // Maybe a sync and/or write and/or close between the two reads.
+    if (rnd.OneIn(2)) {
+      ASSERT_OK(w->Sync({}, nullptr));
+    }
+    if (rnd.OneIn(2)) {
+      uint32_t more_len = rnd.Uniform(1000) + 1;
+      std::string more_data = rnd.RandomString(more_len);
+      ASSERT_OK(w->Append(more_data, {}, nullptr));
+      data += more_data;
+      len += more_len;
+    }
+    if (rnd.OneIn(2)) {
+      ASSERT_OK(w->Sync({}, nullptr));
+    }
+    if (rnd.OneIn(2)) {
+      ASSERT_OK(w->Close({}, nullptr));
+      w.reset();
+    }
 
-  // Second read some of, all of, or more than rest of file
-  uint32_t second_read_len = rnd.Uniform(len + 1);
-  scratch.reset(new char[second_read_len]);
-  ASSERT_OK(r->Read(second_read_len, {}, &sl, scratch.get(), nullptr));
-  if (len - first_read_len < second_read_len) {
-    ASSERT_EQ(len - first_read_len, sl.size());
-  } else {
-    ASSERT_EQ(second_read_len, sl.size());
+    // Second read some of, all of, or more than rest of file
+    uint32_t second_read_len = rnd.Uniform(len + 1);
+    scratch.reset(new char[second_read_len]);
+    ASSERT_OK(r->Read(second_read_len, {}, &sl, scratch.get(), nullptr));
+    if (len - first_read_len < second_read_len) {
+      ASSERT_EQ(len - first_read_len, sl.size());
+    } else {
+      ASSERT_EQ(second_read_len, sl.size());
+    }
+    ASSERT_EQ(0, sl.compare(Slice(data.data() + first_read_len, sl.size())));
   }
-  ASSERT_EQ(0, sl.compare(Slice(data.data() + first_read_len, sl.size())));
 }
 }  // namespace ROCKSDB_NAMESPACE
 
