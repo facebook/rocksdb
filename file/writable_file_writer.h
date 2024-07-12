@@ -233,13 +233,8 @@ class WritableFileWriter {
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
   ~WritableFileWriter() {
-    ThreadStatus::OperationType cur_op_type =
-        ThreadStatusUtil::GetThreadOperation();
-    ThreadStatusUtil::SetThreadOperation(
-        ThreadStatus::OperationType::OP_UNKNOWN);
     auto s = Close(IOOptions());
     s.PermitUncheckedError();
-    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
 
   std::string file_name() const { return file_name_; }
