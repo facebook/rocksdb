@@ -41,8 +41,8 @@ enum class FaultInjectionIOType {
 
 struct FSFileState {
   std::string filename_;
-  ssize_t pos_at_last_append_;
-  ssize_t pos_at_last_sync_;
+  int64_t pos_at_last_append_;
+  int64_t pos_at_last_sync_;
   std::string buffer_;
 
   explicit FSFileState(const std::string& filename)
@@ -178,7 +178,8 @@ class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
  private:
   FaultInjectionTestFS* fs_;
   std::string fname_;
-  size_t read_pos_ = 0;
+  uint64_t read_pos_ = 0;
+  uint64_t target_read_pos_ = 0;
 };
 
 class TestFSDirectory : public FSDirectory {
@@ -548,8 +549,14 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   void PrintInjectedThreadLocalErrorBacktrace(FaultInjectionIOType type);
 
-  void AddUnsyncedToRead(const std::string& fname, size_t offset, size_t n,
-                         Slice* result, char* scratch);
+  // If there is unsynced data in the specified file within the specified
+  // range [offset, offset + n), return the unsynced data overlapping with
+  // that range, in a corresponding range of scratch. When known, also return
+  // the position of the last sync, so that the caller can determine whether
+  // more data is available from the target file when not available from
+  // unsynced.
+  void ReadUnsynced(const std::string& fname, uint64_t offset, size_t n,
+                    Slice* result, char* scratch, int64_t* pos_at_last_sync);
 
  private:
   port::Mutex mutex_;

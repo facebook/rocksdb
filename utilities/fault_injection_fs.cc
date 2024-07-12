@@ -559,38 +559,44 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   }
 }
 
-void FaultInjectionTestFS::AddUnsyncedToRead(const std::string& fname,
-                                             size_t pos, size_t n,
-                                             Slice* result, char* scratch) {
-  // Should be checked prior
-  assert(result->size() < n);
-  size_t pos_after = pos + result->size();
+namespace {
+// Modifies `result` to start at the beginning of `scratch` if not already,
+// copying data there if needed.
+void MoveToScratchIfNeeded(Slice* result, char* scratch) {
+  if (result->data() != scratch) {
+    // NOTE: might overlap
+    std::copy_n(result->data(), result->size(), scratch);
+  }
+  *result = Slice(scratch, result->size());
+}
+}  // namespace
+
+void FaultInjectionTestFS::ReadUnsynced(const std::string& fname,
+                                        uint64_t offset, size_t n,
+                                        Slice* result, char* scratch,
+                                        int64_t* pos_at_last_sync) {
+  *result = Slice(scratch, 0);  // default empty result
 
   MutexLock l(&mutex_);
   auto it = db_file_state_.find(fname);
   if (it != db_file_state_.end()) {
     auto& st = it->second;
-    if (st.pos_at_last_append_ > static_cast<ssize_t>(pos_after)) {
-      size_t remaining_requested = n - result->size();
-      size_t to_copy =
-          std::min(remaining_requested,
-                   static_cast<size_t>(st.pos_at_last_append_) - pos_after);
-      size_t buffer_offset = pos_after - static_cast<size_t>(std::max(
-                                             st.pos_at_last_sync_, ssize_t{0}));
-      // Data might have been dropped from buffer
-      if (st.buffer_.size() > buffer_offset) {
-        to_copy = std::min(to_copy, st.buffer_.size() - buffer_offset);
-        if (result->data() != scratch) {
-          // TODO: this will be needed when supporting random reads
-          // but not currently used
-          abort();
-          // NOTE: might overlap
-          // std::copy_n(result->data(), result->size(), scratch);
-        }
-        std::copy_n(st.buffer_.data() + buffer_offset, to_copy,
-                    scratch + result->size());
-        *result = Slice(scratch, result->size() + to_copy);
-      }
+    // Use 0 to mean "tracked but nothing synced"
+    *pos_at_last_sync = std::max(st.pos_at_last_sync_, int64_t{0});
+    // Find overlap between [offset, offset + n) and
+    // [*pos_at_last_sync, *pos_at_last_sync + st.buffer_.size())
+    int64_t begin = std::max(static_cast<int64_t>(offset), *pos_at_last_sync);
+    int64_t end =
+        std::min(static_cast<int64_t>(offset + n),
+                 *pos_at_last_sync + static_cast<int64_t>(st.buffer_.size()));
+
+    // Copy and return overlap if there is any
+    if (begin < end) {
+      size_t offset_in_buffer = static_cast<size_t>(begin - *pos_at_last_sync);
+      size_t offset_in_scratch = static_cast<size_t>(begin - offset);
+      std::copy_n(st.buffer_.data() + offset_in_buffer, end - begin,
+                  scratch + offset_in_scratch);
+      *result = Slice(scratch + offset_in_scratch, end - begin);
     }
   }
 }
@@ -606,13 +612,137 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
     return s;
   }
 
-  s = target()->Read(n, options, result, scratch, dbg);
-  if (!s.ok()) {
-    return s;
+  // Some complex logic is needed to deal with concurrent write to the same
+  // file, while keeping good performance (e.g. not holding FS mutex during
+  // I/O op), especially in common cases.
+
+  if (read_pos_ == target_read_pos_) {
+    // Normal case: start by reading from underlying file
+    s = target()->Read(n, options, result, scratch, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    target_read_pos_ += result->size();
+  } else {
+    // We must have previously read buffered data (unsynced) not written to
+    // target. Deal with this case (and more) below.
+    *result = {};
   }
 
   if (fs_->ReadUnsyncedData() && result->size() < n) {
-    fs_->AddUnsyncedToRead(fname_, read_pos_, n, result, scratch);
+    // We need to check if there's unsynced data to fill out the rest of the
+    // read.
+
+    // First, ensure target read data is in scratch for easy handling.
+    MoveToScratchIfNeeded(result, scratch);
+    assert(result->data() == scratch);
+
+    // If we just did a target Read, we only want unsynced data after it
+    // (target_read_pos_). Otherwise (e.g. if target is behind because of
+    // unsynced data) we want unsynced data starting at the current read pos
+    // (read_pos_, not yet updated).
+    const uint64_t unsynced_read_pos = std::max(target_read_pos_, read_pos_);
+    const size_t offset_from_read_pos =
+        static_cast<size_t>(unsynced_read_pos - read_pos_);
+    Slice unsynced_result;
+    int64_t pos_at_last_sync = -1;
+    fs_->ReadUnsynced(fname_, unsynced_read_pos, n - offset_from_read_pos,
+                      &unsynced_result, scratch + offset_from_read_pos,
+                      &pos_at_last_sync);
+    assert(unsynced_result.data() >= scratch + offset_from_read_pos);
+    assert(unsynced_result.data() < scratch + n);
+    // Now, there are several cases to consider (some grouped together):
+    if (pos_at_last_sync <= static_cast<int64_t>(unsynced_read_pos)) {
+      // 1. We didn't get any unsynced data because nothing has been written
+      // to the file beyond unsynced_read_pos (including untracked
+      // pos_at_last_sync == -1)
+      // 2. We got some unsynced data starting at unsynced_read_pos (possibly
+      // on top of some synced data from target). We don't need to try reading
+      // any more from target because we established a "point in time" for
+      // completing this Read in which we read as much tail data (unsynced) as
+      // we could.
+      assert(pos_at_last_sync >= 0 || unsynced_result.size() == 0);
+
+      // Combined data is already lined up in scratch.
+      assert(result->data() + result->size() == unsynced_result.data());
+      assert(result->size() + unsynced_result.size() <= n);
+      // Combine results
+      *result = Slice(result->data(), result->size() + unsynced_result.size());
+    } else {
+      // 3. Any unsynced data we got was after unsynced_read_pos because the
+      // file was synced some time since our last target Read (either from this
+      // Read or a prior Read). We need to read more data from target to ensure
+      // this Read is filled out, even though we might have already read some
+      // (but not all due to a race). This code handles:
+      //
+      // * Catching up target after prior read(s) of unsynced data
+      // * Racing Sync in another thread since we called target Read above
+      //
+      // And merging potentially three results together for this Read:
+      // * The original target Read above
+      // * The following (non-throw-away) target Read
+      // * The ReadUnsynced above, which is always last if it returned data,
+      // so that we have a "point in time" for completing this Read in which we
+      // read as much tail data (unsynced) as we could.
+      //
+      // Deeper note about the race: we cannot just treat the original target
+      // Read as a "point in time" view of available data in the file, because
+      // there might have been unsynced data at that time, which became synced
+      // data by the time we read unsynced data. That is the race we are
+      // resolving with this "double check"-style code.
+      const size_t supplemental_read_pos = unsynced_read_pos;
+
+      // First, if there's any data from target that we know we would need to
+      // throw away to catch up, try to do it.
+      if (target_read_pos_ < supplemental_read_pos) {
+        Slice throw_away_result;
+        size_t throw_away_n = supplemental_read_pos - target_read_pos_;
+        std::unique_ptr<char[]> throw_away_scratch{new char[throw_away_n]};
+        s = target()->Read(throw_away_n, options, &throw_away_result,
+                           throw_away_scratch.get(), dbg);
+        if (!s.ok()) {
+          read_pos_ += result->size();
+          return s;
+        }
+        target_read_pos_ += throw_away_result.size();
+        if (target_read_pos_ < supplemental_read_pos) {
+          // Because of pos_at_last_sync > supplemental_read_pos, we should
+          // have been able to catch up
+          read_pos_ += result->size();
+          return IOStatus::IOError(
+              "Unexpected truncation or short read of file " + fname_);
+        }
+      }
+      // Now we can do a productive supplemental Read from target
+      assert(target_read_pos_ == supplemental_read_pos);
+      Slice supplemental_result;
+      size_t supplemental_n =
+          unsynced_result.size() == 0
+              ? n - offset_from_read_pos
+              : unsynced_result.data() - (scratch + offset_from_read_pos);
+      s = target()->Read(supplemental_n, options, &supplemental_result,
+                         scratch + offset_from_read_pos, dbg);
+      if (!s.ok()) {
+        read_pos_ += result->size();
+        return s;
+      }
+      target_read_pos_ += supplemental_result.size();
+      MoveToScratchIfNeeded(&supplemental_result,
+                            scratch + offset_from_read_pos);
+
+      // Combined data is already lined up in scratch.
+      assert(result->data() + result->size() == supplemental_result.data());
+      assert(unsynced_result.size() == 0 ||
+             supplemental_result.data() + supplemental_result.size() ==
+                 unsynced_result.data());
+      assert(result->size() + supplemental_result.size() +
+                 unsynced_result.size() <=
+             n);
+      // Combine results
+      *result =
+          Slice(result->data(), result->size() + supplemental_result.size() +
+                                    unsynced_result.size());
+    }
   }
   read_pos_ += result->size();
 
