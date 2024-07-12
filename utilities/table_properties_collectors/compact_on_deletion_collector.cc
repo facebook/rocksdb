@@ -188,6 +188,7 @@ NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
       new CompactOnDeletionCollectorFactory(sliding_window_size,
                                             deletion_trigger, deletion_ratio));
 }
+
 namespace {
 static int RegisterTablePropertiesCollectorFactories(
     ObjectLibrary& library, const std::string& /*arg*/) {
@@ -200,6 +201,17 @@ static int RegisterTablePropertiesCollectorFactories(
         // Users will need to provide configuration parameters or call the
         // corresponding Setter to enable the factory.
         guard->reset(new CompactOnDeletionCollectorFactory(0, 0, 0));
+        return guard->get();
+      });
+  library.AddFactory<TablePropertiesCollectorFactory>(
+      CompactForTieringCollectorFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TablePropertiesCollectorFactory>* guard,
+         std::string* /* errmsg */) {
+        // By default, create a `CompactForTieringCollectorFactory` that is
+        // disabled. Users will need to call corresponding setters to enable
+        // the factory.
+        guard->reset(new CompactForTieringCollectorFactory(0));
         return guard->get();
       });
   return 1;

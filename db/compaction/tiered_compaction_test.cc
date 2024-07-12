@@ -13,6 +13,7 @@
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/mock_time_env.h"
 #include "utilities/merge_operators.h"
 
@@ -1731,6 +1732,82 @@ TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
   ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  Close();
+}
+
+TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
+  const int kNumTrigger = 10;
+  const int kNumLevels = 7;
+  const int kNumKeys = 200;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preclude_last_level_data_seconds = 60;
+  options.preserve_internal_time_seconds = 0;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  options.last_level_temperature = Temperature::kCold;
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  std::shared_ptr<TablePropertiesCollectorFactory> factory;
+  std::string id = CompactForTieringCollectorFactory::kClassName();
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      config_options, "compaction_trigger_ratio=0.4; id=" + id, &factory));
+  auto collector_factory =
+      factory->CheckedCast<CompactForTieringCollectorFactory>();
+  options.table_properties_collector_factories.push_back(factory);
+  DestroyAndReopen(options);
+  WriteOptions wo;
+  wo.protection_bytes_per_key = GetParam();
+
+  Random rnd(301);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(10) + 1));
+  });
+
+  for (int i = 0; i < kNumKeys / 4; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100), wo));
+    dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+      mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
+    });
+  }
+  // Create one file with regular Put.
+  ASSERT_OK(Flush());
+
+  // Create one file with TimedPut.
+  // These data are eligible to be put on the last level once written to db
+  // and compaction will fast track them to the last level.
+  for (int i = kNumKeys / 4; i < kNumKeys / 2; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
+  }
+  ASSERT_OK(Flush());
+
+  // TimedPut file moved to the last level via auto triggered compaction.
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  collector_factory->SetCompactionTriggerRatio(1.1);
+  for (int i = kNumKeys / 2; i < kNumKeys * 3 / 4; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("2,0,0,0,0,0,1", FilesPerLevel());
+
+  collector_factory->SetCompactionTriggerRatio(0);
+  for (int i = kNumKeys * 3 / 4; i < kNumKeys; i++) {
+    ASSERT_OK(TimedPut(0, Key(i), rnd.RandomString(100), 50, wo));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("3,0,0,0,0,0,1", FilesPerLevel());
+
   Close();
 }
 

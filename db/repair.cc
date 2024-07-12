@@ -480,9 +480,10 @@ class Repairer {
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
-          {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
-          false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
-          nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
+          {}, kMaxSequenceNumber, kMaxSequenceNumber, kMaxSequenceNumber,
+          snapshot_checker, false /* paranoid_file_checks*/,
+          nullptr /* internal_stats */, &io_s, nullptr /*IOTracer*/,
+          BlobFileCreationReason::kRecovery,
           nullptr /* seqno_to_time_mapping */, nullptr /* event_logger */,
           0 /* job_id */, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,

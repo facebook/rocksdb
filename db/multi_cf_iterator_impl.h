@@ -85,7 +85,7 @@ class MultiCfIteratorImpl {
   void Next() {
     assert(Valid());
     auto& min_heap = GetHeap<MultiCfMinHeap>([this]() {
-      Slice target = key();
+      std::string target(key().data(), key().size());
       InitMinHeap();
       Seek(target);
     });
@@ -94,7 +94,7 @@ class MultiCfIteratorImpl {
   void Prev() {
     assert(Valid());
     auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() {
-      Slice target = key();
+      std::string target(key().data(), key().size());
       InitMaxHeap();
       SeekForPrev(target);
     });

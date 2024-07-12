@@ -582,8 +582,10 @@ struct BlockBasedTableBuilder::Rep {
       assert(factory);
 
       std::unique_ptr<InternalTblPropColl> collector{
-          factory->CreateInternalTblPropColl(tbo.column_family_id,
-                                             tbo.level_at_creation)};
+          factory->CreateInternalTblPropColl(
+              tbo.column_family_id, tbo.level_at_creation,
+              tbo.ioptions.num_levels,
+              tbo.last_level_inclusive_max_seqno_threshold)};
       if (collector) {
         table_properties_collectors.emplace_back(std::move(collector));
       }

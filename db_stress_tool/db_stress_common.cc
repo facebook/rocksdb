@@ -19,8 +19,6 @@
 
 ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
-// If non-null, injects read error at a rate specified by the
-// read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
 std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
@@ -393,6 +391,16 @@ bool VerifyWideColumns(const WideColumns& columns) {
   const Slice& value_of_default = WideColumnsHelper::GetDefaultColumn(columns);
 
   return VerifyWideColumns(value_of_default, columns);
+}
+
+bool VerifyIteratorAttributeGroups(
+    const IteratorAttributeGroups& attribute_groups) {
+  for (const auto& attribute_group : attribute_groups) {
+    if (!VerifyWideColumns(attribute_group.columns())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 std::string GetNowNanos() {

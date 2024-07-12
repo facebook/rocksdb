@@ -391,8 +391,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       if (!s.ok()) {
         io_s = versions_->io_status();
         if (!io_s.ok()) {
-          s = error_handler_.SetBGError(io_s,
-                                        BackgroundErrorReason::kManifestWrite);
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         }
       }
     }
@@ -916,8 +916,8 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
             read_options, write_options, &edit, &mutex_,
             directories_.GetDbDir());
         if (!s.ok() && versions_->io_status().IsIOError()) {
-          s = error_handler_.SetBGError(versions_->io_status(),
-                                        BackgroundErrorReason::kManifestWrite);
+          error_handler_.SetBGError(versions_->io_status(),
+                                    BackgroundErrorReason::kManifestWrite);
         }
       }
 
@@ -1615,8 +1615,14 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
     for (auto it = logs_.begin();
          it != logs_.end() && it->number <= up_to_number; ++it) {
       auto& log = *it;
+      // Ensure the head of logs_ is marked as getting_synced if any is.
       log.PrepareForSync();
-      wals_to_sync.push_back(log.writer);
+      // If last sync failed on a later WAL, this could be a fully synced
+      // and closed WAL that just needs to be recorded as synced in the
+      // manifest.
+      if (log.writer->file()) {
+        wals_to_sync.push_back(log.writer);
+      }
     }
 
     need_wal_dir_sync = !log_dir_synced_;
@@ -1718,8 +1724,8 @@ Status DBImpl::ApplyWALToManifest(const ReadOptions& read_options,
       read_options, write_options, synced_wals, &mutex_,
       directories_.GetDbDir());
   if (!status.ok() && versions_->io_status().IsIOError()) {
-    status = error_handler_.SetBGError(versions_->io_status(),
-                                       BackgroundErrorReason::kManifestWrite);
+    error_handler_.SetBGError(versions_->io_status(),
+                              BackgroundErrorReason::kManifestWrite);
   }
   return status;
 }
@@ -2058,19 +2064,19 @@ InternalIterator* DBImpl::NewInternalIterator(
       read_options, super_version->GetSeqnoToTimeMapping(), arena);
   Status s;
   if (!read_options.ignore_range_deletions) {
-    TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+    std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
     auto range_del_iter = super_version->mem->NewRangeTombstoneIterator(
         read_options, sequence, false /* immutable_memtable */);
     if (range_del_iter == nullptr || range_del_iter->empty()) {
       delete range_del_iter;
     } else {
-      mem_tombstone_iter = new TruncatedRangeDelIterator(
+      mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
           std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
           &cfd->ioptions()->internal_comparator, nullptr /* smallest */,
           nullptr /* largest */);
     }
-    merge_iter_builder.AddPointAndTombstoneIterator(mem_iter,
-                                                    mem_tombstone_iter);
+    merge_iter_builder.AddPointAndTombstoneIterator(
+        mem_iter, std::move(mem_tombstone_iter));
   } else {
     merge_iter_builder.AddIterator(mem_iter);
   }
@@ -4537,8 +4543,11 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
   if (property_info == nullptr || property_info->handle_int == nullptr) {
     return false;
   }
+  auto aggregator = CreateIntPropertyAggregator(property);
+  if (aggregator == nullptr) {
+    return false;
+  }
 
-  uint64_t sum = 0;
   bool ret = true;
   {
     // Needs mutex to protect the list of column families.
@@ -4552,14 +4561,14 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
       // GetIntPropertyInternal may release db mutex and re-acquire it.
       mutex_.AssertHeld();
       if (ret) {
-        sum += value;
+        aggregator->Add(cfd, value);
       } else {
         ret = false;
         break;
       }
     }
   }
-  *aggregated_value = sum;
+  *aggregated_value = aggregator->Aggregate();
   return ret;
 }
 

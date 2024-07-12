@@ -532,6 +532,42 @@ struct rocksdb_universal_compaction_options_t {
   ROCKSDB_NAMESPACE::CompactionOptionsUniversal* rep;
 };
 
+struct rocksdb_callback_logger_t : public Logger {
+  static const ssize_t STACK_BUFSZ = 512;
+  rocksdb_callback_logger_t(InfoLogLevel log_level,
+                            void (*logv_cb)(void*, unsigned, char*, size_t),
+                            void* priv)
+      : Logger(log_level), logv_cb_(logv_cb), priv_(priv) {}
+
+  using Logger::Logv;
+  void Logv(const InfoLogLevel level, const char* fmt, va_list ap0) override {
+    char stack_buf[STACK_BUFSZ];
+    char* alloc_buf = nullptr;
+    char* buf = stack_buf;
+    int len = 0;
+    va_list ap1;
+    if (!logv_cb_) return;
+    va_copy(ap1, ap0);
+    len = vsnprintf(buf, STACK_BUFSZ, fmt, ap0);
+    if (len <= 0)
+      goto cleanup;
+    else if (len >= STACK_BUFSZ) {
+      buf = alloc_buf = reinterpret_cast<char*>(malloc(len + 1));
+      if (!buf) goto cleanup;
+      len = vsnprintf(buf, len + 1, fmt, ap1);
+      if (len <= 0) goto cleanup;
+    }
+    logv_cb_(priv_, unsigned(level), buf, size_t(len));
+  cleanup:
+    va_end(ap1);
+    free(alloc_buf);
+  }
+
+ private:
+  void (*logv_cb_)(void*, unsigned, char*, size_t) = nullptr;
+  void* priv_ = nullptr;
+};
+
 static bool SaveError(char** errptr, const Status& s) {
   assert(errptr != nullptr);
   if (s.ok()) {
@@ -1802,6 +1838,26 @@ void rocksdb_approximate_sizes_cf(
   delete[] ranges;
 }
 
+extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint8_t include_flags, uint64_t* sizes,
+    char** errptr) {
+  Range* ranges = new Range[num_ranges];
+  for (int i = 0; i < num_ranges; i++) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  Status s = db->rep->GetApproximateSizes(
+      column_family->rep, ranges, num_ranges, sizes,
+      static_cast<DB::SizeApproximationFlags>(include_flags));
+  if (!s.ok()) {
+    SaveError(errptr, s);
+  }
+  delete[] ranges;
+}
+
 void rocksdb_delete_file(rocksdb_t* db, const char* name) {
   db->rep->DeleteFile(name);
 }
@@ -2230,6 +2286,32 @@ class H : public WriteBatch::Handler {
   }
 };
 
+class HCF : public WriteBatch::Handler {
+ public:
+  void* state_;
+  void (*put_cf_)(void*, uint32_t cfid, const char* k, size_t klen,
+                  const char* v, size_t vlen);
+  void (*deleted_cf_)(void*, uint32_t cfid, const char* k, size_t klen);
+  void (*merge_cf_)(void*, uint32_t cfid, const char* k, size_t klen,
+                    const char* v, size_t vlen);
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
+    (*put_cf_)(state_, column_family_id, key.data(), key.size(), value.data(),
+               value.size());
+    return Status::OK();
+  }
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+    (*deleted_cf_)(state_, column_family_id, key.data(), key.size());
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override {
+    (*merge_cf_)(state_, column_family_id, key.data(), key.size(), value.data(),
+                 value.size());
+    return Status::OK();
+  }
+};
+
 void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
                                 void (*put)(void*, const char* k, size_t klen,
                                             const char* v, size_t vlen),
@@ -2239,6 +2321,21 @@ void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
   handler.state_ = state;
   handler.put_ = put;
   handler.deleted_ = deleted;
+  b->rep.Iterate(&handler);
+}
+
+void rocksdb_writebatch_iterate_cf(
+    rocksdb_writebatch_t* b, void* state,
+    void (*put_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                   const char* v, size_t vlen),
+    void (*deleted_cf)(void*, uint32_t cfid, const char* k, size_t klen),
+    void (*merge_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                     const char* v, size_t vlen)) {
+  HCF handler;
+  handler.state_ = state;
+  handler.put_cf_ = put_cf;
+  handler.deleted_cf_ = deleted_cf;
+  handler.merge_cf_ = merge_cf;
   b->rep.Iterate(&handler);
 }
 
@@ -3034,6 +3131,15 @@ rocksdb_logger_t* rocksdb_logger_create_stderr_logger(int log_level,
         std::make_shared<StderrLogger>(static_cast<InfoLogLevel>(log_level));
   }
 
+  return logger;
+}
+
+rocksdb_logger_t* rocksdb_logger_create_callback_logger(
+    int log_level, void (*callback)(void*, unsigned, char*, size_t),
+    void* priv) {
+  rocksdb_logger_t* logger = new rocksdb_logger_t;
+  logger->rep = std::make_shared<rocksdb_callback_logger_t>(
+      static_cast<InfoLogLevel>(log_level), callback, priv);
   return logger;
 }
 

@@ -1204,8 +1204,7 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
     mutex_.Lock();
     assert(!error_handler_.IsBGWorkStopped());
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
     mutex_.Unlock();
   }
 }
@@ -2263,14 +2262,15 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     SequenceNumber seq = versions_->LastSequence();
     new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
     context->superversion_context.NewSuperVersion();
+
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] New memtable created with log file: #%" PRIu64
+                   ". Immutable memtables: %d.\n",
+                   cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
+    // There should be no concurrent write as the thread is at the front of
+    // writer queue
+    cfd->mem()->ConstructFragmentedRangeTombstones();
   }
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "[%s] New memtable created with log file: #%" PRIu64
-                 ". Immutable memtables: %d.\n",
-                 cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
-  // There should be no concurrent write as the thread is at the front of
-  // writer queue
-  cfd->mem()->ConstructFragmentedRangeTombstones();
 
   mutex_.Lock();
   if (recycle_log_number != 0) {
@@ -2362,8 +2362,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
           read_options, write_options, &wal_deletion, &mutex_,
           directories_.GetDbDir());
       if (!s.ok() && versions_->io_status().IsIOError()) {
-        s = error_handler_.SetBGError(versions_->io_status(),
-                                      BackgroundErrorReason::kManifestWrite);
+        error_handler_.SetBGError(versions_->io_status(),
+                                  BackgroundErrorReason::kManifestWrite);
       }
       if (!s.ok()) {
         return s;

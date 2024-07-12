@@ -650,6 +650,19 @@ extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf(
     const size_t* range_start_key_len, const char* const* range_limit_key,
     const size_t* range_limit_key_len, uint64_t* sizes, char** errptr);
 
+enum {
+  rocksdb_size_approximation_flags_none = 0,
+  rocksdb_size_approximation_flags_include_memtable = 1 << 0,
+  rocksdb_size_approximation_flags_include_files = 1 << 1,
+};
+
+extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint8_t include_flags, uint64_t* sizes,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_compact_range(rocksdb_t* db,
                                                       const char* start_key,
                                                       size_t start_key_len,
@@ -850,6 +863,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t*, void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen));
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate_cf(
+    rocksdb_writebatch_t*, void* state,
+    void (*put_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                   const char* v, size_t vlen),
+    void (*deleted_cf)(void*, uint32_t cfid, const char* k, size_t klen),
+    void (*merge_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                     const char* v, size_t vlen));
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_data(
     rocksdb_writebatch_t*, size_t* size);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
@@ -1205,6 +1225,11 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_info_log_level(
     rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API rocksdb_logger_t*
 rocksdb_logger_create_stderr_logger(int log_level, const char* prefix);
+extern ROCKSDB_LIBRARY_API rocksdb_logger_t*
+rocksdb_logger_create_callback_logger(int log_level,
+                                      void (*)(void* priv, unsigned lev,
+                                               char* msg, size_t len),
+                                      void* priv);
 extern ROCKSDB_LIBRARY_API void rocksdb_logger_destroy(
     rocksdb_logger_t* logger);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_buffer_size(

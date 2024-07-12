@@ -32,8 +32,10 @@ class Checkpoint {
   // same filesystem as the database, and copied otherwise.
   // (2) other required files (like MANIFEST) are always copied.
   // log_size_for_flush: if the total log file size is equal or larger than
-  // this value, then a flush is triggered for all the column families. The
-  // default value is 0, which means flush is always triggered. If you move
+  // this value, then a flush is triggered for all the column families.
+  // The archived log size will not be included when calculating the total log
+  // size.
+  // The default value is 0, which means flush is always triggered. If you move
   // away from the default, the checkpoint may not contain up-to-date data
   // if WAL writing is not always enabled.
   // Flush will always trigger if it is 2PC.

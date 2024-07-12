@@ -24,6 +24,9 @@
 #include "env/composite_env_wrapper.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
+#include "rocksdb/env.h"
+#include "rocksdb/io_status.h"
+#include "rocksdb/types.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -93,20 +96,15 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  {
-    IOStatus in_s = fs_->InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kMetadataWrite, options);
+  if (!s.ok()) {
+    return s;
   }
+
   fs_->SyncDir(dirname_);
-  IOStatus s = dir_->Fsync(options, dbg);
-  {
-    IOStatus in_s = fs_->InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
-  }
+  s = dir_->Fsync(options, dbg);
   return s;
 }
 
@@ -114,7 +112,14 @@ IOStatus TestFSDirectory::Close(const IOOptions& options, IODebugContext* dbg) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus s = dir_->Close(options, dbg);
+
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kMetadataWrite, options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = dir_->Close(options, dbg);
   return s;
 }
 
@@ -124,20 +129,14 @@ IOStatus TestFSDirectory::FsyncWithDirOptions(
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  {
-    IOStatus in_s = fs_->InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kMetadataWrite, options);
+  if (!s.ok()) {
+    return s;
   }
+
   fs_->SyncDir(dirname_);
-  IOStatus s = dir_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
-  {
-    IOStatus in_s = fs_->InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
-  }
+  s = dir_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
   return s;
 }
 
@@ -149,9 +148,10 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
       file_opts_(file_opts),
       target_(std::move(f)),
       writable_file_opened_(true),
-      fs_(fs) {
+      fs_(fs),
+      unsync_data_loss_(fs_->InjectUnsyncedDataLoss()) {
   assert(target_ != nullptr);
-  state_.pos_ = 0;
+  state_.pos_at_last_append_ = 0;
 }
 
 TestFSWritableFile::~TestFSWritableFile() {
@@ -166,15 +166,27 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  if (target_->use_direct_io()) {
-    target_->Append(data, options, dbg).PermitUncheckedError();
+
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (target_->use_direct_io() || !unsync_data_loss_) {
+    // TODO(hx235): buffer data for direct IO write to simulate data loss like
+    // non-direct IO write
+    s = target_->Append(data, options, dbg);
   } else {
     state_.buffer_.append(data.data(), data.size());
-    state_.pos_ += data.size();
+  }
+
+  if (s.ok()) {
+    state_.pos_at_last_append_ += data.size();
     fs_->WritableFileAppended(state_);
   }
-  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
-  return io_s;
+
+  return s;
 }
 
 // By setting the IngestDataCorruptionBeforeWrite(), the data corruption is
@@ -190,6 +202,12 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption("Data is corrupted!");
   }
 
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
+  if (!s.ok()) {
+    return s;
+  }
+
   // Calculate the checksum
   std::string checksum;
   CalculateTypedChecksum(fs_->GetChecksumHandoffFuncType(), data.data(),
@@ -202,15 +220,65 @@ IOStatus TestFSWritableFile::Append(
         "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
-  if (target_->use_direct_io()) {
-    target_->Append(data, options, dbg).PermitUncheckedError();
+
+  if (target_->use_direct_io() || !unsync_data_loss_) {
+    // TODO(hx235): buffer data for direct IO write to simulate data loss like
+    // non-direct IO write
+    s = target_->Append(data, options, dbg);
   } else {
     state_.buffer_.append(data.data(), data.size());
-    state_.pos_ += data.size();
+  }
+  if (s.ok()) {
+    state_.pos_at_last_append_ += data.size();
     fs_->WritableFileAppended(state_);
   }
-  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
-  return io_s;
+  return s;
+}
+
+IOStatus TestFSWritableFile::Truncate(uint64_t size, const IOOptions& options,
+                                      IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = target_->Truncate(size, options, dbg);
+  if (s.ok()) {
+    state_.pos_at_last_append_ = size;
+  }
+  return s;
+}
+
+IOStatus TestFSWritableFile::PositionedAppend(const Slice& data,
+                                              uint64_t offset,
+                                              const IOOptions& options,
+                                              IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  if (fs_->ShouldDataCorruptionBeforeWrite()) {
+    return IOStatus::Corruption("Data is corrupted!");
+  }
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // TODO(hx235): buffer data for direct IO write to simulate data loss like
+  // non-direct IO write
+  s = target_->PositionedAppend(data, offset, options, dbg);
+  if (s.ok()) {
+    state_.pos_at_last_append_ = offset + data.size();
+    fs_->WritableFileAppended(state_);
+  }
+  return s;
 }
 
 IOStatus TestFSWritableFile::PositionedAppend(
@@ -223,6 +291,11 @@ IOStatus TestFSWritableFile::PositionedAppend(
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
+  if (!s.ok()) {
+    return s;
+  }
 
   // Calculate the checksum
   std::string checksum;
@@ -236,9 +309,14 @@ IOStatus TestFSWritableFile::PositionedAppend(
         "current data checksum: " + Slice(checksum).ToString(true);
     return IOStatus::Corruption(msg);
   }
-  target_->PositionedAppend(data, offset, options, dbg);
-  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
-  return io_s;
+  // TODO(hx235): buffer data for direct IO write to simulate data loss like
+  // non-direct IO write
+  s = target_->PositionedAppend(data, offset, options, dbg);
+  if (s.ok()) {
+    state_.pos_at_last_append_ = offset + data.size();
+    fs_->WritableFileAppended(state_);
+  }
+  return s;
 }
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
@@ -248,24 +326,17 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  {
-    IOStatus in_s = fs_->InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  IOStatus io_s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kMetadataWrite, options);
+  if (!io_s.ok()) {
+    return io_s;
   }
   writable_file_opened_ = false;
-  IOStatus io_s;
+
   // Drop buffered data that was never synced because close is not a syncing
   // mechanism in POSIX file semantics.
   state_.buffer_.resize(0);
   io_s = target_->Close(options, dbg);
-  if (io_s.ok()) {
-    IOStatus in_s = fs_->InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
-  }
   return io_s;
 }
 
@@ -292,7 +363,7 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
   state_.buffer_.resize(0);
   // Ignore sync errors
   target_->Sync(options, dbg).PermitUncheckedError();
-  state_.pos_at_last_sync_ = state_.pos_;
+  state_.pos_at_last_sync_ = state_.pos_at_last_append_;
   fs_->WritableFileSynced(state_);
   return io_s;
 }
@@ -397,16 +468,17 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus s = target_->Read(offset, n, options, result, scratch, dbg);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kRead, options, "",
+      FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
+      scratch, /*need_count_increase=*/true,
+      /*fault_injected=*/nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = target_->Read(offset, n, options, result, scratch, dbg);
   // TODO (low priority): fs_->ReadUnsyncedData()
-  if (s.ok()) {
-    s = fs_->InjectThreadSpecificReadError(
-        FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
-        scratch, /*need_count_increase=*/true, /*fault_injected=*/nullptr);
-  }
-  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("injected read error");
-  }
   return s;
 }
 
@@ -414,29 +486,35 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
-  IOStatus ret;
-  IOStatus s;
+  IOStatus res_status;
   FSReadRequest res;
+  IOStatus s;
   if (!fs_->IsFilesystemActive()) {
-    ret = fs_->GetError();
-  } else {
-    ret = fs_->InjectThreadSpecificReadError(
+    res_status = fs_->GetError();
+  }
+  if (res_status.ok()) {
+    res_status = fs_->MaybeInjectThreadLocalError(
+        FaultInjectionIOType::kRead, opts, "",
         FaultInjectionTestFS::ErrorOperation::kRead, &res.result,
         use_direct_io(), req.scratch, /*need_count_increase=*/true,
         /*fault_injected=*/nullptr);
   }
-  if (ret.ok()) {
-    if (fs_->ShouldInjectRandomReadError()) {
-      ret = IOStatus::IOError("injected read error");
-    } else {
-      s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
-    }
-  }
-  // TODO (low priority): fs_->ReadUnsyncedData()
-  if (!ret.ok()) {
-    res.status = ret;
+  if (res_status.ok()) {
+    s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
+    // TODO (low priority): fs_->ReadUnsyncedData()
+  } else {
+    // If there’s no injected error, then cb will be called asynchronously when
+    // target_ actually finishes the read. But if there’s an injected error, it
+    // needs to immediately call cb(res, cb_arg) s since target_->ReadAsync()
+    // isn’t invoked at all.
+    res.status = res_status;
     cb(res, cb_arg);
   }
+  // We return ReadAsync()'s status intead of injected error status here since
+  // the return status is not supposed to be the status of the actual IO (i.e,
+  // the actual async read). The actual status of the IO will be passed to cb()
+  // callback upon the actual read finishes or like above when injected error
+  // happens.
   return s;
 }
 
@@ -447,6 +525,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     return fs_->GetError();
   }
   IOStatus s = target_->MultiRead(reqs, num_reqs, options, dbg);
+  // TODO (low priority): fs_->ReadUnsyncedData()
   bool injected_error = false;
   for (size_t i = 0; i < num_reqs; i++) {
     if (!reqs[i].status.ok()) {
@@ -454,22 +533,20 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
       break;
     }
     bool this_injected_error;
-    reqs[i].status = fs_->InjectThreadSpecificReadError(
+    reqs[i].status = fs_->MaybeInjectThreadLocalError(
+        FaultInjectionIOType::kRead, options, "",
         FaultInjectionTestFS::ErrorOperation::kRead, &(reqs[i].result),
         use_direct_io(), reqs[i].scratch,
         /*need_count_increase=*/true,
         /*fault_injected=*/&this_injected_error);
     injected_error |= this_injected_error;
-    // TODO (low priority): fs_->ReadUnsyncedData()
   }
   if (s.ok()) {
-    s = fs_->InjectThreadSpecificReadError(
+    s = fs_->MaybeInjectThreadLocalError(
+        FaultInjectionIOType::kRead, options, "",
         FaultInjectionTestFS::ErrorOperation::kMultiRead, nullptr,
         use_direct_io(), nullptr, /*need_count_increase=*/!injected_error,
         /*fault_injected=*/nullptr);
-  }
-  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("injected read error");
   }
   return s;
 }
@@ -493,10 +570,11 @@ void FaultInjectionTestFS::AddUnsyncedToRead(const std::string& fname,
   auto it = db_file_state_.find(fname);
   if (it != db_file_state_.end()) {
     auto& st = it->second;
-    if (st.pos_ > static_cast<ssize_t>(pos_after)) {
+    if (st.pos_at_last_append_ > static_cast<ssize_t>(pos_after)) {
       size_t remaining_requested = n - result->size();
-      size_t to_copy = std::min(remaining_requested,
-                                static_cast<size_t>(st.pos_) - pos_after);
+      size_t to_copy =
+          std::min(remaining_requested,
+                   static_cast<size_t>(st.pos_at_last_append_) - pos_after);
       size_t buffer_offset = pos_after - static_cast<size_t>(std::max(
                                              st.pos_at_last_sync_, ssize_t{0}));
       // Data might have been dropped from buffer
@@ -520,17 +598,24 @@ void FaultInjectionTestFS::AddUnsyncedToRead(const std::string& fname,
 IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
                                     Slice* result, char* scratch,
                                     IODebugContext* dbg) {
-  IOStatus s = target()->Read(n, options, result, scratch, dbg);
-  if (s.ok()) {
-    if (fs_->ShouldInjectRandomReadError()) {
-      read_pos_ += result->size();
-      return IOStatus::IOError("injected seq read error");
-    }
-    if (fs_->ReadUnsyncedData() && result->size() < n) {
-      fs_->AddUnsyncedToRead(fname_, read_pos_, n, result, scratch);
-    }
-    read_pos_ += result->size();
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kRead, options, "",
+      FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
+      scratch, true /*need_count_increase=*/, nullptr /* fault_injected*/);
+  if (!s.ok()) {
+    return s;
   }
+
+  s = target()->Read(n, options, result, scratch, dbg);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (fs_->ReadUnsyncedData() && result->size() < n) {
+    fs_->AddUnsyncedToRead(fname_, read_pos_, n, result, scratch);
+  }
+  read_pos_ += result->size();
+
   return s;
 }
 
@@ -538,14 +623,16 @@ IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                               const IOOptions& options,
                                               Slice* result, char* scratch,
                                               IODebugContext* dbg) {
-  IOStatus s =
-      target()->PositionedRead(offset, n, options, result, scratch, dbg);
-  if (s.ok()) {
-    if (fs_->ShouldInjectRandomReadError()) {
-      return IOStatus::IOError("injected seq positioned read error");
-    }
-    // TODO (low priority): fs_->ReadUnsyncedData()
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kRead, options, "",
+      FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
+      scratch, true /*need_count_increase=*/, nullptr /* fault_injected */);
+  if (!s.ok()) {
+    return s;
   }
+
+  s = target()->PositionedRead(offset, n, options, result, scratch, dbg);
+  // TODO (low priority): fs_->ReadUnsyncedData()
   return s;
 }
 
@@ -562,24 +649,76 @@ IOStatus FaultInjectionTestFS::NewDirectory(
   return IOStatus::OK();
 }
 
+IOStatus FaultInjectionTestFS::FileExists(const std::string& fname,
+                                          const IOOptions& options,
+                                          IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->FileExists(fname, options, dbg);
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::GetChildren(const std::string& dir,
+                                           const IOOptions& options,
+                                           std::vector<std::string>* result,
+                                           IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->GetChildren(dir, options, result, dbg);
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::GetChildrenFileAttributes(
+    const std::string& dir, const IOOptions& options,
+    std::vector<FileAttributes>* result, IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->GetChildrenFileAttributes(dir, options, result, dbg);
+  return io_s;
+}
+
 IOStatus FaultInjectionTestFS::NewWritableFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  {
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
-  }
 
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
 
-  IOStatus io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(
         new TestFSWritableFile(fname, file_opts, std::move(*result), this));
@@ -596,12 +735,6 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
       // dropping unsynced files.
       list[dir_and_name.second] = kNewFileNoOverwrite;
     }
-    {
-      IOStatus in_s = InjectMetadataWriteError();
-      if (!in_s.ok()) {
-        return in_s;
-      }
-    }
   }
   return io_s;
 }
@@ -612,19 +745,18 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->ReopenWritableFile(fname, file_opts, result, dbg);
   }
-  {
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
+  if (!io_s.ok()) {
+    return io_s;
   }
 
   bool exists;
-  IOStatus io_s,
-      exists_s = target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
+  IOStatus exists_s =
+      target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
   if (exists_s.IsNotFound()) {
     exists = false;
   } else if (exists_s.ok()) {
@@ -634,9 +766,11 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
     exists = false;
   }
 
-  if (io_s.ok()) {
-    io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+  if (!io_s.ok()) {
+    return io_s;
   }
+
+  io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
 
   // Only track files we created. Files created outside of this
   // `FaultInjectionTestFS` are not eligible for tracking/data dropping
@@ -666,12 +800,6 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       result->reset(
           new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     }
-    {
-      IOStatus in_s = InjectMetadataWriteError();
-      if (!in_s.ok()) {
-        return in_s;
-      }
-    }
   }
   return io_s;
 }
@@ -693,16 +821,17 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->NewRandomRWFile(fname, file_opts, result, dbg);
   }
-  {
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
+  if (!io_s.ok()) {
+    return io_s;
   }
-  IOStatus io_s = target()->NewRandomRWFile(fname, file_opts, result, dbg);
+
+  io_s = target()->NewRandomRWFile(fname, file_opts, result, dbg);
+
   if (io_s.ok()) {
     result->reset(new TestFSRandomRWFile(fname, std::move(*result), this));
     // WritableFileWriter* file is opened
@@ -717,12 +846,6 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
       // implementation by ignoring it.
       list[dir_and_name.second] = kNewFileNoOverwrite;
     }
-    {
-      IOStatus in_s = InjectMetadataWriteError();
-      if (!in_s.ok()) {
-        return in_s;
-      }
-    }
   }
   return io_s;
 }
@@ -733,16 +856,17 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("injected error when open random access file");
+  IOStatus io_s = MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kRead, file_opts.io_options, fname,
+      ErrorOperation::kOpen, nullptr /* result */, false /* direct_io */,
+      nullptr /* scratch */, true /*need_count_increase*/,
+      nullptr /*fault_injected*/);
+  if (!io_s.ok()) {
+    return io_s;
   }
-  IOStatus io_s = InjectThreadSpecificReadError(ErrorOperation::kOpen, nullptr,
-                                                false, nullptr,
-                                                /*need_count_increase=*/true,
-                                                /*fault_injected=*/nullptr);
-  if (io_s.ok()) {
-    io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
-  }
+
+  io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+
   if (io_s.ok()) {
     result->reset(new TestFSRandomAccessFile(fname, std::move(*result), this));
   }
@@ -755,11 +879,17 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-
-  if (ShouldInjectRandomReadError()) {
-    return IOStatus::IOError("injected read error when creating seq file");
+  IOStatus io_s = MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kRead, file_opts.io_options, fname,
+      ErrorOperation::kOpen, nullptr /* result */, false /* direct_io */,
+      nullptr /* scratch */, true /*need_count_increase*/,
+      nullptr /*fault_injected*/);
+  if (!io_s.ok()) {
+    return io_s;
   }
-  IOStatus io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
+
+  io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
+
   if (io_s.ok()) {
     result->reset(new TestFSSequentialFile(std::move(*result), this, fname));
   }
@@ -772,21 +902,16 @@ IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  {
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  IOStatus io_s = MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kMetadataWrite, options);
+  if (!io_s.ok()) {
+    return io_s;
   }
-  IOStatus io_s = FileSystemWrapper::DeleteFile(f, options, dbg);
+
+  io_s = FileSystemWrapper::DeleteFile(f, options, dbg);
+
   if (io_s.ok()) {
     UntrackFile(f);
-    {
-      IOStatus in_s = InjectMetadataWriteError();
-      if (!in_s.ok()) {
-        return in_s;
-      }
-    }
   }
   return io_s;
 }
@@ -795,19 +920,45 @@ IOStatus FaultInjectionTestFS::GetFileSize(const std::string& f,
                                            const IOOptions& options,
                                            uint64_t* file_size,
                                            IODebugContext* dbg) {
-  // TODO: inject error, under what setting?
-  IOStatus io_s = target()->GetFileSize(f, options, file_size, dbg);
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
   if (!io_s.ok()) {
     return io_s;
   }
+
+  io_s = target()->GetFileSize(f, options, file_size, dbg);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
   if (ReadUnsyncedData()) {
     // Need to report flushed size, not synced size
     MutexLock l(&mutex_);
     auto it = db_file_state_.find(f);
     if (it != db_file_state_.end()) {
-      *file_size = it->second.pos_;
+      *file_size = it->second.pos_at_last_append_;
     }
   }
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::GetFileModificationTime(const std::string& fname,
+                                                       const IOOptions& options,
+                                                       uint64_t* file_mtime,
+                                                       IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->GetFileModificationTime(fname, options, file_mtime, dbg);
   return io_s;
 }
 
@@ -818,11 +969,10 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  {
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  IOStatus io_s = MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kMetadataWrite, options);
+  if (!io_s.ok()) {
+    return io_s;
   }
 
   // We preserve contents of overwritten files up to a size threshold.
@@ -837,7 +987,7 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
       ReadFileToString(target(), t, &previous_contents).PermitUncheckedError();
     }
   }
-  IOStatus io_s = FileSystemWrapper::RenameFile(s, t, options, dbg);
+  io_s = FileSystemWrapper::RenameFile(s, t, options, dbg);
 
   if (io_s.ok()) {
     {
@@ -851,16 +1001,10 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
       auto tdn = TestFSGetDirAndName(t);
       if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
         auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
-        assert(tlist.find(tdn.second) == tlist.end());
         tlist[tdn.second] = previous_contents;
       }
     }
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
   }
-
   return io_s;
 }
 
@@ -871,18 +1015,17 @@ IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  {
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  IOStatus io_s = MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kMetadataWrite, options);
+  if (!io_s.ok()) {
+    return io_s;
   }
 
   // Using the value in `dir_to_new_files_since_last_sync_` for the source file
   // may be a more reasonable choice.
   std::string previous_contents = kNewFileNoOverwrite;
 
-  IOStatus io_s = FileSystemWrapper::LinkFile(s, t, options, dbg);
+  io_s = FileSystemWrapper::LinkFile(s, t, options, dbg);
 
   if (io_s.ok()) {
     {
@@ -906,12 +1049,74 @@ IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
         tlist[tdn.second] = previous_contents;
       }
     }
-    IOStatus in_s = InjectMetadataWriteError();
-    if (!in_s.ok()) {
-      return in_s;
-    }
+  }
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::NumFileLinks(const std::string& fname,
+                                            const IOOptions& options,
+                                            uint64_t* count,
+                                            IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
   }
 
+  io_s = target()->NumFileLinks(fname, options, count, dbg);
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::AreFilesSame(const std::string& first,
+                                            const std::string& second,
+                                            const IOOptions& options, bool* res,
+                                            IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->AreFilesSame(first, second, options, res, dbg);
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::GetAbsolutePath(const std::string& db_path,
+                                               const IOOptions& options,
+                                               std::string* output_path,
+                                               IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->GetAbsolutePath(db_path, options, output_path, dbg);
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::IsDirectory(const std::string& path,
+                                           const IOOptions& options,
+                                           bool* is_dir, IODebugContext* dgb) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  IOStatus io_s =
+      MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead, options);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = target()->IsDirectory(path, options, is_dir, dgb);
   return io_s;
 }
 
@@ -1028,14 +1233,17 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   open_managed_files_.erase(f);
 }
 
-IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
-    ErrorOperation op, Slice* result, bool direct_io, char* scratch,
-    bool need_count_increase, bool* fault_injected) {
+IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
+    const IOOptions& io_options, ErrorOperation op, Slice* result,
+    bool direct_io, char* scratch, bool need_count_increase,
+    bool* fault_injected) {
   bool dummy_bool;
   bool& ret_fault_injected = fault_injected ? *fault_injected : dummy_bool;
   ret_fault_injected = false;
-  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
-  if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
+  ErrorContext* ctx =
+      static_cast<ErrorContext*>(injected_thread_local_read_error_.Get());
+  if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
+      ShouldIOActivtiesExcludedFromFaultInjection(io_options.io_activity)) {
     return IOStatus::OK();
   }
 
@@ -1087,9 +1295,9 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       ret = IOStatus::IOError(ctx->message);
     }
   }
-  if (ctx->retryable) {
-    ret.SetRetryable(true);
-  }
+
+  ret.SetRetryable(ctx->retryable);
+  ret.SetDataLoss(ctx->has_data_loss);
   return ret;
 }
 
@@ -1100,59 +1308,58 @@ bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
   return ParseFileName(file, number, type);
 }
 
-IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
-  MutexLock l(&mutex_);
-  if (!enable_write_error_injection_ || !write_error_one_in_) {
+IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
+    FaultInjectionIOType type, const IOOptions& io_options,
+    const std::string& file_name, ErrorOperation op, Slice* result,
+    bool direct_io, char* scratch, bool need_count_increase,
+    bool* fault_injected) {
+  if (type == FaultInjectionIOType::kRead) {
+    return MaybeInjectThreadLocalReadError(io_options, op, result, direct_io,
+                                           scratch, need_count_increase,
+                                           fault_injected);
+  }
+
+  ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
+  if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
+      ShouldIOActivtiesExcludedFromFaultInjection(io_options.io_activity) ||
+      (type == FaultInjectionIOType::kWrite &&
+       ShouldExcludeFromWriteFaultInjection(file_name))) {
     return IOStatus::OK();
   }
-  bool allowed_type = false;
 
-  if (inject_for_all_file_types_) {
-    allowed_type = true;
-  } else {
-    uint64_t number;
-    FileType cur_type = kTempFile;
-    if (TryParseFileName(file_name, &number, &cur_type)) {
-      for (const auto& type : write_error_allowed_types_) {
-        if (cur_type == type) {
-          allowed_type = true;
-        }
-      }
+  IOStatus ret;
+  if (ctx->rand.OneIn(ctx->one_in)) {
+    ctx->count++;
+    if (ctx->callstack) {
+      free(ctx->callstack);
+    }
+    ctx->callstack = port::SaveStack(&ctx->frames);
+    ctx->message = GetErrorMessageFromFaultInjectionIOType(type);
+    ret = IOStatus::IOError(ctx->message);
+    ret.SetRetryable(ctx->retryable);
+    ret.SetDataLoss(ctx->has_data_loss);
+    if (type == FaultInjectionIOType::kWrite) {
+      TEST_SYNC_POINT(
+          "FaultInjectionTestFS::InjectMetadataWriteError:Injected");
     }
   }
-
-  if (allowed_type) {
-    if (write_error_rand_.OneIn(write_error_one_in_)) {
-      return GetError();
-    }
-  }
-  return IOStatus::OK();
+  return ret;
 }
 
-IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
-  {
-    MutexLock l(&mutex_);
-    if (!enable_metadata_write_error_injection_ ||
-        !metadata_write_error_one_in_ ||
-        !write_error_rand_.OneIn(metadata_write_error_one_in_)) {
-      return IOStatus::OK();
-    }
-  }
-  TEST_SYNC_POINT("FaultInjectionTestFS::InjectMetadataWriteError:Injected");
-  return IOStatus::IOError("injected metadata write error");
-}
-
-void FaultInjectionTestFS::PrintFaultBacktrace() {
+void FaultInjectionTestFS::PrintInjectedThreadLocalErrorBacktrace(
+    FaultInjectionIOType type) {
 #if defined(OS_LINUX)
-  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
-  if (ctx == nullptr) {
-    return;
+  ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
+  if (ctx) {
+    if (type == FaultInjectionIOType::kRead) {
+      fprintf(stderr, "Injected read error type = %d\n", ctx->type);
+    }
+    fprintf(stderr, "Message: %s\n", ctx->message.c_str());
+    port::PrintAndFreeStack(ctx->callstack, ctx->frames);
+    ctx->callstack = nullptr;
   }
-  fprintf(stderr, "Injected error type = %d\n", ctx->type);
-  fprintf(stderr, "Message: %s\n", ctx->message.c_str());
-  port::PrintAndFreeStack(ctx->callstack, ctx->frames);
-  ctx->callstack = nullptr;
+#else
+  (void)type;
 #endif
 }
-
 }  // namespace ROCKSDB_NAMESPACE
