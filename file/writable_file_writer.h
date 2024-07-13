@@ -233,7 +233,16 @@ class WritableFileWriter {
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
   ~WritableFileWriter() {
-    auto s = Close(IOOptions());
+    IOOptions io_options;
+#ifndef NDEBUG
+    // This is needed to pass the IOActivity related checks in stress test.
+    // See DbStressWritableFileWrapper.
+    ThreadStatus::OperationType op_type =
+        ThreadStatusUtil::GetThreadOperation();
+    io_options.io_activity =
+        ThreadStatusUtil::TEST_GetExpectedIOActivity(op_type);
+#endif
+    auto s = Close(io_options);
     s.PermitUncheckedError();
   }
 

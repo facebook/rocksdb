@@ -20,10 +20,7 @@ void CheckIOActivity(const IOOptions& options) {
       ThreadStatusUtil::GetThreadOperation();
   Env::IOActivity io_activity =
       ThreadStatusUtil::TEST_GetExpectedIOActivity(thread_op);
-  // TODO: fix places where default IOOption() is used, which can cause
-  // io_activity to not match thread operation.
   assert(io_activity == Env::IOActivity::kUnknown ||
-         options.io_activity == Env::IOActivity::kUnknown ||
          io_activity == options.io_activity);
 #else
   (void)options;
