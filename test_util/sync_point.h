@@ -180,3 +180,10 @@ void SetupSyncPointsToMockDirectIO();
     }                                               \
   }
 #endif  // NDEBUG
+
+#ifdef NDEBUG
+#define SET_WAL_WRITE_SUCCEED()
+#else
+#define SET_WAL_WRITE_SUCCEED() \
+  { TEST_SYNC_POINT("FaultInjectionSetWalWriteSucceed"); }
+#endif  // NDEBUG

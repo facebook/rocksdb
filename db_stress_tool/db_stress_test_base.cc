@@ -632,9 +632,10 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   for (auto cfh : column_families_) {
     for (int64_t k = 0; k != number_of_keys; ++k) {
       const std::string key = Key(k);
-
+      bool prepare = false;
       PendingExpectedValue pending_expected_value =
-          shared->PreparePut(cf_idx, k);
+          shared->PreparePut(cf_idx, k, &prepare);
+      assert(prepare);
       const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
@@ -1011,26 +1012,12 @@ void StressTest::OperateDb(ThreadState* thread) {
           thread->rand.OneIn(FLAGS_verify_db_one_in)) {
         //  Temporarily disable error injection for verification
         if (fault_fs_guard) {
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kWrite);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataWrite);
+          fault_fs_guard->DisableAllThreadLocalErrorInjection();
         }
         ContinuouslyVerifyDb(thread);
         //  Enable back error injection disabled for verification
         if (fault_fs_guard) {
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kRead);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kWrite);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataRead);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataWrite);
+          fault_fs_guard->EnableAllThreadLocalErrorInjection();
         }
         if (thread->shared->ShouldStopTest()) {
           break;
@@ -1056,14 +1043,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         } else if (s.ok()) {
           //  Temporarily disable error injection for verification
           if (fault_fs_guard) {
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kRead);
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataRead);
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kWrite);
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataWrite);
+            fault_fs_guard->DisableAllThreadLocalErrorInjection();
           }
 
           // Verify no writes during LockWAL
@@ -1118,14 +1098,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
           //  Enable back error injection disabled for verification
           if (fault_fs_guard) {
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kRead);
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataRead);
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kWrite);
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataWrite);
+            fault_fs_guard->EnableAllThreadLocalErrorInjection();
           }
         }
       }
@@ -1238,27 +1211,13 @@ void StressTest::OperateDb(ThreadState* thread) {
         // failed due to injected error. So we disable fault injection to avoid
         // false positive
         if (fault_fs_guard) {
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataWrite);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kWrite);
+          fault_fs_guard->DisableAllThreadLocalErrorInjection();
         }
 
         TestGetProperty(thread);
 
         if (fault_fs_guard) {
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataWrite);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataRead);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kRead);
-          fault_fs_guard->EnableThreadLocalErrorInjection(
-              FaultInjectionIOType::kWrite);
+          fault_fs_guard->EnableAllThreadLocalErrorInjection();
         }
       }
 
@@ -1289,25 +1248,11 @@ void StressTest::OperateDb(ThreadState* thread) {
           // TODO(hx235): enable error injection with
           // backup/restore after fixing the various issues it surfaces
           if (fault_fs_guard) {
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataRead);
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataWrite);
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kRead);
-            fault_fs_guard->DisableThreadLocalErrorInjection(
-                FaultInjectionIOType::kWrite);
+            fault_fs_guard->DisableAllThreadLocalErrorInjection();
           }
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
           if (fault_fs_guard) {
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataWrite);
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kMetadataRead);
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kRead);
-            fault_fs_guard->EnableThreadLocalErrorInjection(
-                FaultInjectionIOType::kWrite);
+            fault_fs_guard->EnableAllThreadLocalErrorInjection();
           }
           ProcessStatus(shared, "Backup/restore", s);
         }
@@ -1344,7 +1289,13 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
         TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
-
+      // Prefix-recoverability relies on tracing successful user writes.
+      // Currently we trace all user writes regardless of whether it later
+      // succeeds or not. To simplify, we disable any fault injection during
+      // user write.
+      // TODO(hx235): support tracing user writes with fault injection.
+      bool disable_fault_injection_during_user_write =
+          fault_fs_guard && MightHaveUnsyncedDataLoss();
       int prob_op = thread->rand.Uniform(100);
       // Reset this in case we pick something other than a read op. We don't
       // want to use a stale value when deciding at the beginning of the loop
@@ -1403,16 +1354,34 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < write_bound) {
         assert(prefix_bound <= prob_op);
         // OPERATION write
+        if (disable_fault_injection_during_user_write) {
+          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+        }
         TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
                 value);
+        if (disable_fault_injection_during_user_write) {
+          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+        }
       } else if (prob_op < del_bound) {
         assert(write_bound <= prob_op);
         // OPERATION delete
+        if (disable_fault_injection_during_user_write) {
+          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+        }
         TestDelete(thread, write_opts, rand_column_families, rand_keys);
+        if (disable_fault_injection_during_user_write) {
+          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+        }
       } else if (prob_op < delrange_bound) {
         assert(del_bound <= prob_op);
         // OPERATION delete range
+        if (disable_fault_injection_during_user_write) {
+          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+        }
         TestDeleteRange(thread, write_opts, rand_column_families, rand_keys);
+        if (disable_fault_injection_during_user_write) {
+          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+        }
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
@@ -1456,14 +1425,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
 #ifndef NDEBUG
     if (fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
     }
 #endif  // NDEBUG
   }
@@ -2344,14 +2306,7 @@ Status StressTest::TestBackupRestore(
 
   // Temporarily disable error injection for clean up
   if (fault_fs_guard) {
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kRead);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kWrite);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    fault_fs_guard->DisableAllThreadLocalErrorInjection();
   }
 
   if (s.ok() || IsErrorInjectedAndRetryable(s)) {
@@ -2373,14 +2328,7 @@ Status StressTest::TestBackupRestore(
 
   // Enable back error injection disabled for clean up
   if (fault_fs_guard) {
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kRead);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kWrite);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    fault_fs_guard->EnableAllThreadLocalErrorInjection();
   }
 
   if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
@@ -2520,26 +2468,12 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   tmp_opts.sst_file_manager.reset();
   //  Temporarily disable error injection for clean-up
   if (fault_fs_guard) {
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kRead);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kWrite);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    fault_fs_guard->DisableAllThreadLocalErrorInjection();
   }
   DestroyDB(checkpoint_dir, tmp_opts);
   // Enable back error injection disabled for clean-up
   if (fault_fs_guard) {
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kRead);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kWrite);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    fault_fs_guard->EnableAllThreadLocalErrorInjection();
   }
   Checkpoint* checkpoint = nullptr;
   Status s = Checkpoint::Create(db_, &checkpoint);
@@ -2647,14 +2581,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
   //  Temporarily disable error injection for clean-up
   if (fault_fs_guard) {
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kRead);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kWrite);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->DisableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    fault_fs_guard->DisableAllThreadLocalErrorInjection();
   }
 
   if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
@@ -2666,14 +2593,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
   // Enable back error injection disabled for clean-up
   if (fault_fs_guard) {
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kRead);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kWrite);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataRead);
-    fault_fs_guard->EnableThreadLocalErrorInjection(
-        FaultInjectionIOType::kMetadataWrite);
+    fault_fs_guard->EnableAllThreadLocalErrorInjection();
   }
   return s;
 }
@@ -3048,14 +2968,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   if (thread->rand.OneIn(2)) {
     // Temporarily disable error injection to for validation
     if (fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
     }
 
     // Declare a snapshot and compare the data before and after the compaction
@@ -3065,14 +2978,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
 
     // Enable back error injection disabled for validation
     if (fault_fs_guard) {
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
+      fault_fs_guard->EnableAllThreadLocalErrorInjection();
     }
   }
   std::ostringstream compact_range_opt_oss;
@@ -3110,14 +3016,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   if (pre_snapshot != nullptr) {
     // Temporarily disable error injection for validation
     if (fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
     }
     uint32_t post_hash =
         GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
@@ -3136,14 +3035,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
     db_->ReleaseSnapshot(pre_snapshot);
     if (fault_fs_guard) {
       // Enable back error injection disabled for validation
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
+      fault_fs_guard->EnableAllThreadLocalErrorInjection();
     }
   }
 }
@@ -3523,14 +3415,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     // If this is for DB reopen,  error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
     if (fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
     }
     // TODO; test transaction DB Open with fault injection
     if (!FLAGS_use_txn) {
@@ -3611,14 +3496,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         if (inject_sync_fault || inject_open_meta_read_error ||
             inject_open_meta_write_error || inject_open_read_error ||
             inject_open_write_error) {
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kWrite);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataRead);
-          fault_fs_guard->DisableThreadLocalErrorInjection(
-              FaultInjectionIOType::kMetadataWrite);
+          fault_fs_guard->DisableAllThreadLocalErrorInjection();
 
           if (s.ok()) {
             // Injected errors might happen in background compactions. We

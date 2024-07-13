@@ -63,6 +63,19 @@ class StressTest {
       return 0;
     }
   }
+
+  void GetDeleteRangeKeyLocks(
+      ThreadState* thread, int rand_column_family, int64_t rand_key,
+      std::vector<std::unique_ptr<MutexLock>>* range_locks) {
+    for (int j = 0; j < FLAGS_range_deletion_width; ++j) {
+      if (j == 0 ||
+          ((rand_key + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+        range_locks->emplace_back(new MutexLock(
+            thread->shared->GetMutexForKey(rand_column_family, rand_key + j)));
+      }
+    }
+  }
+
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
 

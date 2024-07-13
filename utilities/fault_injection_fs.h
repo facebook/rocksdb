@@ -520,17 +520,6 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     file_types_excluded_from_write_fault_injection_ = types;
   }
 
-  bool ShouldExcludeFromWriteFaultInjection(const std::string& file_name) {
-    MutexLock l(&mutex_);
-    FileType file_type = kTempFile;
-    uint64_t file_number = 0;
-    if (!TryParseFileName(file_name, &file_number, &file_type)) {
-      return false;
-    }
-    return file_types_excluded_from_write_fault_injection_.find(file_type) !=
-           file_types_excluded_from_write_fault_injection_.end();
-  }
-
   void EnableThreadLocalErrorInjection(FaultInjectionIOType type) {
     ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
     if (ctx) {
@@ -538,11 +527,25 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
   }
 
+  void EnableAllThreadLocalErrorInjection() {
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataRead);
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataWrite);
+  }
+
   void DisableThreadLocalErrorInjection(FaultInjectionIOType type) {
     ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
     if (ctx) {
       ctx->enable_error_injection = false;
     }
+  }
+
+  void DisableAllThreadLocalErrorInjection() {
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataRead);
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataWrite);
   }
 
   void PrintInjectedThreadLocalErrorBacktrace(FaultInjectionIOType type);
@@ -628,6 +631,18 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                                            bool direct_io, char* scratch,
                                            bool need_count_increase,
                                            bool* fault_injected);
+
+  bool ShouldExcludeFromWriteFaultInjection(const std::string& file_name) {
+    MutexLock l(&mutex_);
+    FileType file_type = kTempFile;
+    uint64_t file_number = 0;
+    if (!TryParseFileName(file_name, &file_number, &file_type)) {
+      return false;
+    }
+    return file_types_excluded_from_write_fault_injection_.find(file_type) !=
+           file_types_excluded_from_write_fault_injection_.end();
+  }
+
   // Extract number of type from file name. Return false if failing to fine
   // them.
   bool TryParseFileName(const std::string& file_name, uint64_t* number,
