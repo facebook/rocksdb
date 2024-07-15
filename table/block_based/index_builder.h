@@ -57,19 +57,24 @@ class IndexBuilder {
   virtual ~IndexBuilder() = default;
 
   // Add a new index entry to index block.
+  //
   // To allow further optimization, we provide `last_key_in_current_block` and
   // `first_key_in_next_block`, based on which the specific implementation can
   // determine the best index key to be used for the index block.
   // Called before the OnKeyAdded() call for first_key_in_next_block.
-  // @last_key_in_current_block: this parameter maybe overridden with the value
-  //                             "substitute key".
+  // @last_key_in_current_block: TODO lifetime details
   // @first_key_in_next_block: it will be nullptr if the entry being added is
   //                           the last one in the table
-  //
+  // @separator_scratch: a scratch buffer to back a computed separator between
+  //                     those, as needed. May be modified on each call.
+  // @return: the key or separator stored in the index, which could be
+  //          last_key_in_current_block or a computed separator backed by
+  //          separator_scratch or last_key_in_current_block.
   // REQUIRES: Finish() has not yet been called.
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) = 0;
+  virtual Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                              const Slice* first_key_in_next_block,
+                              const BlockHandle& block_handle,
+                              std::string* separator_scratch) = 0;
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
@@ -181,29 +186,35 @@ class ShortenedIndexBuilder : public IndexBuilder {
     }
   }
 
-  void AddIndexEntry(std::string* last_key_in_current_block,
-                     const Slice* first_key_in_next_block,
-                     const BlockHandle& block_handle) override {
+  Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                      const Slice* first_key_in_next_block,
+                      const BlockHandle& block_handle,
+                      std::string* separator_scratch) override {
+    Slice separator;
     if (first_key_in_next_block != nullptr) {
       if (shortening_mode_ !=
           BlockBasedTableOptions::IndexShorteningMode::kNoShortening) {
-        FindShortestInternalKeySeparator(*comparator_->user_comparator(),
-                                         last_key_in_current_block,
-                                         *first_key_in_next_block);
+        separator = FindShortestInternalKeySeparator(
+            *comparator_->user_comparator(), last_key_in_current_block,
+            *first_key_in_next_block, separator_scratch);
+      } else {
+        separator = last_key_in_current_block;
       }
       if (!seperator_is_key_plus_seq_ &&
-          ShouldUseKeyPlusSeqAsSeparator(*last_key_in_current_block,
+          ShouldUseKeyPlusSeqAsSeparator(last_key_in_current_block,
                                          *first_key_in_next_block)) {
         seperator_is_key_plus_seq_ = true;
       }
     } else {
       if (shortening_mode_ == BlockBasedTableOptions::IndexShorteningMode::
                                   kShortenSeparatorsAndSuccessor) {
-        FindShortInternalKeySuccessor(*comparator_->user_comparator(),
-                                      last_key_in_current_block);
+        separator = FindShortInternalKeySuccessor(
+            *comparator_->user_comparator(), last_key_in_current_block,
+            separator_scratch);
+      } else {
+        separator = last_key_in_current_block;
       }
     }
-    auto sep = Slice(*last_key_in_current_block);
 
     assert(!include_first_key_ || !current_block_first_internal_key_.empty());
     // When UDT should not be persisted, the index block builders take care of
@@ -241,13 +252,15 @@ class ShortenedIndexBuilder : public IndexBuilder {
     // away the UDT from key in index block as data block does the same thing.
     // What are the implications if a "FindShortInternalKeySuccessor"
     // optimization is provided.
-    index_block_builder_.Add(sep, encoded_entry, &delta_encoded_entry_slice);
+    index_block_builder_.Add(separator, encoded_entry,
+                             &delta_encoded_entry_slice);
     if (!seperator_is_key_plus_seq_) {
-      index_block_builder_without_seq_.Add(ExtractUserKey(sep), encoded_entry,
-                                           &delta_encoded_entry_slice);
+      index_block_builder_without_seq_.Add(
+          ExtractUserKey(separator), encoded_entry, &delta_encoded_entry_slice);
     }
 
     current_block_first_internal_key_.clear();
+    return separator;
   }
 
   using IndexBuilder::Finish;
@@ -271,12 +284,14 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
   // Changes *key to a short string >= *key.
   //
-  static void FindShortestInternalKeySeparator(const Comparator& comparator,
-                                               std::string* start,
-                                               const Slice& limit);
+  static Slice FindShortestInternalKeySeparator(const Comparator& comparator,
+                                                const Slice& start,
+                                                const Slice& limit,
+                                                std::string* scratch);
 
-  static void FindShortInternalKeySuccessor(const Comparator& comparator,
-                                            std::string* key);
+  static Slice FindShortInternalKeySuccessor(const Comparator& comparator,
+                                             const Slice& key,
+                                             std::string* scratch);
 
   friend class PartitionedIndexBuilder;
 
@@ -333,12 +348,14 @@ class HashIndexBuilder : public IndexBuilder {
                                ts_sz, persist_user_defined_timestamps),
         hash_key_extractor_(hash_key_extractor) {}
 
-  void AddIndexEntry(std::string* last_key_in_current_block,
-                     const Slice* first_key_in_next_block,
-                     const BlockHandle& block_handle) override {
+  Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                      const Slice* first_key_in_next_block,
+                      const BlockHandle& block_handle,
+                      std::string* separator_scratch) override {
     ++current_restart_index_;
-    primary_index_builder_.AddIndexEntry(last_key_in_current_block,
-                                         first_key_in_next_block, block_handle);
+    return primary_index_builder_.AddIndexEntry(
+        last_key_in_current_block, first_key_in_next_block, block_handle,
+        separator_scratch);
   }
 
   void OnKeyAdded(const Slice& key) override {
@@ -441,11 +458,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
                           bool use_value_delta_encoding, size_t ts_sz,
                           bool persist_user_defined_timestamps);
 
-  ~PartitionedIndexBuilder() override;
-
-  void AddIndexEntry(std::string* last_key_in_current_block,
-                     const Slice* first_key_in_next_block,
-                     const BlockHandle& block_handle) override;
+  Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                      const Slice* first_key_in_next_block,
+                      const BlockHandle& block_handle,
+                      std::string* separator_scratch) override;
 
   Status Finish(IndexBlocks* index_blocks,
                 const BlockHandle& last_partition_block_handle) override;
@@ -463,7 +479,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
     return false;
   }
 
-  std::string& GetPartitionKey() { return sub_index_last_key_; }
+  const std::string& GetPartitionKey() {
+    static const std::string kEmptyKey;
+    return entries_.empty() ? kEmptyKey : entries_.back().key;
+  }
 
   // Called when an external entity (such as filter partition builder) request
   // cutting the next partition
@@ -489,13 +508,16 @@ class PartitionedIndexBuilder : public IndexBuilder {
     std::string key;
     std::unique_ptr<ShortenedIndexBuilder> value;
   };
-  std::list<Entry> entries_;  // list of partitioned indexes and their keys
+  // List of partitioned indexes and their keys. Note that when
+  // sub_index_builder_ is not null (during construction), there
+  // will be a placeholder entry at the back of this list tracking
+  // the possible key for that next entry.
+  std::list<Entry> entries_;
   BlockBuilder index_block_builder_;              // top-level index builder
   BlockBuilder index_block_builder_without_seq_;  // same for user keys
   // the active partition index builder
-  ShortenedIndexBuilder* sub_index_builder_;
+  std::unique_ptr<ShortenedIndexBuilder> sub_index_builder_;
   // the last key in the active partition index builder
-  std::string sub_index_last_key_;
   std::unique_ptr<FlushBlockPolicy> flush_policy_;
   // true if Finish is called once but not complete yet.
   bool finishing_indexes = false;
