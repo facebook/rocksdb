@@ -151,7 +151,8 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
       fs_(fs),
       unsync_data_loss_(fs_->InjectUnsyncedDataLoss()) {
   assert(target_ != nullptr);
-  state_.pos_at_last_append_ = 0;
+  assert(state_.pos_at_last_append_ == 0);
+  assert(state_.pos_at_last_sync_ == 0);
 }
 
 TestFSWritableFile::~TestFSWritableFile() {
@@ -377,15 +378,13 @@ IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
   }
   // Assumes caller passes consecutive byte ranges.
   uint64_t sync_limit = offset + nbytes;
-  uint64_t buf_begin =
-      state_.pos_at_last_sync_ < 0 ? 0 : state_.pos_at_last_sync_;
 
   IOStatus io_s;
-  if (sync_limit < buf_begin) {
+  if (sync_limit < state_.pos_at_last_sync_) {
     return io_s;
   }
   uint64_t num_to_sync = std::min(static_cast<uint64_t>(state_.buffer_.size()),
-                                  sync_limit - buf_begin);
+                                  sync_limit - state_.pos_at_last_sync_);
   Slice buf_to_sync(state_.buffer_.data(), num_to_sync);
   io_s = target_->Append(buf_to_sync, options, dbg);
   state_.buffer_ = state_.buffer_.substr(num_to_sync);
@@ -564,10 +563,10 @@ namespace {
 // copying data there if needed.
 void MoveToScratchIfNeeded(Slice* result, char* scratch) {
   if (result->data() != scratch) {
-    // NOTE: might overlap
-    std::copy_n(result->data(), result->size(), scratch);
+    // NOTE: might overlap, where result is later in scratch
+    std::copy(result->data(), result->data() + result->size(), scratch);
+    *result = Slice(scratch, result->size());
   }
-  *result = Slice(scratch, result->size());
 }
 }  // namespace
 
@@ -576,13 +575,13 @@ void FaultInjectionTestFS::ReadUnsynced(const std::string& fname,
                                         Slice* result, char* scratch,
                                         int64_t* pos_at_last_sync) {
   *result = Slice(scratch, 0);  // default empty result
+  assert(*pos_at_last_sync == -1);  // default "unknown"
 
   MutexLock l(&mutex_);
   auto it = db_file_state_.find(fname);
   if (it != db_file_state_.end()) {
     auto& st = it->second;
-    // Use 0 to mean "tracked but nothing synced"
-    *pos_at_last_sync = std::max(st.pos_at_last_sync_, int64_t{0});
+    *pos_at_last_sync = static_cast<int64_t>(st.pos_at_last_sync_);
     // Find overlap between [offset, offset + n) and
     // [*pos_at_last_sync, *pos_at_last_sync + st.buffer_.size())
     int64_t begin = std::max(static_cast<int64_t>(offset), *pos_at_last_sync);
@@ -661,6 +660,8 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
       // any more from target because we established a "point in time" for
       // completing this Read in which we read as much tail data (unsynced) as
       // we could.
+
+      // We got pos_at_last_sync info if we got any unsynced data.
       assert(pos_at_last_sync >= 0 || unsynced_result.size() == 0);
 
       // Combined data is already lined up in scratch.
