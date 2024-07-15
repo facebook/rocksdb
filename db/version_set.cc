@@ -5564,7 +5564,9 @@ Status VersionSet::ProcessManifestWrites(
         s = WriteCurrentStateToManifest(write_options, curr_state,
                                         wal_additions, descriptor_log_.get(),
                                         io_s);
-      } else {
+        assert(s == io_s);
+      }
+      if (!io_s.ok()) {
         manifest_io_status = io_s;
         s = io_s;
       }
