@@ -658,7 +658,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     // Requesting sync with two_write_queues_ is expected to be very rare. We
     // hence provide a simple implementation that is not necessarily efficient.
-    if (two_write_queues_) {
+    if (status.ok() && two_write_queues_) {
       if (manual_wal_flush_) {
         status = FlushWAL(true);
       } else {
