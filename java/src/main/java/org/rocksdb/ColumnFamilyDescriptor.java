@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * <p>Describes a column family with a
  * name and respective Options.</p>
@@ -22,6 +25,32 @@ public class ColumnFamilyDescriptor extends RocksObject {
    */
   public ColumnFamilyDescriptor(final byte[] columnFamilyName) throws RocksDBException {
     this(columnFamilyName, new ColumnFamilyOptions(), true);
+  }
+
+  public static long[] toCfdHandles(List<ColumnFamilyDescriptor> columnFamilyDescriptors) {
+    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
+    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
+      final ColumnFamilyDescriptor cfDescriptor = // NOPMD - CloseResource
+          columnFamilyDescriptors.get(i);
+      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
+    }
+
+    return cfDescriptorHandles;
+  }
+
+  public static int defaultColumnFamilyIndex(List<ColumnFamilyDescriptor> columnFamilyDescriptors) {
+    int defaultColumnFamilyIndex = -1;
+    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
+      if (Arrays.equals(columnFamilyDescriptors.get(i).getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+        break;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      throw new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
+    }
+    return defaultColumnFamilyIndex;
   }
 
   /**
@@ -47,7 +76,8 @@ public class ColumnFamilyDescriptor extends RocksObject {
 
   private static long createNativeInstance(final byte[] columnFamilyName,
       final ColumnFamilyOptions columnFamilyOptions) throws RocksDBException {
-    final long instance = createNativeInstance(columnFamilyName, columnFamilyOptions.nativeHandle_);
+    final long instance =
+        createNativeDescriptor(columnFamilyName, columnFamilyOptions.nativeHandle_);
     if (instance == 0) {
       throw new RocksDBException("Can't create instance of ColumnFamilyDescriptor");
     } else {
@@ -101,7 +131,7 @@ public class ColumnFamilyDescriptor extends RocksObject {
     }
   }
   private static native void disposeJni(final long nativeHandle);
-  private static native long createNativeInstance(
+  private static native long createNativeDescriptor(
       final byte[] columnFamilyName, final long columnFamilyOptions);
   private static native byte[] getName(final long nativeHandle);
 }

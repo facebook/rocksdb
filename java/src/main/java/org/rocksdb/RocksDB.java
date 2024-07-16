@@ -305,22 +305,7 @@ public class RocksDB extends RocksObject {
   public static RocksDB open(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
-    final long[] cfDescriptors = new long[columnFamilyDescriptors.size()];
-
-    int defaultColumnFamilyIndex = -1;
-    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors // NOPMD - CloseResource
-                                                      .get(i);
-      cfDescriptors[i] = cfDescriptor.nativeHandle_;
-
-      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
-        defaultColumnFamilyIndex = i;
-      }
-    }
-    if (defaultColumnFamilyIndex < 0) {
-      throw new IllegalArgumentException(
-          "You must provide the default column family in your columnFamilyDescriptors");
-    }
+    final long[] cfDescriptors = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
 
     final long[] handles = open(options.nativeHandle_, path, cfDescriptors);
     final RocksDB db = new RocksDB(handles[0]);
@@ -333,7 +318,8 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
     return db;
   }
 
@@ -497,21 +483,7 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
 
-    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
-
-    int defaultColumnFamilyIndex = -1;
-    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors // NOPMD - CloseResource
-                                                      .get(i);
-      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
-      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
-        defaultColumnFamilyIndex = i;
-      }
-    }
-    if (defaultColumnFamilyIndex < 0) {
-      throw new IllegalArgumentException(
-          "You must provide the default column family in your columnFamilyDescriptors");
-    }
+    final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
 
     final long[] handles =
         openROnly(options.nativeHandle_, path, cfDescriptorHandles, errorIfWalFileExists);
@@ -525,7 +497,8 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
 
     return db;
   }
@@ -604,13 +577,7 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
 
-    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
-
-    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = // NOPMD - CloseResource
-          columnFamilyDescriptors.get(i);
-      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
-    }
+    final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
 
     final long[] handles =
         openAsSecondary(options.nativeHandle_, path, secondaryPath, cfDescriptorHandles);
@@ -767,11 +734,8 @@ public class RocksDB extends RocksObject {
   public List<ColumnFamilyHandle> createColumnFamilies(
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors)
       throws RocksDBException {
-    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
+    final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
 
-    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      cfDescriptorHandles[i] = columnFamilyDescriptors.get(i).nativeHandle_;
-    }
     final long[] cfHandles = createColumnFamilies(nativeHandle_, cfDescriptorHandles);
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);

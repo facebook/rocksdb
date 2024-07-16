@@ -6,7 +6,6 @@
 package org.rocksdb;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -78,21 +77,7 @@ public class TransactionDB extends RocksDB
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-    int defaultColumnFamilyIndex = -1;
-    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
-
-    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors // NOPMD - CloseResource
-                                                      .get(i);
-      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
-      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
-        defaultColumnFamilyIndex = i;
-      }
-    }
-    if (defaultColumnFamilyIndex < 0) {
-      throw new IllegalArgumentException(
-          "You must provide the default column family in your columnFamilyDescriptors");
-    }
+    final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
 
     final long[] handles = open(
         dbOptions.nativeHandle_, transactionDbOptions.nativeHandle_, path, cfDescriptorHandles);
@@ -108,7 +93,8 @@ public class TransactionDB extends RocksDB
       columnFamilyHandles.add(new ColumnFamilyHandle(tdb, handles[i]));
     }
     tdb.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    tdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
+    tdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
 
     return tdb;
   }
