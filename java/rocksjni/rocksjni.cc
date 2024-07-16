@@ -109,20 +109,13 @@ jlongArray rocksdb_open_helper(
   }
 
   const jsize len_cols = env->GetArrayLength(jcf_descriptors);
-  auto cf_descriptors = std::make_unique<jlong[]>(len_cols);
-  env->GetLongArrayRegion(jcf_descriptors, 0, len_cols, cf_descriptors.get());
+
+  auto column_families =
+      rocksdb::ColumnFamilyDescriptorJni::jcf_descriptorsToVec(env,
+                                                               jcf_descriptors);
   if (env->ExceptionCheck()) {
-    // exception thrown: ArrayIndexOutOfBoundsException
     env->ReleaseStringUTFChars(jdb_path, db_path);
     return nullptr;
-  }
-
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
-  column_families.reserve(len_cols);
-  for (int i = 0; i < len_cols; i++) {
-    column_families.push_back(
-        *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
-            cf_descriptors[i]));
   }
 
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jopt_handle);
@@ -395,24 +388,12 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__JJ_3_3B(
 jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J(
     JNIEnv* env, jclass, jlong jhandle, jlongArray jcf_descriptor_handles) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
-  const jsize jlen = env->GetArrayLength(jcf_descriptor_handles);
 
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> cf_descriptors;
-  cf_descriptors.reserve(jlen);
-
-  auto cf_descriptor_handles = std::make_unique<jlong[]>(jlen);
-
-  env->GetLongArrayRegion(jcf_descriptor_handles, 0, jlen,
-                          cf_descriptor_handles.get());
+  auto cf_descriptors =
+      rocksdb::ColumnFamilyDescriptorJni::jcf_descriptorsToVec(
+          env, jcf_descriptor_handles);
   if (env->ExceptionCheck()) {
     return nullptr;
-  }
-
-  for (jsize i = 0; i < jlen; i++) {
-    auto cf_descriptor_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
-            cf_descriptor_handles[i]);
-    cf_descriptors.push_back(*cf_descriptor_handle);
   }
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
