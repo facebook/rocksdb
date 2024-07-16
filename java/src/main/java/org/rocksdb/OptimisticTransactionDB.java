@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -70,22 +69,7 @@ public class OptimisticTransactionDB extends RocksDB
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-    int defaultColumnFamilyIndex = -1;
-
-    final long[] cfDescriptorHandles = new long[columnFamilyDescriptors.size()];
-
-    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors // NOPMD - CloseResource
-                                                      .get(i);
-      cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
-      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
-        defaultColumnFamilyIndex = i;
-      }
-    }
-    if (defaultColumnFamilyIndex < 0) {
-      throw new IllegalArgumentException(
-          "You must provide the default column family in your columnFamilyDescriptors");
-    }
+    final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
 
     final long[] handles = open(dbOptions.nativeHandle_, path, cfDescriptorHandles);
     final OptimisticTransactionDB otdb =
@@ -101,7 +85,8 @@ public class OptimisticTransactionDB extends RocksDB
     }
 
     otdb.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    otdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
+    otdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
 
     return otdb;
   }

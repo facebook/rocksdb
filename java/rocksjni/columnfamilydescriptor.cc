@@ -11,7 +11,7 @@
  * Method:    createNativeInstance
  * Signature: ([BJ)J
  */
-jlong Java_org_rocksdb_ColumnFamilyDescriptor_createNativeInstance(
+jlong Java_org_rocksdb_ColumnFamilyDescriptor_createNativeDescriptor(
     JNIEnv* env, jclass, jbyteArray jname, jlong jcf_options_handle) {
   jboolean has_exception = JNI_FALSE;
 
@@ -42,11 +42,11 @@ jlong Java_org_rocksdb_ColumnFamilyDescriptor_createNativeInstance(
  */
 jbyteArray Java_org_rocksdb_ColumnFamilyDescriptor_getName(
     JNIEnv* env, jclass, jlong jcf_descriptor_handle) {
-  auto cf_options =
+  auto cf_descriptor =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
           jcf_descriptor_handle);
 
-  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, cf_options->name);
+  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, cf_descriptor->name);
 }
 
 /*
