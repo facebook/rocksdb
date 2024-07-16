@@ -37,17 +37,17 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   virtual ~PartitionedFilterBlockBuilder();
 
   void AddKey(const Slice& key) override;
-  void Add(const Slice& key) override;
+  void Add(const Slice& key_without_ts) override;
   size_t EstimateEntriesAdded() override;
 
-  Slice Finish(const BlockHandle& last_partition_block_handle, Status* status,
-               std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
+                std::unique_ptr<const char[]>* filter_owner = nullptr) override;
 
   void ResetFilterBitsBuilder() override {
-    // Previously constructed partitioned filters by
-    // this to-be-reset FiterBitsBuilder can also be
-    // cleared
-    filters.clear();
+    filters_.clear();
+    total_added_in_built_ = 0;
+    index_on_filter_block_builder_.Reset();
+    index_on_filter_block_builder_without_seq_.Reset();
     FullFilterBlockBuilder::ResetFilterBitsBuilder();
   }
 
@@ -59,44 +59,51 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
     return Status::OK();
   }
 
- private:
+ private:  // fns
+  // The policy of when cut a filter block and Finish it
+  void MaybeCutAFilterBlock(const Slice* next_key);
+
+ private:  // data
+  // Currently we keep the same number of partitions for filters and indexes.
+  // This would allow for some potentioal optimizations in future. If such
+  // optimizations did not realize we can use different number of partitions and
+  // eliminate p_index_builder_
+  PartitionedIndexBuilder* const p_index_builder_;
+
   // Filter data
-  BlockBuilder index_on_filter_block_builder_;  // top-level index builder
-  BlockBuilder
-      index_on_filter_block_builder_without_seq_;  // same for user keys
   struct FilterEntry {
-    std::string key;
-    std::unique_ptr<const char[]> filter_data;
+    std::string ikey;  // internal key or separator *after* this filter
+    std::unique_ptr<const char[]> filter_owner;
     Slice filter;
   };
-  std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
-                                    // in building the index
+  std::deque<FilterEntry> filters_;  // list of partitioned filters and keys
+                                     // used in building the index
+  // The desired number of keys per partition
+  uint32_t keys_per_partition_;
+  // The number of keys added to the last partition so far
+  uint32_t keys_added_to_partition_ = 0;
+  // According to the bits builders, how many keys/prefixes added
+  // in all the filters we have fully built
+  uint64_t total_added_in_built_ = 0;
 
   // Set to the first non-okay status if any of the filter
   // partitions experiences construction error.
   // If partitioned_filters_construction_status_ is non-okay,
   // then the whole partitioned filters should not be used.
   Status partitioned_filters_construction_status_;
-  std::string last_filter_entry_key;
-  std::unique_ptr<const char[]> last_filter_data;
-  std::unique_ptr<IndexBuilder> value;
-  bool finishing_filters =
-      false;  // true if Finish is called once but not complete yet.
-  // The policy of when cut a filter block and Finish it
-  void MaybeCutAFilterBlock(const Slice* next_key);
-  // Currently we keep the same number of partitions for filters and indexes.
-  // This would allow for some potentioal optimizations in future. If such
-  // optimizations did not realize we can use different number of partitions and
-  // eliminate p_index_builder_
-  PartitionedIndexBuilder* const p_index_builder_;
-  // The desired number of keys per partition
-  uint32_t keys_per_partition_;
-  // The number of keys added to the last partition so far
-  uint32_t keys_added_to_partition_;
-  // According to the bits builders, how many keys/prefixes added
-  // in all the filters we have fully built
-  uint64_t total_added_in_built_;
+
+  // ===== State for Finish() =====
+
+  // top-level index builder on internal keys
+  BlockBuilder index_on_filter_block_builder_;
+  // same for user keys
+  BlockBuilder index_on_filter_block_builder_without_seq_;
+  // For delta-encoding handles
   BlockHandle last_encoded_handle_;
+  // True if we are between two calls to Finish(), because we have returned
+  // the filter at the front of filters_ but haven't yet added it to the
+  // partition index.
+  bool finishing_front_filter_ = false;
 };
 
 class PartitionedFilterBlockReader
