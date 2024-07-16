@@ -34,7 +34,6 @@ public class ColumnFamilyDescriptor extends RocksObject {
           columnFamilyDescriptors.get(i);
       cfDescriptorHandles[i] = cfDescriptor.nativeHandle_;
     }
-
     return cfDescriptorHandles;
   }
 
