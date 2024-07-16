@@ -199,4 +199,38 @@ class TableReader {
   }
 };
 
+// A checker that ReadOptions are respected within a call, only in DEBUG
+// builds. An EnforceReadOpts should be created on the stack and (with RAII)
+// only destroyed when the function (or the ReadOptions) are finished.
+// Currently this only checks that IO functions are not called within a call
+// using ReadOptions::read_tier = kBlockCacheTier.
+class EnforceReadOpts {
+ public:
+  // no copies
+  EnforceReadOpts(const EnforceReadOpts&) = delete;
+  EnforceReadOpts& operator=(const EnforceReadOpts&) = delete;
+
+#ifdef NDEBUG
+  // Optimize away to nothing in release build
+  explicit EnforceReadOpts(const ReadOptions&) {}
+  static void UsedIO() {}
+
+ private:
+#else
+  // This thread enters a context in which these read options are enforced
+  explicit EnforceReadOpts(const ReadOptions& read_opts);
+
+  // Restores old context
+  ~EnforceReadOpts();
+
+  // Called from IO functions to check that context permits them
+  static void UsedIO();
+
+ private:
+  // For saving previous values of thread-local flags, to be restored in
+  // destructor.
+  bool saved_enforce_block_cache_tier;
+#endif
+};
+
 }  // namespace ROCKSDB_NAMESPACE
