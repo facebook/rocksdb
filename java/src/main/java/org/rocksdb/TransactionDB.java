@@ -78,6 +78,8 @@ public class TransactionDB extends RocksDB
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
     final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
+    final int defaultColumnFamilyIndex =
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors);
 
     final long[] handles = open(
         dbOptions.nativeHandle_, transactionDbOptions.nativeHandle_, path, cfDescriptorHandles);
@@ -93,8 +95,7 @@ public class TransactionDB extends RocksDB
       columnFamilyHandles.add(new ColumnFamilyHandle(tdb, handles[i]));
     }
     tdb.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    tdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
-        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
+    tdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return tdb;
   }
