@@ -66,19 +66,11 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
     return nullptr;
   }
 
-  const jsize len_cols = env->GetArrayLength(jcf_descriptors);
-  auto cf_descriptors = std::make_unique<jlong[]>(len_cols);
-  env->GetLongArrayRegion(jcf_descriptors, 0, len_cols, cf_descriptors.get());
+  auto column_families =
+      ROCKSDB_NAMESPACE::ColumnFamilyDescriptorJni::jcf_descriptorsToVec(
+          env, jcf_descriptors);
   if (env->ExceptionCheck()) {
     return nullptr;
-  }
-
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
-  column_families.reserve(len_cols);
-  for (int i = 0; i < len_cols; i++) {
-    column_families.push_back(
-        *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
-            cf_descriptors[i]));
   }
 
   std::vector<int32_t> ttl_values;
@@ -100,11 +92,12 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
 
   // check if open operation was successful
   if (s.ok()) {
-    const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
+    const jsize resultsLen =
+        1 + column_families.size();  // db handle + column family handles
     std::unique_ptr<jlong[]> results =
         std::unique_ptr<jlong[]>(new jlong[resultsLen]);
     results[0] = GET_CPLUSPLUS_POINTER(db);
-    for (int i = 1; i <= len_cols; i++) {
+    for (int i = 1; i < resultsLen; i++) {
       results[i] = GET_CPLUSPLUS_POINTER(handles[i - 1]);
     }
 
