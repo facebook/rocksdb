@@ -65,19 +65,13 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3J(
     return nullptr;
   }
 
-  const jsize len_cols = env->GetArrayLength(jcf_descriptors);
-  auto cf_descriptors = std::make_unique<jlong[]>(len_cols);
-  env->GetLongArrayRegion(jcf_descriptors, 0, len_cols, cf_descriptors.get());
+  auto column_families =
+      ROCKSDB_NAMESPACE::ColumnFamilyDescriptorJni::jcf_descriptorsToVec(
+          env, jcf_descriptors);
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     env->ReleaseStringUTFChars(jdb_path, db_path);
     return nullptr;
-  }
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
-  for (int i = 0; i < len_cols; i++) {
-    column_families.push_back(
-        *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
-            cf_descriptors[i]));
   }
 
   auto* db_options =
@@ -92,11 +86,12 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3J(
 
   // check if open operation was successful
   if (s.ok()) {
-    const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
+    const jsize resultsLen =
+        1 + column_families.size();  // db handle + column family handles
     std::unique_ptr<jlong[]> results =
         std::unique_ptr<jlong[]>(new jlong[resultsLen]);
     results[0] = GET_CPLUSPLUS_POINTER(tdb);
-    for (int i = 1; i <= len_cols; i++) {
+    for (int i = 1; i < resultsLen; i++) {
       results[i] = GET_CPLUSPLUS_POINTER(handles[i - 1]);
     }
 

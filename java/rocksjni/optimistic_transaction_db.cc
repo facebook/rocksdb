@@ -60,20 +60,13 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3J(
     return nullptr;
   }
 
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   const jsize len_cols = env->GetArrayLength(jcf_descriptors);
-  if (len_cols > 0) {
-    auto cf_descriptors = std::make_unique<jlong[]>(len_cols);
-    env->GetLongArrayRegion(jcf_descriptors, 0, len_cols, cf_descriptors.get());
-    if (env->ExceptionCheck()) {
-      return nullptr;
-    }
 
-    for (int i = 0; i < len_cols; i++) {
-      column_families.push_back(
-          *reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor*>(
-              cf_descriptors[i]));
-    }
+  auto column_families =
+      ROCKSDB_NAMESPACE::ColumnFamilyDescriptorJni::jcf_descriptorsToVec(
+          env, jcf_descriptors);
+  if (env->ExceptionCheck()) {
+    return nullptr;
   }
 
   auto* db_options =
