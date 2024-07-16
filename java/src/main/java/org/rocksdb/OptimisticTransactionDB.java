@@ -70,6 +70,8 @@ public class OptimisticTransactionDB extends RocksDB
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
     final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
+    final int defaultColumnFamilyIndex =
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors);
 
     final long[] handles = open(dbOptions.nativeHandle_, path, cfDescriptorHandles);
     final OptimisticTransactionDB otdb =
@@ -85,8 +87,7 @@ public class OptimisticTransactionDB extends RocksDB
     }
 
     otdb.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    otdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
-        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
+    otdb.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return otdb;
   }

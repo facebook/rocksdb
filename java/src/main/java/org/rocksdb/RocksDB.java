@@ -316,6 +316,8 @@ public class RocksDB extends RocksObject {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     final long[] cfDescriptors = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
+    final int defaultColumnFamilyIndex =
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors);
 
     final long[] handles = open(options.nativeHandle_, path, cfDescriptors);
     final RocksDB db = new RocksDB(handles[0]);
@@ -328,8 +330,7 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
-        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
     return db;
   }
 
@@ -494,6 +495,8 @@ public class RocksDB extends RocksObject {
     // the currently-created RocksDB.
 
     final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
+    final int defaultColumnFamilyIndex =
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors);
 
     final long[] handles =
         openROnly(options.nativeHandle_, path, cfDescriptorHandles, errorIfWalFileExists);
@@ -507,8 +510,7 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
-        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return db;
   }

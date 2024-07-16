@@ -120,6 +120,8 @@ public class TtlDB extends RocksDB {
     }
 
     final long[] cfDescriptorHandles = ColumnFamilyDescriptor.toCfdHandles(columnFamilyDescriptors);
+    final int defaultColumnFamilyIndex =
+        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors);
 
     final int[] ttlVals = new int[ttlValues.size()];
     for(int i = 0; i < ttlValues.size(); i++) {
@@ -134,8 +136,7 @@ public class TtlDB extends RocksDB {
     }
     ttlDB.storeOptionsInstance(options);
     ttlDB.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    ttlDB.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(
-        ColumnFamilyDescriptor.defaultColumnFamilyIndex(columnFamilyDescriptors)));
+    ttlDB.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return ttlDB;
   }
