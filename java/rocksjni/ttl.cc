@@ -92,8 +92,8 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
 
   // check if open operation was successful
   if (s.ok()) {
-    const jsize resultsLen =
-        1 + column_families.size();  // db handle + column family handles
+    const jsize resultsLen = static_cast<jsize>(
+        1 + column_families.size());  // db handle + column family handles
     std::unique_ptr<jlong[]> results =
         std::unique_ptr<jlong[]>(new jlong[resultsLen]);
     results[0] = GET_CPLUSPLUS_POINTER(db);
