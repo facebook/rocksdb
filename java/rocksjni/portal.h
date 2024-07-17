@@ -6852,7 +6852,7 @@ class ColumnFamilyDescriptorJni : public JavaClass {
    * @param jcf_descriptors The JNI long array containing column family
    * descriptors.
    * @return A `std::vector` of `ROCKSDB_NAMESPACE::ColumnFamilyDescriptor`.
-   *         Returns an empty vector if exception occure.
+   *         Returns an empty vector if an exception occurs.
    */
   static std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>
   jcf_descriptorsToVec(JNIEnv* env, jlongArray jcf_descriptors) {
