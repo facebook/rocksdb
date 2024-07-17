@@ -38,7 +38,7 @@
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
-// #include "rocksjni/event_listener_jnicallback.h"
+#include "rocksjni/jni_exception.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/table_filter_jnicallback.h"
 #include "rocksjni/trace_writer_jnicallback.h"
@@ -2508,6 +2508,14 @@ class JniUtil {
 
     return cvalue_len;
   }
+
+  static void GetJavaVMOrException(JNIEnv* env, JavaVM** vm) {
+    auto status = env->GetJavaVM(vm);
+    if (status != 0) {
+      ROCKSDB_NAMESPACE::JniException::ThrowNew(
+          env, "Unable to retrieve instance ov JavaVM");
+    }
+  }
 };
 
 class MapJni : public JavaClass {
@@ -3691,13 +3699,18 @@ class ColumnFamilyHandleJni
 
  public:
   ColumnFamilyHandleJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = ColumnFamilyHandleJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for FlushJobInfo class",
+        jclazz == nullptr);
+
     ctor = ColumnFamilyHandleJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   virtual ~ColumnFamilyHandleJni() {
@@ -6865,18 +6878,15 @@ class TablePropertiesJni : public JavaClass {
 
  public:
   TablePropertiesJni(JNIEnv* env) {
-    auto vm_status = env->GetJavaVM(&m_jvm);  // Doesn't throw exception.
-    if (vm_status != JNI_OK) {
-      assert(vm_status == 0);
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env, "Unable to obtain JavaVM instance");
-      return;
-    }
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
 
     jclazz = TablePropertiesJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env,
+        "Unable to obtain global reference for TablePropertiesJni JNI class",
+        jclazz == nullptr);
 
     constructorID = env->GetMethodID(
         jclazz, "<init>",
@@ -8757,14 +8767,18 @@ class FlushJobInfoJni : public JavaClass {
 
  public:
   FlushJobInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
 
     jclazz = FlushJobInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for FlushJobInfo class",
+        jclazz == nullptr);
 
     ctor = FlushJobInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
 
     tablePropertiesJni = std::make_unique<TablePropertiesJni>(env);
   }
@@ -8838,22 +8852,28 @@ class TableFileDeletionInfoJni : public JavaClass {
 
  public:
   TableFileDeletionInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = TableFileDeletionInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env,
+        "Unable to obtain global reference for TableFileDeletionInfo class",
+        jclazz == nullptr);
 
     ctor = TableFileDeletionInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
 
     statusJclazz = StatusJni::getJClass(env);
-    assert(statusJclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
     statusJclazz = static_cast<jclass>(env->NewGlobalRef(statusJclazz));
-    assert(statusJclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for Status class",
+        statusJclazz == nullptr);
 
     statusCtor = StatusJni::getConstructorMethodId(env, statusJclazz);
-    assert(statusCtor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   virtual ~TableFileDeletionInfoJni() {
@@ -8911,14 +8931,17 @@ class CompactionJobInfoJni : public JavaClass {
 
  public:
   CompactionJobInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = CompactionJobInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for CompactionJobInfo class",
+        jclazz == nullptr);
 
     ctor = CompactionJobInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   ~CompactionJobInfoJni() {
@@ -8959,24 +8982,31 @@ class TableFileCreationInfoJni : public JavaClass {
 
  public:
   TableFileCreationInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = TableFileCreationInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env,
+        "Unable to obtain global reference for TableFileCreationInfo class",
+        jclazz == nullptr);
 
     ctor = TableFileCreationInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
 
     tablePropertiesConverter = std::make_unique<TablePropertiesJni>(env);
 
     statusJclazz = StatusJni::getJClass(env);
-    assert(statusJclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     statusJclazz = static_cast<jclass>(env->NewGlobalRef(statusJclazz));
-    assert(statusJclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for Status class",
+        statusJclazz == nullptr);
 
     statusCtor = StatusJni::getConstructorMethodId(env, statusJclazz);
-    assert(statusCtor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   virtual ~TableFileCreationInfoJni() {
@@ -9047,14 +9077,20 @@ class TableFileCreationBriefInfoJni : public JavaClass {
 
  public:
   TableFileCreationBriefInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = TableFileCreationBriefInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env,
+        "Unable to obtain global reference for TableFileCreationBriefInfo "
+        "class",
+        jclazz == nullptr);
 
     ctor = TableFileCreationBriefInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   virtual ~TableFileCreationBriefInfoJni() {
@@ -9106,14 +9142,18 @@ class MemTableInfoJni : public JavaClass {
 
  public:
   MemTableInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = MemTableInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for MemTableInfo class",
+        jclazz == nullptr);
 
     ctor = MemTableInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   ~MemTableInfoJni() {
@@ -9155,14 +9195,20 @@ class ExternalFileIngestionInfoJni : public JavaClass {
 
  public:
   ExternalFileIngestionInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = ExternalFileIngestionInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env,
+        "Unable to obtain global reference for ExternalFileIngestionInfo class",
+        jclazz == nullptr);
 
     ctor = ExternalFileIngestionInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     tablePropertiesJni = std::make_unique<TablePropertiesJni>(env);
   }
 
@@ -9225,14 +9271,18 @@ class WriteStallInfoJni : public JavaClass {
 
  public:
   WriteStallInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = WriteStallInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for WriteStallInfo class",
+        jclazz == nullptr);
 
     ctor = WriteStallInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   virtual ~WriteStallInfoJni() {
@@ -9274,22 +9324,27 @@ class FileOperationInfoJni : public JavaClass {
 
  public:
   FileOperationInfoJni(JNIEnv* env) {
-    env->GetJavaVM(&m_jvm);
+    ROCKSDB_NAMESPACE::JniUtil::GetJavaVMOrException(env, &m_jvm);
+
     jclazz = FileOperationInfoJni::getJClass(env);
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
     jclazz = static_cast<jclass>(env->NewGlobalRef(jclazz));
-    assert(jclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for FileOperationInfo class",
+        jclazz == nullptr);
 
     ctor = FileOperationInfoJni::getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
 
     statusJclazz = StatusJni::getJClass(env);
-    assert(statusJclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
     statusJclazz = static_cast<jclass>(env->NewGlobalRef(statusJclazz));
-    assert(statusJclazz != nullptr);
+    ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+        env, "Unable to obtain global reference for Status class",
+        statusJclazz == nullptr);
 
     statusCtor = StatusJni::getConstructorMethodId(env, statusJclazz);
-    assert(statusCtor != nullptr);
+    ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
   }
 
   virtual ~FileOperationInfoJni() {
