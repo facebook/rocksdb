@@ -6,14 +6,14 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::WriteBatchJavaNative methods from Java side.
 
+#include "rocksjni/write_batch_java_native.h"
 
+#include "db/dbformat.h"
 #include "include/org_rocksdb_WBWIRocksIterator.h"
 #include "include/org_rocksdb_WriteBatchJavaNative.h"
 #include "rocksdb/comparator.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
-#include "db/dbformat.h"
-
 
 /*
  * Class:     org_rocksdb_WriteBatchJavaNative
@@ -22,30 +22,19 @@
  */
 jlong Java_org_rocksdb_WriteBatchJavaNative_newWriteBatchJavaNative(
     JNIEnv* /*env*/, jclass /*jcls*/, jint jreserved_bytes) {
-  auto* wb =
-      new ROCKSDB_NAMESPACE::WriteBatch(static_cast<size_t>(jreserved_bytes));
+  auto* wb = new ROCKSDB_NAMESPACE::WriteBatchJavaNative(
+      static_cast<size_t>(jreserved_bytes));
   return GET_CPLUSPLUS_POINTER(wb);
-}
-
-static int ALIGN = sizeof(int) - 1;
-
-jint next_int(jbyte* buf, jint& pos) {
-  jint result = *reinterpret_cast<jint*>(buf + pos);
-  pos += sizeof(jint);
-  return result;
 }
 
 /*
  * Class:     org_rocksdb_WriteBatchJavaNative
  * Method:    disposeInternalWriteBatchJavaNative
  * Signature: (J)V
- * 
- * This variant on WriteBatch (Java) class is represented on the C++ by a plain old WriteBatch.
- * We may want our own class (subclass or wrapper) in the long run.
  */
 void Java_org_rocksdb_WriteBatchJavaNative_disposeInternalWriteBatchJavaNative(
     JNIEnv* /* env */, jclass /* jcls */, jlong handle) {
-  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(handle);
+  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(handle);
   assert(wb != nullptr);
   delete wb;
 }
@@ -58,8 +47,7 @@ void Java_org_rocksdb_WriteBatchJavaNative_disposeInternalWriteBatchJavaNative(
 void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
     JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong jbuf_len,
     jbyteArray jbuf) {
-  auto* wb =
-      reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchWithIndex*>(jwb_handle);
+  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
   assert(wb != nullptr);
 
   jbyte* buf = env->GetByteArrayElements(jbuf, nullptr);
@@ -67,23 +55,23 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
     // exception thrown: OutOfMemoryError
     return;
   }
+  auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(buf, jbuf_len);
 
-  jint pos = 0;
-  while (pos < jbuf_len) {
-    jint op = next_int(buf, pos);
+  while (bp->has_next()) {
+    jint op = bp->next_int();
     switch (op) {
       case ROCKSDB_NAMESPACE::ValueType::kTypeValue: {
-        jint key_len = next_int(buf, pos);
-        jint value_len = next_int(buf, pos);
-        char* key_ptr = reinterpret_cast<char*>(buf + pos);
-        if ((pos += key_len + ALIGN & ~ALIGN) > jbuf_len) {
+        jint key_len = bp->next_int();
+        jint value_len = bp->next_int();
+        char* key_ptr = reinterpret_cast<char*>(bp->ptr());
+        if (!bp->skip_aligned(key_len)) {
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
               env,
               "Corrupt java native write batch ? no space for expected key");
           return;
         }
-        char* value_ptr = reinterpret_cast<char*>(buf + pos);
-        if ((pos += value_len + ALIGN & ~ALIGN) > jbuf_len) {
+        char* value_ptr = reinterpret_cast<char*>(bp->ptr());
+        if (!bp->skip_aligned(value_len)) {
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
               env,
               "Corrupt java native write batch ? no space for expected value");

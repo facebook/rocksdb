@@ -104,8 +104,7 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
-      throws RocksDBException
-  {
+      throws RocksDBException {
     expandable(() -> {
       buffer.putInt(ValueType.kTypeColumnFamilyValue.ordinal());
       buffer.putLong(columnFamilyHandle.getNativeHandle());

@@ -4,20 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
-
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public class WriteBatchJavaNativeTest {
-
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
       new RocksNativeLibraryResource();
 
-  @Rule
-  public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
   public void put1() throws RocksDBException {
@@ -48,8 +45,10 @@ public class WriteBatchJavaNativeTest {
       wb.flush();
 
       assertThat(new String(getContents(wb), StandardCharsets.UTF_8))
-          .isEqualTo("Put(k02, v02)@101Put(k03, v03)@102Put(k04, v04)@103Put(k05, v05)@104Put(k06, v06)@105" +
-              "Put(k07, v07)@106Put(k08, v08)@107Put(k09, v09)@108Put(k1, v1)@100Put(k10, v10)@109");
+          .isEqualTo("Put(k02, v02)@101Put(k03, v03)@102Put(k04, v04)@103Put(k05, v05)@104Put(k06, "
+              + "v06)@105"
+              + "Put(k07, v07)@106Put(k08, v08)@107Put(k09, v09)@108Put(k1, v1)@100Put(k10, "
+              + "v10)@109");
     }
   }
 
@@ -65,7 +64,8 @@ public class WriteBatchJavaNativeTest {
         wb.put(cf, "k1".getBytes(), "cf_v1".getBytes());
         wb.flush();
 
-        assertThat(new String(getContents(wb), StandardCharsets.UTF_8)).isEqualTo("Put(k1, v1)@100");
+        assertThat(new String(getContents(wb), StandardCharsets.UTF_8))
+            .isEqualTo("Put(k1, v1)@100");
       }
     }
   }
