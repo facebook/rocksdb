@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.4.1 (07/17/2024)
+### Bug Fixes
+* Fix a major bug in which an iterator using prefix filtering and SeekForPrev might miss data when the DB is using `whole_key_filtering=false` and `partition_filters=true`.
+
 ## 9.4.0 (06/23/2024)
 ### New Features
 * Added a `CompactForTieringCollectorFactory` to auto trigger compaction for tiering use case.
