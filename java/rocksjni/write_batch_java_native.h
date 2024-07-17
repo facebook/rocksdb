@@ -19,6 +19,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class WriteBatchJavaNativeException : public std::exception {};
 class WriteBatchJavaNative : public WriteBatch {
  public:
   // just copy the simplest WB constructor
@@ -48,22 +49,26 @@ class WriteBatchJavaNativeBuffer {
    * @brief 
    * 
    * @param bytes_to_skip 
-   * @return true if we skipped as requested
-   * @return false if skipping would go past the end
    */
-  bool skip(const jint bytes_to_skip) {
+  void skip(const jint bytes_to_skip) {
     if (pos + bytes_to_skip > buf_len) {
-        return false;
+      throw ROCKSDB_NAMESPACE::WriteBatchJavaNativeException();
     }
     pos += bytes_to_skip;
-    return true;
   }
 
-  bool skip_aligned(const jint bytes_to_skip) {
+  void skip_aligned(const jint bytes_to_skip) {
     return skip(align(bytes_to_skip));
   };
 
   bool has_next() { return pos < buf_len; };
+
+  ROCKSDB_NAMESPACE::Slice slice(jint slice_len) {
+    jbyte* slice_ptr = ptr();
+    skip_aligned(slice_len);
+    return ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(slice_ptr),
+                                    slice_len);
+  }
 
   jbyte* ptr() { return buf + pos; };
 

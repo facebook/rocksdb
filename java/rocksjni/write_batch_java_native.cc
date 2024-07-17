@@ -63,18 +63,24 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
       case ROCKSDB_NAMESPACE::ValueType::kTypeValue: {
         jint key_len = bp->next_int();
         jint value_len = bp->next_int();
+
         char* key_ptr = reinterpret_cast<char*>(bp->ptr());
-        if (!bp->skip_aligned(key_len)) {
+        try {
+          bp->skip_aligned(key_len);
+        } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException& e) {
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
               env,
               "Corrupt java native write batch ? no space for expected key");
           return;
         }
+
         char* value_ptr = reinterpret_cast<char*>(bp->ptr());
-        if (!bp->skip_aligned(value_len)) {
+        try {
+          bp->skip_aligned(key_len);
+        } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException& e) {
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
               env,
-              "Corrupt java native write batch ? no space for expected value");
+              "Corrupt java native write batch ? no space for expected key");
           return;
         }
 
