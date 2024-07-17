@@ -1263,14 +1263,32 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       TEST_SYNC_POINT_CALLBACK(
           "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch",
           batch_to_use);
+
+      status = WriteBatchInternal::UpdateProtectionInfo(batch_to_use,
+                                                        /*bytes_per_key=*/8);
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:UpdateProtectionInfo::status", &status);
+      if (!status.ok()) {
+        if (status.IsCorruption()) {
+          reporter.Corruption(record.size(), status);
+          continue;
+        } else {
+          // Fail DB open for non-corruption failure.
+          return status;
+        }
+      }
       TEST_SYNC_POINT_CALLBACK(
           "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
           &record_checksum);
-      status = WriteBatchInternal::UpdateProtectionInfo(
-          batch_to_use, 8 /* bytes_per_key */,
-          batch_updated ? nullptr : &record_checksum);
-      if (!status.ok()) {
-        return status;
+      if (!batch_updated) {
+        // Verify write batch content is not corrupted since read from WAL
+        status =
+            WriteBatchInternal::VerifyChecksum(batch_to_use, record_checksum);
+        // Treat this as DB open failure since likely some in-memory corruption
+        // happened.
+        if (!status.ok()) {
+          return status;
+        }
       }
 
       SequenceNumber sequence = WriteBatchInternal::Sequence(batch_to_use);

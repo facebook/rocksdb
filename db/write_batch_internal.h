@@ -244,8 +244,9 @@ class WriteBatchInternal {
 
   // Update per-key value protection information on this write batch.
   // If checksum is provided, the batch content is verfied against the checksum.
-  static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key,
-                                     uint64_t* checksum = nullptr);
+  static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key);
+
+  static Status VerifyChecksum(WriteBatch* wb, uint64_t expected_checksum);
 };
 
 // LocalSavePoint is similar to a scope guard
