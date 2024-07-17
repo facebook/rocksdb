@@ -5563,8 +5563,7 @@ Status VersionSet::ProcessManifestWrites(
             new log::Writer(std::move(file_writer), 0, false));
         raw_desc_log_ptr = new_desc_log_ptr.get();
         s = WriteCurrentStateToManifest(write_options, curr_state,
-                                        wal_additions, raw_desc_log_ptr,
-                                        io_s);
+                                        wal_additions, raw_desc_log_ptr, io_s);
         assert(s == io_s);
       }
       if (!io_s.ok()) {
