@@ -86,6 +86,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.UInt64AddOperator\
 	org.rocksdb.WriteBatch\
 	org.rocksdb.WriteBatch.Handler\
+	org.rocksdb.WriteBatchJavaNative\
 	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WriteBufferManager\
@@ -97,6 +98,7 @@ NATIVE_JAVA_TEST_CLASSES = \
     org.rocksdb.test.TestableEventListener\
     org.rocksdb.NativeComparatorWrapperTest.NativeStringComparatorWrapper\
     org.rocksdb.WriteBatchTest\
+    org.rocksdb.WriteBatchJavaNativeTest\
     org.rocksdb.WriteBatchTestInternalHelper
 
 ROCKSDB_MAJOR = $(shell grep -E "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -108,6 +110,9 @@ ARCH := $(shell getconf LONG_BIT)
 SHA256_CMD ?= sha256sum
 
 JAVA_TESTS = \
+	org.rocksdb.WriteBatchJavaNativeTest
+
+JAVA_TESTS0 = \
 	org.rocksdb.BackupEngineOptionsTest\
 	org.rocksdb.BackupEngineTest\
 	org.rocksdb.BlobOptionsTest\
@@ -205,6 +210,7 @@ JAVA_TESTS = \
 	org.rocksdb.WALRecoveryModeTest\
 	org.rocksdb.WriteBatchHandlerTest\
 	org.rocksdb.WriteBatchTest\
+	org.rocksdb.WriteBatchJavaNativeTest\
 	org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
 	org.rocksdb.WriteBatchWithIndexTest\

@@ -95,6 +95,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/wal_filter.cc
         rocksjni/wal_filter_jnicallback.cc
         rocksjni/write_batch.cc
+        rocksjni/write_batch_java_native.cc
         rocksjni/write_batch_test.cc
         rocksjni/write_batch_with_index.cc
         rocksjni/write_buffer_manager.cc
@@ -766,6 +767,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
           org.rocksdb.WriteBatch
           org.rocksdb.WriteBatch.Handler
           org.rocksdb.WriteBatchInterface
+          org.rocksdb.WriteBatchJavaNative
           org.rocksdb.WriteBatchWithIndex
           org.rocksdb.WriteOptions
           org.rocksdb.NativeComparatorWrapperTest

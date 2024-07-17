@@ -498,7 +498,7 @@ public class WriteBatchTest {
     }
   }
 
-  private static native byte[] getContents(final long writeBatchHandle);
+  static native byte[] getContents(final long writeBatchHandle);
 }
 
 /**
