@@ -1650,7 +1650,8 @@ Status DBImpl::WriteRecoverableState() {
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
     autovector<ColumnFamilyData*>* selected_cfds,
-    const autovector<ColumnFamilyData*>& provided_candidate_cfds) {
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+    FlushReason flush_reason) {
   mutex_.AssertHeld();
   assert(selected_cfds);
 
@@ -1673,7 +1674,8 @@ void DBImpl::SelectColumnFamiliesForAtomicFlush(
       continue;
     }
     if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
+        !cached_recoverable_state_empty_.load() ||
+        IsRecoveryFlush(flush_reason)) {
       selected_cfds->push_back(cfd);
     }
   }

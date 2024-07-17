@@ -1888,6 +1888,10 @@ class DBImpl : public DB {
     Env::Priority compaction_pri_;
   };
 
+  static bool IsRecoveryFlush(FlushReason flush_reason) {
+    return flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
+           flush_reason == FlushReason::kErrorRecovery;
+  }
   // Initialize the built-in column family for persistent stats. Depending on
   // whether on-disk persistent stats have been enabled before, it may either
   // create a new column family and column family handle or just a column family
@@ -2032,7 +2036,8 @@ class DBImpl : public DB {
   // REQUIRES: mutex held
   void SelectColumnFamiliesForAtomicFlush(
       autovector<ColumnFamilyData*>* selected_cfds,
-      const autovector<ColumnFamilyData*>& provided_candidate_cfds = {});
+      const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
+      FlushReason flush_reason = FlushReason::kOthers);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
