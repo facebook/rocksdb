@@ -4,9 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+
+import org.junit.ClassRule;
 import org.junit.Test;
 
 public class WriteBatchJavaNativeTest {
+
+  @ClassRule
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
+
   @Test
   public void put() throws RocksDBException, UnsupportedEncodingException {
     try (WriteBatchJavaNative wb = new WriteBatchJavaNative(256)) {
@@ -30,6 +37,10 @@ public class WriteBatchJavaNativeTest {
               + "Delete(box)@101"
               + "Put(foo, bar)@100");
     }
+  }
+
+  @Test public void blah() {
+    WriteBatchTest.getContents(0L);
   }
 
   static byte[] getContents(final WriteBatchJavaNative wb) {
