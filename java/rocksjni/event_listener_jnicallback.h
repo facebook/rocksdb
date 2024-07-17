@@ -20,7 +20,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-
 class EventListenerJniCallback : public JniCallback, public EventListener {
  public:
   EventListenerJniCallback(
