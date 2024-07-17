@@ -37,6 +37,21 @@ jint next_int(jbyte* buf, jint& pos) {
 
 /*
  * Class:     org_rocksdb_WriteBatchJavaNative
+ * Method:    disposeInternalWriteBatchJavaNative
+ * Signature: (J)V
+ * 
+ * This variant on WriteBatch (Java) class is represented on the C++ by a plain old WriteBatch.
+ * We may want our own class (subclass or wrapper) in the long run.
+ */
+void Java_org_rocksdb_WriteBatchJavaNative_disposeInternalWriteBatchJavaNative(
+    JNIEnv* /* env */, jclass /* jcls */, jlong handle) {
+  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(handle);
+  assert(wb != nullptr);
+  delete wb;
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchJavaNative
  * Method:    flushWriteBatchJavaNative
  * Signature: (JJ[B)V
  */

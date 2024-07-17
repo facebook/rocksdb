@@ -2,6 +2,7 @@ package org.rocksdb;
 
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class WriteBatchJavaNative extends RocksObject implements WriteBatchInterface {
   // Mirrors the ValueType in dbformat.h
@@ -45,13 +46,11 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
 
   private final static int DEFAULT_BUFFER_SIZE = 32768;
 
-  private byte[] bytes;
   private ByteBuffer buffer;
 
   public WriteBatchJavaNative(final int reserved_bytes) {
     super(newWriteBatchJavaNative(reserved_bytes));
-    this.bytes = new byte[reserved_bytes];
-    buffer = ByteBuffer.wrap(this.bytes);
+    buffer = ByteBuffer.wrap(new byte[reserved_bytes]).order(ByteOrder.nativeOrder());
   }
 
   public WriteBatchJavaNative() {
@@ -67,6 +66,8 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
     buffer.position((buffer.position() + 3) & ~3);
   }
 
+  private void wrapBytes() {}
+
   private void expandable(Runnable r) {
     int current = buffer.position();
     while (true) {
@@ -76,9 +77,9 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
       } catch (BufferOverflowException boe) {
         // Build a bigger buffer, positioned before we tried to run r()
         // Then we can run r() again.
-        byte[] expanded = new byte[Math.max(bytes.length * 2, DEFAULT_BUFFER_SIZE)];
-        System.arraycopy(bytes, 0, expanded, 0, current);
-        buffer = ByteBuffer.wrap(expanded, 0, expanded.length);
+        byte[] expanded = new byte[Math.max(buffer.capacity() * 2, DEFAULT_BUFFER_SIZE)];
+        System.arraycopy(buffer.array(), 0, expanded, 0, current);
+        buffer = ByteBuffer.wrap(expanded, 0, expanded.length).order(ByteOrder.nativeOrder());
         buffer.position(current);
       }
     }
@@ -98,12 +99,24 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
   }
 
   public void flush() throws RocksDBException {
-    flushWriteBatchJavaNative(nativeHandle_, buffer.position(), bytes);
+    flushWriteBatchJavaNative(nativeHandle_, buffer.position(), buffer.array());
   }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
-      throws RocksDBException {}
+      throws RocksDBException
+  {
+    expandable(() -> {
+      buffer.putInt(ValueType.kTypeColumnFamilyValue.ordinal());
+      buffer.putLong(columnFamilyHandle.getNativeHandle());
+      buffer.putInt(key.length);
+      buffer.putInt(value.length);
+      buffer.put(key);
+      alignBuffer();
+      buffer.put(value);
+      alignBuffer();
+    });
+  }
 
   @Override
   public void put(ByteBuffer key, ByteBuffer value) throws RocksDBException {}
@@ -166,7 +179,7 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
 
   @Override
   public WriteBatch getWriteBatch() {
-    return null;
+    return new WriteBatch(nativeHandle_);
   }
 
   @Override
