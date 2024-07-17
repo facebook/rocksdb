@@ -11,6 +11,13 @@
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
+/**
+ * Create new instance of event listener.
+ * @param env JNIEnv
+ * @param jevent_listener Instance of AbstractEventListener
+ * @param enabled_event_callbacks set of subscribed events.
+ * @throw JniException when JNI initialization calls fail.
+ */
 EventListenerJniCallback::EventListenerJniCallback(
     JNIEnv* env, jobject jevent_listener,
     const std::set<EnabledEventCallback>& enabled_event_callbacks)
@@ -132,12 +139,15 @@ EventListenerJniCallback::EventListenerJniCallback(
       std::make_unique<TableFileDeletionInfoJni>(env);
 
   statusJClazz = StatusJni::getJClass(env);
-  assert(statusJClazz != nullptr);
+  ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
   statusJClazz = static_cast<jclass>(env->NewGlobalRef(statusJClazz));
-  assert(statusJClazz != nullptr);
+  ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+      env, "Unable to obtain global reference for Status class",
+      statusJClazz == nullptr);
 
   statusCtor = StatusJni::getConstructorMethodId(env, statusJClazz);
-  assert(statusCtor != nullptr);
+  ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
 }
 
 EventListenerJniCallback::~EventListenerJniCallback() {

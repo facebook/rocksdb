@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "include/org_rocksdb_AbstractEventListener.h"
+#include "jni_exception.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/portal.h"
@@ -25,11 +26,17 @@ jlong Java_org_rocksdb_AbstractEventListener_createNewEventListener(
   auto enabled_event_callbacks =
       ROCKSDB_NAMESPACE::EnabledEventCallbackJni::toCppEnabledEventCallbacks(
           jenabled_event_callback_values);
-  auto* sptr_event_listener =
-      new std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>(
-          new ROCKSDB_NAMESPACE::EventListenerJniCallback(
-              env, jobj, enabled_event_callbacks));
-  return GET_CPLUSPLUS_POINTER(sptr_event_listener);
+
+  try {
+    auto* sptr_event_listener =
+        new std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>(
+            new ROCKSDB_NAMESPACE::EventListenerJniCallback(
+                env, jobj, enabled_event_callbacks));
+    return GET_CPLUSPLUS_POINTER(sptr_event_listener);
+  } catch (ROCKSDB_NAMESPACE::JniException& e) {
+    // We always throw JniException with Java Exception
+    return 0;
+  }
 }
 
 /*
