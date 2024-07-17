@@ -69,6 +69,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   void AddPrefix(const Slice& key);
   const SliceTransform* prefix_extractor() { return prefix_extractor_; }
   const std::string& last_prefix_str() const { return last_prefix_str_; }
+  bool need_last_prefix_;
 
  private:
   // important: all of these might point to invalid addresses
