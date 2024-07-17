@@ -6617,8 +6617,13 @@ class TablePropertiesJni : public JavaClass {
 
  public:
   TablePropertiesJni(JNIEnv* env) {
-    auto vm_status = env->GetJavaVM(&m_jvm);
-    assert(vm_status == 0);
+    auto vm_status = env->GetJavaVM(&m_jvm);  // Doesn't throw exception.
+    if (vm_status != JNI_OK) {
+      assert(vm_status == 0);
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Unable to obtain JavaVM instance");
+      return;
+    }
 
     jclazz = TablePropertiesJni::getJClass(env);
     assert(jclazz != nullptr);
