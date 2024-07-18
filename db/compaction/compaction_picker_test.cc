@@ -4284,27 +4284,28 @@ TEST_F(CompactionPickerTest, IntraL0WhenL0IsSmall) {
     SCOPED_TRACE("lbase_size_multiplier=" +
                  std::to_string(lbase_size_multiplier));
     NewVersionStorage(6, kCompactionStyleLevel);
-    // When L0 size is <= Lbase size / max_bytes_for_level_multiplier,
+    // When L0 size is <= Lbase size / max_bytes_for_level_multiplier / 2,
     // intra-L0 compaction is picked. Otherwise, L0->L1
     // compaction is picked.
+    // compensated_file_size will be used to compute total l0 size.
     Add(/*level=*/0, /*file_number=*/1U, /*smallest=*/"100",
-        /*largest=*/"200", /*file_size=*/1000, /*path_id=*/0,
+        /*largest=*/"200", /*file_size=*/10, /*path_id=*/0,
         /*smallest_seq=*/10, /*largest_seq=*/11,
         /*compensated_file_size=*/1000);
     Add(/*level=*/0, /*file_number=*/2U, /*smallest=*/"100",
-        /*largest=*/"100", /*file_size=*/1000, /*path_id=*/0,
+        /*largest=*/"100", /*file_size=*/10, /*path_id=*/0,
         /*smallest_seq=*/20, /*largest_seq=*/21,
         /*compensated_file_size=*/1000);
     Add(/*level=*/0, /*file_number=*/3U, /*smallest=*/"100",
-        /*largest=*/"200", /*file_size=*/1000, /*path_id=*/0,
+        /*largest=*/"200", /*file_size=*/10, /*path_id=*/0,
         /*smallest_seq=*/30, /*largest_seq=*/31,
         /*compensated_file_size=*/1000);
     Add(/*level=*/0, /*file_number=*/4U, /*smallest=*/"100",
-        /*largest=*/"200", /*file_size=*/1000, /*path_id=*/0,
+        /*largest=*/"200", /*file_size=*/10, /*path_id=*/0,
         /*smallest_seq=*/40, /*largest_seq=*/41,
         /*compensated_file_size=*/1000);
     const uint64_t l0_size = 4000;
-    const uint64_t lbase_size = l0_size * lbase_size_multiplier;
+    const uint64_t lbase_size = l0_size * lbase_size_multiplier * 2;
     Add(/*level=*/1, /*file_number=*/5U, /*smallest=*/"100",
         /*largest=*/"200", /*file_size=*/lbase_size, /*path_id=*/0,
         /*smallest_seq=*/0, /*largest_seq=*/0,
