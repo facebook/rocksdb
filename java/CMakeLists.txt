@@ -898,29 +898,32 @@ add_custom_command(
         VERBATIM
 )
 
+set(JAVA_NATIVE_LIBRARY_PATH ${PROJECT_BINARY_DIR}/java)
+set(JAVA_TEST_RUNTIME_CLASSPATH ${JAVA_RUN_TESTCLASSPATH}:${ROCKSDBJNI_CLASSES_TEST_JAR_FILE}:${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR})
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    set(JAVA_NATIVE_LIBRARY_PATH ${PROJECT_BINARY_DIR}/java/${CMAKE_BUILD_TYPE})
+    set(JAVA_TEST_RUNTIME_CLASSPATH ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}$<SEMICOLON>${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${ROCKSDBJNI_CLASSES_TEST_JAR_FILE})
+
+endif()
+
+foreach (CLAZZ ${JAVA_TEST_RUNNING_CLASSES})
+        add_test(
+                NAME jtest_${CLAZZ}
+                COMMAND ${Java_JAVA_EXECUTABLE} -ea -Xcheck:jni -Djava.library.path=${JAVA_NATIVE_LIBRARY_PATH} -classpath ${JAVA_TEST_RUNTIME_CLASSPATH} org.rocksdb.test.RocksJunitRunner ${CLAZZ}
+        )
+endforeach(CLAZZ)
+
 #This test must be run with different classpath.
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     add_test(
         NAME jtest_org.rocksdb.EventListenerClassloaderTest
-        COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
+        COMMAND ${Java_JAVA_EXECUTABLE} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
     )
 else()
     add_test(
         NAME jtest_org.rocksdb.EventListenerClassloaderTest
-        COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}:${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
+        COMMAND ${Java_JAVA_EXECUTABLE} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}:${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
     )
 endif()
 
-foreach (CLAZZ ${JAVA_TEST_RUNNING_CLASSES})
-  if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    add_test(
-      NAME jtest_${CLAZZ}
-            COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Djava.library.path=${PROJECT_BINARY_DIR}/java/${CMAKE_BUILD_TYPE} -classpath ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}$<SEMICOLON>${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${ROCKSDBJNI_CLASSES_TEST_JAR_FILE} org.rocksdb.test.RocksJunitRunner ${CLAZZ}
-    )
-  else()
-    add_test(
-      NAME jtest_${CLAZZ}
-            COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Djava.library.path=${PROJECT_BINARY_DIR}/java -classpath ${JAVA_RUN_TESTCLASSPATH}:${ROCKSDBJNI_CLASSES_TEST_JAR_FILE}:${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} org.rocksdb.test.RocksJunitRunner ${CLAZZ}
-    )
-  endif()
-endforeach(CLAZZ)
