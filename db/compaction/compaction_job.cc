@@ -626,6 +626,7 @@ Status CompactionJob::Run() {
   const size_t num_threads = compact_->sub_compact_states.size();
   assert(num_threads > 0);
   const uint64_t start_micros = db_options_.clock->NowMicros();
+  compact_->compaction->GetOrInitInputTableProperties();
 
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;
