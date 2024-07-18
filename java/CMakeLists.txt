@@ -352,6 +352,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/KeyExistsTest.java
   src/test/java/org/rocksdb/KeyMayExistTest.java
   src/test/java/org/rocksdb/LRUCacheTest.java
+  src/test/java/org/rocksdb/LoggerClassloaderTest.java
   src/test/java/org/rocksdb/LoggerTest.java
   src/test/java/org/rocksdb/MemTableTest.java
   src/test/java/org/rocksdb/MemoryUtilTest.java
@@ -895,6 +896,9 @@ add_custom_command(
         COMMAND ${CMAKE_COMMAND} -E copy
         ${ROCKSDBJNI_CLASSES_TEST_DIR}/org/rocksdb/EventListenerClassloaderTest.class
         ${PROJECT_BINARY_DIR}/java/cl-test/org/rocksdb/EventListenerClassloaderTest.class
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${ROCKSDBJNI_CLASSES_TEST_DIR}/org/rocksdb/LoggerClassloaderTest.class
+        ${PROJECT_BINARY_DIR}/java/cl-test/org/rocksdb/LoggerClassloaderTest.class
         VERBATIM
 )
 
@@ -924,6 +928,10 @@ else()
     add_test(
         NAME jtest_org.rocksdb.EventListenerClassloaderTest
         COMMAND ${Java_JAVA_EXECUTABLE} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}:${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
+    )
+    add_test(
+            NAME jtest_org.rocksdb.LoggerClassloaderTest
+            COMMAND ${Java_JAVA_EXECUTABLE} -ea -Xcheck:jni -Drocks-jar=${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}  -classpath ${JAVA_RUN_TESTCLASSPATH}:${PROJECT_BINARY_DIR}/java/cl-test org.junit.runner.JUnitCore org.rocksdb.EventListenerClassloaderTest
     )
 endif()
 
