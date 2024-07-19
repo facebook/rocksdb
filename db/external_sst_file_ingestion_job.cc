@@ -44,8 +44,8 @@ Status ExternalSstFileIngestionJob::Prepare(
       return status;
     }
 
-    // Files from a live DB may have a different column family ID,
-    // so we let it pass here.
+    // Files generated in another DB or CF may have a different column family
+    // ID, so we let it pass here.
     if (file_to_ingest.cf_id !=
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
         file_to_ingest.cf_id != cfd_->GetID() &&
