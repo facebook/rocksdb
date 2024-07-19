@@ -3727,10 +3727,10 @@ INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
                                         std::make_tuple(true, true),
                                         std::make_tuple(false, false)));
 
-class IngestLiveDBFileTest : public ExternalSSTFileTestBase,
-                             public ::testing::WithParamInterface<bool> {
+class IngestDBGeneratedFileTest : public ExternalSSTFileTestBase,
+                                  public ::testing::WithParamInterface<bool> {
  public:
-  IngestLiveDBFileTest() {
+  IngestDBGeneratedFileTest() {
     ingest_opts.allow_db_generated_files = true;
     ingest_opts.move_files = false;
     ingest_opts.verify_checksums_before_ingest = GetParam();
@@ -3741,10 +3741,10 @@ class IngestLiveDBFileTest : public ExternalSSTFileTestBase,
   IngestExternalFileOptions ingest_opts;
 };
 
-INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestLiveDBFileTest,
+INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestDBGeneratedFileTest,
                         testing::Bool());
 
-TEST_P(IngestLiveDBFileTest, FailureCase) {
+TEST_P(IngestDBGeneratedFileTest, FailureCase) {
   // Ingesting overlapping data should always fail.
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
@@ -3922,18 +3922,18 @@ TEST_P(IngestLiveDBFileTest, FailureCase) {
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
-class IngestLiveDBFileTest2
+class IngestDBGeneratedFileTest2
     : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
  public:
-  IngestLiveDBFileTest2() = default;
+  IngestDBGeneratedFileTest2() = default;
 };
 
-INSTANTIATE_TEST_CASE_P(VaryingOptions, IngestLiveDBFileTest2,
+INSTANTIATE_TEST_CASE_P(VaryingOptions, IngestDBGeneratedFileTest2,
                         testing::Combine(testing::Bool(), testing::Bool(),
                                          testing::Bool(), testing::Bool()));
 
-TEST_P(IngestLiveDBFileTest2, NotOverlapWithDB) {
+TEST_P(IngestDBGeneratedFileTest2, NotOverlapWithDB) {
   // Use a separate column family to sort some data, generate multiple SST
   // files. Then ingest these files into another column family or DB. The data
   // to be ingested does not overlap with existing data.
