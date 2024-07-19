@@ -101,9 +101,6 @@ enum NewFileCustomTag : uint32_t {
 
   // Forward incompatible (aka unignorable) fields
   kPathId,
-  // Older versions of RocksDB won't know how to correctly read this file
-  // with global sequence number.
-  kIgnoreSeqnoInFile,
 };
 
 class VersionSet;
