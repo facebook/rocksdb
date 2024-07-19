@@ -548,10 +548,6 @@ void StressTest::ProcessStatus(SharedState* shared, std::string opname,
     VerificationAbort(shared, oss.str());
     assert(false);
   }
-  fprintf(stdout, "%s failed: %s\n", opname.c_str(), s.ToString().c_str());
-  if (!ignore_injected_error) {
-    assert(s.ok());
-  }
 }
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg) const {

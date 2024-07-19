@@ -3885,9 +3885,8 @@ INSTANTIATE_TEST_CASE_P(VaryingOptions, IngestLiveDBFileTest2,
 
 TEST_P(IngestLiveDBFileTest2, NotOverlapWithDB) {
   // Use a separate column family to sort some data, generate multiple SST
-  // files. Then ingest these files into another column family or DB (stress
-  // test covers ingesting a single file into a separate DB). The data to be
-  // ingested does not overlap with existing data.
+  // files. Then ingest these files into another column family or DB. The data
+  // to be ingested does not overlap with existing data.
   IngestExternalFileOptions ingest_opts;
   ingest_opts.from_live_db = true;
   ingest_opts.snapshot_consistency = std::get<0>(GetParam());

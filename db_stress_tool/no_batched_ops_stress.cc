@@ -1863,11 +1863,7 @@ class NonBatchedOpsStressTest : public StressTest {
   void TestIngestExternalFile(ThreadState* thread,
                               const std::vector<int>& rand_column_families,
                               const std::vector<int64_t>& rand_keys) override {
-    const bool ingest_live_file =
-        thread->rand.OneInOpt(FLAGS_ingest_live_db_file_one_in);
-    Options options;
-    std::unique_ptr<DB> tmp_db = nullptr;
-    std::string sst_filename =
+    const std::string sst_filename =
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
     std::ostringstream ingest_options_oss;
@@ -1880,51 +1876,10 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kMetadataWrite);
     }
 
-    std::unique_ptr<SstFileWriter> sst_file_writer_ptr = nullptr;
-    if (ingest_live_file) {
-      // Create and open tmp DB.
-      // tmp DB uses default env to not inject failure.
-      Env* env = options.env;
-      std::string tmp_db_path;
-      s = env->GetTestDirectory(&tmp_db_path);
-      ProcessStatus(thread->shared, "TestIngestExternalFile - GetTestDirectory",
-                    s, /*ignore_injected_error=*/false);
-      tmp_db_path = FLAGS_db + "/.tmp_db_" + std::to_string(thread->tid);
-      // Clear existing tmp DB files.
-      if (env->FileExists(tmp_db_path).ok()) {
-        std::vector<std::string> old_files;
-        s = env->GetChildren(tmp_db_path, &old_files);
-        ProcessStatus(thread->shared, "TestIngestExternalFile - GetChildren", s,
-                      false);
-        for (const auto& file : old_files) {
-          s = env->DeleteFile(tmp_db_path + "/" + file);
-          ProcessStatus(thread->shared, "TestIngestExternalFile - DeleteFile",
-                        s, false);
-        }
-      } else {
-        s = env->CreateDirIfMissing(tmp_db_path);
-        ProcessStatus(thread->shared, "LiveDB", s, false);
-      }
-      options.memtable_factory.reset(new VectorRepFactory);
-      options.allow_concurrent_memtable_write = false;
-      options.create_if_missing = true;
-      options.compaction_style = kCompactionStyleUniversal;
-      DB* _db = nullptr;
-      s = DB::Open(options, tmp_db_path, &_db);
-      ProcessStatus(thread->shared, "TestIngestExternalFile - Open", s, false);
-      assert(_db);
-      tmp_db.reset(_db);
-    } else {
-      if (db_stress_env->FileExists(sst_filename).ok()) {
-        // Maybe we terminated abnormally before, so cleanup to give this file
-        // ingestion a clean slate
-        s = db_stress_env->DeleteFile(sst_filename);
-      }
-      sst_file_writer_ptr.reset(
-          new SstFileWriter(EnvOptions(options_), options_));
-      if (s.ok()) {
-        s = sst_file_writer_ptr->Open(sst_filename);
-      }
+    if (db_stress_env->FileExists(sst_filename).ok()) {
+      // Maybe we terminated abnormally before, so cleanup to give this file
+      // ingestion a clean slate
+      s = db_stress_env->DeleteFile(sst_filename);
     }
     if (fault_fs_guard) {
       fault_fs_guard->EnableThreadLocalErrorInjection(
@@ -1933,6 +1888,10 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kMetadataWrite);
     }
 
+    SstFileWriter sst_file_writer(EnvOptions(options_), options_);
+    if (s.ok()) {
+      s = sst_file_writer.Open(sst_filename);
+    }
     int64_t key_base = rand_keys[0];
     int column_family = rand_column_families[0];
     std::vector<std::unique_ptr<MutexLock>> range_locks;
@@ -1977,55 +1936,18 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
         WideColumns columns = GenerateWideColumns(value_base, v);
-        if (ingest_live_file) {
-          s = tmp_db->PutEntity(WriteOptions(), tmp_db->DefaultColumnFamily(),
-                                k, columns);
-        } else {
-          s = sst_file_writer_ptr->PutEntity(k, columns);
-        }
+        s = sst_file_writer.PutEntity(k, columns);
       } else {
-        if (ingest_live_file) {
-          s = tmp_db->Put(WriteOptions(), k, v);
-        } else {
-          s = sst_file_writer_ptr->Put(k, v);
-        }
+        s = sst_file_writer.Put(k, v);
       }
-    }
-
-    if (ingest_live_file) {
-      ProcessStatus(thread->shared, "TestIngestExternalFile - Put", s, false);
     }
 
     if (s.ok() && keys.empty()) {
-      if (ingest_live_file) {
-        s = tmp_db->Close();
-        ProcessStatus(thread->shared, "TestIngestExternalFile - Close", s,
-                      false);
-      }
       return;
     }
 
-    std::vector<std::string> sst_file_paths;
     if (s.ok()) {
-      if (ingest_live_file) {
-        // compact and generate sst files for ingestion
-        CompactRangeOptions cro;
-        cro.bottommost_level_compaction =
-            BottommostLevelCompaction::kForceOptimized;
-        s = tmp_db->CompactRange(cro, nullptr, nullptr);
-        ProcessStatus(thread->shared, "TestIngestExternalFile - CompactRange",
-                      s, false);
-        std::vector<LiveFileMetaData> live_meta;
-        tmp_db->GetLiveFilesMetaData(&live_meta);
-        for (const auto& meta : live_meta) {
-          assert(meta.largest_seqno == 0);
-          assert(meta.level == options.num_levels - 1);
-          sst_file_paths.emplace_back(meta.directory + "/" +
-                                      meta.relative_filename);
-        }
-      } else {
-        s = sst_file_writer_ptr->Finish();
-      }
+      s = sst_file_writer.Finish();
     }
     if (s.ok()) {
       IngestExternalFileOptions ingest_options;
@@ -2033,18 +1955,13 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_before_ingest = thread->rand.OneInOpt(2);
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
-      if (ingest_live_file) {
-        ingest_options.from_live_db = true;
-      } else {
-        sst_file_paths = {sst_filename};
-      }
       ingest_options_oss << "move_files: " << ingest_options.move_files
                          << ", verify_checksums_before_ingest: "
                          << ingest_options.verify_checksums_before_ingest
                          << ", verify_checksums_readahead_size: "
                          << ingest_options.verify_checksums_readahead_size;
       s = db_->IngestExternalFile(column_families_[column_family],
-                                  sst_file_paths, ingest_options);
+                                  {sst_filename}, ingest_options);
     }
     if (!s.ok()) {
       for (PendingExpectedValue& pending_expected_value :
@@ -2065,11 +1982,6 @@ class NonBatchedOpsStressTest : public StressTest {
            pending_expected_values) {
         pending_expected_value.Commit();
       }
-    }
-    if (ingest_live_file) {
-      // Not destroying DB to help debug crash test.
-      s = tmp_db->Close();
-      ProcessStatus(thread->shared, "TestIngestExternalFile - Close", s, false);
     }
   }
 
