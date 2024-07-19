@@ -1562,10 +1562,6 @@ Status DBImpl::CompactFilesImpl(
   compaction_job.Prepare();
 
   mutex_.Unlock();
-  if (compaction_job_info != nullptr) {
-    BuildCompactionJobInfo(cfd, c.get(), s, compaction_job_stats,
-                           job_context->job_id, compaction_job_info);
-  }
   TEST_SYNC_POINT("CompactFilesImpl:0");
   TEST_SYNC_POINT("CompactFilesImpl:1");
   // Ignore the status here, as it will be checked in the Install down below...
@@ -1598,6 +1594,13 @@ Status DBImpl::CompactFilesImpl(
   }
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
+
+  mutex_.Unlock();
+  if (compaction_job_info != nullptr) {
+    BuildCompactionJobInfo(cfd, c.get(), s, compaction_job_stats,
+                           job_context->job_id, compaction_job_info);
+  }
+  mutex_.Lock();
 
   if (status.ok()) {
     // Done
