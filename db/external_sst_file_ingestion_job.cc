@@ -627,10 +627,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     DeleteInternalFiles();
     consumed_seqno_count_ = 0;
     files_overlap_ = false;
-  } else if (status.ok() && ingestion_options_.move_files &&
-             !ingestion_options_.allow_db_generated_files) {
+  } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
-    // If files are from a live DB, we should not remove them.
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
       if (!s.ok()) {
