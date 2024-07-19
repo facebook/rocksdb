@@ -3727,14 +3727,13 @@ INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
                                         std::make_tuple(true, true),
                                         std::make_tuple(false, false)));
 
-class IngestLiveDBFileTest
-    : public ExternalSSTFileTestBase,
-      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+class IngestLiveDBFileTest : public ExternalSSTFileTestBase,
+                             public ::testing::WithParamInterface<bool> {
  public:
   IngestLiveDBFileTest() {
     ingest_opts.from_live_db = true;
-    ingest_opts.move_files = std::get<0>(GetParam());
-    ingest_opts.verify_checksums_before_ingest = std::get<1>(GetParam());
+    ingest_opts.move_files = false;
+    ingest_opts.verify_checksums_before_ingest = GetParam();
     ingest_opts.snapshot_consistency = false;
   }
 
@@ -3743,7 +3742,7 @@ class IngestLiveDBFileTest
 };
 
 INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestLiveDBFileTest,
-                        testing::Combine(testing::Bool(), testing::Bool()));
+                        testing::Bool());
 
 TEST_P(IngestLiveDBFileTest, FailureCase) {
   if (encrypted_env_ && ingest_opts.move_files) {
@@ -3849,12 +3848,22 @@ TEST_P(IngestLiveDBFileTest, FailureCase) {
       }
     }
     ASSERT_TRUE(cf1_file_found);
+
     const Snapshot* snapshot = db_->GetSnapshot();
     ingest_opts.snapshot_consistency = true;
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     // snapshot_consistency with snapshot will assign a newest sequence number.
     ASSERT_TRUE(s.ToString().find(err) != std::string::npos);
     ASSERT_NOK(s);
+
+    ingest_opts.move_files = true;
+    s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
+    ingest_opts.move_files = false;
+    ASSERT_TRUE(s.ToString().find(
+                    "Options move_files and from_live_db are not compatible") !=
+                std::string::npos);
+    ASSERT_NOK(s);
+
     ingest_opts.snapshot_consistency = false;
     ASSERT_OK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
     db_->ReleaseSnapshot(snapshot);
@@ -3889,6 +3898,7 @@ TEST_P(IngestLiveDBFileTest2, NotOverlapWithDB) {
   // to be ingested does not overlap with existing data.
   IngestExternalFileOptions ingest_opts;
   ingest_opts.from_live_db = true;
+  ingest_opts.move_files = false;
   ingest_opts.snapshot_consistency = std::get<0>(GetParam());
   ingest_opts.allow_global_seqno = std::get<1>(GetParam());
   ingest_opts.allow_blocking_flush = std::get<2>(GetParam());
