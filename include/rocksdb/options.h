@@ -2197,7 +2197,7 @@ struct IngestExternalFileOptions {
   // files.
   // Warning: If a DB contains files ingested from a live DB, RepairDB()
   // may not correctly recover these files. It may lose these files.
-  bool from_live_db = false;
+  bool allow_db_generated_files = false;
 };
 
 enum TraceFilterType : uint64_t {

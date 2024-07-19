@@ -3731,7 +3731,7 @@ class IngestLiveDBFileTest : public ExternalSSTFileTestBase,
                              public ::testing::WithParamInterface<bool> {
  public:
   IngestLiveDBFileTest() {
-    ingest_opts.from_live_db = true;
+    ingest_opts.allow_db_generated_files = true;
     ingest_opts.move_files = false;
     ingest_opts.verify_checksums_before_ingest = GetParam();
     ingest_opts.snapshot_consistency = false;
@@ -3801,8 +3801,8 @@ TEST_P(IngestLiveDBFileTest, FailureCase) {
     to_ingest_files[0] =
         live_meta[0].directory + "/" + live_meta[0].relative_filename;
 
-    ingest_opts.from_live_db = false;
-    // Ingesting a file from live_db with from_live_db = false;
+    ingest_opts.allow_db_generated_files = false;
+    // Ingesting a DB genrate file with allow_db_generated_files = false;
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     ASSERT_TRUE(s.ToString().find("External file version not found") !=
                 std::string::npos);
@@ -3810,8 +3810,8 @@ TEST_P(IngestLiveDBFileTest, FailureCase) {
 
     const std::string err =
         "An ingested file is assigned to a non-zero sequence number, which is "
-        "incompatiblewith ingestion option from_live_db";
-    ingest_opts.from_live_db = true;
+        "incompatible with ingestion option allow_db_generated_files";
+    ingest_opts.allow_db_generated_files = true;
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     ASSERT_TRUE(s.ToString().find(err) != std::string::npos);
     ASSERT_NOK(s);
@@ -3828,7 +3828,7 @@ TEST_P(IngestLiveDBFileTest, FailureCase) {
     ingest_opts.write_global_seqno = true;
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     ASSERT_TRUE(s.ToString().find("write_global_seqno is deprecated and does "
-                                  "not work with from_live_db") !=
+                                  "not work with allow_db_generated_files") !=
                 std::string::npos);
     ASSERT_NOK(s);
     ingest_opts.write_global_seqno = false;
@@ -3859,9 +3859,9 @@ TEST_P(IngestLiveDBFileTest, FailureCase) {
     ingest_opts.move_files = true;
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     ingest_opts.move_files = false;
-    ASSERT_TRUE(s.ToString().find(
-                    "Options move_files and from_live_db are not compatible") !=
-                std::string::npos);
+    ASSERT_TRUE(
+        s.ToString().find("Options move_files and allow_db_generated_files are "
+                          "not compatible") != std::string::npos);
     ASSERT_NOK(s);
 
     ingest_opts.snapshot_consistency = false;
@@ -3897,7 +3897,7 @@ TEST_P(IngestLiveDBFileTest2, NotOverlapWithDB) {
   // files. Then ingest these files into another column family or DB. The data
   // to be ingested does not overlap with existing data.
   IngestExternalFileOptions ingest_opts;
-  ingest_opts.from_live_db = true;
+  ingest_opts.allow_db_generated_files = true;
   ingest_opts.move_files = false;
   ingest_opts.snapshot_consistency = std::get<0>(GetParam());
   ingest_opts.allow_global_seqno = std::get<1>(GetParam());

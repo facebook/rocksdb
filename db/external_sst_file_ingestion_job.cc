@@ -49,7 +49,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     if (file_to_ingest.cf_id !=
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
         file_to_ingest.cf_id != cfd_->GetID() &&
-        !ingestion_options_.from_live_db) {
+        !ingestion_options_.allow_db_generated_files) {
       return Status::InvalidArgument(
           "External file column family id don't match");
     }
@@ -114,7 +114,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::string path_inside_db = TableFileName(
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
     if (ingestion_options_.move_files) {
-      assert(!ingestion_options_.from_live_db);
+      assert(!ingestion_options_.allow_db_generated_files);
       status =
           fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
       if (status.ok()) {
@@ -628,7 +628,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     consumed_seqno_count_ = 0;
     files_overlap_ = false;
   } else if (status.ok() && ingestion_options_.move_files &&
-             !ingestion_options_.from_live_db) {
+             !ingestion_options_.allow_db_generated_files) {
     // The files were moved and added successfully, remove original file links
     // If files are from a live DB, we should not remove them.
     for (IngestedFileInfo& f : files_to_ingest_) {
@@ -710,7 +710,7 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
   // Get table version
   auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
   if (version_iter == uprops.end()) {
-    if (!ingestion_options_.from_live_db) {
+    if (!ingestion_options_.allow_db_generated_files) {
       return Status::Corruption("External file version not found");
     } else {
       // 0 is special version for when a file from live DB does not have the
@@ -747,7 +747,7 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
           "External SST file V1 does not support global seqno");
     }
   } else if (file_to_ingest->version == 0) {
-    // from_live_db is true
+    // allow_db_generated_files is true
     assert(seqno_iter == uprops.end());
     file_to_ingest->original_seqno = 0;
     file_to_ingest->global_seqno_offset = 0;
@@ -1078,11 +1078,10 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     }
   }
 
-  if (ingestion_options_.from_live_db && *assigned_seqno != 0) {
+  if (ingestion_options_.allow_db_generated_files && *assigned_seqno != 0) {
     return Status::InvalidArgument(
         "An ingested file is assigned to a non-zero sequence number, which is "
-        "incompatible"
-        "with ingestion option from_live_db.");
+        "incompatible with ingestion option allow_db_generated_files.");
   }
   return status;
 }
