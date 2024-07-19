@@ -872,6 +872,12 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       return Status::Corruption("Corrupted key in external file. ",
                                 pik_status.getState());
     }
+    // For SST files from live db, we only support ingestion if all keys have
+    // zero sequence number and there are no duplicate keys. However, without
+    // scanning the input file, we can only check their boundary keys. To
+    // support ingesting such files, our code base needs to be able to handle
+    // duplicate keys with the same user key and sequence number. The block
+    // look up path assumes there is no duplicate key which also has to change.
     if (key.sequence != 0) {
       return Status::Corruption("External file has non zero sequence number");
     }
@@ -1066,10 +1072,18 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
           "Column family enables user-defined timestamps, please make sure the "
           "key range (without timestamp) of external file does not overlap "
           "with key range (without timestamp) in the db");
+      return status;
     }
     if (*assigned_seqno == 0) {
       *assigned_seqno = last_seqno + 1;
     }
+  }
+
+  if (ingestion_options_.from_live_db && *assigned_seqno != 0) {
+    return Status::InvalidArgument(
+        "An ingested file is assigned to a non-zero sequence number, which is "
+        "incompatible"
+        "with ingestion option from_live_db.");
   }
   return status;
 }
