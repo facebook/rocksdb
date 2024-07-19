@@ -640,7 +640,7 @@ Status DBImpl::Recover(
                            f->fd.smallest_seqno, f->fd.largest_seqno,
                            f->marked_for_compaction,
                            f->temperature,  // this can be different from
-                                            // `last_level_temperature`
+                           // `last_level_temperature`
                            f->oldest_blob_file_number, f->oldest_ancester_time,
                            f->file_creation_time, f->epoch_number,
                            f->file_checksum, f->file_checksum_func_name,
