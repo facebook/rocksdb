@@ -48,38 +48,24 @@ struct TableReaderOptions {
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
-        unique_id(_unique_id),
-        cur_db_session_id(_cur_db_session_id),
-        block_cache_tracer(_block_cache_tracer),
-        largest_seqno(_largest_seqno),
-        cur_file_num(_cur_file_num),
-        tail_size(_tail_size),
-        max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin),
-        level(_level),
-        block_protection_bytes_per_key(_block_protection_bytes_per_key),
         skip_filters(_skip_filters),
         immortal(_immortal),
         force_direct_prefetch(_force_direct_prefetch),
+        level(_level),
+        largest_seqno(_largest_seqno),
+        block_cache_tracer(_block_cache_tracer),
+        max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin),
+        cur_db_session_id(_cur_db_session_id),
+        cur_file_num(_cur_file_num),
+        unique_id(_unique_id),
+        block_protection_bytes_per_key(_block_protection_bytes_per_key),
+        tail_size(_tail_size),
         user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
+
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
-  // Known unique_id or {}, kNullUniqueId64x2 means unknown
-  UniqueId64x2 unique_id;
-  std::string cur_db_session_id;
-  BlockCacheTracer* const block_cache_tracer;
-  // largest seqno in the table (or 0 means unknown???)
-  SequenceNumber largest_seqno;
-  uint64_t cur_file_num;
-  uint64_t tail_size;
-  // Largest L0 file size whose meta-blocks may be pinned (can be zero when
-  // unknown).
-  const size_t max_file_size_for_l0_meta_pin;
-  // What level this table/file is on, -1 for "not set, don't know." Used
-  // for level-specific statistics.
-  int level;
-  uint8_t block_protection_bytes_per_key;
   // This is only used for BlockBasedTable (reader)
   bool skip_filters;
   // Whether the table will be valid as long as the DB is open
@@ -88,6 +74,27 @@ struct TableReaderOptions {
   // fetch into RocksDB's buffer, rather than relying
   // RandomAccessFile::Prefetch().
   bool force_direct_prefetch;
+  // What level this table/file is on, -1 for "not set, don't know." Used
+  // for level-specific statistics.
+  int level;
+  // largest seqno in the table (or 0 means unknown???)
+  SequenceNumber largest_seqno;
+  BlockCacheTracer* const block_cache_tracer;
+  // Largest L0 file size whose meta-blocks may be pinned (can be zero when
+  // unknown).
+  const size_t max_file_size_for_l0_meta_pin;
+
+  std::string cur_db_session_id;
+
+  uint64_t cur_file_num;
+
+  // Known unique_id or {}, kNullUniqueId64x2 means unknown
+  UniqueId64x2 unique_id;
+
+  uint8_t block_protection_bytes_per_key;
+
+  uint64_t tail_size;
+
   // Whether the key in the table contains user-defined timestamps.
   bool user_defined_timestamps_persisted;
 };

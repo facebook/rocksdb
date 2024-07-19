@@ -205,6 +205,16 @@ struct FileMetaData {
   // next level covered by range tombstones in this file.
   uint64_t compensated_range_deletion_size = 0;
 
+  int refs = 0;  // Reference count
+
+  bool being_compacted = false;       // Is this file undergoing compaction?
+  bool init_stats_from_file = false;  // true if the data-entry stats of this
+                                      // file has initialized from file.
+
+  bool marked_for_compaction = false;  // True if client asked us nicely to
+                                       // compact this file.
+  Temperature temperature = Temperature::kUnknown;
+
   // Used only in BlobDB. The file number of the oldest blob file this SST file
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
@@ -243,16 +253,6 @@ struct FileMetaData {
   // "Tail" refers to all blocks after data blocks till the end of the SST file
   uint64_t tail_size = 0;
 
-  int refs = 0;  // Reference count
-  Temperature temperature = Temperature::kUnknown;
-
-  bool being_compacted = false;       // Is this file undergoing compaction?
-  bool init_stats_from_file = false;  // true if the data-entry stats of this
-                                      // file has initialized from file.
-
-  bool marked_for_compaction = false;  // True if client asked us nicely to
-                                       // compact this file.
-
   // Value of the `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
   // flag when the file is created. Default to true, only when this flag is
   // false, it's explicitly written to Manifest.
@@ -260,10 +260,6 @@ struct FileMetaData {
 
   FileMetaData() = default;
 
-  // When adding a new field, it is better to add it as a required parameter.
-  // There is usually no (safe) use case where you would not provide a field
-  // for FileMetaData. This avoids MANIFEST persisting wrong FileMetaData
-  // with some wrong default value for a field.
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
                const InternalKey& smallest_key, const InternalKey& largest_key,
                const SequenceNumber& smallest_seq,
@@ -279,6 +275,8 @@ struct FileMetaData {
         smallest(smallest_key),
         largest(largest_key),
         compensated_range_deletion_size(_compensated_range_deletion_size),
+        marked_for_compaction(marked_for_compact),
+        temperature(_temperature),
         oldest_blob_file_number(oldest_blob_file),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
@@ -287,8 +285,6 @@ struct FileMetaData {
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)),
         tail_size(_tail_size),
-        temperature(_temperature),
-        marked_for_compaction(marked_for_compact),
         user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
