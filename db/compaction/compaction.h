@@ -337,7 +337,6 @@ class Compaction {
   }
 
   const TablePropertiesCollection& GetInputTableProperties() const {
-    assert(!input_table_properties_.empty());
     return input_table_properties_;
   }
 
