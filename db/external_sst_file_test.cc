@@ -3997,12 +3997,15 @@ TEST_P(IngestLiveDBFileTest2, NotOverlapWithDB) {
       // miss SST files.
       ASSERT_OK(db_->DropColumnFamily(temp_cfh));
       ASSERT_OK(db_->DestroyColumnFamilyHandle(temp_cfh));
-      temp_cfh = nullptr;
       ASSERT_OK(db2->Close());
+      delete db2;
       ASSERT_OK(DB::Open(db2_options, db2_path, &db2));
       ASSERT_OK(db2->Close());
       delete db2;
       ASSERT_OK(DestroyDB(db2_path, db2_options));
+    } else {
+      ASSERT_OK(db_->DropColumnFamily(temp_cfh));
+      ASSERT_OK(db_->DestroyColumnFamilyHandle(temp_cfh));
     }
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
