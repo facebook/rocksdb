@@ -222,8 +222,7 @@ Status ImportColumnFamilyJob::Run() {
           kUnknownFileChecksum, kUnknownFileChecksumFuncName, f.unique_id, 0,
           tail_size,
           static_cast<bool>(
-              f.table_properties.user_defined_timestamps_persisted),
-          /*ignore_seqno_in_file=*/false);
+              f.table_properties.user_defined_timestamps_persisted));
       s = dummy_version_builder.Apply(&dummy_version_edit);
     }
     if (s.ok()) {
@@ -330,14 +329,11 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // TODO(yuzhangyu): User-defined timestamps doesn't support importing column
   //  family. Pass in the correct `user_defined_timestamps_persisted` flag for
   //  creating `TableReaderOptions` when the support is there.
-  // TODO: ignore_seqno_in_file is not available, import column family
-  //  does not work with files ingested from live DB.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
           sv->mutable_cf_options.block_protection_bytes_per_key,
-          /*_ignore_seqno_in_file=*/false,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,

@@ -31,19 +31,15 @@ class Slice;
 class Status;
 
 struct TableReaderOptions {
-  // @param ignore_seqno_in_file If true, use largest_seqno of the file for
-  // reading keys in the file. This should only be used for files ingested from
-  // a live DB (FileMetaData::ignore_seqno_in_file is true).
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(
       const ImmutableOptions& _ioptions,
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
       const EnvOptions& _env_options,
       const InternalKeyComparator& _internal_comparator,
-      uint8_t _block_protection_bytes_per_key, bool _ignore_seqno_in_file,
-      bool _skip_filters = false, bool _immortal = false,
-      bool _force_direct_prefetch = false, int _level = -1,
-      BlockCacheTracer* const _block_cache_tracer = nullptr,
+      uint8_t _block_protection_bytes_per_key, bool _skip_filters = false,
+      bool _immortal = false, bool _force_direct_prefetch = false,
+      int _level = -1, BlockCacheTracer* const _block_cache_tracer = nullptr,
       size_t _max_file_size_for_l0_meta_pin = 0,
       const std::string& _cur_db_session_id = "", uint64_t _cur_file_num = 0,
       UniqueId64x2 _unique_id = {}, SequenceNumber _largest_seqno = 0,
@@ -64,8 +60,7 @@ struct TableReaderOptions {
         skip_filters(_skip_filters),
         immortal(_immortal),
         force_direct_prefetch(_force_direct_prefetch),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
-        ignore_seqno_in_file(_ignore_seqno_in_file) {}
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
   const EnvOptions& env_options;
@@ -95,7 +90,6 @@ struct TableReaderOptions {
   bool force_direct_prefetch;
   // Whether the key in the table contains user-defined timestamps.
   bool user_defined_timestamps_persisted;
-  bool ignore_seqno_in_file;
 };
 
 struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {

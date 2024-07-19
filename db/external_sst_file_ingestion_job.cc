@@ -477,8 +477,7 @@ Status ExternalSstFileIngestionJob::Run() {
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),
         f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size,
-        f.user_defined_timestamps_persisted,
-        /*_ignore_seqno_in_file=*/ingestion_options_.from_live_db);
+        f.user_defined_timestamps_persisted);
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -687,7 +686,6 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
           sv->mutable_cf_options.block_protection_bytes_per_key,
-          /*_ignore_seqno_in_file=*/false,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,

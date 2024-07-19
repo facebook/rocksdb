@@ -100,7 +100,7 @@ class BlockBasedTable : public TableReader {
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      uint8_t block_protection_bytes_per_key, bool ignore_seqno_in_file,
+      uint8_t block_protection_bytes_per_key,
       std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
@@ -494,8 +494,7 @@ class BlockBasedTable : public TableReader {
   Status ReadPropertiesBlock(const ReadOptions& ro,
                              FilePrefetchBuffer* prefetch_buffer,
                              InternalIterator* meta_iter,
-                             const SequenceNumber largest_seqno,
-                             bool ignore_seqno_in_file);
+                             const SequenceNumber largest_seqno);
   Status ReadRangeDelBlock(const ReadOptions& ro,
                            FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* meta_iter,
