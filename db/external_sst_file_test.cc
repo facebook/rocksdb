@@ -3745,13 +3745,6 @@ INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestLiveDBFileTest,
                         testing::Bool());
 
 TEST_P(IngestLiveDBFileTest, FailureCase) {
-  if (encrypted_env_ && ingest_opts.move_files) {
-    ROCKSDB_GTEST_SKIP(
-        "Encrypted env and move_files do not work together as we reopen the "
-        "file after linking it, which would append an extra encryption "
-        "prefix.");
-    return;
-  }
   // Ingesting overlapping data should always fail.
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
@@ -3789,6 +3782,54 @@ TEST_P(IngestLiveDBFileTest, FailureCase) {
         s.ToString().find("External file has non zero sequence number") !=
         std::string::npos);
     ASSERT_NOK(s);
+
+    {
+      // Only non-boundary key with non-zero seqno.
+      const Snapshot* snapshot = db_->GetSnapshot();
+      ASSERT_OK(Put(1, Key(70), "cf1_" + Key(70)));
+      ASSERT_OK(Flush(1));
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction =
+          BottommostLevelCompaction::kForceOptimized;
+      ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+
+      // Verify that only the non-boundary key of the file has non-zero seqno.
+      std::vector<std::vector<FileMetaData>> metadata;
+      // File may be at different level for different options.
+      dbfull()->TEST_GetFilesMetaData(handles_[1], &metadata, nullptr);
+      bool found_file = false;
+      for (const auto& level : metadata) {
+        if (level.empty()) {
+          continue;
+        }
+        ASSERT_FALSE(found_file);
+        found_file = true;
+        ASSERT_EQ(1, level.size());
+        const FileMetaData& file = level[0];
+        ValueType vtype;
+        SequenceNumber seq;
+        UnPackSequenceAndType(ExtractInternalKeyFooter(file.largest.Encode()),
+                              &seq, &vtype);
+        ASSERT_EQ(seq, 0);
+        UnPackSequenceAndType(ExtractInternalKeyFooter(file.smallest.Encode()),
+                              &seq, &vtype);
+        ASSERT_EQ(seq, 0);
+        ASSERT_GT(file.fd.largest_seqno, 0);
+      }
+      ASSERT_TRUE(found_file);
+      live_meta.clear();
+      db_->GetLiveFilesMetaData(&live_meta);
+      ASSERT_EQ(live_meta.size(), 1);
+      to_ingest_files[0] =
+          live_meta[0].directory + "/" + live_meta[0].relative_filename;
+      s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
+      ASSERT_NOK(s);
+      ASSERT_TRUE(
+          s.ToString().find(
+              "External file has a key with non zero sequence number") !=
+          std::string::npos);
+      db_->ReleaseSnapshot(snapshot);
+    }
 
     CompactRangeOptions cro;
     cro.bottommost_level_compaction =

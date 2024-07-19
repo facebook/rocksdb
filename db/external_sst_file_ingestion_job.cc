@@ -871,12 +871,6 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       return Status::Corruption("Corrupted key in external file. ",
                                 pik_status.getState());
     }
-    // For SST files from live db, we only support ingestion if all keys have
-    // zero sequence number and there are no duplicate keys. However, without
-    // scanning the input file, we can only check their boundary keys. To
-    // support ingesting such files, our code base needs to be able to handle
-    // duplicate keys with the same user key and sequence number. The block
-    // look up path assumes there is no duplicate key which also has to change.
     if (key.sequence != 0) {
       return Status::Corruption("External file has non zero sequence number");
     }
@@ -922,6 +916,25 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   } else if (!iter->status().ok()) {
     return iter->status();
   }
+  if (ingestion_options_.allow_db_generated_files) {
+    // Verify that all keys have seqno zero.
+    // TODO: store largest seqno in table property and validate it instead.
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      Status pik_status =
+          ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+      if (!pik_status.ok()) {
+        return Status::Corruption("Corrupted key in external file. ",
+                                  pik_status.getState());
+      }
+      if (key.sequence != 0) {
+        return Status::NotSupported(
+            "External file has a key with non zero sequence number.");
+      }
+    }
+    if (!iter->status().ok()) {
+      return iter->status();
+    }
+  }
 
   std::unique_ptr<InternalIterator> range_del_iter(
       table_reader->NewRangeTombstoneIterator(ro));
@@ -936,6 +949,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       if (!pik_status.ok()) {
         return Status::Corruption("Corrupted key in external file. ",
                                   pik_status.getState());
+      }
+      if (key.sequence != 0) {
+        return Status::Corruption(
+            "External file has a range deletion with non zero sequence "
+            "number.");
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 
