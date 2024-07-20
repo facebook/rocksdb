@@ -148,11 +148,7 @@ MultiTenantRateLimiter::~MultiTenantRateLimiter() {
 }
 
 // This API allows user to dynamically change rate limiter's bytes per second.
-// TODO(tgriggs): find where this is actually used in code, does it break our assumptions about resource limits?
 void MultiTenantRateLimiter::SetBytesPerSecond(std::vector<int64_t> bytes_per_second) {
-  // if (read_rate_limiter_ != nullptr) {
-  //   read_rate_limiter_->SetBytesPerSecond(client_id, bytes_per_second);
-  // }
   MutexLock g(&request_mutex_);
   SetBytesPerSecondLocked(bytes_per_second);
 }
@@ -175,18 +171,10 @@ void MultiTenantRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
 void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
   (void) bytes_per_second;
   std::cout << "[TGRIGGS_LOG] Deprecated 'SetBytesPerSecondLocked'.\n";
-  // assert(bytes_per_second > 0);
-  // rate_bytes_per_sec_.store(bytes_per_second, std::memory_order_relaxed);
-  // refill_bytes_per_period_.store(
-  //     CalculateRefillBytesPerPeriodLocked(bytes_per_second),
-  //     std::memory_order_relaxed);
 }
 
 int64_t MultiTenantRateLimiter::GetSingleBurstBytes() const {
   int client_id = TG_GetThreadMetadata().client_id;
-  // if (client_id == 0) {
-  //   std::cout << "[TGRIGGS_LOG] Call to GetSingleBurstBytes() has un-assigned id" << std::endl;
-  // }
   return GetSingleBurstBytes(client_id);
 }
 
@@ -275,7 +263,6 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   if (cid == 0) {
     unassigned_calls_++;
     unassigned_bytes_ += bytes;
-    // std::cout << "[TGRIGGS_LOG] Call to Request() has unassigned client id: " << bytes << " bytes" << std::endl;
     // TGprintStackTrace();
     return;
   }
@@ -285,7 +272,6 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   }
   int client_idx = ClientId2ClientIdx(cid);
   
-  // TODO(tgriggs): Don't block flushes (for now) -- just go into deficit
   calls_per_client_[client_idx]++;
   bytes_per_client_[client_idx] += bytes;
   if (total_calls_++ >= 10000) {
@@ -335,9 +321,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Request cannot be satisfied at this moment, enqueue.
   Req req(bytes, &request_mutex_);
 
-  // std::cout << "[TGRIGGS_LOG] Pushing back for client_idx,pri,bytes: " << client_idx << "," << pri << "," << bytes << std::endl;
   request_queue_map_[ReqKey(client_idx, pri)].push_back(&req);
-  // queue_[pri].push_back(&r);
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
                            &request_mutex_);
   // A thread representing a queued request coordinates with other such threads.
@@ -454,23 +438,15 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
       "MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked", &request_mutex_);
   next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
 
-  // Carry over the left over quota from the last period
-  // TODO(tgriggs): don't understand how this ^^ is happening in the code below??
   std::vector<int64_t> refill_bytes_per_period;
   for (int i = 0; i < num_clients_; ++i) {
     refill_bytes_per_period.push_back(refill_bytes_per_period_[i].load(std::memory_order_relaxed));
   }
 
-  // TODO(tgriggs): We make partial grants, so at least one of the queued clients
-  //                will have 0 available bytes, but not all of them.
-  // assert(available_bytes_ == 0);
-
-  // std::cout << "[TGRIGS_LOG] Refilling client allocations\n";
   for (int c_idx = 0; c_idx < num_clients_; ++c_idx) {
     int64_t refreshed_bytes = available_bytes_[c_idx] + refill_bytes_per_period[c_idx];
     int client_id = ClientIdx2ClientId(c_idx);
     available_bytes_[c_idx] = std::min(refreshed_bytes, GetSingleBurstBytes(client_id));
-    // std::cout << "[TGRIGGS_LOG] Client idx " << c_idx << " is at " << available_bytes_[c_idx] << std::endl;
   }
 
   // 1) iterate through clients
@@ -492,11 +468,9 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
           available_bytes_[client_idx] = 0;
           break;
         }
-        // std::cout << "[TGRIGGS_LOG] Finished client_idx,pri,bytes: " << client_idx << "," << priority << "," << next_req->request_bytes << std::endl;
         available_bytes_[client_idx] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[priority] += next_req->bytes;
-        // std::cout << "[TGRIGGS_LOG] Popping client,pri: " << i << "," << j << std::endl;
         queue->pop_front();
 
         // Quota granted, signal the thread to exit
