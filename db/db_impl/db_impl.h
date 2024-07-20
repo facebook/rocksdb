@@ -2348,6 +2348,9 @@ class DBImpl : public DB {
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
   void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
+
+  // May open and read table files for table property.
+  // Should not be called while holding mutex_.
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,

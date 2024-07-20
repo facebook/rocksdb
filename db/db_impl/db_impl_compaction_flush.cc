@@ -1595,10 +1595,12 @@ Status DBImpl::CompactFilesImpl(
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
+  mutex_.Unlock();
   if (compaction_job_info != nullptr) {
     BuildCompactionJobInfo(cfd, c.get(), s, compaction_job_stats,
                            job_context->job_id, compaction_job_info);
   }
+  mutex_.Lock();
 
   if (status.ok()) {
     // Done
@@ -4161,7 +4163,7 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->base_input_level = c->start_level();
   compaction_job_info->output_level = c->output_level();
   compaction_job_info->stats = compaction_job_stats;
-  const auto& input_table_properties = c->GetInputTableProperties();
+  const auto& input_table_properties = c->GetOrInitInputTableProperties();
   const auto& output_table_properties = c->GetOutputTableProperties();
   compaction_job_info->table_properties.insert(input_table_properties.begin(),
                                                input_table_properties.end());
