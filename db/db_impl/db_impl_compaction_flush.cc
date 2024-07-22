@@ -2306,13 +2306,15 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
+    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load() ||
+        IsRecoveryFlush(flush_reason)) {
       s = SwitchMemtable(cfd, &context);
     }
     const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-          !cached_recoverable_state_empty_.load()) {
+          !cached_recoverable_state_empty_.load() ||
+          IsRecoveryFlush(flush_reason)) {
         FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(
@@ -2489,7 +2491,7 @@ Status DBImpl::AtomicFlushMemTables(
     }
     WaitForPendingWrites();
 
-    SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds);
+    SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds, flush_reason);
 
     // Unref the newly generated candidate cfds (when not provided) in
     // `candidate_cfds`
@@ -2500,7 +2502,8 @@ Status DBImpl::AtomicFlushMemTables(
     }
 
     for (auto cfd : cfds) {
-      if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) {
+      if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load() &&
+          !IsRecoveryFlush(flush_reason)) {
         continue;
       }
       cfd->Ref();
