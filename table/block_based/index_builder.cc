@@ -203,10 +203,10 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
         separator_scratch);
     if (!seperator_is_key_plus_seq_ &&
         sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders and reset
-      // flush_policy to point to Block Builder of sub_index_builder_ that store
-      // internal keys.
+      // We need to apply !seperator_is_key_plus_seq to all sub-index builders
       seperator_is_key_plus_seq_ = true;
+      // Would associate flush_policy with the appropriate builder, but it won't
+      // be used again with no more keys
       flush_policy_.reset();
     }
     entries_.back().key.assign(sep.data(), sep.size());
@@ -240,10 +240,9 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
     entries_.back().key.assign(sep.data(), sep.size());
     if (!seperator_is_key_plus_seq_ &&
         sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders and reset
-      // flush_policy to point to Block Builder of sub_index_builder_ that store
-      // internal keys.
+      // We need to apply !seperator_is_key_plus_seq to all sub-index builders
       seperator_is_key_plus_seq_ = true;
+      // And use a flush_policy with the appropriate builder
       flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
           table_opt_.metadata_block_size, table_opt_.block_size_deviation,
           sub_index_builder_->index_block_builder_));
