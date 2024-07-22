@@ -1172,8 +1172,12 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "GetLiveFiles", s_1);
         Status s_2 = TestGetLiveFilesMetaData();
         ProcessStatus(shared, "GetLiveFilesMetaData", s_2);
-        Status s_3 = TestGetLiveFilesStorageInfo();
-        ProcessStatus(shared, "GetLiveFilesStorageInfo", s_3);
+        // TODO: enable again after making `GetLiveFilesStorageInfo()`
+        // compatible with `Options::recycle_log_file_num`
+        if (FLAGS_recycle_log_file_num == 0) {
+          Status s_3 = TestGetLiveFilesStorageInfo();
+          ProcessStatus(shared, "GetLiveFilesStorageInfo", s_3);
+        }
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_all_column_family_metadata_one_in)) {

@@ -478,6 +478,7 @@ bool IsFeatureSupported(const TableProperties& table_properties,
 }
 
 // Caller has to ensure seqno is not nullptr.
+// Set *seqno to the global sequence number for reading this file.
 Status GetGlobalSequenceNumber(const TableProperties& table_properties,
                                SequenceNumber largest_seqno,
                                SequenceNumber* seqno) {
@@ -500,12 +501,17 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   }
 
   uint32_t version = DecodeFixed32(version_pos->second.c_str());
-  if (version < 2) {
-    if (seqno_pos != props.end() || version != 1) {
-      std::array<char, 200> msg_buf;
+  if (version != 2) {
+    std::array<char, 200> msg_buf;
+    if (version != 1) {
+      snprintf(msg_buf.data(), msg_buf.max_size(),
+               "An external sst file has corrupted version %u.", version);
+      return Status::Corruption(msg_buf.data());
+    }
+    if (seqno_pos != props.end()) {
       // This is a v1 external sst file, global_seqno is not supported.
       snprintf(msg_buf.data(), msg_buf.max_size(),
-               "An external sst file with version %u have global seqno "
+               "An external sst file with version %u has global seqno "
                "property with value %s",
                version, seqno_pos->second.c_str());
       return Status::Corruption(msg_buf.data());

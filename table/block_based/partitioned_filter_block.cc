@@ -45,6 +45,9 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
       p_index_builder_(p_index_builder),
       keys_added_to_partition_(0),
       total_added_in_built_(0) {
+  // See FullFilterBlockBuilder::AddPrefix
+  need_last_prefix_ = prefix_extractor() != nullptr;
+  // Compute keys_per_partition_
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
   if (keys_per_partition_ < 1) {
@@ -86,7 +89,7 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   }
 
   // Add the prefix of the next key before finishing the partition without
-  // updating last_prefix_str_. This hack, fixes a bug with format_verison=3
+  // updating last_prefix_str_. This hack fixes a bug with format_verison=3
   // where seeking for the prefix would lead us to the previous partition.
   const bool maybe_add_prefix =
       next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
