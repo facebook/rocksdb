@@ -108,8 +108,8 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   if (filter_construction_status.ok()) {
     filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
   }
-  std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, std::move(filter_data), filter});
+  filters.push_back(
+      {p_index_builder_->GetPartitionKey(), std::move(filter_data), filter});
   if (!filter_construction_status.ok() &&
       partitioned_filters_construction_status_.ok()) {
     partitioned_filters_construction_status_ = filter_construction_status;

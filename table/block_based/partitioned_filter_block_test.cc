@@ -305,7 +305,8 @@ class PartitionedFilterBlockTest
     std::string key =
         std::string(*InternalKey(user_key, 0, ValueType::kTypeValue).rep());
     BlockHandle dont_care_block_handle(1, 1);
-    builder->AddIndexEntry(&key, nullptr, dont_care_block_handle);
+    std::string scratch;
+    builder->AddIndexEntry(key, nullptr, dont_care_block_handle, &scratch);
   }
 
   void CutABlock(PartitionedIndexBuilder* builder, const std::string& user_key,
@@ -317,7 +318,8 @@ class PartitionedFilterBlockTest
         *InternalKey(next_user_key, 0, ValueType::kTypeValue).rep());
     BlockHandle dont_care_block_handle(1, 1);
     Slice slice = Slice(next_key.data(), next_key.size());
-    builder->AddIndexEntry(&key, &slice, dont_care_block_handle);
+    std::string scratch;
+    builder->AddIndexEntry(key, &slice, dont_care_block_handle, &scratch);
   }
 
   int CountNumOfIndexPartitions(PartitionedIndexBuilder* builder) {
