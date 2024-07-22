@@ -64,6 +64,7 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
         jint key_len = bp->next_int();
         jint value_len = bp->next_int();
 
+/*
         char* key_ptr = reinterpret_cast<char*>(bp->ptr());
         try {
           bp->skip_aligned(key_len);
@@ -76,18 +77,25 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
 
         char* value_ptr = reinterpret_cast<char*>(bp->ptr());
         try {
-          bp->skip_aligned(key_len);
+          bp->skip_aligned(value_len);
         } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException& e) {
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
               env,
-              "Corrupt java native write batch ? no space for expected key");
+              "Corrupt java native write batch ? no space for expected value");
           return;
         }
 
         ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key_ptr),
                                            key_len);
         ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value_ptr),
-                                             value_len);
+                                             value_len);*/
+
+        *** TODO (AP) how to handle exceptions here ?
+        *** pass in the message to bp->slice ?
+        *** throw Java exception like KVException
+        ROCKSDB_NAMESPACE::Slice key_slice = bp->slice(key_len);
+        ROCKSDB_NAMESPACE::Slice value_slice = bp->slice(value_len);
+
         ROCKSDB_NAMESPACE::Status status = wb->Put(key_slice, value_slice);
         if (!status.ok()) {
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
