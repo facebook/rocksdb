@@ -90,9 +90,10 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
         ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value_ptr),
                                              value_len);*/
 
-        *** TODO (AP) how to handle exceptions here ?
-        *** pass in the message to bp->slice ?
-        *** throw Java exception like KVException
+        // *** TODO (AP) how to handle exceptions here ?
+        // *** pass in the message to bp->slice ?
+        // *** throw Java exception like KVException
+
         ROCKSDB_NAMESPACE::Slice key_slice = bp->slice(key_len);
         ROCKSDB_NAMESPACE::Slice value_slice = bp->slice(value_len);
 
@@ -102,6 +103,25 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
           return;
         }
       } break;
+
+      case ROCKSDB_NAMESPACE::ValueType::kTypeColumnFamilyValue: {
+        jlong jcf_handle = bp->next_long();
+        auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+        std::cout << "Column family id : " << cfh->GetID() << "\n" << std::flush;
+        std::cout << "Column family name : " << cfh->GetName() << "\n" << std::flush;
+
+        jint key_len = bp->next_int();
+        jint value_len = bp->next_int();
+        auto key_slice = bp->slice(key_len);
+        auto value_slice = bp->slice(value_len);
+
+        auto status = wb->Put(cfh, key_slice, value_slice);
+        if(!status.ok()) {
+          ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
+          return;
+        }
+      }break;
 
       default: {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(

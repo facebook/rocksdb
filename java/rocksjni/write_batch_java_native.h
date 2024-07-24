@@ -36,8 +36,14 @@ class WriteBatchJavaNativeBuffer {
   const static int ALIGN = sizeof(int) - 1;
 
  public:
-  WriteBatchJavaNativeBuffer(jbyte* buf, jlong buf_len)
-      : buf(buf), buf_len(buf_len) {};
+  WriteBatchJavaNativeBuffer(jbyte* _buf, jlong _buf_len)
+      : buf(_buf), buf_len(_buf_len){};
+
+  jlong next_long() {
+    jlong result = *reinterpret_cast<jlong*>(buf + pos);
+    pos += sizeof(jlong);
+    return result;
+  }
 
   jint next_int() {
     jint result = *reinterpret_cast<jint*>(buf + pos);
@@ -46,9 +52,9 @@ class WriteBatchJavaNativeBuffer {
   }
 
   /**
-   * @brief 
-   * 
-   * @param bytes_to_skip 
+   * @brief
+   *
+   * @param bytes_to_skip
    */
   void skip(const jint bytes_to_skip) {
     if (pos + bytes_to_skip > buf_len) {
@@ -66,13 +72,12 @@ class WriteBatchJavaNativeBuffer {
   const ROCKSDB_NAMESPACE::Slice slice(jint slice_len) {
     jbyte* slice_ptr = ptr();
     skip_aligned(slice_len);
-    return Slice(reinterpret_cast<char*>(slice_ptr),
-                                    slice_len);
+    return Slice(reinterpret_cast<char*>(slice_ptr), slice_len);
   }
 
   jbyte* ptr() { return buf + pos; };
 
-  jint align(const jint val) { return val + ALIGN & ~ALIGN; }
+  jint align(const jint val) { return (val + ALIGN) & ~ALIGN; }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -100,6 +100,8 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
 
   public void flush() throws RocksDBException {
     flushWriteBatchJavaNative(nativeHandle_, buffer.position(), buffer.array());
+    //TODO - RESET buffer
+
   }
 
   @Override

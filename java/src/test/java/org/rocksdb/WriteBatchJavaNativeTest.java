@@ -61,7 +61,7 @@ public class WriteBatchJavaNativeTest {
       try (WriteBatchJavaNative wb = new WriteBatchJavaNative(256)) {
         WriteBatchTestInternalHelper.setSequence(wb.getWriteBatch(), 100);
         wb.put("k1".getBytes(), "v1".getBytes());
-        wb.put(cf, "k1".getBytes(), "cf_v1".getBytes());
+        wb.put(db.getDefaultColumnFamily(), "k1".getBytes(), "cf_v1".getBytes());
         wb.flush();
 
         assertThat(new String(getContents(wb), StandardCharsets.UTF_8))
