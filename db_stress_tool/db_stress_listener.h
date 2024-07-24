@@ -284,12 +284,13 @@ class DbStressListener : public EventListener {
           FaultInjectionIOType::kMetadataWrite);
       // TODO(hx235): only exempt the flush thread during error recovery instead
       // of all the flush threads from error injection
-      fault_fs_guard->SetIOActivtiesExemptedFromFaultInjection(
+      fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection(
           {Env::IOActivity::kFlush});
     }
   }
 
-  void OnErrorRecoveryCompleted(Status /* old_bg_error */) override {
+  void OnErrorRecoveryEnd(
+      const BackgroundErrorRecoveryInfo& /*info*/) override {
     RandomSleep();
     if (FLAGS_error_recovery_with_no_fault_injection && fault_fs_guard) {
       fault_fs_guard->EnableThreadLocalErrorInjection(
@@ -300,7 +301,7 @@ class DbStressListener : public EventListener {
           FaultInjectionIOType::kMetadataRead);
       fault_fs_guard->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataWrite);
-      fault_fs_guard->SetIOActivtiesExemptedFromFaultInjection({});
+      fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection({});
     }
   }
 

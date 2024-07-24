@@ -556,6 +556,35 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += seq_inc;
 
+    if (log_context.need_log_sync) {
+      VersionEdit synced_wals;
+      log_write_mutex_.Lock();
+      if (status.ok()) {
+        MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync,
+                       &synced_wals);
+      } else {
+        MarkLogsNotSynced(logfile_number_);
+      }
+      log_write_mutex_.Unlock();
+      if (status.ok() && synced_wals.IsWalAddition()) {
+        InstrumentedMutexLock l(&mutex_);
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        const ReadOptions read_options;
+        status = ApplyWALToManifest(read_options, write_options, &synced_wals);
+      }
+
+      // Requesting sync with two_write_queues_ is expected to be very rare. We
+      // hence provide a simple implementation that is not necessarily
+      // efficient.
+      if (status.ok() && two_write_queues_) {
+        if (manual_wal_flush_) {
+          status = FlushWAL(true);
+        } else {
+          status = SyncWAL();
+        }
+      }
+    }
+
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
       SequenceNumber next_sequence = current_sequence;
@@ -637,34 +666,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
   } else {
     assert(pre_release_cb_status.ok());
-  }
-
-  if (log_context.need_log_sync) {
-    VersionEdit synced_wals;
-    log_write_mutex_.Lock();
-    if (status.ok()) {
-      MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync,
-                     &synced_wals);
-    } else {
-      MarkLogsNotSynced(logfile_number_);
-    }
-    log_write_mutex_.Unlock();
-    if (status.ok() && synced_wals.IsWalAddition()) {
-      InstrumentedMutexLock l(&mutex_);
-      // TODO: plumb Env::IOActivity, Env::IOPriority
-      const ReadOptions read_options;
-      status = ApplyWALToManifest(read_options, write_options, &synced_wals);
-    }
-
-    // Requesting sync with two_write_queues_ is expected to be very rare. We
-    // hence provide a simple implementation that is not necessarily efficient.
-    if (two_write_queues_) {
-      if (manual_wal_flush_) {
-        status = FlushWAL(true);
-      } else {
-        status = SyncWAL();
-      }
-    }
   }
 
   bool should_exit_batch_group = true;
@@ -1204,8 +1205,7 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
     mutex_.Lock();
     assert(!error_handler_.IsBGWorkStopped());
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
     mutex_.Unlock();
   }
 }
@@ -1650,7 +1650,8 @@ Status DBImpl::WriteRecoverableState() {
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
     autovector<ColumnFamilyData*>* selected_cfds,
-    const autovector<ColumnFamilyData*>& provided_candidate_cfds) {
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+    FlushReason flush_reason) {
   mutex_.AssertHeld();
   assert(selected_cfds);
 
@@ -1673,7 +1674,8 @@ void DBImpl::SelectColumnFamiliesForAtomicFlush(
       continue;
     }
     if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
+        !cached_recoverable_state_empty_.load() ||
+        IsRecoveryFlush(flush_reason)) {
       selected_cfds->push_back(cfd);
     }
   }
@@ -2263,14 +2265,15 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     SequenceNumber seq = versions_->LastSequence();
     new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
     context->superversion_context.NewSuperVersion();
+
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] New memtable created with log file: #%" PRIu64
+                   ". Immutable memtables: %d.\n",
+                   cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
+    // There should be no concurrent write as the thread is at the front of
+    // writer queue
+    cfd->mem()->ConstructFragmentedRangeTombstones();
   }
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "[%s] New memtable created with log file: #%" PRIu64
-                 ". Immutable memtables: %d.\n",
-                 cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
-  // There should be no concurrent write as the thread is at the front of
-  // writer queue
-  cfd->mem()->ConstructFragmentedRangeTombstones();
 
   mutex_.Lock();
   if (recycle_log_number != 0) {
@@ -2362,8 +2365,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
           read_options, write_options, &wal_deletion, &mutex_,
           directories_.GetDbDir());
       if (!s.ok() && versions_->io_status().IsIOError()) {
-        s = error_handler_.SetBGError(versions_->io_status(),
-                                      BackgroundErrorReason::kManifestWrite);
+        error_handler_.SetBGError(versions_->io_status(),
+                                  BackgroundErrorReason::kManifestWrite);
       }
       if (!s.ok()) {
         return s;

@@ -148,9 +148,11 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
       file_opts_(file_opts),
       target_(std::move(f)),
       writable_file_opened_(true),
-      fs_(fs) {
+      fs_(fs),
+      unsync_data_loss_(fs_->InjectUnsyncedDataLoss()) {
   assert(target_ != nullptr);
-  state_.pos_at_last_append_ = 0;
+  assert(state_.pos_at_last_append_ == 0);
+  assert(state_.pos_at_last_sync_ == 0);
 }
 
 TestFSWritableFile::~TestFSWritableFile() {
@@ -166,13 +168,13 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
     return fs_->GetError();
   }
 
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
 
-  if (target_->use_direct_io()) {
+  if (target_->use_direct_io() || !unsync_data_loss_) {
     // TODO(hx235): buffer data for direct IO write to simulate data loss like
     // non-direct IO write
     s = target_->Append(data, options, dbg);
@@ -201,8 +203,8 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption("Data is corrupted!");
   }
 
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -220,7 +222,7 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption(msg);
   }
 
-  if (target_->use_direct_io()) {
+  if (target_->use_direct_io() || !unsync_data_loss_) {
     // TODO(hx235): buffer data for direct IO write to simulate data loss like
     // non-direct IO write
     s = target_->Append(data, options, dbg);
@@ -240,8 +242,8 @@ IOStatus TestFSWritableFile::Truncate(uint64_t size, const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -264,8 +266,8 @@ IOStatus TestFSWritableFile::PositionedAppend(const Slice& data,
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -290,8 +292,8 @@ IOStatus TestFSWritableFile::PositionedAppend(
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s =
-      fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                                options, state_.filename_);
   if (!s.ok()) {
     return s;
   }
@@ -376,15 +378,13 @@ IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
   }
   // Assumes caller passes consecutive byte ranges.
   uint64_t sync_limit = offset + nbytes;
-  uint64_t buf_begin =
-      state_.pos_at_last_sync_ < 0 ? 0 : state_.pos_at_last_sync_;
 
   IOStatus io_s;
-  if (sync_limit < buf_begin) {
+  if (sync_limit < state_.pos_at_last_sync_) {
     return io_s;
   }
   uint64_t num_to_sync = std::min(static_cast<uint64_t>(state_.buffer_.size()),
-                                  sync_limit - buf_begin);
+                                  sync_limit - state_.pos_at_last_sync_);
   Slice buf_to_sync(state_.buffer_.data(), num_to_sync);
   io_s = target_->Append(buf_to_sync, options, dbg);
   state_.buffer_ = state_.buffer_.substr(num_to_sync);
@@ -468,7 +468,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
     return fs_->GetError();
   }
   IOStatus s = fs_->MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kRead, options,
+      FaultInjectionIOType::kRead, options, "",
       FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
       scratch, /*need_count_increase=*/true,
       /*fault_injected=*/nullptr);
@@ -485,26 +485,35 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
-  IOStatus s;
+  IOStatus res_status;
   FSReadRequest res;
+  IOStatus s;
   if (!fs_->IsFilesystemActive()) {
-    s = fs_->GetError();
+    res_status = fs_->GetError();
   }
-  if (s.ok()) {
-    s = fs_->MaybeInjectThreadLocalError(
-        FaultInjectionIOType::kRead, opts,
+  if (res_status.ok()) {
+    res_status = fs_->MaybeInjectThreadLocalError(
+        FaultInjectionIOType::kRead, opts, "",
         FaultInjectionTestFS::ErrorOperation::kRead, &res.result,
         use_direct_io(), req.scratch, /*need_count_increase=*/true,
         /*fault_injected=*/nullptr);
   }
-  if (s.ok()) {
+  if (res_status.ok()) {
     s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
     // TODO (low priority): fs_->ReadUnsyncedData()
-  }
-  if (!s.ok()) {
-    res.status = s;
+  } else {
+    // If there’s no injected error, then cb will be called asynchronously when
+    // target_ actually finishes the read. But if there’s an injected error, it
+    // needs to immediately call cb(res, cb_arg) s since target_->ReadAsync()
+    // isn’t invoked at all.
+    res.status = res_status;
     cb(res, cb_arg);
   }
+  // We return ReadAsync()'s status intead of injected error status here since
+  // the return status is not supposed to be the status of the actual IO (i.e,
+  // the actual async read). The actual status of the IO will be passed to cb()
+  // callback upon the actual read finishes or like above when injected error
+  // happens.
   return s;
 }
 
@@ -524,7 +533,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     }
     bool this_injected_error;
     reqs[i].status = fs_->MaybeInjectThreadLocalError(
-        FaultInjectionIOType::kRead, options,
+        FaultInjectionIOType::kRead, options, "",
         FaultInjectionTestFS::ErrorOperation::kRead, &(reqs[i].result),
         use_direct_io(), reqs[i].scratch,
         /*need_count_increase=*/true,
@@ -533,7 +542,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
   }
   if (s.ok()) {
     s = fs_->MaybeInjectThreadLocalError(
-        FaultInjectionIOType::kRead, options,
+        FaultInjectionIOType::kRead, options, "",
         FaultInjectionTestFS::ErrorOperation::kMultiRead, nullptr,
         use_direct_io(), nullptr, /*need_count_increase=*/!injected_error,
         /*fault_injected=*/nullptr);
@@ -549,38 +558,44 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   }
 }
 
-void FaultInjectionTestFS::AddUnsyncedToRead(const std::string& fname,
-                                             size_t pos, size_t n,
-                                             Slice* result, char* scratch) {
-  // Should be checked prior
-  assert(result->size() < n);
-  size_t pos_after = pos + result->size();
+namespace {
+// Modifies `result` to start at the beginning of `scratch` if not already,
+// copying data there if needed.
+void MoveToScratchIfNeeded(Slice* result, char* scratch) {
+  if (result->data() != scratch) {
+    // NOTE: might overlap, where result is later in scratch
+    std::copy(result->data(), result->data() + result->size(), scratch);
+    *result = Slice(scratch, result->size());
+  }
+}
+}  // namespace
+
+void FaultInjectionTestFS::ReadUnsynced(const std::string& fname,
+                                        uint64_t offset, size_t n,
+                                        Slice* result, char* scratch,
+                                        int64_t* pos_at_last_sync) {
+  *result = Slice(scratch, 0);  // default empty result
+  assert(*pos_at_last_sync == -1);  // default "unknown"
 
   MutexLock l(&mutex_);
   auto it = db_file_state_.find(fname);
   if (it != db_file_state_.end()) {
     auto& st = it->second;
-    if (st.pos_at_last_append_ > static_cast<ssize_t>(pos_after)) {
-      size_t remaining_requested = n - result->size();
-      size_t to_copy =
-          std::min(remaining_requested,
-                   static_cast<size_t>(st.pos_at_last_append_) - pos_after);
-      size_t buffer_offset = pos_after - static_cast<size_t>(std::max(
-                                             st.pos_at_last_sync_, ssize_t{0}));
-      // Data might have been dropped from buffer
-      if (st.buffer_.size() > buffer_offset) {
-        to_copy = std::min(to_copy, st.buffer_.size() - buffer_offset);
-        if (result->data() != scratch) {
-          // TODO: this will be needed when supporting random reads
-          // but not currently used
-          abort();
-          // NOTE: might overlap
-          // std::copy_n(result->data(), result->size(), scratch);
-        }
-        std::copy_n(st.buffer_.data() + buffer_offset, to_copy,
-                    scratch + result->size());
-        *result = Slice(scratch, result->size() + to_copy);
-      }
+    *pos_at_last_sync = static_cast<int64_t>(st.pos_at_last_sync_);
+    // Find overlap between [offset, offset + n) and
+    // [*pos_at_last_sync, *pos_at_last_sync + st.buffer_.size())
+    int64_t begin = std::max(static_cast<int64_t>(offset), *pos_at_last_sync);
+    int64_t end =
+        std::min(static_cast<int64_t>(offset + n),
+                 *pos_at_last_sync + static_cast<int64_t>(st.buffer_.size()));
+
+    // Copy and return overlap if there is any
+    if (begin < end) {
+      size_t offset_in_buffer = static_cast<size_t>(begin - *pos_at_last_sync);
+      size_t offset_in_scratch = static_cast<size_t>(begin - offset);
+      std::copy_n(st.buffer_.data() + offset_in_buffer, end - begin,
+                  scratch + offset_in_scratch);
+      *result = Slice(scratch + offset_in_scratch, end - begin);
     }
   }
 }
@@ -589,20 +604,146 @@ IOStatus TestFSSequentialFile::Read(size_t n, const IOOptions& options,
                                     Slice* result, char* scratch,
                                     IODebugContext* dbg) {
   IOStatus s = fs_->MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kRead, options,
+      FaultInjectionIOType::kRead, options, "",
       FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
       scratch, true /*need_count_increase=*/, nullptr /* fault_injected*/);
   if (!s.ok()) {
     return s;
   }
 
-  s = target()->Read(n, options, result, scratch, dbg);
-  if (!s.ok()) {
-    return s;
+  // Some complex logic is needed to deal with concurrent write to the same
+  // file, while keeping good performance (e.g. not holding FS mutex during
+  // I/O op), especially in common cases.
+
+  if (read_pos_ == target_read_pos_) {
+    // Normal case: start by reading from underlying file
+    s = target()->Read(n, options, result, scratch, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    target_read_pos_ += result->size();
+  } else {
+    // We must have previously read buffered data (unsynced) not written to
+    // target. Deal with this case (and more) below.
+    *result = {};
   }
 
   if (fs_->ReadUnsyncedData() && result->size() < n) {
-    fs_->AddUnsyncedToRead(fname_, read_pos_, n, result, scratch);
+    // We need to check if there's unsynced data to fill out the rest of the
+    // read.
+
+    // First, ensure target read data is in scratch for easy handling.
+    MoveToScratchIfNeeded(result, scratch);
+    assert(result->data() == scratch);
+
+    // If we just did a target Read, we only want unsynced data after it
+    // (target_read_pos_). Otherwise (e.g. if target is behind because of
+    // unsynced data) we want unsynced data starting at the current read pos
+    // (read_pos_, not yet updated).
+    const uint64_t unsynced_read_pos = std::max(target_read_pos_, read_pos_);
+    const size_t offset_from_read_pos =
+        static_cast<size_t>(unsynced_read_pos - read_pos_);
+    Slice unsynced_result;
+    int64_t pos_at_last_sync = -1;
+    fs_->ReadUnsynced(fname_, unsynced_read_pos, n - offset_from_read_pos,
+                      &unsynced_result, scratch + offset_from_read_pos,
+                      &pos_at_last_sync);
+    assert(unsynced_result.data() >= scratch + offset_from_read_pos);
+    assert(unsynced_result.data() < scratch + n);
+    // Now, there are several cases to consider (some grouped together):
+    if (pos_at_last_sync <= static_cast<int64_t>(unsynced_read_pos)) {
+      // 1. We didn't get any unsynced data because nothing has been written
+      // to the file beyond unsynced_read_pos (including untracked
+      // pos_at_last_sync == -1)
+      // 2. We got some unsynced data starting at unsynced_read_pos (possibly
+      // on top of some synced data from target). We don't need to try reading
+      // any more from target because we established a "point in time" for
+      // completing this Read in which we read as much tail data (unsynced) as
+      // we could.
+
+      // We got pos_at_last_sync info if we got any unsynced data.
+      assert(pos_at_last_sync >= 0 || unsynced_result.size() == 0);
+
+      // Combined data is already lined up in scratch.
+      assert(result->data() + result->size() == unsynced_result.data());
+      assert(result->size() + unsynced_result.size() <= n);
+      // Combine results
+      *result = Slice(result->data(), result->size() + unsynced_result.size());
+    } else {
+      // 3. Any unsynced data we got was after unsynced_read_pos because the
+      // file was synced some time since our last target Read (either from this
+      // Read or a prior Read). We need to read more data from target to ensure
+      // this Read is filled out, even though we might have already read some
+      // (but not all due to a race). This code handles:
+      //
+      // * Catching up target after prior read(s) of unsynced data
+      // * Racing Sync in another thread since we called target Read above
+      //
+      // And merging potentially three results together for this Read:
+      // * The original target Read above
+      // * The following (non-throw-away) target Read
+      // * The ReadUnsynced above, which is always last if it returned data,
+      // so that we have a "point in time" for completing this Read in which we
+      // read as much tail data (unsynced) as we could.
+      //
+      // Deeper note about the race: we cannot just treat the original target
+      // Read as a "point in time" view of available data in the file, because
+      // there might have been unsynced data at that time, which became synced
+      // data by the time we read unsynced data. That is the race we are
+      // resolving with this "double check"-style code.
+      const size_t supplemental_read_pos = unsynced_read_pos;
+
+      // First, if there's any data from target that we know we would need to
+      // throw away to catch up, try to do it.
+      if (target_read_pos_ < supplemental_read_pos) {
+        Slice throw_away_result;
+        size_t throw_away_n = supplemental_read_pos - target_read_pos_;
+        std::unique_ptr<char[]> throw_away_scratch{new char[throw_away_n]};
+        s = target()->Read(throw_away_n, options, &throw_away_result,
+                           throw_away_scratch.get(), dbg);
+        if (!s.ok()) {
+          read_pos_ += result->size();
+          return s;
+        }
+        target_read_pos_ += throw_away_result.size();
+        if (target_read_pos_ < supplemental_read_pos) {
+          // Because of pos_at_last_sync > supplemental_read_pos, we should
+          // have been able to catch up
+          read_pos_ += result->size();
+          return IOStatus::IOError(
+              "Unexpected truncation or short read of file " + fname_);
+        }
+      }
+      // Now we can do a productive supplemental Read from target
+      assert(target_read_pos_ == supplemental_read_pos);
+      Slice supplemental_result;
+      size_t supplemental_n =
+          unsynced_result.size() == 0
+              ? n - offset_from_read_pos
+              : unsynced_result.data() - (scratch + offset_from_read_pos);
+      s = target()->Read(supplemental_n, options, &supplemental_result,
+                         scratch + offset_from_read_pos, dbg);
+      if (!s.ok()) {
+        read_pos_ += result->size();
+        return s;
+      }
+      target_read_pos_ += supplemental_result.size();
+      MoveToScratchIfNeeded(&supplemental_result,
+                            scratch + offset_from_read_pos);
+
+      // Combined data is already lined up in scratch.
+      assert(result->data() + result->size() == supplemental_result.data());
+      assert(unsynced_result.size() == 0 ||
+             supplemental_result.data() + supplemental_result.size() ==
+                 unsynced_result.data());
+      assert(result->size() + supplemental_result.size() +
+                 unsynced_result.size() <=
+             n);
+      // Combine results
+      *result =
+          Slice(result->data(), result->size() + supplemental_result.size() +
+                                    unsynced_result.size());
+    }
   }
   read_pos_ += result->size();
 
@@ -614,7 +755,7 @@ IOStatus TestFSSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                               Slice* result, char* scratch,
                                               IODebugContext* dbg) {
   IOStatus s = fs_->MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kRead, options,
+      FaultInjectionIOType::kRead, options, "",
       FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
       scratch, true /*need_count_increase=*/, nullptr /* fault_injected */);
   if (!s.ok()) {
@@ -698,12 +839,12 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     return GetError();
   }
 
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
 
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -735,11 +876,11 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->ReopenWritableFile(fname, file_opts, result, dbg);
   }
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -811,11 +952,11 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  if (ShouldUseDiretWritable(fname)) {
+  if (IsFilesystemDirectWritable()) {
     return target()->NewRandomRWFile(fname, file_opts, result, dbg);
   }
-  IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
+                                              file_opts.io_options, fname);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -847,7 +988,10 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
     return GetError();
   }
   IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+      FaultInjectionIOType::kRead, file_opts.io_options, fname,
+      ErrorOperation::kOpen, nullptr /* result */, false /* direct_io */,
+      nullptr /* scratch */, true /*need_count_increase*/,
+      nullptr /*fault_injected*/);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -867,7 +1011,10 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
     return GetError();
   }
   IOStatus io_s = MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kMetadataWrite, file_opts.io_options);
+      FaultInjectionIOType::kRead, file_opts.io_options, fname,
+      ErrorOperation::kOpen, nullptr /* result */, false /* direct_io */,
+      nullptr /* scratch */, true /*need_count_increase*/,
+      nullptr /*fault_injected*/);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -985,7 +1132,6 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
       auto tdn = TestFSGetDirAndName(t);
       if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
         auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
-        assert(tlist.find(tdn.second) == tlist.end());
         tlist[tdn.second] = previous_contents;
       }
     }
@@ -1228,8 +1374,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ErrorContext* ctx =
       static_cast<ErrorContext*>(injected_thread_local_read_error_.Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      io_activties_exempted_from_fault_injection.find(io_options.io_activity) !=
-          io_activties_exempted_from_fault_injection.end()) {
+      ShouldIOActivtiesExcludedFromFaultInjection(io_options.io_activity)) {
     return IOStatus::OK();
   }
 
@@ -1295,8 +1440,9 @@ bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
 }
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
-    FaultInjectionIOType type, const IOOptions& io_options, ErrorOperation op,
-    Slice* result, bool direct_io, char* scratch, bool need_count_increase,
+    FaultInjectionIOType type, const IOOptions& io_options,
+    const std::string& file_name, ErrorOperation op, Slice* result,
+    bool direct_io, char* scratch, bool need_count_increase,
     bool* fault_injected) {
   if (type == FaultInjectionIOType::kRead) {
     return MaybeInjectThreadLocalReadError(io_options, op, result, direct_io,
@@ -1306,8 +1452,9 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
 
   ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      io_activties_exempted_from_fault_injection.find(io_options.io_activity) !=
-          io_activties_exempted_from_fault_injection.end()) {
+      ShouldIOActivtiesExcludedFromFaultInjection(io_options.io_activity) ||
+      (type == FaultInjectionIOType::kWrite &&
+       ShouldExcludeFromWriteFaultInjection(file_name))) {
     return IOStatus::OK();
   }
 

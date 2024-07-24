@@ -27,7 +27,7 @@ class StressTest {
  public:
   StressTest();
 
-  virtual ~StressTest();
+  virtual ~StressTest() {}
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
@@ -44,11 +44,12 @@ class StressTest {
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
   void PrintStatistics();
-  bool MightHaveDataLoss() {
-    return FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0 ||
-           FLAGS_metadata_write_fault_one_in > 0 || FLAGS_disable_wal ||
+  bool MightHaveUnsyncedDataLoss() {
+    return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
            FLAGS_manual_wal_flush_one_in > 0;
   }
+
+  void CleanUp();
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
@@ -280,9 +281,10 @@ class StressTest {
     return Status::NotSupported("TestCustomOperations() must be overridden");
   }
 
-  bool IsRetryableInjectedError(const Status& s) const {
-    return s.getState() && std::strstr(s.getState(), "inject") &&
-           !status_to_io_status(Status(s)).GetDataLoss();
+  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
+    assert(!error_s.ok());
+    return error_s.getState() && std::strstr(error_s.getState(), "inject") &&
+           !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
   void ProcessStatus(SharedState* shared, std::string msg, const Status& s,

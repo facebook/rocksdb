@@ -322,6 +322,67 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
   }
 }
 
+TEST_F(DBBloomFilterTest, FilterNumEntriesCoalesce) {
+  for (bool partition_filters : {true, false}) {
+    SCOPED_TRACE("partition_filters=" + std::to_string(partition_filters));
+    for (bool prefix : {true, false}) {
+      SCOPED_TRACE("prefix=" + std::to_string(prefix));
+      for (bool whole : {true, false}) {
+        SCOPED_TRACE("whole=" + std::to_string(whole));
+        Options options = last_options_;
+        options.prefix_extractor.reset();
+        if (prefix) {
+          options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+        }
+        BlockBasedTableOptions bbto;
+        bbto.filter_policy.reset(NewBloomFilterPolicy(10));
+        bbto.whole_key_filtering = whole;
+        if (partition_filters) {
+          bbto.partition_filters = true;
+          bbto.index_type =
+              BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+        }
+        options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+        DestroyAndReopen(options);
+
+        // Need a snapshot to allow keeping multiple entries for the same key
+        std::vector<const Snapshot*> snapshots;
+        for (int i = 1; i <= 3; ++i) {
+          std::string val = "val" + std::to_string(i);
+          ASSERT_OK(Put("foo1", val));
+          ASSERT_OK(Put("foo2", val));
+          ASSERT_OK(Put("bar1", val));
+          ASSERT_OK(Put("bar2", val));
+          ASSERT_OK(Put("bar3", val));
+          snapshots.push_back(db_->GetSnapshot());
+        }
+        ASSERT_OK(Flush());
+
+        TablePropertiesCollection tpc;
+        ASSERT_OK(db_->GetPropertiesOfAllTables(&tpc));
+        // sanity checks
+        ASSERT_EQ(tpc.size(), 1U);
+        auto& tp = *tpc.begin()->second;
+        EXPECT_EQ(tp.num_entries, 3U * 5U);
+
+        // test checks
+        unsigned ex_filter_entries = 0;
+        if (whole) {
+          ex_filter_entries += 5;  // unique keys
+        }
+        if (prefix) {
+          ex_filter_entries += 2;  // unique prefixes
+        }
+        EXPECT_EQ(tp.num_filter_entries, ex_filter_entries);
+
+        for (auto* sn : snapshots) {
+          db_->ReleaseSnapshot(sn);
+        }
+      }
+    }
+  }
+}
+
 TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
   for (bool partition_filters : {true, false}) {
     Options options = last_options_;
@@ -3143,52 +3204,55 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
 }
 
 TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
-  Options options = CurrentOptions();
-  constexpr size_t kNumKeys = 10000;
-  static_assert(kNumKeys <= 10000, "kNumKeys have to be <= 10000");
-  options.memtable_factory.reset(
-      test::NewSpecialSkipListFactory(kNumKeys + 10));
-  options.create_if_missing = true;
-  constexpr size_t kPrefixLength = 4;
-  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixLength));
-  options.compression = kNoCompression;
-  BlockBasedTableOptions bbto;
-  bbto.filter_policy.reset(NewBloomFilterPolicy(50));
-  bbto.index_shortening =
-      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
-  bbto.block_size = 128;
-  bbto.metadata_block_size = 128;
-  bbto.partition_filters = true;
-  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyAndReopen(options);
+  for (bool wkf : {true, false}) {
+    SCOPED_TRACE("whole_key_filtering=" + std::to_string(wkf));
+    Options options = CurrentOptions();
+    constexpr size_t kNumKeys = 10000;
+    static_assert(kNumKeys <= 10000, "kNumKeys have to be <= 10000");
+    options.memtable_factory.reset(
+        test::NewSpecialSkipListFactory(kNumKeys + 10));
+    options.create_if_missing = true;
+    constexpr size_t kPrefixLength = 4;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixLength));
+    options.compression = kNoCompression;
+    BlockBasedTableOptions bbto;
+    bbto.filter_policy.reset(NewBloomFilterPolicy(50));
+    bbto.index_shortening =
+        BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+    bbto.block_size = 128;
+    bbto.metadata_block_size = 128;
+    bbto.partition_filters = true;
+    bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    bbto.whole_key_filtering = wkf;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
 
-  const std::string value(64, '\0');
+    const std::string value(64, '\0');
 
-  WriteOptions write_opts;
-  write_opts.disableWAL = true;
-  for (size_t i = 0; i < kNumKeys; ++i) {
-    std::ostringstream oss;
-    oss << std::setfill('0') << std::setw(4) << std::fixed << i;
-    ASSERT_OK(db_->Put(write_opts, oss.str(), value));
+    WriteOptions write_opts;
+    write_opts.disableWAL = true;
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      std::ostringstream oss;
+      oss << std::setfill('0') << std::setw(4) << std::fixed << i;
+      ASSERT_OK(db_->Put(write_opts, oss.str(), value));
+    }
+    ASSERT_OK(Flush());
+
+    ReadOptions read_opts;
+    // Use legacy, implicit prefix seek
+    read_opts.total_order_seek = false;
+    read_opts.auto_prefix_mode = false;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      // Seek with a key after each one added but with same prefix. One will
+      // surely cross a partition boundary.
+      std::ostringstream oss;
+      oss << std::setfill('0') << std::setw(4) << std::fixed << i << "a";
+      it->SeekForPrev(oss.str());
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+    }
   }
-  ASSERT_OK(Flush());
-
-  ReadOptions read_opts;
-  // Use legacy, implicit prefix seek
-  read_opts.total_order_seek = false;
-  read_opts.auto_prefix_mode = false;
-  std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
-  for (size_t i = 0; i < kNumKeys; ++i) {
-    // Seek with a key after each one added but with same prefix. One will
-    // surely cross a partition boundary.
-    std::ostringstream oss;
-    oss << std::setfill('0') << std::setw(4) << std::fixed << i << "a";
-    it->SeekForPrev(oss.str());
-    ASSERT_OK(it->status());
-    ASSERT_TRUE(it->Valid());
-  }
-  it.reset();
 }
 
 namespace {

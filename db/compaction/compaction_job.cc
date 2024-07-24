@@ -468,6 +468,11 @@ void CompactionJob::GenSubcompactionBoundaries() {
   ReadOptions read_options(Env::IOActivity::kCompaction);
   read_options.rate_limiter_priority = GetRateLimiterPriority();
   auto* c = compact_->compaction;
+  if (c->immutable_options()->table_factory->Name() ==
+      TableFactory::kPlainTableName()) {
+    return;
+  }
+
   if (c->max_subcompactions() <= 1 &&
       !(c->immutable_options()->compaction_pri == kRoundRobin &&
         c->immutable_options()->compaction_style == kCompactionStyleLevel)) {
@@ -621,6 +626,7 @@ Status CompactionJob::Run() {
   const size_t num_threads = compact_->sub_compact_states.size();
   assert(num_threads > 0);
   const uint64_t start_micros = db_options_.clock->NowMicros();
+  compact_->compaction->GetOrInitInputTableProperties();
 
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;

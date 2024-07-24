@@ -73,37 +73,47 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
   return result;
 }
 
-void ShortenedIndexBuilder::FindShortestInternalKeySeparator(
-    const Comparator& comparator, std::string* start, const Slice& limit) {
+Slice ShortenedIndexBuilder::FindShortestInternalKeySeparator(
+    const Comparator& comparator, const Slice& start, const Slice& limit,
+    std::string* scratch) {
   // Attempt to shorten the user portion of the key
-  Slice user_start = ExtractUserKey(*start);
+  Slice user_start = ExtractUserKey(start);
   Slice user_limit = ExtractUserKey(limit);
-  std::string tmp(user_start.data(), user_start.size());
-  comparator.FindShortestSeparator(&tmp, user_limit);
-  if (tmp.size() <= user_start.size() &&
-      comparator.Compare(user_start, tmp) < 0) {
+  scratch->assign(user_start.data(), user_start.size());
+  comparator.FindShortestSeparator(scratch, user_limit);
+  assert(comparator.Compare(user_start, *scratch) <= 0);
+  assert(comparator.Compare(user_start, user_limit) >= 0 ||
+         comparator.Compare(*scratch, user_limit) < 0);
+  if (scratch->size() <= user_start.size() &&
+      comparator.Compare(user_start, *scratch) < 0) {
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
+    PutFixed64(scratch,
                PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-    assert(InternalKeyComparator(&comparator).Compare(*start, tmp) < 0);
-    assert(InternalKeyComparator(&comparator).Compare(tmp, limit) < 0);
-    start->swap(tmp);
+    assert(InternalKeyComparator(&comparator).Compare(start, *scratch) < 0);
+    assert(InternalKeyComparator(&comparator).Compare(*scratch, limit) < 0);
+    return *scratch;
+  } else {
+    return start;
   }
 }
 
-void ShortenedIndexBuilder::FindShortInternalKeySuccessor(
-    const Comparator& comparator, std::string* key) {
-  Slice user_key = ExtractUserKey(*key);
-  std::string tmp(user_key.data(), user_key.size());
-  comparator.FindShortSuccessor(&tmp);
-  if (tmp.size() <= user_key.size() && comparator.Compare(user_key, tmp) < 0) {
+Slice ShortenedIndexBuilder::FindShortInternalKeySuccessor(
+    const Comparator& comparator, const Slice& key, std::string* scratch) {
+  Slice user_key = ExtractUserKey(key);
+  scratch->assign(user_key.data(), user_key.size());
+  comparator.FindShortSuccessor(scratch);
+  assert(comparator.Compare(user_key, *scratch) <= 0);
+  if (scratch->size() <= user_key.size() &&
+      comparator.Compare(user_key, *scratch) < 0) {
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
+    PutFixed64(scratch,
                PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-    assert(InternalKeyComparator(&comparator).Compare(*key, tmp) < 0);
-    key->swap(tmp);
+    assert(InternalKeyComparator(&comparator).Compare(key, *scratch) < 0);
+    return *scratch;
+  } else {
+    return key;
   }
 }
 
@@ -135,7 +145,6 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, true /* is_user_key */),
-      sub_index_builder_(nullptr),
       table_opt_(table_opt),
       // We start by false. After each partition we revise the value based on
       // what the sub_index_builder has decided. If the feature is disabled
@@ -146,13 +155,9 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
       seperator_is_key_plus_seq_(false),
       use_value_delta_encoding_(use_value_delta_encoding) {}
 
-PartitionedIndexBuilder::~PartitionedIndexBuilder() {
-  delete sub_index_builder_;
-}
-
 void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
   assert(sub_index_builder_ == nullptr);
-  sub_index_builder_ = new ShortenedIndexBuilder(
+  sub_index_builder_ = std::make_unique<ShortenedIndexBuilder>(
       comparator_, table_opt_.index_block_restart_interval,
       table_opt_.format_version, use_value_delta_encoding_,
       table_opt_.index_shortening, /* include_first_key */ false, ts_sz_,
@@ -180,33 +185,35 @@ void PartitionedIndexBuilder::RequestPartitionCut() {
   partition_cut_requested_ = true;
 }
 
-void PartitionedIndexBuilder::AddIndexEntry(
-    std::string* last_key_in_current_block,
-    const Slice* first_key_in_next_block, const BlockHandle& block_handle) {
+Slice PartitionedIndexBuilder::AddIndexEntry(
+    const Slice& last_key_in_current_block,
+    const Slice* first_key_in_next_block, const BlockHandle& block_handle,
+    std::string* separator_scratch) {
   // Note: to avoid two consecuitive flush in the same method call, we do not
   // check flush policy when adding the last key
   if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
     if (sub_index_builder_ == nullptr) {
       MakeNewSubIndexBuilder();
+      // Reserve next partition entry, where we will modify the key and
+      // eventually set the value
+      entries_.push_back({{}, {}});
     }
-    sub_index_builder_->AddIndexEntry(last_key_in_current_block,
-                                      first_key_in_next_block, block_handle);
+    auto sep = sub_index_builder_->AddIndexEntry(
+        last_key_in_current_block, first_key_in_next_block, block_handle,
+        separator_scratch);
     if (!seperator_is_key_plus_seq_ &&
         sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders and reset
-      // flush_policy to point to Block Builder of sub_index_builder_ that store
-      // internal keys.
+      // We need to apply !seperator_is_key_plus_seq to all sub-index builders
       seperator_is_key_plus_seq_ = true;
-      flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
-          table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-          sub_index_builder_->index_block_builder_));
+      // Would associate flush_policy with the appropriate builder, but it won't
+      // be used again with no more keys
+      flush_policy_.reset();
     }
-    sub_index_last_key_ = std::string(*last_key_in_current_block);
-    entries_.push_back(
-        {sub_index_last_key_,
-         std::unique_ptr<ShortenedIndexBuilder>(sub_index_builder_)});
-    sub_index_builder_ = nullptr;
+    entries_.back().key.assign(sep.data(), sep.size());
+    assert(entries_.back().value == nullptr);
+    std::swap(entries_.back().value, sub_index_builder_);
     cut_filter_block = true;
+    return sep;
   } else {
     // apply flush policy only to non-empty sub_index_builder_
     if (sub_index_builder_ != nullptr) {
@@ -214,31 +221,33 @@ void PartitionedIndexBuilder::AddIndexEntry(
       block_handle.EncodeTo(&handle_encoding);
       bool do_flush =
           partition_cut_requested_ ||
-          flush_policy_->Update(*last_key_in_current_block, handle_encoding);
+          flush_policy_->Update(last_key_in_current_block, handle_encoding);
       if (do_flush) {
-        entries_.push_back(
-            {sub_index_last_key_,
-             std::unique_ptr<ShortenedIndexBuilder>(sub_index_builder_)});
+        assert(entries_.back().value == nullptr);
+        std::swap(entries_.back().value, sub_index_builder_);
         cut_filter_block = true;
-        sub_index_builder_ = nullptr;
       }
     }
     if (sub_index_builder_ == nullptr) {
       MakeNewSubIndexBuilder();
+      // Reserve next partition entry, where we will modify the key and
+      // eventually set the value
+      entries_.push_back({{}, {}});
     }
-    sub_index_builder_->AddIndexEntry(last_key_in_current_block,
-                                      first_key_in_next_block, block_handle);
-    sub_index_last_key_ = std::string(*last_key_in_current_block);
+    auto sep = sub_index_builder_->AddIndexEntry(
+        last_key_in_current_block, first_key_in_next_block, block_handle,
+        separator_scratch);
+    entries_.back().key.assign(sep.data(), sep.size());
     if (!seperator_is_key_plus_seq_ &&
         sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders and reset
-      // flush_policy to point to Block Builder of sub_index_builder_ that store
-      // internal keys.
+      // We need to apply !seperator_is_key_plus_seq to all sub-index builders
       seperator_is_key_plus_seq_ = true;
+      // And use a flush_policy with the appropriate builder
       flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
           table_opt_.metadata_block_size, table_opt_.block_size_deviation,
           sub_index_builder_->index_block_builder_));
     }
+    return sep;
   }
 }
 

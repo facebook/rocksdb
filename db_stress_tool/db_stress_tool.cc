@@ -90,10 +90,10 @@ int db_stress_tool(int argc, char** argv) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    // Set it to direct writable here to not lose files created during DB open
-    // when no open fault injection is not enabled.
-    // This will be overwritten in StressTest::Open() for open fault injection
-    // and in RunStressTestImpl() for proper write fault injection setup.
+    // Set it to direct writable here to initially bypass any fault injection
+    // during DB open This will correspondingly be overwritten in
+    // StressTest::Open() for open fault injection and in RunStressTestImpl()
+    // for proper fault injection setup.
     fault_fs_guard->SetFilesystemDirectWritable(true);
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
@@ -362,11 +362,11 @@ int db_stress_tool(int argc, char** argv) {
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
   shared.reset(new SharedState(db_stress_env, stress.get()));
-  if (RunStressTest(shared.get())) {
-    return 0;
-  } else {
-    return 1;
-  }
+  bool run_stress_test = RunStressTest(shared.get());
+  // Close DB in CleanUp() before destructor to prevent race between destructor
+  // and operations in listener callbacks (e.g. MultiOpsTxnsStressListener).
+  stress->CleanUp();
+  return run_stress_test ? 0 : 1;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -73,16 +73,13 @@ class CfConsistencyStressTest : public StressTest {
       status = db_->Write(write_opts, &batch);
     }
 
-    if (IsRetryableInjectedError(status)) {
-      fprintf(stdout, "multi put or merge error: %s\n",
-              status.ToString().c_str());
-    } else if (!status.ok()) {
+    if (status.ok()) {
+      auto num = static_cast<long>(rand_column_families.size());
+      thread->stats.AddBytesForWrites(num, (sz + 1) * num);
+    } else if (!IsErrorInjectedAndRetryable(status)) {
       fprintf(stderr, "multi put or merge error: %s\n",
               status.ToString().c_str());
       thread->stats.AddErrors(1);
-    } else {
-      auto num = static_cast<long>(rand_column_families.size());
-      thread->stats.AddBytesForWrites(num, (sz + 1) * num);
     }
 
     return status;
@@ -99,13 +96,11 @@ class CfConsistencyStressTest : public StressTest {
       batch.Delete(cfh, key);
     }
     Status s = db_->Write(write_opts, &batch);
-    if (IsRetryableInjectedError(s)) {
-      fprintf(stdout, "multidel error: %s\n", s.ToString().c_str());
-    } else if (!s.ok()) {
+    if (s.ok()) {
+      thread->stats.AddDeletes(static_cast<long>(rand_column_families.size()));
+    } else if (!IsErrorInjectedAndRetryable(s)) {
       fprintf(stderr, "multidel error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
-    } else {
-      thread->stats.AddDeletes(static_cast<long>(rand_column_families.size()));
     }
     return s;
   }
@@ -130,14 +125,12 @@ class CfConsistencyStressTest : public StressTest {
       batch.DeleteRange(cfh, key, end_key);
     }
     Status s = db_->Write(write_opts, &batch);
-    if (IsRetryableInjectedError(s)) {
-      fprintf(stdout, "multi del range error: %s\n", s.ToString().c_str());
-    } else if (!s.ok()) {
-      fprintf(stderr, "multi del range error: %s\n", s.ToString().c_str());
-      thread->stats.AddErrors(1);
-    } else {
+    if (s.ok()) {
       thread->stats.AddRangeDeletions(
           static_cast<long>(rand_column_families.size()));
+    } else if (!IsErrorInjectedAndRetryable(s)) {
+      fprintf(stderr, "multi del range error: %s\n", s.ToString().c_str());
+      thread->stats.AddErrors(1);
     }
     return s;
   }
@@ -248,9 +241,7 @@ class CfConsistencyStressTest : public StressTest {
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
-    } else if (IsRetryableInjectedError(s)) {
-      fprintf(stdout, "TestGet error: %s\n", s.ToString().c_str());
-    } else {
+    } else if (!IsErrorInjectedAndRetryable(s)) {
       fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
@@ -286,9 +277,7 @@ class CfConsistencyStressTest : public StressTest {
       } else if (s.IsNotFound()) {
         // not found case
         thread->stats.AddGets(1, 0);
-      } else if (IsRetryableInjectedError(s)) {
-        fprintf(stdout, "MultiGet error: %s\n", s.ToString().c_str());
-      } else {
+      } else if (!IsErrorInjectedAndRetryable(s)) {
         // errors case
         fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
@@ -324,12 +313,7 @@ class CfConsistencyStressTest : public StressTest {
       PinnableWideColumns result;
       s = db_->GetEntity(read_opts, cfh, key, &result);
 
-      if (IsRetryableInjectedError(s)) {
-        fprintf(stdout,
-                "GetEntity error: inconsistent columns for key %s, entity %s\n",
-                StringToHex(key).c_str(),
-                WideColumnsToHex(result.columns()).c_str());
-      } else if (s.ok()) {
+      if (s.ok()) {
         if (!VerifyWideColumns(result.columns())) {
           fprintf(
               stderr,
@@ -359,10 +343,10 @@ class CfConsistencyStressTest : public StressTest {
       if (fault_fs_guard) {
         fault_fs_guard->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-
         fault_fs_guard->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
+
       if (s.ok() || s.IsNotFound()) {
         const bool cmp_found = s.ok();
 
@@ -517,9 +501,7 @@ class CfConsistencyStressTest : public StressTest {
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
-    } else if (IsRetryableInjectedError(s)) {
-      fprintf(stdout, "TestGetEntity error: %s\n", s.ToString().c_str());
-    } else {
+    } else if (!IsErrorInjectedAndRetryable(s)) {
       fprintf(stderr, "TestGetEntity error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
@@ -590,9 +572,7 @@ class CfConsistencyStressTest : public StressTest {
         for (size_t j = 0; j < num_cfs; ++j) {
           const Status& s = result[j].status();
           const WideColumns& columns = result[j].columns();
-          if (IsRetryableInjectedError(s)) {
-            fprintf(stdout, "TestMultiGetEntity (AttributeGroup) error: %s\n",
-                    s.ToString().c_str());
+          if (!s.ok() && IsErrorInjectedAndRetryable(s)) {
             break;
           } else if (!s.ok() && !s.IsNotFound()) {
             fprintf(stderr, "TestMultiGetEntity (AttributeGroup) error: %s\n",
@@ -699,9 +679,7 @@ class CfConsistencyStressTest : public StressTest {
           const Status& s = statuses[j];
           const WideColumns& columns = results[j].columns();
 
-          if (IsRetryableInjectedError(s)) {
-            fprintf(stdout, "TestMultiGetEntity error: %s\n",
-                    s.ToString().c_str());
+          if (!s.ok() && IsErrorInjectedAndRetryable(s)) {
             break;
           } else if (!s.ok() && !s.IsNotFound()) {
             fprintf(stderr, "TestMultiGetEntity error: %s\n",
@@ -838,9 +816,7 @@ class CfConsistencyStressTest : public StressTest {
       s = iter->status();
     }
 
-    if (IsRetryableInjectedError(s)) {
-      fprintf(stdout, "TestPrefixScan error: %s\n", s.ToString().c_str());
-    } else if (!s.ok()) {
+    if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
 

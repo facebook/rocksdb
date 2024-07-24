@@ -508,6 +508,8 @@ class DBImpl : public DB {
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* manifest_file_size,
                       bool flush_memtable = true) override;
   Status GetSortedWalFiles(VectorWalPtr& files) override;
+  Status GetSortedWalFilesImpl(VectorWalPtr& files, bool need_seqnos);
+
   // Get the known flushed sizes of WALs that might still be written to
   // or have pending sync.
   // NOTE: unlike alive_log_files_, this function includes WALs that might
@@ -1886,6 +1888,10 @@ class DBImpl : public DB {
     Env::Priority compaction_pri_;
   };
 
+  static bool IsRecoveryFlush(FlushReason flush_reason) {
+    return flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
+           flush_reason == FlushReason::kErrorRecovery;
+  }
   // Initialize the built-in column family for persistent stats. Depending on
   // whether on-disk persistent stats have been enabled before, it may either
   // create a new column family and column family handle or just a column family
@@ -2030,7 +2036,8 @@ class DBImpl : public DB {
   // REQUIRES: mutex held
   void SelectColumnFamiliesForAtomicFlush(
       autovector<ColumnFamilyData*>* selected_cfds,
-      const autovector<ColumnFamilyData*>& provided_candidate_cfds = {});
+      const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
+      FlushReason flush_reason = FlushReason::kOthers);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
@@ -2346,6 +2353,9 @@ class DBImpl : public DB {
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
   void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
+
+  // May open and read table files for table property.
+  // Should not be called while holding mutex_.
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,

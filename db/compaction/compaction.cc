@@ -63,7 +63,9 @@ uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
-void Compaction::SetInputVersion(Version* _input_version) {
+// TODO(hx235): consider making this function part of the construction so we
+// don't forget to call it
+void Compaction::FinalizeInputInfo(Version* _input_version) {
   input_version_ = _input_version;
   cfd_ = input_version_->cfd();
 
@@ -861,6 +863,11 @@ bool Compaction::IsOutputLevelEmpty() const {
 
 bool Compaction::ShouldFormSubcompactions() const {
   if (cfd_ == nullptr) {
+    return false;
+  }
+
+  if (cfd_->ioptions()->table_factory->Name() ==
+      TableFactory::kPlainTableName()) {
     return false;
   }
 

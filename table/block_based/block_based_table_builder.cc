@@ -293,6 +293,7 @@ struct BlockBasedTableBuilder::Rep {
 
   InternalKeySliceTransform internal_prefix_transform;
   std::unique_ptr<IndexBuilder> index_builder;
+  std::string index_separator_scratch;
   PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_key;
@@ -1049,8 +1050,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
         if (r->IsParallelCompressionEnabled()) {
           r->pc_rep->curr_block_keys->Clear();
         } else {
-          r->index_builder->AddIndexEntry(&r->last_key, &key,
-                                          r->pending_handle);
+          r->index_builder->AddIndexEntry(r->last_key, &key, r->pending_handle,
+                                          &r->index_separator_scratch);
         }
       }
     }
@@ -1485,14 +1486,15 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
     ++r->props.num_data_blocks;
 
     if (block_rep->first_key_in_next_block == nullptr) {
-      r->index_builder->AddIndexEntry(&(block_rep->keys->Back()), nullptr,
-                                      r->pending_handle);
+      r->index_builder->AddIndexEntry(block_rep->keys->Back(), nullptr,
+                                      r->pending_handle,
+                                      &r->index_separator_scratch);
     } else {
       Slice first_key_in_next_block =
           Slice(*block_rep->first_key_in_next_block);
-      r->index_builder->AddIndexEntry(&(block_rep->keys->Back()),
-                                      &first_key_in_next_block,
-                                      r->pending_handle);
+      r->index_builder->AddIndexEntry(
+          block_rep->keys->Back(), &first_key_in_next_block, r->pending_handle,
+          &r->index_separator_scratch);
     }
 
     r->pc_rep->ReapBlock(block_rep);
@@ -1987,9 +1989,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
         Slice* first_key_in_next_block_ptr = &first_key_in_next_block;
 
         iter->SeekToLast();
-        std::string last_key = iter->key().ToString();
-        r->index_builder->AddIndexEntry(&last_key, first_key_in_next_block_ptr,
-                                        r->pending_handle);
+        r->index_builder->AddIndexEntry(
+            iter->key(), first_key_in_next_block_ptr, r->pending_handle,
+            &r->index_separator_scratch);
       }
     }
     std::swap(iter, next_block_iter);
@@ -2025,7 +2027,8 @@ Status BlockBasedTableBuilder::Finish() {
     // block, we will finish writing all index entries first.
     if (ok() && !empty_data_block) {
       r->index_builder->AddIndexEntry(
-          &r->last_key, nullptr /* no next data block */, r->pending_handle);
+          r->last_key, nullptr /* no next data block */, r->pending_handle,
+          &r->index_separator_scratch);
     }
   }
 
