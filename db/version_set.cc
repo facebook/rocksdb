@@ -5508,7 +5508,6 @@ Status VersionSet::ProcessManifestWrites(
   Status s;
   IOStatus io_s;
   IOStatus manifest_io_status;
-  IOStatus current_file_io_status;
   std::unique_ptr<log::Writer> new_desc_log_ptr;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
@@ -5643,7 +5642,6 @@ Status VersionSet::ProcessManifestWrites(
                             dir_contains_current_file);
       if (!io_s.ok()) {
         s = io_s;
-        current_file_io_status = io_s;
         // Quarantine old manifest file in case new manifest file's CURRENT file
         // wasn't created successfully and the old manifest is needed.
         limbo_descriptor_log_file_number.push_back(manifest_file_number_);
@@ -5770,10 +5768,6 @@ Status VersionSet::ProcessManifestWrites(
     for (auto v : versions) {
       delete v;
     }
-    if (manifest_io_status.ok() && !current_file_io_status.ok()) {
-      manifest_file_number_ = pending_manifest_file_number_;
-      manifest_file_size_ = new_manifest_file_size;
-    }
     // If manifest append failed for whatever reason, the file could be
     // corrupted. So we need to force the next version update to start a
     // new manifest file.
@@ -5805,7 +5799,7 @@ Status VersionSet::ProcessManifestWrites(
     // a) CURRENT points to the new MANIFEST, and the new MANIFEST is present.
     // b) CURRENT points to the original MANIFEST, and the original MANIFEST
     //    also exists.
-    if (new_descriptor_log && !manifest_io_status.ok()) {
+    if (!manifest_io_status.ok() && new_descriptor_log) {
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
