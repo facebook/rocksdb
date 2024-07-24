@@ -46,6 +46,25 @@ inline IOStatus CreateFile(const std::shared_ptr<FileSystem>& fs,
   return CreateFile(fs.get(), destination, contents, use_fsync);
 }
 
+// Slow deletion works when DB's total size and backlogged trash size are
+// properly tracked. DestroyDB attempts to delete each file as it enumerate
+// a DB directory. In order for slow deletion to work, if SstFileManager is
+// available, we first track each file in SstFileManager before passing it to
+// DeleteScheduler to delete. For DestroyDB purpose, we also treat a file that
+// will have remaining hard links as if its file size is zero, so that we can
+// special-case it to not be slow deleted. This is an optimization for
+// checkpoint cleanup via DestroyDB, where the majority of the files will still
+// have remaining hard links after its deletion.
+// While during a regular DB session, each file that eventually get passed to
+// DeleteScheduler should have already been tracked in SstFileManager when it
+// was initially created, or as a preexisting file discovered and tracked during
+// DB::Open. So those cases should continue to call the `DeleteDBFile` API for
+// deletion.
+Status TrackAndDeleteDBFile(const ImmutableDBOptions* db_options,
+                            const std::string& fname,
+                            const std::string& path_to_sync,
+                            const bool force_bg, const bool force_fg);
+
 // Delete a DB file, if this file is a SST file or Blob file and SstFileManager
 // is used, it should have already been tracked by SstFileManager via its
 // `OnFileAdd` API before passing to this API to be deleted, to ensure
@@ -53,7 +72,8 @@ inline IOStatus CreateFile(const std::shared_ptr<FileSystem>& fs,
 // properly.
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const std::string& fname, const std::string& path_to_sync,
-                    const bool force_bg, const bool force_fg);
+                    const bool force_bg, const bool force_fg,
+                    uint64_t file_size = std::numeric_limits<uint64_t>::max());
 
 // TODO(hx235): pass the whole DBOptions intead of its individual fields
 IOStatus GenerateOneFileChecksum(

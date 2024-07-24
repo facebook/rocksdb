@@ -59,14 +59,17 @@ DeleteScheduler::~DeleteScheduler() {
 
 Status DeleteScheduler::DeleteFile(const std::string& file_path,
                                    const std::string& dir_to_sync,
-                                   const bool force_bg) {
+                                   const bool force_bg, uint64_t file_size) {
   uint64_t total_size = sst_file_manager_->GetTotalSize();
   if (rate_bytes_per_sec_.load() <= 0 ||
       (!force_bg &&
-       total_trash_size_.load() > total_size * max_trash_db_ratio_.load())) {
+       total_trash_size_.load() > total_size * max_trash_db_ratio_.load()) ||
+      file_size == 0) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
+    TEST_SYNC_POINT_CALLBACK("DeleteScheduler::DeleteFile::cb",
+                             const_cast<std::string*>(&file_path));
     Status s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
       s = sst_file_manager_->OnDeleteFile(file_path);
@@ -308,6 +311,8 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
   Status s = fs_->GetFileSize(path_in_trash, IOOptions(), &file_size, nullptr);
   *is_complete = true;
   TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
+  TEST_SYNC_POINT_CALLBACK("DeleteScheduler::DeleteTrashFile::cb",
+                           const_cast<std::string*>(&path_in_trash));
   if (s.ok()) {
     bool need_full_delete = true;
     if (bytes_max_delete_chunk_ != 0 && file_size > bytes_max_delete_chunk_) {

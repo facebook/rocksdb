@@ -43,6 +43,13 @@ class SstFileManagerImpl : public SstFileManager {
   // queried from the filesystem. This is an optimization.
   Status OnAddFile(const std::string& file_path, uint64_t file_size);
 
+  // For the purpose of DestroyDB, if the file system supports getting a file's
+  // number of hard links, then a file with more than 1 hard links is treated
+  // as having a file size of 0. This API also returns the file size to the
+  // caller.
+  Status OnAddFileForDestroyDB(const std::string& file_path,
+                               uint64_t* file_size);
+
   // DB will call OnDeleteFile whenever a sst/blob file is deleted.
   Status OnDeleteFile(const std::string& file_path);
 
@@ -120,10 +127,12 @@ class SstFileManagerImpl : public SstFileManager {
 
   // Mark file as trash and schedule it's deletion. If force_bg is set, it
   // forces the file to be deleting in the background regardless of DB size,
-  // except when rate limited delete is disabled
-  virtual Status ScheduleFileDeletion(const std::string& file_path,
-                                      const std::string& dir_to_sync,
-                                      const bool force_bg = false);
+  // except when rate limited delete is disabled.
+  // When a file's size is known and 0, it will be deleted immediately.
+  virtual Status ScheduleFileDeletion(
+      const std::string& file_path, const std::string& dir_to_sync,
+      const bool force_bg = false,
+      uint64_t file_size = std::numeric_limits<uint64_t>::max());
 
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.

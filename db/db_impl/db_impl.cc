@@ -5267,7 +5267,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kWalFile ||
                    type == kBlobFile) {
-          del = DeleteDBFile(
+          del = TrackAndDeleteDBFile(
               &soptions, path_to_delete, dbname,
               /*force_bg=*/false,
               /*force_fg=*/(type == kWalFile) ? !wal_in_db_path : false);
@@ -5300,8 +5300,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
               (type == kTableFile ||
                type == kBlobFile)) {  // Lock file will be deleted at end
             std::string file_path = path + "/" + fname;
-            Status del = DeleteDBFile(&soptions, file_path, dbname,
-                                      /*force_bg=*/false, /*force_fg=*/false);
+            Status del =
+                TrackAndDeleteDBFile(&soptions, file_path, dbname,
+                                     /*force_bg=*/false, /*force_fg=*/false);
             if (!del.ok() && result.ok()) {
               result = del;
             }
@@ -5335,9 +5336,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       // Delete archival files.
       for (const auto& file : archiveFiles) {
         if (ParseFileName(file, &number, &type) && type == kWalFile) {
-          Status del =
-              DeleteDBFile(&soptions, archivedir + "/" + file, archivedir,
-                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          Status del = TrackAndDeleteDBFile(
+              &soptions, archivedir + "/" + file, archivedir,
+              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
           if (!del.ok() && result.ok()) {
             result = del;
           }
@@ -5351,10 +5352,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     if (wal_dir_exists) {
       for (const auto& file : walDirFiles) {
         if (ParseFileName(file, &number, &type) && type == kWalFile) {
-          Status del =
-              DeleteDBFile(&soptions, LogFileName(soptions.wal_dir, number),
-                           soptions.wal_dir, /*force_bg=*/false,
-                           /*force_fg=*/!wal_in_db_path);
+          Status del = TrackAndDeleteDBFile(
+              &soptions, LogFileName(soptions.wal_dir, number),
+              soptions.wal_dir, /*force_bg=*/false,
+              /*force_fg=*/!wal_in_db_path);
           if (!del.ok() && result.ok()) {
             result = del;
           }
@@ -5368,13 +5369,18 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     env->UnlockFile(lock).PermitUncheckedError();
     env->DeleteFile(lockname).PermitUncheckedError();
 
+    // Make sure trash files are all cleared before return.
+    auto sfm =
+        static_cast<SstFileManagerImpl*>(soptions.sst_file_manager.get());
+    if (sfm) {
+      sfm->WaitForEmptyTrash();
+    }
     // sst_file_manager holds a ref to the logger. Make sure the logger is
     // gone before trying to remove the directory.
     soptions.sst_file_manager.reset();
 
     // Ignore error in case dir contains other files
     env->DeleteDir(dbname).PermitUncheckedError();
-    ;
   }
   return result;
 }

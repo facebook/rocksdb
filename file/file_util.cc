@@ -122,13 +122,35 @@ IOStatus CreateFile(FileSystem* fs, const std::string& destination,
   return dest_writer->Sync(opts, use_fsync);
 }
 
+Status TrackAndDeleteDBFile(const ImmutableDBOptions* db_options,
+                            const std::string& fname,
+                            const std::string& dir_to_sync, const bool force_bg,
+                            const bool force_fg) {
+  uint64_t file_size = std::numeric_limits<uint64_t>::max();
+  SstFileManagerImpl* sfm =
+      static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
+  if (sfm) {
+    Status s = sfm->OnAddFileForDestroyDB(fname, &file_size);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  // DestroyDB treats file with more than 1 hard links as having a file size of
+  // 0, and will special casing such file to always be deleted immediately.
+  // We can tolerate rare races where this special casing will immediately
+  // delete a file with only 1 hard link.
+  return DeleteDBFile(db_options, fname, dir_to_sync, force_bg, force_fg,
+                      file_size);
+}
+
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const std::string& fname, const std::string& dir_to_sync,
-                    const bool force_bg, const bool force_fg) {
+                    const bool force_bg, const bool force_fg,
+                    uint64_t file_size) {
   SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
   if (sfm && !force_fg) {
-    return sfm->ScheduleFileDeletion(fname, dir_to_sync, force_bg);
+    return sfm->ScheduleFileDeletion(fname, dir_to_sync, force_bg, file_size);
   } else {
     return db_options->env->DeleteFile(fname);
   }
