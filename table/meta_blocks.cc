@@ -59,12 +59,11 @@ PropertyBlockBuilder::PropertyBlockBuilder()
 
 void PropertyBlockBuilder::Add(const std::string& name,
                                const std::string& val) {
+  assert(props_.find(name) == props_.end());
   props_.insert({name, val});
 }
 
 void PropertyBlockBuilder::Add(const std::string& name, uint64_t val) {
-  assert(props_.find(name) == props_.end());
-
   std::string dst;
   PutVarint64(&dst, val);
 
@@ -168,7 +167,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
 
 Slice PropertyBlockBuilder::Finish() {
   for (const auto& prop : props_) {
+    assert(last_prop_added_to_block_.empty() ||
+           comparator_->Compare(prop.first, last_prop_added_to_block_) > 0);
     properties_block_->Add(prop.first, prop.second);
+    last_prop_added_to_block_ = prop.first;
   }
 
   return properties_block_->Finish();
@@ -223,7 +225,6 @@ bool NotifyCollectTableCollectorsOnFinish(
       for (const auto& prop : collector->GetReadableProperties()) {
         readable_properties.insert(prop);
       }
-      builder->Add(user_collected_properties);
     } else {
       LogPropertiesCollectionError(info_log, "Finish" /* method */,
                                    collector->Name());
@@ -232,6 +233,7 @@ bool NotifyCollectTableCollectorsOnFinish(
       }
     }
   }
+  builder->Add(user_collected_properties);
   return all_succeeded;
 }
 
