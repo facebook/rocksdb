@@ -523,8 +523,11 @@ txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # MultiCfIterator not yet supported
+    "use_multi_cf_iterator": 0,
     # AttributeGroup not yet supported
     "use_attribute_group": 0,
+
 }
 
 # For optimistic transaction db
@@ -538,6 +541,8 @@ optimistic_txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # MultiCfIterator not yet supported
+    "use_multi_cf_iterator": 0,
     # AttributeGroup not yet supported
     "use_attribute_group": 0,
 }
@@ -658,6 +663,8 @@ multiops_txn_default_params = {
     "inplace_update_support": 0,
     # TimedPut not supported in transaction
     "use_timed_put_one_in": 0,
+    # MultiCfIterator not yet supported
+    "use_multi_cf_iterator": 0,
     # AttributeGroup not yet supported
     "use_attribute_group": 0,
 }
