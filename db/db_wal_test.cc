@@ -2765,6 +2765,13 @@ TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {
   options.avoid_flush_during_shutdown = true;
   DestroyAndReopen(options);
 
+  // Make sure the memtable switch in recovery flush happened after test checks
+  // the memtable is empty.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBWALTest.RecoveryFlushSwitchWALOnEmptyMemtable:"
+        "AfterCheckMemtableEmpty",
+        "RecoverFromRetryableBGIOError:BeforeStart"}});
+  SyncPoint::GetInstance()->EnableProcessing();
   fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kMetadataWrite, 7 /* seed*/, 1 /* one_in */,
       true /* retryable */, false /* has_data_loss*/);
@@ -2781,6 +2788,10 @@ TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {
                   ->mem()
                   ->IsEmpty());
   ASSERT_EQ("NOT_FOUND", Get("k"));
+  TEST_SYNC_POINT(
+      "DBWALTest.RecoveryFlushSwitchWALOnEmptyMemtable:"
+      "AfterCheckMemtableEmpty");
+  SyncPoint::GetInstance()->DisableProcessing();
 
   fault_fs->DisableThreadLocalErrorInjection(
       FaultInjectionIOType::kMetadataWrite);
