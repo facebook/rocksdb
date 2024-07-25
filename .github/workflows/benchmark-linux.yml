@@ -1,13 +1,12 @@
 name: facebook/rocksdb/benchmark-linux
-on: workflow_dispatch
+on: [push, pull_request] #To test self-hosted runner
+  #schedule:
+  #- cron: 5 17 * * *  # Every day 5:17 morning UTC, 22:00 PST
+  #workflow_dispatch:
 jobs:
-  # FIXME: when this job is fixed, it should be given a cron schedule like
-  # schedule:
-  # - cron: 0 * * * *
-  # workflow_dispatch:
   benchmark-linux:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: ubuntu-latest
+    runs-on: benchmark-linux
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/build-for-benchmarks"
