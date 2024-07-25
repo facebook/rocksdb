@@ -266,9 +266,9 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  // paranoid_checks: If true and supported by this MemtableRep, returned
-  // iterator will do additional validations when scanning through the memtable
-  // rep. Currently only SkipListRep is supported.
+  // paranoid_checks: If true, the returned iterator will perform extra checks
+  // to ensure data integrity, but this may come at a performance cost.
+  // Currently, only SkipListRep supports this feature.
   virtual Iterator* GetIterator(Arena* arena = nullptr,
                                 bool paranoid_checks = false,
                                 bool allow_data_in_error = false) = 0;
@@ -279,9 +279,9 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  // paranoid_checks: If true and supported by this MemtableRep, returned
-  // iterator will do additional validations when scanning through the memtable
-  // rep. Currently only SkipListRep is supported.
+  // paranoid_checks: If true, the returned iterator will perform extra checks
+  // to ensure data integrity, but this may come at a performance cost.
+  // Currently, only SkipListRep supports this feature.
   virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr,
                                              bool paranoid_checks = false,
                                              bool allow_data_in_error = false) {

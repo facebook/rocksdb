@@ -170,8 +170,8 @@ class InlineSkipList {
     // REQUIRES: Valid()
     void Next();
 
-    // Advances to the next position and performs correctness validations on the
-    // skiplist. Iterator becomes invalid if a corruption is found.
+    // Advances to the next position and performs integrity validations on the
+    // skip list. Iterator becomes invalid if a corruption is found.
     // REQUIRES: Valid()
     [[nodiscard]] Status NextAndValidate(bool allow_data_in_errors);
 
@@ -179,15 +179,15 @@ class InlineSkipList {
     // REQUIRES: Valid()
     void Prev();
 
-    // Advances to the previous position and performs correctness validations on
-    // the skiplist. Iterator becomes invalid if a corruption is found.
+    // Advances to the previous position and performs integrity validations on
+    // the skip list. Iterator becomes invalid if a corruption is found.
     // REQUIRES: Valid()
     [[nodiscard]] Status PrevAndValidate(bool allow_data_in_errors);
 
     // Advance to the first entry with a key >= target
     void Seek(const char* target);
 
-    // Seek and perform correctness validations on the skiplist.
+    // Seek and perform integrity validations on the skip list.
     // Iterator becomes invalid if a corruption is found.
     [[nodiscard]] Status SeekAndValidate(const char* target,
                                          bool allow_data_in_errors);
@@ -254,7 +254,7 @@ class InlineSkipList {
 
   // Returns the earliest node with a key >= key.
   // Returns nullptr if there is no such node or skip list validation fails.
-  // @param validation_status If not null, will perform correctness
+  // @param validation_status If not null, will perform integrity
   // validations on the skip list. If any inconsistency is found,
   // *validation_status will be set to Corruption(), and nullptr is returned.
   Node* FindGreaterOrEqual(const char* key, Status* validation_status = nullptr,
@@ -265,7 +265,7 @@ class InlineSkipList {
   // Returns nullptr if skip list validation fails.
   // Fills prev[level] with pointer to previous node at "level" for every
   // level in [0..max_height_-1], if prev is non-null.
-  // @param validation_status If not null, will perform correctness
+  // @param validation_status If not null, will perform integrity
   // validations on the skip list. If any inconsistency is found,
   // *validation_status will be set to Corruption(), and nullptr is returned.
   Node* FindLessThan(const char* key, Status* validation_status = nullptr,
@@ -297,7 +297,7 @@ class InlineSkipList {
   //
   // @param prev A node in the skip list.
   // @param next A node that is after `prev` in the skip list.
-  // @param status Will be set to Corruption is validation fails.
+  // @param status Will be set to Corruption if validation fails.
   // @param allow_data_in_errors controls whether key content is included in
   // Corruption status.
   //
