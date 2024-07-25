@@ -37,8 +37,9 @@ class VectorRep : public MemTableRep {
 
   size_t ApproximateMemoryUsage() override;
 
-  void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry)) override;
+  Status Get(const LookupKey& k, void* callback_args,
+             bool (*callback_func)(void* arg, const char* entry),
+             bool) override;
 
   ~VectorRep() override = default;
 
@@ -92,7 +93,8 @@ class VectorRep : public MemTableRep {
   };
 
   // Return an iterator over the keys in this representation.
-  MemTableRep::Iterator* GetIterator(Arena* arena) override;
+  MemTableRep::Iterator* GetIterator(Arena* arena,
+                                     bool paranoid_check = false) override;
 
  private:
   friend class Iterator;
@@ -244,8 +246,9 @@ void VectorRep::Iterator::SeekToLast() {
   }
 }
 
-void VectorRep::Get(const LookupKey& k, void* callback_args,
-                    bool (*callback_func)(void* arg, const char* entry)) {
+Status VectorRep::Get(const LookupKey& k, void* callback_args,
+                      bool (*callback_func)(void* arg, const char* entry),
+                      bool) {
   rwlock_.ReadLock();
   VectorRep* vector_rep;
   std::shared_ptr<Bucket> bucket;
@@ -261,9 +264,10 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
   for (iter.Seek(k.user_key(), k.memtable_key().data());
        iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
   }
+  return Status::OK();
 }
 
-MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
+MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena, bool) {
   char* mem = nullptr;
   if (arena != nullptr) {
     mem = arena->AllocateAligned(sizeof(Iterator));

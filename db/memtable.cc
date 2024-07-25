@@ -370,24 +370,25 @@ class MemTableIterator : public InternalIterator {
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         comparator_(mem.comparator_),
-        valid_(false),
         seqno_to_time_mapping_(seqno_to_time_mapping),
-        arena_mode_(arena != nullptr),
-        value_pinned_(
-            !mem.GetImmutableMemTableOptions()->inplace_update_support),
-        protection_bytes_per_key_(mem.moptions_.protection_bytes_per_key),
         status_(Status::OK()),
         logger_(mem.moptions_.info_log),
-        ts_sz_(mem.ts_sz_) {
+        ts_sz_(mem.ts_sz_),
+        protection_bytes_per_key_(mem.moptions_.protection_bytes_per_key),
+        valid_(false),
+        value_pinned_(
+            !mem.GetImmutableMemTableOptions()->inplace_update_support),
+        arena_mode_(arena != nullptr) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
     } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek &&
                !read_options.auto_prefix_mode) {
       // Auto prefix mode is not implemented in memtable yet.
       bloom_ = mem.bloom_filter_.get();
-      iter_ = mem.table_->GetDynamicPrefixIterator(arena);
+      iter_ = mem.table_->GetDynamicPrefixIterator(
+          arena, read_options.paranoid_checks);
     } else {
-      iter_ = mem.table_->GetIterator(arena);
+      iter_ = mem.table_->GetIterator(arena, read_options.paranoid_checks);
     }
     status_.PermitUncheckedError();
   }
@@ -415,10 +416,16 @@ class MemTableIterator : public InternalIterator {
   PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 #endif
 
-  bool Valid() const override { return valid_ && status_.ok(); }
+  bool Valid() const override {
+    // If inner iter_ is not valid, then this iter should also not be valid.
+    assert(iter_->Valid() || !(valid_ && status_.ok()));
+    return valid_ && status_.ok();
+  }
+
   void Seek(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
+    status_ = Status::OK();
     if (bloom_) {
       // iterator should only use prefix bloom filter
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
@@ -435,11 +442,13 @@ class MemTableIterator : public InternalIterator {
     }
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
+    status_ = iter_->status();
     VerifyEntryChecksum();
   }
   void SeekForPrev(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
+    status_ = Status::OK();
     if (bloom_) {
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
@@ -455,6 +464,7 @@ class MemTableIterator : public InternalIterator {
     }
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
+    status_ = iter_->status();
     VerifyEntryChecksum();
     if (!Valid() && status().ok()) {
       SeekToLast();
@@ -466,11 +476,13 @@ class MemTableIterator : public InternalIterator {
   void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
+    status_ = iter_->status();
     VerifyEntryChecksum();
   }
   void SeekToLast() override {
     iter_->SeekToLast();
     valid_ = iter_->Valid();
+    status_ = iter_->status();
     VerifyEntryChecksum();
   }
   void Next() override {
@@ -479,6 +491,7 @@ class MemTableIterator : public InternalIterator {
     iter_->Next();
     TEST_SYNC_POINT_CALLBACK("MemTableIterator::Next:0", iter_);
     valid_ = iter_->Valid();
+    status_ = iter_->status();
     VerifyEntryChecksum();
   }
   bool NextAndGetResult(IterateResult* result) override {
@@ -496,6 +509,7 @@ class MemTableIterator : public InternalIterator {
     assert(Valid());
     iter_->Prev();
     valid_ = iter_->Valid();
+    status_ = iter_->status();
     VerifyEntryChecksum();
   }
   Slice key() const override {
@@ -540,15 +554,15 @@ class MemTableIterator : public InternalIterator {
   const SliceTransform* const prefix_extractor_;
   const MemTable::KeyComparator comparator_;
   MemTableRep::Iterator* iter_;
-  bool valid_;
   // The seqno to time mapping is owned by the SuperVersion.
   UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping_;
-  bool arena_mode_;
-  bool value_pinned_;
-  uint32_t protection_bytes_per_key_;
   Status status_;
   Logger* logger_;
   size_t ts_sz_;
+  uint32_t protection_bytes_per_key_;
+  bool valid_;
+  bool value_pinned_;
+  bool arena_mode_;
 
   void VerifyEntryChecksum() {
     if (protection_bytes_per_key_ > 0 && Valid()) {
@@ -1309,7 +1323,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
     }
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
                  is_blob_index, value, columns, timestamp, s, merge_context,
-                 seq, &found_final_value, &merge_in_progress);
+                 seq, &found_final_value, &merge_in_progress,
+                 read_opts.paranoid_checks);
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -1325,14 +1340,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   return found_final_value;
 }
 
-void MemTable::GetFromTable(const LookupKey& key,
-                            SequenceNumber max_covering_tombstone_seq,
-                            bool do_merge, ReadCallback* callback,
-                            bool* is_blob_index, std::string* value,
-                            PinnableWideColumns* columns,
-                            std::string* timestamp, Status* s,
-                            MergeContext* merge_context, SequenceNumber* seq,
-                            bool* found_final_value, bool* merge_in_progress) {
+void MemTable::GetFromTable(
+    const LookupKey& key, SequenceNumber max_covering_tombstone_seq,
+    bool do_merge, ReadCallback* callback, bool* is_blob_index,
+    std::string* value, PinnableWideColumns* columns, std::string* timestamp,
+    Status* s, MergeContext* merge_context, SequenceNumber* seq,
+    bool* found_final_value, bool* merge_in_progress, bool paranoid_checks) {
   Saver saver;
   saver.status = s;
   saver.found_final_value = found_final_value;
@@ -1355,8 +1368,14 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.do_merge = do_merge;
   saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
-  table_->Get(key, &saver, SaveValue);
+
+  Status check_s = table_->Get(key, &saver, SaveValue, paranoid_checks);
   assert(s->ok() || s->IsMergeInProgress() || *found_final_value);
+  if (check_s.IsCorruption()) {
+    *(saver.status) = check_s;
+    // Should stop searching the LSM.
+    *(saver.found_final_value) = true;
+  }
   *seq = saver.seq;
 }
 
@@ -1427,8 +1446,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                  callback, &iter->is_blob_index,
                  iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
                  iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
-                 &found_final_value, &merge_in_progress);
-
+                 &found_final_value, &merge_in_progress,
+                 read_options.paranoid_checks);
     if (!found_final_value && merge_in_progress) {
       if (iter->s->ok()) {
         *(iter->s) = Status::MergeInProgress();
@@ -1659,13 +1678,15 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key,
   return num_successive_merges;
 }
 
-void MemTableRep::Get(const LookupKey& k, void* callback_args,
-                      bool (*callback_func)(void* arg, const char* entry)) {
-  auto iter = GetDynamicPrefixIterator();
+Status MemTableRep::Get(const LookupKey& k, void* callback_args,
+                        bool (*callback_func)(void* arg, const char* entry),
+                        bool paranoid_check) {
+  auto iter = GetDynamicPrefixIterator(nullptr, paranoid_check);
   for (iter->Seek(k.internal_key(), k.memtable_key().data());
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
   }
+  return iter->status();
 }
 
 void MemTable::RefLogContainingPrepSection(uint64_t log) {

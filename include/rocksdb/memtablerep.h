@@ -191,8 +191,9 @@ class MemTableRep {
   // Default:
   // Get() function with a default value of dynamically construct an iterator,
   // seek and call the call back function.
-  virtual void Get(const LookupKey& k, void* callback_args,
-                   bool (*callback_func)(void* arg, const char* entry));
+  virtual Status Get(const LookupKey& k, void* callback_args,
+                     bool (*callback_func)(void* arg, const char* entry),
+                     bool paranoid_check = false);
 
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {
@@ -226,6 +227,8 @@ class MemTableRep {
 
     // Returns true iff the iterator is positioned at a valid node.
     virtual bool Valid() const = 0;
+
+    virtual Status status() const { return Status::OK(); }
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
@@ -262,7 +265,11 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  virtual Iterator* GetIterator(Arena* arena = nullptr) = 0;
+  // paranoid_checks: If true and supported by this MemtableRep, returned
+  // iterator will do additional validations when scanning through the memtable
+  // rep. Currently only SkipListRep is supported.
+  virtual Iterator* GetIterator(Arena* arena = nullptr,
+                                bool paranoid_checks = false) = 0;
 
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
@@ -270,8 +277,12 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr) {
-    return GetIterator(arena);
+  // paranoid_checks: If true and supported by this MemtableRep, returned
+  // iterator will do additional validations when scanning through the memtable
+  // rep. Currently only SkipListRep is supported.
+  virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr,
+                                             bool paranoid_checks = false) {
+    return GetIterator(arena, paranoid_checks);
   }
 
   // Return true if the current MemTableRep supports merge operator.

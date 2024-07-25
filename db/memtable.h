@@ -266,6 +266,11 @@ class MemTable {
   // If do_merge = false then any Merge Operands encountered for key are simply
   // stored in merge_context.operands_list and never actually merged to get a
   // final value. The raw Merge Operands are eventually returned to the user.
+  // @param value If not null and memtable contains a value for key, `value`
+  // will be set to the result value.
+  // @param column If not null and memtable contains a value/WideColumn for key,
+  // `column` will be set to the result value/WideColumn.
+  // Note: only one of `value` and `column` can be non-nullptr.
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.
@@ -674,13 +679,18 @@ class MemTable {
 
   void UpdateOldestKeyTime();
 
+  // @param paranoid_checks If supported, perform additional data integrity
+  // checks during get. Only supported by SkipListRep. Will update *s to
+  // Corruption and *found_final_value to true if any data corruption is
+  // detected.
   void GetFromTable(const LookupKey& key,
                     SequenceNumber max_covering_tombstone_seq, bool do_merge,
                     ReadCallback* callback, bool* is_blob_index,
                     std::string* value, PinnableWideColumns* columns,
                     std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
-                    bool* found_final_value, bool* merge_in_progress);
+                    bool* found_final_value, bool* merge_in_progress,
+                    bool paranoid_checks);
 
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime

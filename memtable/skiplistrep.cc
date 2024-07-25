@@ -82,14 +82,17 @@ class SkipListRep : public MemTableRep {
     return 0;
   }
 
-  void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry)) override {
-    SkipListRep::Iterator iter(&skip_list_);
+  Status Get(const LookupKey& k, void* callback_args,
+             bool (*callback_func)(void* arg, const char* entry),
+             bool paranoid_checks) override {
+    SkipListRep::Iterator iter(&skip_list_, paranoid_checks);
     Slice dummy_slice;
     for (iter.Seek(dummy_slice, k.memtable_key().data());
          iter.Valid() && callback_func(callback_args, iter.key());
          iter.Next()) {
+      assert(iter.status().ok());
     }
+    return iter.status();
   }
 
   uint64_t ApproximateNumEntries(const Slice& start_ikey,
@@ -111,7 +114,7 @@ class SkipListRep : public MemTableRep {
     // NOTE: the size of entries is not enforced to be exactly
     // target_sample_size at the end of this function, it might be slightly
     // greater or smaller.
-    SkipListRep::Iterator iter(&skip_list_);
+    SkipListRep::Iterator iter(&skip_list_, /*paranoid_check=*/false);
     // There are two methods to create the subset of samples (size m)
     // from the table containing N elements:
     // 1-Iterate linearly through the N memtable entries. For each entry i,
@@ -166,42 +169,75 @@ class SkipListRep : public MemTableRep {
   // Iteration over the contents of a skip list
   class Iterator : public MemTableRep::Iterator {
     InlineSkipList<const MemTableRep::KeyComparator&>::Iterator iter_;
+    Status status_;
+    const bool paranoid_;
 
    public:
     // Initialize an iterator over the specified list.
     // The returned iterator is not valid.
     explicit Iterator(
-        const InlineSkipList<const MemTableRep::KeyComparator&>* list)
-        : iter_(list) {}
+        const InlineSkipList<const MemTableRep::KeyComparator&>* list,
+        bool paranoid_check)
+        : iter_(list), paranoid_(paranoid_check) {}
 
     ~Iterator() override = default;
 
     // Returns true iff the iterator is positioned at a valid node.
-    bool Valid() const override { return iter_.Valid(); }
+    bool Valid() const override { return iter_.Valid() && status_.ok(); }
+
+    Status status() const override { return status_; }
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
-    const char* key() const override { return iter_.key(); }
+    const char* key() const override {
+      assert(Valid());
+      return iter_.key();
+    }
 
     // Advances to the next position.
     // REQUIRES: Valid()
-    void Next() override { iter_.Next(); }
+    void Next() override {
+      assert(Valid());
+      if (!paranoid_) {
+        iter_.Next();
+      } else {
+        status_ = iter_.NextAndValidate();
+      }
+    }
 
     // Advances to the previous position.
     // REQUIRES: Valid()
-    void Prev() override { iter_.Prev(); }
+    void Prev() override {
+      assert(Valid());
+      if (!paranoid_) {
+        iter_.Prev();
+      } else {
+        status_ = iter_.PrevAndValidate();
+      }
+    }
 
     // Advance to the first entry with a key >= target
     void Seek(const Slice& user_key, const char* memtable_key) override {
-      if (memtable_key != nullptr) {
-        iter_.Seek(memtable_key);
+      if (!paranoid_) {
+        // Should remove this since status is always ok?
+        status_ = Status::OK();
+        if (memtable_key != nullptr) {
+          iter_.Seek(memtable_key);
+        } else {
+          iter_.Seek(EncodeKey(&tmp_, user_key));
+        }
       } else {
-        iter_.Seek(EncodeKey(&tmp_, user_key));
+        if (memtable_key != nullptr) {
+          status_ = iter_.SeekAndValidate(memtable_key);
+        } else {
+          status_ = iter_.SeekAndValidate(EncodeKey(&tmp_, user_key));
+        }
       }
     }
 
     // Retreat to the last entry with a key <= target
     void SeekForPrev(const Slice& user_key, const char* memtable_key) override {
+      status_ = Status::OK();
       if (memtable_key != nullptr) {
         iter_.SeekForPrev(memtable_key);
       } else {
@@ -209,15 +245,24 @@ class SkipListRep : public MemTableRep {
       }
     }
 
-    void RandomSeek() override { iter_.RandomSeek(); }
+    void RandomSeek() override {
+      status_ = Status::OK();
+      iter_.RandomSeek();
+    }
 
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
-    void SeekToFirst() override { iter_.SeekToFirst(); }
+    void SeekToFirst() override {
+      status_ = Status::OK();
+      iter_.SeekToFirst();
+    }
 
     // Position at the last entry in list.
     // Final state of iterator is Valid() iff list is not empty.
-    void SeekToLast() override { iter_.SeekToLast(); }
+    void SeekToLast() override {
+      status_ = Status::OK();
+      iter_.SeekToLast();
+    }
 
    protected:
     std::string tmp_;  // For passing to EncodeKey
@@ -323,7 +368,8 @@ class SkipListRep : public MemTableRep {
     InlineSkipList<const MemTableRep::KeyComparator&>::Iterator prev_;
   };
 
-  MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
+  MemTableRep::Iterator* GetIterator(Arena* arena,
+                                     bool paranoid_checks) override {
     if (lookahead_ > 0) {
       void* mem =
           arena ? arena->AllocateAligned(sizeof(SkipListRep::LookaheadIterator))
@@ -334,7 +380,7 @@ class SkipListRep : public MemTableRep {
       void* mem = arena ? arena->AllocateAligned(sizeof(SkipListRep::Iterator))
                         :
                         operator new(sizeof(SkipListRep::Iterator));
-      return new (mem) SkipListRep::Iterator(&skip_list_);
+      return new (mem) SkipListRep::Iterator(&skip_list_, paranoid_checks);
     }
   }
 };
