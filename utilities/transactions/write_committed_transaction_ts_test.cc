@@ -627,6 +627,34 @@ TEST_P(WriteCommittedTxnWithTsTest, GetForUpdateUdtValidationNotEnabled) {
                                  /* exclusive= */ true, /*do_validate=*/true)
                   .IsInvalidArgument());
   txn4.reset();
+
+  // Conflict of timestamps not caught when parallel transactions commit with
+  // some out of order timestamps.
+  std::unique_ptr<Transaction> txn5(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  assert(txn5);
+
+  std::unique_ptr<Transaction> txn6(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  assert(txn6);
+  ASSERT_OK(txn6->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /* exclusive= */ true, /*do_validate=*/true));
+  ASSERT_OK(txn6->Put(handles_[1], "key", "value4"));
+  ASSERT_OK(txn6->SetName("txn6"));
+  ASSERT_OK(txn6->Prepare());
+  ASSERT_OK(txn6->SetCommitTimestamp(24));
+  ASSERT_OK(txn6->Commit());
+  txn6.reset();
+
+  txn5->SetSnapshot();
+  ASSERT_OK(txn5->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /* exclusive= */ true, /*do_validate=*/true));
+  ASSERT_OK(txn5->Put(handles_[1], "key", "value3"));
+  ASSERT_OK(txn5->SetName("txn5"));
+  // txn5 commits after txn6 but writes a smaller timestamp
+  ASSERT_OK(txn5->SetCommitTimestamp(23));
+  ASSERT_OK(txn5->Commit());
+  txn5.reset();
 }
 
 TEST_P(WriteCommittedTxnWithTsTest, BlindWrite) {

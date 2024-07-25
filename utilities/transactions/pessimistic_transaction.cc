@@ -188,20 +188,10 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
       return s;
     }
   }
-  bool enable_udt_validation =
-      txn_db_impl_->GetTxnDBOptions().enable_udt_validation;
-  if (!enable_udt_validation && kMaxTxnTimestamp != read_timestamp_) {
-    return Status::InvalidArgument(
-        "read_timestamp is set but timestamp validation is disabled for the "
-        "DB");
-  } else if (enable_udt_validation && !do_validate &&
-             kMaxTxnTimestamp != read_timestamp_) {
-    return Status::InvalidArgument(
-        "If do_validate is false then GetForUpdate with read_timestamp is not "
-        "defined.");
-  } else if (enable_udt_validation && do_validate &&
-             kMaxTxnTimestamp == read_timestamp_) {
-    return Status::InvalidArgument("read_timestamp must be set for validation");
+
+  Status s = SanityCheckReadTimestamp(do_validate);
+  if (!s.ok()) {
+    return s;
   }
 
   if (!read_options.timestamp) {
@@ -244,17 +234,9 @@ Status WriteCommittedTxn::GetEntityForUpdate(const ReadOptions& read_options,
   }
 
   assert(ts_sz > 0);
-
-  if (!do_validate) {
-    if (read_timestamp_ != kMaxTxnTimestamp) {
-      return Status::InvalidArgument(
-          "Read timestamp must not be set if validation is disabled");
-    }
-  } else {
-    if (read_timestamp_ == kMaxTxnTimestamp) {
-      return Status::InvalidArgument(
-          "Read timestamp must be set for validation");
-    }
+  Status s = SanityCheckReadTimestamp(do_validate);
+  if (!s.ok()) {
+    return s;
   }
 
   std::string ts_buf;
@@ -276,6 +258,33 @@ Status WriteCommittedTxn::GetEntityForUpdate(const ReadOptions& read_options,
 
   return TransactionBaseImpl::GetEntityForUpdate(
       read_options, column_family, key, columns, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::SanityCheckReadTimestamp(bool do_validate) {
+  bool enable_udt_validation =
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation;
+  if (!enable_udt_validation) {
+    if (kMaxTxnTimestamp != read_timestamp_) {
+      return Status::InvalidArgument(
+          "read_timestamp is set but timestamp validation is disabled for the "
+          "DB");
+    }
+  } else {
+    if (!do_validate) {
+      if (kMaxTxnTimestamp != read_timestamp_) {
+        return Status::InvalidArgument(
+            "If do_validate is false then GetForUpdate with read_timestamp is "
+            "not "
+            "defined.");
+      }
+    } else {
+      if (kMaxTxnTimestamp == read_timestamp_) {
+        return Status::InvalidArgument(
+            "read_timestamp must be set for validation");
+      }
+    }
+  }
+  return Status::OK();
 }
 
 Status WriteCommittedTxn::PutEntityImpl(ColumnFamilyHandle* column_family,
