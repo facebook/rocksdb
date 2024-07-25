@@ -173,7 +173,7 @@ class InlineSkipList {
     // Advances to the next position and performs correctness validations on the
     // skiplist. Iterator becomes invalid if a corruption is found.
     // REQUIRES: Valid()
-    [[nodiscard]] Status NextAndValidate();
+    [[nodiscard]] Status NextAndValidate(bool allow_data_in_errors);
 
     // Advances to the previous position.
     // REQUIRES: Valid()
@@ -182,14 +182,15 @@ class InlineSkipList {
     // Advances to the previous position and performs correctness validations on
     // the skiplist. Iterator becomes invalid if a corruption is found.
     // REQUIRES: Valid()
-    [[nodiscard]] Status PrevAndValidate();
+    [[nodiscard]] Status PrevAndValidate(bool allow_data_in_errors);
 
     // Advance to the first entry with a key >= target
     void Seek(const char* target);
 
     // Seek and perform correctness validations on the skiplist.
     // Iterator becomes invalid if a corruption is found.
-    [[nodiscard]] Status SeekAndValidate(const char* target);
+    [[nodiscard]] Status SeekAndValidate(const char* target,
+                                         bool allow_data_in_errors);
 
     // Retreat to the last entry with a key <= target
     void SeekForPrev(const char* target);
@@ -256,8 +257,8 @@ class InlineSkipList {
   // @param validation_status If not null, will perform correctness
   // validations on the skip list. If any inconsistency is found,
   // *validation_status will be set to Corruption(), and nullptr is returned.
-  Node* FindGreaterOrEqual(const char* key,
-                           Status* validation_status = nullptr) const;
+  Node* FindGreaterOrEqual(const char* key, Status* validation_status = nullptr,
+                           bool allow_data_in_errors = false) const;
 
   // Returns the latest node with a key < key.
   // Returns head_ if there is no such node.
@@ -267,8 +268,8 @@ class InlineSkipList {
   // @param validation_status If not null, will perform correctness
   // validations on the skip list. If any inconsistency is found,
   // *validation_status will be set to Corruption(), and nullptr is returned.
-  Node* FindLessThan(const char* key,
-                     Status* validation_status = nullptr) const;
+  Node* FindLessThan(const char* key, Status* validation_status = nullptr,
+                     bool allow_data_in_errors = false) const;
 
   // Return the last node in the list.
   // Return head_ if list is empty.
@@ -291,6 +292,18 @@ class InlineSkipList {
   // lowest_level (inclusive).
   void RecomputeSpliceLevels(const DecodedKey& key, Splice* splice,
                              int recompute_level);
+
+  // Verifies that the keys of two nodes in the skip list are in order.
+  //
+  // @param prev A node in the skip list.
+  // @param next A node that is after `prev` in the skip list.
+  // @param status Will be set to Corruption is validation fails.
+  // @param allow_data_in_errors controls whether key content is included in
+  // Corruption status.
+  //
+  // @return True if the nodes are in order, false otherwise.
+  bool ValidateKeyOrder(Node* prev, Node* next, Status* error,
+                        bool allow_data_in_errors) const;
 };
 
 // Implementation details follow
@@ -410,21 +423,18 @@ inline void InlineSkipList<Comparator>::Iterator::Next() {
 }
 
 template <class Comparator>
-inline Status InlineSkipList<Comparator>::Iterator::NextAndValidate() {
+inline Status InlineSkipList<Comparator>::Iterator::NextAndValidate(
+    bool allow_data_in_errors) {
   assert(Valid());
   Node* prev_node = node_;
   node_ = node_->Next(0);
   // Verify that keys are increasing.
-  if (prev_node != list_->head_ && node_ != nullptr &&
-      list_->compare_(prev_node->Key(), node_->Key()) >= 0) {
-    Status s =
-        Status::Corruption("Out-of-order keys found in skiplist: prev key: " +
-                           Slice(prev_node->Key()).ToString(true) +
-                           " next key: " + Slice(node_->Key()).ToString(true));
+  Status s;
+  if (!list_->ValidateKeyOrder(prev_node, node_, &s, allow_data_in_errors)) {
+    // invalidates the iterator
     node_ = nullptr;
-    return s;
   }
-  return Status::OK();
+  return s;
 }
 
 template <class Comparator>
@@ -439,11 +449,12 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
 }
 
 template <class Comparator>
-inline Status InlineSkipList<Comparator>::Iterator::PrevAndValidate() {
+inline Status InlineSkipList<Comparator>::Iterator::PrevAndValidate(
+    bool allow_data_in_errors) {
   assert(Valid());
   // Skip list validation is done in FindLessThan().
   Status s;
-  node_ = list_->FindLessThan(node_->Key(), &s);
+  node_ = list_->FindLessThan(node_->Key(), &s, allow_data_in_errors);
   assert(s.ok() || node_ == nullptr);
   return s;
 }
@@ -455,9 +466,9 @@ inline void InlineSkipList<Comparator>::Iterator::Seek(const char* target) {
 
 template <class Comparator>
 inline Status InlineSkipList<Comparator>::Iterator::SeekAndValidate(
-    const char* target) {
+    const char* target, bool allow_data_in_errors) {
   Status s;
-  node_ = list_->FindGreaterOrEqual(target, &s);
+  node_ = list_->FindGreaterOrEqual(target, &s, allow_data_in_errors);
   assert(s.ok() || node_ == nullptr);
   return s;
 }
@@ -528,7 +539,8 @@ bool InlineSkipList<Comparator>::KeyIsAfterNode(const DecodedKey& key,
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::FindGreaterOrEqual(
-    const char* key, Status* validation_status) const {
+    const char* key, Status* validation_status,
+    bool allow_data_in_errors) const {
   // Note: It looks like we could reduce duplication by implementing
   // this function as FindLessThan(key)->Next(0), but we wouldn't be able
   // to exit early on equality and the result wouldn't even be correct.
@@ -545,11 +557,8 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(
     }
     if (validation_status) {
       // Verify that keys are increasing.
-      if (x != head_ && next && !KeyIsAfterNode(next->Key(), x)) {
-        *validation_status = Status::Corruption(
-            "Out-of-order keys found in skiplist: prev key: " +
-            Slice(x->Key()).ToString(true) +
-            " next key: " + Slice(next->Key()).ToString(true));
+      if (!ValidateKeyOrder(x, next, validation_status, allow_data_in_errors)) {
+        assert(validation_status->IsCorruption());
         return nullptr;
       }
     }
@@ -576,7 +585,8 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::FindLessThan(const char* key,
-                                         Status* validation_status) const {
+                                         Status* validation_status,
+                                         bool allow_data_in_errors) const {
   int level = GetMaxHeight() - 1;
   assert(level >= 0);
   Node* x = head_;
@@ -590,14 +600,10 @@ InlineSkipList<Comparator>::FindLessThan(const char* key,
       PREFETCH(next->Next(level), 0, 1);
     }
     if (validation_status) {
-      if (x != head_ && next && !KeyIsAfterNode(next->Key(), x)) {
-        *validation_status = Status::Corruption(
-            "Out-of-order keys found in skiplist: prev key: " +
-            Slice(x->Key()).ToString(true) +
-            " next key: " + Slice(next->Key()).ToString(true));
-        // head_ is for not found
+      if (!ValidateKeyOrder(x, next, validation_status, allow_data_in_errors)) {
+        assert(validation_status->IsCorruption());
         return nullptr;
-      };
+      }
     }
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     assert(x == head_ || KeyIsAfterNode(key_decoded, x));
@@ -1114,4 +1120,18 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
   }
 }
 
+template <class Comparator>
+inline bool InlineSkipList<Comparator>::ValidateKeyOrder(
+    Node* prev, Node* next, Status* error, bool allow_data_in_errors) const {
+  if (prev != head_ && next && !KeyIsAfterNode(next->Key(), prev)) {
+    std::string msg = "Out-of-order keys found in skiplist.";
+    if (allow_data_in_errors) {
+      msg.append(" prev key: " + Slice(prev->Key()).ToString(true));
+      msg.append(" next key: " + Slice(next->Key()).ToString(true));
+    }
+    *error = Status::Corruption(msg);
+    return false;
+  };
+  return true;
+}
 }  // namespace ROCKSDB_NAMESPACE

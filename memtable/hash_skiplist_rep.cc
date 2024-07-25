@@ -34,15 +34,17 @@ class HashSkipListRep : public MemTableRep {
 
   Status Get(const LookupKey& k, void* callback_args,
              bool (*callback_func)(void* arg, const char* entry),
-             bool) override;
+             bool paranoid_checks, bool allow_data_in_errors) override;
 
   ~HashSkipListRep() override;
 
-  MemTableRep::Iterator* GetIterator(Arena* arena = nullptr,
-                                     bool paranoid_checks = false) override;
+  MemTableRep::Iterator* GetIterator(
+      Arena* arena = nullptr, bool paranoid_checks = false,
+      bool allow_data_in_errors = false) override;
 
   MemTableRep::Iterator* GetDynamicPrefixIterator(
-      Arena* arena = nullptr, bool paranoid_checks = false) override;
+      Arena* arena = nullptr, bool paranoid_checks = false,
+      bool allow_data_in_errors = false) override;
 
  private:
   friend class DynamicIterator;
@@ -286,7 +288,8 @@ size_t HashSkipListRep::ApproximateMemoryUsage() { return 0; }
 
 Status HashSkipListRep::Get(const LookupKey& k, void* callback_args,
                             bool (*callback_func)(void* arg, const char* entry),
-                            bool) {
+                            bool /*paranoid_checks*/,
+                            bool /*allow_data_in_errors*/) {
   auto transformed = transform_->Transform(k.user_key());
   auto bucket = GetBucket(transformed);
   if (bucket != nullptr) {
@@ -299,7 +302,8 @@ Status HashSkipListRep::Get(const LookupKey& k, void* callback_args,
   return Status::OK();
 }
 
-MemTableRep::Iterator* HashSkipListRep::GetIterator(Arena* arena, bool) {
+MemTableRep::Iterator* HashSkipListRep::GetIterator(
+    Arena* arena, bool /*paranoid_checks*/, bool /*allow_data_in_errors*/) {
   // allocate a new arena of similar size to the one currently in use
   Arena* new_arena = new Arena(allocator_->BlockSize());
   auto list = new Bucket(compare_, new_arena);
@@ -320,8 +324,8 @@ MemTableRep::Iterator* HashSkipListRep::GetIterator(Arena* arena, bool) {
   }
 }
 
-MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena,
-                                                                 bool) {
+MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(
+    Arena* arena, bool /*paranoid_checks*/, bool /*allow_data_in_errors*/) {
   if (arena == nullptr) {
     return new DynamicIterator(*this);
   } else {
