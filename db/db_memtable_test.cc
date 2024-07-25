@@ -345,9 +345,10 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
 TEST_F(DBMemTableTest, ParanoidCheck) {
   // We insert keys key000000, key000001 and key000002 into skiplist at fixed
   // height 1 (smallest height). Then we corrupt the second key to aey000001 to
-  // make it smaller. With ReadOptions::paranoid_check, if the skip list sees
-  // key000000 and then aey000001, then it will report out of order keys with
-  // corruption status. Without paranoid_check, it may return wrong results.
+  // make it smaller. With ReadOptions::paranoid_check set to true, if the skip
+  // list sees key000000 and then aey000001, then it will report out of order
+  // keys with corruption status. With ReadOptions::paranoid_check set to false,
+  // read/scan may return wrong results.
   for (bool allow_data_in_error : {false, true}) {
     Options options = CurrentOptions();
     options.allow_data_in_errors = allow_data_in_error;
@@ -403,7 +404,6 @@ TEST_F(DBMemTableTest, ParanoidCheck) {
     iter->Seek(Key(0));
     ASSERT_TRUE(iter->Valid());
     ASSERT_OK(iter->status());
-
     // iterating through skip list at height at 1 should catch out-of-order keys
     iter->Next();
     ASSERT_TRUE(iter->status().IsCorruption());
@@ -416,8 +416,8 @@ TEST_F(DBMemTableTest, ParanoidCheck) {
     ASSERT_EQ(iter->status().ToString().find(key0) != std::string::npos,
               allow_data_in_error);
 
-    // Internally DB Iter will iterate backwards (Prev()) after SeekToLast()
-    // to find the correct internal key with the last user key.
+    // Internally DB Iter will iterate backwards (call Prev()) after
+    // SeekToLast() to find the correct internal key with the last user key.
     // Prev() will do paranoid checks and catch corruption.
     iter->SeekToLast();
     ASSERT_TRUE(iter->status().IsCorruption());
