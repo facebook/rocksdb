@@ -193,7 +193,8 @@ class MemTableRep {
   // seek and call the call back function.
   virtual Status Get(const LookupKey& k, void* callback_args,
                      bool (*callback_func)(void* arg, const char* entry),
-                     bool paranoid_check = false);
+                     bool paranoid_check = false,
+                     bool allow_data_in_error = false);
 
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {
@@ -269,7 +270,8 @@ class MemTableRep {
   // iterator will do additional validations when scanning through the memtable
   // rep. Currently only SkipListRep is supported.
   virtual Iterator* GetIterator(Arena* arena = nullptr,
-                                bool paranoid_checks = false) = 0;
+                                bool paranoid_checks = false,
+                                bool allow_data_in_error = false) = 0;
 
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
@@ -281,8 +283,9 @@ class MemTableRep {
   // iterator will do additional validations when scanning through the memtable
   // rep. Currently only SkipListRep is supported.
   virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr,
-                                             bool paranoid_checks = false) {
-    return GetIterator(arena, paranoid_checks);
+                                             bool paranoid_checks = false,
+                                             bool allow_data_in_error = false) {
+    return GetIterator(arena, paranoid_checks, allow_data_in_error);
   }
 
   // Return true if the current MemTableRep supports merge operator.

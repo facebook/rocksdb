@@ -386,9 +386,11 @@ class MemTableIterator : public InternalIterator {
       // Auto prefix mode is not implemented in memtable yet.
       bloom_ = mem.bloom_filter_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(
-          arena, read_options.paranoid_checks);
+          arena, read_options.paranoid_checks,
+          mem.moptions_.allow_data_in_errors);
     } else {
-      iter_ = mem.table_->GetIterator(arena, read_options.paranoid_checks);
+      iter_ = mem.table_->GetIterator(arena, read_options.paranoid_checks,
+                                      mem.moptions_.allow_data_in_errors);
     }
     status_.PermitUncheckedError();
   }
@@ -1369,7 +1371,8 @@ void MemTable::GetFromTable(
   saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
 
-  Status check_s = table_->Get(key, &saver, SaveValue, paranoid_checks);
+  Status check_s = table_->Get(key, &saver, SaveValue, paranoid_checks,
+                               moptions_.allow_data_in_errors);
   assert(s->ok() || s->IsMergeInProgress() || *found_final_value);
   if (check_s.IsCorruption()) {
     *(saver.status) = check_s;
@@ -1680,8 +1683,9 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key,
 
 Status MemTableRep::Get(const LookupKey& k, void* callback_args,
                         bool (*callback_func)(void* arg, const char* entry),
-                        bool paranoid_check) {
-  auto iter = GetDynamicPrefixIterator(nullptr, paranoid_check);
+                        bool paranoid_check, bool allow_data_in_error) {
+  auto iter =
+      GetDynamicPrefixIterator(nullptr, paranoid_check, allow_data_in_error);
   for (iter->Seek(k.internal_key(), k.memtable_key().data());
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
