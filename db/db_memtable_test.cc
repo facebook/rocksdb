@@ -41,17 +41,18 @@ class MockMemTableRep : public MemTableRep {
 
   bool Contains(const char* key) const override { return rep_->Contains(key); }
 
-  void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry)) override {
-    rep_->Get(k, callback_args, callback_func);
+  Status Get(const LookupKey& k, void* callback_args,
+             bool (*callback_func)(void* arg, const char* entry),
+             bool paranoid_check) override {
+    return rep_->Get(k, callback_args, callback_func, paranoid_check);
   }
 
   size_t ApproximateMemoryUsage() override {
     return rep_->ApproximateMemoryUsage();
   }
 
-  Iterator* GetIterator(Arena* arena) override {
-    return rep_->GetIterator(arena);
+  Iterator* GetIterator(Arena* arena, bool paranoid_checks = false) override {
+    return rep_->GetIterator(arena, paranoid_checks);
   }
 
   void* last_hint_in() { return last_hint_in_; }
@@ -339,6 +340,70 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
   }
 }
 
+TEST_F(DBMemTableTest, ParanoidCheck) {
+  // We insert keys key000000, key000001 and key000002 into skiplist at fixed
+  // height 1 (smallest height). Then we corrupt the second key to aey000001 to
+  // make it smaller. With ReadOptions::paranoid_check, if the skip list sees
+  // key000000 and then aey000001, then it will report out of order keys with
+  // corruption status. Without paranoid_check, it may return wrong results.
+  DestroyAndReopen(CurrentOptions());
+  SyncPoint::GetInstance()->SetCallBack(
+      "InlineSkipList::RandomHeight::height", [](void* h) {
+        auto height_ptr = static_cast<int*>(h);
+        *height_ptr = 1;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(Key(0), "val0"));
+  ASSERT_OK(Put(Key(2), "val2"));
+
+  // p will point to the buffer for encoded key000001
+  char* p = nullptr;
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::Add:BeforeReturn:Encoded", [&](void* encoded) {
+        p = const_cast<char*>(static_cast<Slice*>(encoded)->data());
+      });
+  ASSERT_OK(Put(Key(1), "val1"));
+  SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_TRUE(p);
+
+  // Offset 0 is key size, key bytes start at offset 1.
+  // "key000001 -> aey000001"
+  p[1] = 'a';
+
+  ReadOptions rops;
+  rops.paranoid_checks = true;
+  std::string val;
+  ASSERT_TRUE(db_->Get(rops, Key(1), &val).IsCorruption());
+  // Without paranoid_checks, NotFound will be returned.
+  // This would fail an assertion in InlineSkipList::FindGreaterOrEqual().
+  // If we remove the assertion, this passes.
+  // ASSERT_TRUE(db_->Get(ReadOptions(), Key(1), &val).IsNotFound());
+
+  std::vector<std::string> vals;
+  std::vector<Status> statuses = db_->MultiGet(
+      rops, {db_->DefaultColumnFamily()}, {Key(1)}, &vals, nullptr);
+  ASSERT_TRUE(statuses[0].IsCorruption());
+
+  std::unique_ptr<Iterator> iter{db_->NewIterator(rops)};
+  ASSERT_OK(iter->status());
+  iter->Seek(Key(1));
+  ASSERT_TRUE(iter->status().IsCorruption());
+  iter->Seek(Key(0));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  // iterating through skip list at height at 1 should catch out-of-order keys
+  iter->Next();
+  ASSERT_TRUE(iter->status().IsCorruption());
+  ASSERT_FALSE(iter->Valid());
+  iter->SeekForPrev(Key(2));
+  ASSERT_TRUE(iter->status().IsCorruption());
+  // Internally DB Iter will iterate backwards (Prev()) after SeekToLast()
+  // to find the correct internal key with the last user key.
+  // Prev() will do paranoid checks and catch corruption.
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->status().IsCorruption());
+  ASSERT_FALSE(iter->Valid());
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
