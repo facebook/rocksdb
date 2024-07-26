@@ -98,7 +98,7 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
-option(ROCKSDB_BUILD_STATIC "Build static versions of the RocksDB libraries" OFF)
+option(ROCKSDB_BUILD_STATIC "Build static versions of the RocksDB libraries" ON)
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
