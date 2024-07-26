@@ -369,6 +369,7 @@ TEST_F(DBMemTableTest, ParanoidCheck) {
         });
     ASSERT_OK(Put(Key(1), "val1"));
     SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
     ASSERT_TRUE(p);
     // Offset 0 is key size, key bytes start at offset 1.
     // "key000001 -> aey000001"

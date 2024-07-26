@@ -1448,4 +1448,8 @@ DEFINE_uint32(uncache_aggressiveness,
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
 
+DEFINE_bool(read_option_paranoid_checks,
+            ROCKSDB_NAMESPACE::ReadOptions().paranoid_checks,
+            "Sets ReadOptions::paranoid_checks.");
+
 #endif  // GFLAGS
