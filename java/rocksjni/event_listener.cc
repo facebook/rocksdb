@@ -34,7 +34,7 @@ jlong Java_org_rocksdb_AbstractEventListener_createNewEventListener(
                 env, jobj, enabled_event_callbacks));
     return GET_CPLUSPLUS_POINTER(sptr_event_listener);
   } catch (ROCKSDB_NAMESPACE::JniException&) {
-    // We always throw JniException with Java Exception
+    // JNIException indicates that a Java Exception has been thrown in the env
     return 0;
   }
 }
