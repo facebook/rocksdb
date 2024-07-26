@@ -88,13 +88,7 @@ Status SstFileManagerImpl::OnAddFileForDestroyDB(const std::string& file_path,
   if (s.ok() && num_hard_links > 1) {
     *file_size = 0;
   } else {
-    // Some FileSystem::GetFileSystem doesn't like a file_size initialized as
-    // std::numeric_limits<uint64_t>::max() to be passed.
-    uint64_t file_size_from_fs;
-    s = fs_->GetFileSize(file_path, IOOptions(), &file_size_from_fs, nullptr);
-    if (s.ok()) {
-      *file_size = file_size_from_fs;
-    }
+    s = fs_->GetFileSize(file_path, IOOptions(), file_size, nullptr);
   }
   if (s.ok()) {
     MutexLock l(&mu_);

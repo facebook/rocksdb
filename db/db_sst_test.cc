@@ -887,7 +887,7 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
       // before restarting the DB.
       // We have to set this on the 2nd to last file for it to delay deletion
       // on the last file. (Quirk of DeleteScheduler::BackgroundEmptyTrash())
-      options.sst_file_manager->SetDeleteRateBytesPerSecond(1);
+      options.sst_file_manager->SetDeleteRateBytesPerSecond(1024 * 1024);
     }
     ASSERT_OK(Put("Key2", DummyString(1024, v)));
     ASSERT_OK(Put("Key3", DummyString(1024, v)));
@@ -1125,20 +1125,13 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
 
   int num_sst_files = 0;
   int num_wal_files = 0;
-  int empty_wal_files = 0;
   std::vector<std::string> db_files;
   ASSERT_OK(env_->GetChildren(dbname_, &db_files));
   for (const std::string& f : db_files) {
-    uint64_t file_size;
-    ASSERT_OK(env_->GetFileSize(dbname_ + "/" + f, &file_size));
-
     if (f.substr(f.find_last_of('.') + 1) == "sst") {
       num_sst_files++;
     } else if (f.substr(f.find_last_of('.') + 1) == "log") {
       num_wal_files++;
-      if (file_size == 0) {
-        empty_wal_files += 1;
-      }
     }
   }
   ASSERT_GT(num_sst_files, 0);
@@ -1153,7 +1146,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   // Empty files are immediately deleted.
-  ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files - empty_wal_files);
+  ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
 }
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {

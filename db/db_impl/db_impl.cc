@@ -5281,12 +5281,14 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         std::string path_to_delete = dbname + "/" + fname;
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
-        } else if (type == kTableFile || type == kWalFile ||
-                   type == kBlobFile) {
-          del = TrackAndDeleteDBFile(
-              &soptions, path_to_delete, dbname,
-              /*force_bg=*/false,
-              /*force_fg=*/(type == kWalFile) ? !wal_in_db_path : false);
+        } else if (type == kTableFile || type == kBlobFile) {
+          del = TrackAndDeleteDBFile(&soptions, path_to_delete, dbname,
+                                     /*force_bg=*/false,
+                                     /*force_fg=*/false);
+        } else if (type == kWalFile) {
+          del = DeleteDBFile(&soptions, path_to_delete, dbname,
+                             /*force_bg=*/false,
+                             /*force_fg=*/!wal_in_db_path);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -5352,9 +5354,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       // Delete archival files.
       for (const auto& file : archiveFiles) {
         if (ParseFileName(file, &number, &type) && type == kWalFile) {
-          Status del = TrackAndDeleteDBFile(
-              &soptions, archivedir + "/" + file, archivedir,
-              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          Status del =
+              DeleteDBFile(&soptions, archivedir + "/" + file, archivedir,
+                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
           if (!del.ok() && result.ok()) {
             result = del;
           }
@@ -5368,10 +5370,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     if (wal_dir_exists) {
       for (const auto& file : walDirFiles) {
         if (ParseFileName(file, &number, &type) && type == kWalFile) {
-          Status del = TrackAndDeleteDBFile(
-              &soptions, LogFileName(soptions.wal_dir, number),
-              soptions.wal_dir, /*force_bg=*/false,
-              /*force_fg=*/!wal_in_db_path);
+          Status del =
+              DeleteDBFile(&soptions, LogFileName(soptions.wal_dir, number),
+                           soptions.wal_dir, /*force_bg=*/false,
+                           /*force_fg=*/!wal_in_db_path);
           if (!del.ok() && result.ok()) {
             result = del;
           }
