@@ -5236,7 +5236,23 @@ Snapshot::~Snapshot() = default;
 
 Status DestroyDB(const std::string& dbname, const Options& options,
                  const std::vector<ColumnFamilyDescriptor>& column_families) {
-  ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
+  Options options_copy = options;
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(options_copy.sst_file_manager.get());
+  if (sfm) {
+    // Use a new SstFileManager with the same configuration if there is an
+    // existing SstFileManager since DestroyDB need to independently track and
+    // delete files for proper slow deletion.
+    Status s;
+    options_copy.sst_file_manager.reset(NewSstFileManager(
+        options.env, options.info_log, "", sfm->GetDeleteRateBytesPerSecond(),
+        false /* delete_existing_trash */, &s, sfm->GetMaxTrashDBRatio()));
+    if (s.ok()) {
+      sfm =
+          static_cast<SstFileManagerImpl*>(options_copy.sst_file_manager.get());
+    }
+  }
+  ImmutableDBOptions soptions(SanitizeOptions(dbname, options_copy));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
   bool wal_in_db_path = soptions.IsWalDirSameAsDBPath();
@@ -5370,8 +5386,6 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     env->DeleteFile(lockname).PermitUncheckedError();
 
     // Make sure trash files are all cleared before return.
-    auto sfm =
-        static_cast<SstFileManagerImpl*>(soptions.sst_file_manager.get());
     if (sfm) {
       sfm->WaitForEmptyTrash();
     }
