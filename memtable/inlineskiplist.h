@@ -456,6 +456,9 @@ inline Status InlineSkipList<Comparator>::Iterator::PrevAndValidate(
   Status s;
   node_ = list_->FindLessThan(node_->Key(), &s, allow_data_in_errors);
   assert(s.ok() || node_ == nullptr);
+  if (node_ == list_->head_) {
+    node_ = nullptr;
+  }
   return s;
 }
 
