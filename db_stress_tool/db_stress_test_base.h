@@ -27,7 +27,7 @@ class StressTest {
  public:
   StressTest();
 
-  virtual ~StressTest();
+  virtual ~StressTest() {}
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
@@ -48,6 +48,8 @@ class StressTest {
     return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
            FLAGS_manual_wal_flush_one_in > 0;
   }
+
+  void CleanUp();
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {

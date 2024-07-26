@@ -23,17 +23,17 @@ static std::string IKey(const std::string& user_key, uint64_t seq,
 }
 
 static std::string Shorten(const std::string& s, const std::string& l) {
-  std::string result = s;
-  ShortenedIndexBuilder::FindShortestInternalKeySeparator(*BytewiseComparator(),
-                                                          &result, l);
-  return result;
+  std::string scratch;
+  return ShortenedIndexBuilder::FindShortestInternalKeySeparator(
+             *BytewiseComparator(), s, l, &scratch)
+      .ToString();
 }
 
 static std::string ShortSuccessor(const std::string& s) {
-  std::string result = s;
-  ShortenedIndexBuilder::FindShortInternalKeySuccessor(*BytewiseComparator(),
-                                                       &result);
-  return result;
+  std::string scratch;
+  return ShortenedIndexBuilder::FindShortInternalKeySuccessor(
+             *BytewiseComparator(), s, &scratch)
+      .ToString();
 }
 
 static void TestKey(const std::string& key, uint64_t seq, ValueType vt) {

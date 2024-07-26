@@ -565,6 +565,11 @@ Options DBTestBase::GetOptions(
       options.unordered_write = false;
       break;
     }
+    case kBlockBasedTableWithBinarySearchWithFirstKeyIndex: {
+      table_options.index_type =
+          BlockBasedTableOptions::kBinarySearchWithFirstKey;
+      break;
+    }
 
     default:
       break;

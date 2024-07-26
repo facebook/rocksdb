@@ -1,1 +1,0 @@
-Fixed a bug where event listener reads ErrorHandler's `bg_error_` member without holding db mutex(#12803).

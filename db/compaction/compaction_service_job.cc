@@ -275,6 +275,8 @@ Status CompactionServiceCompactionJob::Run() {
   log_buffer_->FlushBufferToLog();
   LogCompaction();
   const uint64_t start_micros = db_options_.clock->NowMicros();
+  c->GetOrInitInputTableProperties();
+
   // Pick the only sub-compaction we should have
   assert(compact_->sub_compact_states.size() == 1);
   SubcompactionState* sub_compact = compact_->sub_compact_states.data();

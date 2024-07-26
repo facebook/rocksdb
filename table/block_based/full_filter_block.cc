@@ -20,7 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 FullFilterBlockBuilder::FullFilterBlockBuilder(
     const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder)
-    : prefix_extractor_(_prefix_extractor),
+    : need_last_prefix_(whole_key_filtering && _prefix_extractor != nullptr),
+      prefix_extractor_(_prefix_extractor),
       whole_key_filtering_(whole_key_filtering),
       last_whole_key_recorded_(false),
       last_prefix_recorded_(false),
@@ -38,7 +39,7 @@ void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
   const bool add_prefix =
       prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
 
-  if (!last_prefix_recorded_ && last_key_in_domain_) {
+  if (need_last_prefix_ && !last_prefix_recorded_ && last_key_in_domain_) {
     // We can reach here when a new filter partition starts in partitioned
     // filter. The last prefix in the previous partition should be added if
     // necessary regardless of key_without_ts, to support prefix SeekForPrev.
@@ -82,7 +83,15 @@ inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
 void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
   assert(prefix_extractor_ && prefix_extractor_->InDomain(key));
   Slice prefix = prefix_extractor_->Transform(key);
-  if (whole_key_filtering_) {
+  if (need_last_prefix_) {
+    // WART/FIXME: Because last_prefix_str_ is needed above to make
+    // SeekForPrev work with partitioned + prefix filters, we are currently
+    // use this inefficient code in that case (in addition to prefix+whole
+    // key). Hopefully this can be optimized with some refactoring up the call
+    // chain to BlockBasedTableBuilder. Even in PartitionedFilterBlockBuilder,
+    // we don't currently have access to the previous key/prefix by the time we
+    // know we are starting a new partition.
+
     // if both whole_key and prefix are added to bloom then we will have whole
     // key and prefix addition being interleaved and thus cannot rely on the
     // bits builder to properly detect the duplicates by comparing with the last

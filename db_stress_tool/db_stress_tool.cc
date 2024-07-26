@@ -362,11 +362,11 @@ int db_stress_tool(int argc, char** argv) {
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
   shared.reset(new SharedState(db_stress_env, stress.get()));
-  if (RunStressTest(shared.get())) {
-    return 0;
-  } else {
-    return 1;
-  }
+  bool run_stress_test = RunStressTest(shared.get());
+  // Close DB in CleanUp() before destructor to prevent race between destructor
+  // and operations in listener callbacks (e.g. MultiOpsTxnsStressListener).
+  stress->CleanUp();
+  return run_stress_test ? 0 : 1;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

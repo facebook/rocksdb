@@ -523,6 +523,8 @@ txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 # For optimistic transaction db
@@ -536,6 +538,8 @@ optimistic_txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 best_efforts_recovery_params = {
@@ -840,6 +844,8 @@ def finalize_and_sanitize(src_params):
         # Wide-column pessimistic transaction APIs are initially supported for
         # WriteCommitted only
         dest_params["use_put_entity_one_in"] = 0
+        # MultiCfIterator is currently only compatible with write committed policy
+        dest_params["use_multi_cf_iterator"] = 0        
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0

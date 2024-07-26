@@ -289,14 +289,7 @@ class Compaction {
   // is the sum of all input file sizes.
   uint64_t OutputFilePreallocationSize() const;
 
-  // TODO(hx235): eventually we should consider `InitInputTableProperties()`'s
-  // status and fail the compaction if needed
-  // TODO(hx235): consider making this function part of the construction so we
-  // don't forget to call it
-  void FinalizeInputInfo(Version* input_version) {
-    SetInputVersion(input_version);
-    InitInputTableProperties().PermitUncheckedError();
-  }
+  void FinalizeInputInfo(Version* input_version);
 
   struct InputLevelSummaryBuffer {
     char buffer[128];
@@ -332,6 +325,16 @@ class Compaction {
   static bool TEST_IsBottommostLevel(
       int output_level, VersionStorageInfo* vstorage,
       const std::vector<CompactionInputFiles>& inputs);
+
+  // TODO(hx235): eventually we should consider `InitInputTableProperties()`'s
+  // status and fail the compaction if needed
+  //
+  // May open and read table files for table property.
+  // Should not be called while holding mutex_.
+  const TablePropertiesCollection& GetOrInitInputTableProperties() {
+    InitInputTableProperties().PermitUncheckedError();
+    return input_table_properties_;
+  }
 
   const TablePropertiesCollection& GetInputTableProperties() const {
     return input_table_properties_;
@@ -433,7 +436,6 @@ class Compaction {
                                       const int output_level);
 
  private:
-  void SetInputVersion(Version* input_version);
 
   Status InitInputTableProperties();
 
