@@ -489,9 +489,14 @@ class StatusJni
     return construct(env, status, jclazz, mid);
   }
 
-  // StatusJni can't cache jclass because in descructor we need JniUtil,
-  // JniUtil need RocksDBExceptionJni, and RocksDBExceptionJni need StatusJni.
-  // So I can't even change the order of the classes in portal.h
+  /**
+   * This method is used in situations when we need to create
+   * org.rocksdb.Status in C++ rocksDB callback. In situation when
+   * Java code was loaded by a custom class loader,
+   * env->FindClass will fail, because on the JVM attached thread we have only
+   * system class loader. For more info :
+   * https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/functions.html#FindClass
+   */
   static jobject construct(JNIEnv* env, const Status& status, jclass jclazz,
                            jmethodID mid) {
     // convert the Status state for Java
@@ -2513,7 +2518,7 @@ class JniUtil {
     auto status = env->GetJavaVM(vm);
     if (status != 0) {
       ROCKSDB_NAMESPACE::JniException::ThrowNew(
-          env, "Unable to retrieve instance ov JavaVM");
+          env, "Unable to retrieve instance of JavaVM");
     }
   }
 };
