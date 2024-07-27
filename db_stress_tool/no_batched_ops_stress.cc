@@ -1611,7 +1611,13 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
+    // To track the final write status
     Status s;
+    // To track the initial write status
+    Status initial_write_s;
+    // To track whether WAL write may have succeeded during the initial failed
+    // write
+    bool initial_wal_write_may_succeed = true;
 
     bool prepared = false;
     PendingExpectedValue pending_expected_value =
@@ -1621,19 +1627,16 @@ class NonBatchedOpsStressTest : public StressTest {
       return s;
     }
 
-    if (fault_fs_guard) {
-      SharedState::wal_write_succeed = false;
-    }
     const uint32_t value_base = pending_expected_value.GetFinalValueBase();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
     do {
-      // In order to commit the expected state, retry write until the write
-      // succeeds after the recovery finishes for the previous write error
-      // happened after a successful WAL write
+      // In order to commit the expected state for the initial write failed with
+      // injected retryable error and successful WAL write, retry the write
+      // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-          SharedState::wal_write_succeed) {
+          initial_wal_write_may_succeed) {
         lock.reset();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
         lock.reset(new MutexLock(
@@ -1688,13 +1691,20 @@ class NonBatchedOpsStressTest : public StressTest {
           });
         }
       }
+      // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
+      // first write fails
+      if (!s.ok() && initial_write_s.ok()) {
+        initial_write_s = s;
+        initial_wal_write_may_succeed =
+            !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
+      }
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-             SharedState::wal_write_succeed);
+             initial_wal_write_may_succeed);
 
     if (!s.ok()) {
       pending_expected_value.Rollback();
       if (IsErrorInjectedAndRetryable(s)) {
-        assert(!SharedState::wal_write_succeed);
+        assert(!initial_wal_write_may_succeed);
         return s;
       } else if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -1735,9 +1745,16 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice key = key_str;
     auto cfh = column_families_[rand_column_family];
 
+    // To track the final write status
+    Status s;
+    // To track the initial write status
+    Status initial_write_s;
+    // To track whether WAL write may have succeeded during the initial failed
+    // write
+    bool initial_wal_write_may_succeed = true;
+
     // Use delete if the key may be overwritten and a single deletion
     // otherwise.
-    Status s;
     if (shared->AllowsOverwrite(rand_key)) {
       bool prepared = false;
       PendingExpectedValue pending_expected_value =
@@ -1747,17 +1764,12 @@ class NonBatchedOpsStressTest : public StressTest {
         return s;
       }
 
-      if (fault_fs_guard) {
-        SharedState::wal_write_succeed = false;
-      }
-
       do {
-        // In order to commit the expected state, retry write until the write
-        // succeeds after
-        // the recovery finishes for the previous write error happened after
-        // a successful WAL write
+        // In order to commit the expected state for the initial write failed
+        // with injected retryable error and successful WAL write, retry the
+        // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-            SharedState::wal_write_succeed) {
+            initial_wal_write_may_succeed) {
           lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
@@ -1775,13 +1787,20 @@ class NonBatchedOpsStressTest : public StressTest {
             return txn.Delete(cfh, key);
           });
         }
+        // Only update `initial_write_s`, `initial_wal_write_may_succeed` when
+        // the first write fails
+        if (!s.ok() && initial_write_s.ok()) {
+          initial_write_s = s;
+          initial_wal_write_may_succeed =
+              !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
+        }
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-               SharedState::wal_write_succeed);
+               initial_wal_write_may_succeed);
 
       if (!s.ok()) {
         pending_expected_value.Rollback();
         if (IsErrorInjectedAndRetryable(s)) {
-          assert(!SharedState::wal_write_succeed);
+          assert(!initial_wal_write_may_succeed);
           return s;
         } else if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
@@ -1809,16 +1828,12 @@ class NonBatchedOpsStressTest : public StressTest {
         return s;
       }
 
-      if (fault_fs_guard) {
-        SharedState::wal_write_succeed = false;
-      }
-
       do {
-        // In order to commit the expected state, retry write until the write
-        // succeeds after the recovery finishes for the previous write error
-        // happened after a successful WAL write
+        // In order to commit the expected state for the initial write failed
+        // with injected retryable error and successful WAL write, retry the
+        // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-            SharedState::wal_write_succeed) {
+            initial_wal_write_may_succeed) {
           lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
@@ -1836,13 +1851,20 @@ class NonBatchedOpsStressTest : public StressTest {
             return txn.SingleDelete(cfh, key);
           });
         }
+        // Only update `initial_write_s`, `initial_wal_write_may_succeed` when
+        // the first write fails
+        if (!s.ok() && initial_write_s.ok()) {
+          initial_write_s = s;
+          initial_wal_write_may_succeed =
+              !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
+        }
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-               SharedState::wal_write_succeed);
+               initial_wal_write_may_succeed);
 
       if (!s.ok()) {
         pending_expected_value.Rollback();
         if (IsErrorInjectedAndRetryable(s)) {
-          assert(!SharedState::wal_write_succeed);
+          assert(!initial_wal_write_may_succeed);
           return s;
         } else if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
@@ -1884,7 +1906,13 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     GetDeleteRangeKeyLocks(thread, rand_column_family, rand_key, &range_locks);
 
+    // To track the final write status
     Status s;
+    // To track the initial write status
+    Status initial_write_s;
+    // To track whether WAL write may have succeeded during the initial failed
+    // write
+    bool initial_wal_write_may_succeed = true;
 
     bool prepared = false;
     std::vector<PendingExpectedValue> pending_expected_values =
@@ -1908,16 +1936,12 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string write_ts_str;
     Slice write_ts;
 
-    if (fault_fs_guard) {
-      SharedState::wal_write_succeed = false;
-    }
-
     do {
-      // In order to commit the expected state, retry write until the write
-      // succeeds after the recovery finishes for the previous write error
-      // happened after a successful WAL write
+      // In order to commit the expected state for the initial write failed with
+      // injected retryable error and successful WAL write, retry the write
+      // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-          SharedState::wal_write_succeed) {
+          initial_wal_write_may_succeed) {
         range_locks.clear();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
         GetDeleteRangeKeyLocks(thread, rand_column_family, rand_key,
@@ -1930,15 +1954,23 @@ class NonBatchedOpsStressTest : public StressTest {
       } else {
         s = db_->DeleteRange(write_opts, cfh, key, end_key);
       }
+      // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
+      // first write fails
+      if (!s.ok() && initial_write_s.ok()) {
+        initial_write_s = s;
+        initial_wal_write_may_succeed =
+            !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
+      }
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
-             SharedState::wal_write_succeed);
+             initial_wal_write_may_succeed);
+
     if (!s.ok()) {
       for (PendingExpectedValue& pending_expected_value :
            pending_expected_values) {
         pending_expected_value.Rollback();
       }
       if (IsErrorInjectedAndRetryable(s)) {
-        assert(!SharedState::wal_write_succeed);
+        assert(!initial_wal_write_may_succeed);
         return s;
       } else if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -1984,6 +2016,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // ingestion a clean slate
       s = db_stress_env->DeleteFile(sst_filename);
     }
+
     if (fault_fs_guard) {
       fault_fs_guard->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataRead);
@@ -2029,6 +2062,9 @@ class NonBatchedOpsStressTest : public StressTest {
           shared->PreparePut(column_family, key, &prepared);
       if (!prepared) {
         pending_expected_value.PermitUnclosedPendingState();
+        for (PendingExpectedValue& pev : pending_expected_values) {
+          pev.PermitUnclosedPendingState();
+        }
         return;
       }
 

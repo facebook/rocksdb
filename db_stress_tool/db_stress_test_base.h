@@ -296,7 +296,8 @@ class StressTest {
 
   bool IsErrorInjectedAndRetryable(const Status& error_s) const {
     assert(!error_s.ok());
-    return error_s.getState() && std::strstr(error_s.getState(), "inject") &&
+    return error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s) &&
            !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 

@@ -13,6 +13,5 @@
 
 namespace ROCKSDB_NAMESPACE {
 thread_local bool SharedState::ignore_read_error;
-thread_local bool SharedState::wal_write_succeed;
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

@@ -1412,11 +1412,6 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   log_file_number_size.AddSize(*log_size);
   log_empty_ = false;
 
-#ifndef NDEBUG
-  if (io_s.ok()) {
-    SET_WAL_WRITE_SUCCEED();
-  }
-#endif
   return io_s;
 }
 

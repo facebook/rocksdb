@@ -58,8 +58,6 @@ class SharedState {
   // for those calls
   static thread_local bool ignore_read_error;
 
-  static thread_local bool wal_write_succeed;
-
   SharedState(Env* /*env*/, StressTest* stress_test)
       : cv_(&mu_),
         seed_(static_cast<uint32_t>(FLAGS_seed)),
@@ -143,23 +141,6 @@ class SharedState {
 #else   // NDEBUG
       SyncPoint::GetInstance()->SetCallBack("FaultInjectionIgnoreError",
                                             IgnoreReadErrorCallback);
-      SyncPoint::GetInstance()->EnableProcessing();
-#endif  // NDEBUG
-    }
-
-    if (FLAGS_write_fault_one_in || FLAGS_metadata_write_fault_one_in) {
-#ifdef NDEBUG
-      // Unsupported in release mode because it relies on
-      // `SET_WAL_WRITE_SUCCEED` to distinguish write related error injection
-      // that happens after the WAL write succeeds.
-      fprintf(stderr,
-              "Cannot set nonzero value for --write_fault_one_in or "
-              "--metadata_write_fault_one_in in "
-              "release mode.");
-      exit(1);
-#else   // NDEBUG
-      SyncPoint::GetInstance()->SetCallBack("FaultInjectionSetWalWriteSucceed",
-                                            SetWalWriteSucceed);
       SyncPoint::GetInstance()->EnableProcessing();
 #endif  // NDEBUG
     }
@@ -391,7 +372,6 @@ class SharedState {
 
  private:
   static void IgnoreReadErrorCallback(void*) { ignore_read_error = true; }
-  static void SetWalWriteSucceed(void*) { wal_write_succeed = true; }
 
   // Pick random keys in each column family that will not experience overwrite.
   std::unordered_set<int64_t> GenerateNoOverwriteIds() const {
