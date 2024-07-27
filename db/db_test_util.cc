@@ -98,6 +98,14 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   EXPECT_OK(DestroyDB(dbname_, options));
   db_ = nullptr;
   Reopen(options);
+  // FIXME(yuzhangyu):
+  // Tests could DestroyAndReopen with an Options that doesn't necessarily
+  // use `env_`. However, the DestroyDB in below test destructor will always use
+  // `env_`. Now that `DestroyDB` introduced a path to check file's size, when
+  // a EncryptedFileSystemImpl is used, it checks that file size is always
+  // bigger than prefix length which can is not necessarily true because the DB
+  // could be created with a regular Env, and destroyed as an encrypted env. A
+  // proper fix is to enforce all tests use encrypted env when it's configured.
   Random::GetTLSInstance()->Reset(0xdeadbeef);
 }
 
@@ -116,6 +124,14 @@ DBTestBase::~DBTestBase() {
   if (getenv("KEEP_DB")) {
     printf("DB is still at %s\n", dbname_.c_str());
   } else {
+    // FIXME(yuzhangyu):
+    // The assumptions EncryptedFileSystem::GetFileSize has cannot always be met
+    // the way some tests are currently written. We disable slow deletion with
+    // this trick to bypass all the `FileSystem::GetFileSize` calls inside of
+    // DestroyDB.
+    if (getenv("ENCRYPTED_ENV") && options.sst_file_manager) {
+      options.sst_file_manager->SetDeleteRateBytesPerSecond(0);
+    }
     EXPECT_OK(DestroyDB(dbname_, options));
   }
   delete env_;

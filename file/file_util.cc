@@ -129,7 +129,9 @@ Status TrackAndDeleteDBFile(const ImmutableDBOptions* db_options,
   uint64_t file_size = std::numeric_limits<uint64_t>::max();
   SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
-  if (sfm) {
+  // TODO(yuzhangyu): remove the check for GetDeleteRateBytesPerSecond after
+  // fixing usage of EncryptedFileSystem in tests.
+  if (sfm && sfm->GetDeleteRateBytesPerSecond() > 0) {
     Status s = sfm->OnAddFileForDestroyDB(fname, &file_size);
     if (!s.ok()) {
       return s;

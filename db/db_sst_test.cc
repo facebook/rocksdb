@@ -1525,6 +1525,12 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
         options.max_file_opening_threads = 5;
       }
 
+      // FIXME(yuzhangyu): the test is using Env::Default() instead of
+      // DBTestBase::env_, this breaks the purpose of testing with encrypted env
+      // when `ENCRYPTED_ENV` is enabled. All the DB files are created as
+      // unencrypted files, later DestroyDB during test destruction uses
+      // encryption env and assumed these files are encrypted ones. The file
+      // size assumption it has will fail.
       DestroyAndReopen(options);
 
       // Create 5 Files in L0 (then move then to L2)
