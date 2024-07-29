@@ -330,6 +330,11 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
   Status RollbackInternal() override;
 
+  // Checks if the combination of `do_validate`, the read timestamp set in
+  // `read_timestamp_` and the `enable_udt_validation` flag in
+  // TransactionDBOptions make sense together.
+  Status SanityCheckReadTimestamp(bool do_validate);
+
   // Column families that enable timestamps and whose data are written when
   // indexing_enabled_ is false. If a key is written when indexing_enabled_ is
   // true, then the corresponding column family is not added to cfs_with_ts
