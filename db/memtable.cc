@@ -409,6 +409,7 @@ class MemTableIterator : public InternalIterator {
     } else {
       delete iter_;
     }
+    status_.PermitUncheckedError();
   }
 
 #ifndef NDEBUG
@@ -1547,6 +1548,7 @@ Status MemTable::Update(SequenceNumber seq, ValueType value_type,
       }
     }
   }
+  assert(iter->status().ok());
 
   // The latest value is not value_type or key doesn't exist
   return Add(seq, value_type, key, value, kv_prot_info);
@@ -1641,6 +1643,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
       }
     }
   }
+  assert(iter->status().ok());
   // The latest value is not `kTypeValue` or key doesn't exist
   return Status::NotFound();
 }
@@ -1677,6 +1680,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key,
 
     ++num_successive_merges;
   }
+  assert(iter->status().ok());
 
   return num_successive_merges;
 }

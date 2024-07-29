@@ -183,7 +183,9 @@ class SkipListRep : public MemTableRep {
         bool integrity_checks, bool allow_data_in_errors)
         : iter_(list),
           integrity_checks_(integrity_checks),
-          allow_data_in_errors_(allow_data_in_errors) {}
+          allow_data_in_errors_(allow_data_in_errors) {
+      status_.PermitUncheckedError();
+    }
 
     ~Iterator() override = default;
 
