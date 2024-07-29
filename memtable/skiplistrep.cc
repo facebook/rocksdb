@@ -84,8 +84,8 @@ class SkipListRep : public MemTableRep {
 
   Status Get(const LookupKey& k, void* callback_args,
              bool (*callback_func)(void* arg, const char* entry),
-             bool paranoid_checks, bool allow_data_in_errors) override {
-    SkipListRep::Iterator iter(&skip_list_, paranoid_checks,
+             bool integrity_checks, bool allow_data_in_errors) override {
+    SkipListRep::Iterator iter(&skip_list_, integrity_checks,
                                allow_data_in_errors);
     Slice dummy_slice;
     for (iter.Seek(dummy_slice, k.memtable_key().data());
@@ -115,7 +115,7 @@ class SkipListRep : public MemTableRep {
     // NOTE: the size of entries is not enforced to be exactly
     // target_sample_size at the end of this function, it might be slightly
     // greater or smaller.
-    SkipListRep::Iterator iter(&skip_list_, /*paranoid_check=*/false,
+    SkipListRep::Iterator iter(&skip_list_, /*integrity_checks=*/false,
                                /*allow_data_in_errors=*/false);
     // There are two methods to create the subset of samples (size m)
     // from the table containing N elements:
@@ -172,7 +172,7 @@ class SkipListRep : public MemTableRep {
   class Iterator : public MemTableRep::Iterator {
     InlineSkipList<const MemTableRep::KeyComparator&>::Iterator iter_;
     Status status_;
-    const bool paranoid_;
+    const bool integrity_checks_;
     const bool allow_data_in_errors_;
 
    public:
@@ -180,9 +180,9 @@ class SkipListRep : public MemTableRep {
     // The returned iterator is not valid.
     explicit Iterator(
         const InlineSkipList<const MemTableRep::KeyComparator&>* list,
-        bool paranoid_check, bool allow_data_in_errors)
+        bool integrity_checks, bool allow_data_in_errors)
         : iter_(list),
-          paranoid_(paranoid_check),
+          integrity_checks_(integrity_checks),
           allow_data_in_errors_(allow_data_in_errors) {}
 
     ~Iterator() override = default;
@@ -203,7 +203,7 @@ class SkipListRep : public MemTableRep {
     // REQUIRES: Valid()
     void Next() override {
       assert(Valid());
-      if (!paranoid_) {
+      if (!integrity_checks_) {
         iter_.Next();
       } else {
         status_ = iter_.NextAndValidate(allow_data_in_errors_);
@@ -214,7 +214,7 @@ class SkipListRep : public MemTableRep {
     // REQUIRES: Valid()
     void Prev() override {
       assert(Valid());
-      if (!paranoid_) {
+      if (!integrity_checks_) {
         iter_.Prev();
       } else {
         status_ = iter_.PrevAndValidate(allow_data_in_errors_);
@@ -223,7 +223,7 @@ class SkipListRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target
     void Seek(const Slice& user_key, const char* memtable_key) override {
-      if (!paranoid_) {
+      if (!integrity_checks_) {
         // Should remove this since status is always ok?
         status_ = Status::OK();
         if (memtable_key != nullptr) {
@@ -374,7 +374,7 @@ class SkipListRep : public MemTableRep {
     InlineSkipList<const MemTableRep::KeyComparator&>::Iterator prev_;
   };
 
-  MemTableRep::Iterator* GetIterator(Arena* arena, bool paranoid_checks,
+  MemTableRep::Iterator* GetIterator(Arena* arena, bool integrity_checks,
                                      bool allow_data_in_errors) override {
     if (lookahead_ > 0) {
       void* mem =
@@ -386,7 +386,7 @@ class SkipListRep : public MemTableRep {
       void* mem = arena ? arena->AllocateAligned(sizeof(SkipListRep::Iterator))
                         :
                         operator new(sizeof(SkipListRep::Iterator));
-      return new (mem) SkipListRep::Iterator(&skip_list_, paranoid_checks,
+      return new (mem) SkipListRep::Iterator(&skip_list_, integrity_checks,
                                              allow_data_in_errors);
     }
   }

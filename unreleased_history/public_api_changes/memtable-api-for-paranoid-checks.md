@@ -1,1 +1,1 @@
-* MemtableRep::Get(), MemtableRep::GetIterator() and MemtableRep::GetDynamicPrefixIterator() take additional parameters paranoid_checks and allow_data_in_errors to support ReadOptions::paranoid_checks.
+* MemtableRep::Get(), MemtableRep::GetIterator() and MemtableRep::GetDynamicPrefixIterator() take additional parameters integrity_checks and allow_data_in_errors to support ReadOptions::integrity_checks.

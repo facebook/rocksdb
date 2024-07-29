@@ -176,17 +176,17 @@ class HashLinkListRep : public MemTableRep {
 
   Status Get(const LookupKey& k, void* callback_args,
              bool (*callback_func)(void* arg, const char* entry),
-             bool paranoid_check = false,
+             bool integrity_checks = false,
              bool allow_data_in_errors = false) override;
 
   ~HashLinkListRep() override;
 
   MemTableRep::Iterator* GetIterator(
-      Arena* arena = nullptr, bool paranoid_checks = false,
+      Arena* arena = nullptr, bool integrity_checks = false,
       bool allow_data_in_errors = false) override;
 
   MemTableRep::Iterator* GetDynamicPrefixIterator(
-      Arena* arena = nullptr, bool paranoid_checks = false,
+      Arena* arena = nullptr, bool integrity_checks = false,
       bool allow_data_in_errors = false) override;
 
  private:
@@ -735,7 +735,7 @@ size_t HashLinkListRep::ApproximateMemoryUsage() {
 
 Status HashLinkListRep::Get(const LookupKey& k, void* callback_args,
                             bool (*callback_func)(void* arg, const char* entry),
-                            bool /*paranoid_checks*/,
+                            bool /*integrity_checks*/,
                             bool /*allow_data_in_errors*/) {
   auto transformed = transform_->Transform(k.user_key());
   Pointer& bucket = GetBucket(transformed);
@@ -766,7 +766,7 @@ Status HashLinkListRep::Get(const LookupKey& k, void* callback_args,
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetIterator(
-    Arena* alloc_arena, bool /*paranoid_checks*/,
+    Arena* alloc_arena, bool /*integrity_checks*/,
     bool /*allow_data_in_errors*/) {
   // allocate a new arena of similar size to the one currently in use
   Arena* new_arena = new Arena(allocator_->BlockSize());
@@ -813,7 +813,7 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator(
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator(
-    Arena* alloc_arena, bool /*paranoid_checks*/,
+    Arena* alloc_arena, bool /*integrity_checks*/,
     bool /*allow_data_in_errors*/) {
   if (alloc_arena == nullptr) {
     return new DynamicIterator(*this);

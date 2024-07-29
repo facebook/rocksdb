@@ -193,7 +193,7 @@ class MemTableRep {
   // seek and call the call back function.
   virtual Status Get(const LookupKey& k, void* callback_args,
                      bool (*callback_func)(void* arg, const char* entry),
-                     bool paranoid_check = false,
+                     bool integrity_checks = false,
                      bool allow_data_in_error = false);
 
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
@@ -266,11 +266,11 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  // paranoid_checks: If true, the returned iterator will perform extra checks
+  // integrity_checks: If true, the returned iterator will perform extra checks
   // to ensure data integrity, but this may come at a performance cost.
   // Currently, only SkipListRep supports this feature.
   virtual Iterator* GetIterator(Arena* arena = nullptr,
-                                bool paranoid_checks = false,
+                                bool integrity_checks = false,
                                 bool allow_data_in_error = false) = 0;
 
   // Return an iterator that has a special Seek semantics. The result of
@@ -279,13 +279,13 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  // paranoid_checks: If true, the returned iterator will perform extra checks
+  // integrity_checks: If true, the returned iterator will perform extra checks
   // to ensure data integrity, but this may come at a performance cost.
   // Currently, only SkipListRep supports this feature.
   virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr,
-                                             bool paranoid_checks = false,
+                                             bool integrity_checks = false,
                                              bool allow_data_in_error = false) {
-    return GetIterator(arena, paranoid_checks, allow_data_in_error);
+    return GetIterator(arena, integrity_checks, allow_data_in_error);
   }
 
   // Return true if the current MemTableRep supports merge operator.
