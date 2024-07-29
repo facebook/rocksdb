@@ -1749,7 +1749,7 @@ struct ReadOptions {
   // Specifically, for skiplist-based memtables, verifies that keys visited in
   // order. Enabling this feature incurs a performance overhead due to an
   // additional key comparison during memtable lookup.
-  bool paranoid_checks = false;
+  bool integrity_checks = false;
 
   // *** END options relevant to point lookups (as well as scans) ***
   // *** BEGIN options only relevant to iterators or scans ***

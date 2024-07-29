@@ -39,7 +39,7 @@ class VectorRep : public MemTableRep {
 
   Status Get(const LookupKey& k, void* callback_args,
              bool (*callback_func)(void* arg, const char* entry),
-             bool paranoid_check = false,
+             bool integrity_checks = false,
              bool allow_data_in_error = false) override;
 
   ~VectorRep() override = default;
@@ -94,7 +94,8 @@ class VectorRep : public MemTableRep {
   };
 
   // Return an iterator over the keys in this representation.
-  MemTableRep::Iterator* GetIterator(Arena* arena, bool paranoid_check = false,
+  MemTableRep::Iterator* GetIterator(Arena* arena,
+                                     bool integrity_checks = false,
                                      bool allow_data_in_error = false) override;
 
  private:
@@ -249,7 +250,8 @@ void VectorRep::Iterator::SeekToLast() {
 
 Status VectorRep::Get(const LookupKey& k, void* callback_args,
                       bool (*callback_func)(void* arg, const char* entry),
-                      bool /*paranoid_checks*/, bool /*allow_data_in_errors*/) {
+                      bool /*integrity_checks*/,
+                      bool /*allow_data_in_errors*/) {
   rwlock_.ReadLock();
   VectorRep* vector_rep;
   std::shared_ptr<Bucket> bucket;
@@ -269,7 +271,7 @@ Status VectorRep::Get(const LookupKey& k, void* callback_args,
 }
 
 MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena,
-                                              bool /*paranoid_checks*/,
+                                              bool /*integrity_checks*/,
                                               bool /*allow_data_in_errors*/) {
   char* mem = nullptr;
   if (arena != nullptr) {

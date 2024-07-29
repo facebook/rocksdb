@@ -386,10 +386,10 @@ class MemTableIterator : public InternalIterator {
       // Auto prefix mode is not implemented in memtable yet.
       bloom_ = mem.bloom_filter_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(
-          arena, read_options.paranoid_checks,
+          arena, read_options.integrity_checks,
           mem.moptions_.allow_data_in_errors);
     } else {
-      iter_ = mem.table_->GetIterator(arena, read_options.paranoid_checks,
+      iter_ = mem.table_->GetIterator(arena, read_options.integrity_checks,
                                       mem.moptions_.allow_data_in_errors);
     }
     status_.PermitUncheckedError();
@@ -1326,7 +1326,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
                  is_blob_index, value, columns, timestamp, s, merge_context,
                  seq, &found_final_value, &merge_in_progress,
-                 read_opts.paranoid_checks);
+                 read_opts.integrity_checks);
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -1347,7 +1347,7 @@ void MemTable::GetFromTable(
     bool do_merge, ReadCallback* callback, bool* is_blob_index,
     std::string* value, PinnableWideColumns* columns, std::string* timestamp,
     Status* s, MergeContext* merge_context, SequenceNumber* seq,
-    bool* found_final_value, bool* merge_in_progress, bool paranoid_checks) {
+    bool* found_final_value, bool* merge_in_progress, bool integrity_checks) {
   Saver saver;
   saver.status = s;
   saver.found_final_value = found_final_value;
@@ -1371,7 +1371,7 @@ void MemTable::GetFromTable(
   saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
 
-  Status check_s = table_->Get(key, &saver, SaveValue, paranoid_checks,
+  Status check_s = table_->Get(key, &saver, SaveValue, integrity_checks,
                                moptions_.allow_data_in_errors);
   assert(s->ok() || s->IsMergeInProgress() || *found_final_value);
   if (check_s.IsCorruption()) {
@@ -1450,7 +1450,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                  iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
                  iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
                  &found_final_value, &merge_in_progress,
-                 read_options.paranoid_checks);
+                 read_options.integrity_checks);
     if (!found_final_value && merge_in_progress) {
       if (iter->s->ok()) {
         *(iter->s) = Status::MergeInProgress();
@@ -1683,9 +1683,9 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key,
 
 Status MemTableRep::Get(const LookupKey& k, void* callback_args,
                         bool (*callback_func)(void* arg, const char* entry),
-                        bool paranoid_check, bool allow_data_in_error) {
+                        bool integrity_checks, bool allow_data_in_error) {
   auto iter =
-      GetDynamicPrefixIterator(nullptr, paranoid_check, allow_data_in_error);
+      GetDynamicPrefixIterator(nullptr, integrity_checks, allow_data_in_error);
   for (iter->Seek(k.internal_key(), k.memtable_key().data());
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {

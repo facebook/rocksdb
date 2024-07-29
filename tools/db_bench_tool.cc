@@ -1280,8 +1280,8 @@ DEFINE_bool(
     auto_readahead_size, false,
     "When set true, RocksDB does auto tuning of readahead size during Scans");
 
-DEFINE_bool(read_option_paranoid_checks, false,
-            "Sets ReadOptions::paranoid_checks");
+DEFINE_bool(read_option_integrity_checks, false,
+            "Sets ReadOptions::integrity_checks");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -3483,7 +3483,7 @@ class Benchmark {
       read_options_.async_io = FLAGS_async_io;
       read_options_.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
-      read_options_.paranoid_checks = FLAGS_read_option_paranoid_checks;
+      read_options_.integrity_checks = FLAGS_read_option_integrity_checks;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;

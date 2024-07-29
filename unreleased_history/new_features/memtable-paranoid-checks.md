@@ -1,1 +1,1 @@
-* Introduce a new ReadOptions::paranoid_checks. It enables additional validation on data integrity during reads/scanning. Currently, skip list based memtable will validate key ordering during look up.
+* Introduce a new ReadOptions::integrity_checks. It enables additional validation on data integrity during reads/scanning. Currently, skip list based memtable will validate key ordering during look up.

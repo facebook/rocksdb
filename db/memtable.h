@@ -679,7 +679,7 @@ class MemTable {
 
   void UpdateOldestKeyTime();
 
-  // @param paranoid_checks If supported, perform additional data integrity
+  // @param integrity_checks If supported, perform additional data integrity
   // checks during get. Only supported by SkipListRep. Will update *s to
   // Corruption and *found_final_value to true if any data corruption is
   // detected.
@@ -690,7 +690,7 @@ class MemTable {
                     std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress,
-                    bool paranoid_checks);
+                    bool integrity_checks);
 
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime

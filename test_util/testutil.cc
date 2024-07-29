@@ -645,9 +645,9 @@ class SpecialMemTableRep : public MemTableRep {
 
   Status Get(const LookupKey& k, void* callback_args,
              bool (*callback_func)(void* arg, const char* entry),
-             bool paranoid_check = false,
+             bool integrity_checks = false,
              bool allow_data_in_errors = false) override {
-    return memtable_->Get(k, callback_args, callback_func, paranoid_check,
+    return memtable_->Get(k, callback_args, callback_func, integrity_checks,
                           allow_data_in_errors);
   }
 
@@ -657,9 +657,10 @@ class SpecialMemTableRep : public MemTableRep {
   }
 
   MemTableRep::Iterator* GetIterator(
-      Arena* arena = nullptr, bool paranoid_checks = false,
+      Arena* arena = nullptr, bool integrity_checks = false,
       bool allow_data_in_errors = false) override {
-    return memtable_->GetIterator(arena, paranoid_checks, allow_data_in_errors);
+    return memtable_->GetIterator(arena, integrity_checks,
+                                  allow_data_in_errors);
   }
 
   ~SpecialMemTableRep() override = default;
