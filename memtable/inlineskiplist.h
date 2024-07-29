@@ -52,9 +52,9 @@
 #include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/random.h"
-#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 
