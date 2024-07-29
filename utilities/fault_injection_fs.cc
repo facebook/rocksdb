@@ -168,8 +168,9 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
     return fs_->GetError();
   }
 
-  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
-                                                options, state_.filename_);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, options, state_.filename_,
+      FaultInjectionTestFS::ErrorOperation::kAppend);
   if (!s.ok()) {
     return s;
   }
@@ -203,8 +204,9 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption("Data is corrupted!");
   }
 
-  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
-                                                options, state_.filename_);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, options, state_.filename_,
+      FaultInjectionTestFS::ErrorOperation::kAppend);
   if (!s.ok()) {
     return s;
   }
@@ -266,8 +268,9 @@ IOStatus TestFSWritableFile::PositionedAppend(const Slice& data,
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
-                                                options, state_.filename_);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, options, state_.filename_,
+      FaultInjectionTestFS::ErrorOperation::kPositionedAppend);
   if (!s.ok()) {
     return s;
   }
@@ -292,8 +295,9 @@ IOStatus TestFSWritableFile::PositionedAppend(
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
-                                                options, state_.filename_);
+  IOStatus s = fs_->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, options, state_.filename_,
+      FaultInjectionTestFS::ErrorOperation::kPositionedAppend);
   if (!s.ok()) {
     return s;
   }
@@ -843,8 +847,9 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
 
-  IOStatus io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite,
-                                              file_opts.io_options, fname);
+  IOStatus io_s = MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, file_opts.io_options, fname,
+      FaultInjectionTestFS::ErrorOperation::kOpen);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -1391,9 +1396,12 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
     }
     ctx->callstack = port::SaveStack(&ctx->frames);
 
+    std::stringstream msg;
+    msg << FaultInjectionTestFS::kInjected << " ";
     if (op != ErrorOperation::kMultiReadSingleReq) {
       // Likely non-per read status code for MultiRead
-      ctx->message += "injected read error; ";
+      msg << "read error";
+      ctx->message = msg.str();
       ret_fault_injected = true;
       ret = IOStatus::IOError(ctx->message);
     } else if (Random::GetTLSInstance()->OneIn(8)) {
@@ -1401,7 +1409,8 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
       // For a small chance, set the failure to status but turn the
       // result to be empty, which is supposed to be caught for a check.
       *result = Slice();
-      ctx->message += "injected empty result; ";
+      msg << "empty result";
+      ctx->message = msg.str();
       ret_fault_injected = true;
     } else if (!direct_io && Random::GetTLSInstance()->OneIn(7) &&
                scratch != nullptr && result->data() == scratch) {
@@ -1418,10 +1427,12 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
       // It would work for CRC. Not 100% sure for xxhash and will adjust
       // if it is not the case.
       const_cast<char*>(result->data())[result->size() - 1]++;
-      ctx->message += "injected corrupt last byte; ";
+      msg << "corrupt last byte";
+      ctx->message = msg.str();
       ret_fault_injected = true;
     } else {
-      ctx->message += "injected error result multiget single; ";
+      msg << "error result multiget single";
+      ctx->message = msg.str();
       ret_fault_injected = true;
       ret = IOStatus::IOError(ctx->message);
     }
@@ -1465,7 +1476,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
       free(ctx->callstack);
     }
     ctx->callstack = port::SaveStack(&ctx->frames);
-    ctx->message = GetErrorMessageFromFaultInjectionIOType(type);
+    ctx->message = GetErrorMessage(type, file_name, op);
     ret = IOStatus::IOError(ctx->message);
     ret.SetRetryable(ctx->retryable);
     ret.SetDataLoss(ctx->has_data_loss);

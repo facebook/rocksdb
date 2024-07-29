@@ -72,14 +72,7 @@ class DbStressListener : public EventListener {
     // pretending doing some work here
     RandomSleep();
     if (fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
     }
   }
 
@@ -180,14 +173,7 @@ class DbStressListener : public EventListener {
 
   void OnSubcompactionCompleted(const SubcompactionJobInfo& /* si */) override {
     if (fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
     }
   }
 
@@ -274,14 +260,7 @@ class DbStressListener : public EventListener {
                             bool* /* auto_recovery */) override {
     RandomSleep();
     if (FLAGS_error_recovery_with_no_fault_injection && fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      fault_fs_guard->DisableAllThreadLocalErrorInjection();
       // TODO(hx235): only exempt the flush thread during error recovery instead
       // of all the flush threads from error injection
       fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection(
@@ -293,14 +272,7 @@ class DbStressListener : public EventListener {
       const BackgroundErrorRecoveryInfo& /*info*/) override {
     RandomSleep();
     if (FLAGS_error_recovery_with_no_fault_injection && fault_fs_guard) {
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
+      fault_fs_guard->EnableAllThreadLocalErrorInjection();
       fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection({});
     }
   }

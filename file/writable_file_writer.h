@@ -22,6 +22,9 @@
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
+#ifndef NDEBUG
+#include "utilities/fault_injection_fs.h"
+#endif  // NDEBUG
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
@@ -327,10 +330,14 @@ class WritableFileWriter {
   }
 #endif  // NDEBUG
 
+  // TODO(hx235): store the actual previous error status and return it here
   IOStatus GetWriterHasPreviousErrorStatus() {
 #ifndef NDEBUG
     if (seen_injected_error_.load(std::memory_order_relaxed)) {
-      return IOStatus::IOError("Writer has previous injected error.");
+      std::stringstream msg;
+      msg << "Writer has previous " << FaultInjectionTestFS::kInjected
+          << " error.";
+      return IOStatus::IOError(msg.str());
     }
 #endif  // NDEBUG
     return IOStatus::IOError("Writer has previous error.");
