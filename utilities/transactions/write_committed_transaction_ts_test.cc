@@ -554,6 +554,109 @@ TEST_P(WriteCommittedTxnWithTsTest, GetForUpdate) {
   txn5.reset();
 }
 
+TEST_P(WriteCommittedTxnWithTsTest, GetForUpdateUdtValidationNotEnabled) {
+  ASSERT_OK(ReOpenNoDelete());
+
+  ColumnFamilyOptions cf_options;
+  cf_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyHandle* cfh = nullptr;
+  assert(db);
+  ASSERT_OK(db->CreateColumnFamily(cf_options, test_cf_name, &cfh));
+  delete cfh;
+  cfh = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, Options(DBOptions(), cf_options));
+  options.avoid_flush_during_shutdown = true;
+
+  txn_db_options.enable_udt_validation = false;
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  // blind write a key/value for latter read via `GetForUpdate`.
+  std::unique_ptr<Transaction> txn0(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn0->Put(handles_[1], "key", "value0"));
+  ASSERT_OK(txn0->SetCommitTimestamp(20));
+  ASSERT_OK(txn0->Commit());
+
+  // When timestamp validation is disabled across the whole DB
+  // `SetReadTimestampForValidation` should not be called.
+  std::unique_ptr<Transaction> txn1(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  std::string value;
+  ASSERT_OK(txn1->SetReadTimestampForValidation(21));
+  ASSERT_TRUE(txn1->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                                 /* exclusive= */ true, /*do_validate=*/true)
+                  .IsInvalidArgument());
+  txn1.reset();
+
+  // do_validate and no snapshot, no conflict checking at all
+  std::unique_ptr<Transaction> txn2(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn2->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /* exclusive= */ true, /*do_validate=*/true));
+  ASSERT_OK(txn2->Put(handles_[1], "key", "value1"));
+  ASSERT_OK(txn2->SetCommitTimestamp(21));
+  ASSERT_OK(txn2->Commit());
+  txn2.reset();
+
+  // do_validate and set snapshot, execute sequence number based conflict
+  // checking and skip timestamp based conflict checking.
+  std::unique_ptr<Transaction> txn3(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  txn3->SetSnapshot();
+  ASSERT_OK(txn3->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /* exclusive= */ true, /*do_validate=*/true));
+  ASSERT_OK(txn3->Put(handles_[1], "key", "value2"));
+  ASSERT_OK(txn3->SetCommitTimestamp(22));
+  ASSERT_OK(txn3->Commit());
+  txn3.reset();
+
+  // Always check `ReadOptions.timestamp` to be consistent with the default
+  // `read_timestamp_` if it's explicitly set, even if whole DB disables
+  // timestamp validation.
+  std::unique_ptr<Transaction> txn4(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ReadOptions ropts;
+  std::string read_timestamp;
+  Slice read_ts = EncodeU64Ts(27, &read_timestamp);
+  ropts.timestamp = &read_ts;
+  ASSERT_TRUE(txn4->GetForUpdate(ropts, handles_[1], "key", &value,
+                                 /* exclusive= */ true, /*do_validate=*/true)
+                  .IsInvalidArgument());
+  txn4.reset();
+
+  // Conflict of timestamps not caught when parallel transactions commit with
+  // some out of order timestamps.
+  std::unique_ptr<Transaction> txn5(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  assert(txn5);
+
+  std::unique_ptr<Transaction> txn6(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  assert(txn6);
+  ASSERT_OK(txn6->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /* exclusive= */ true, /*do_validate=*/true));
+  ASSERT_OK(txn6->Put(handles_[1], "key", "value4"));
+  ASSERT_OK(txn6->SetName("txn6"));
+  ASSERT_OK(txn6->Prepare());
+  ASSERT_OK(txn6->SetCommitTimestamp(24));
+  ASSERT_OK(txn6->Commit());
+  txn6.reset();
+
+  txn5->SetSnapshot();
+  ASSERT_OK(txn5->GetForUpdate(ReadOptions(), handles_[1], "key", &value,
+                               /* exclusive= */ true, /*do_validate=*/true));
+  ASSERT_OK(txn5->Put(handles_[1], "key", "value3"));
+  ASSERT_OK(txn5->SetName("txn5"));
+  // txn5 commits after txn6 but writes a smaller timestamp
+  ASSERT_OK(txn5->SetCommitTimestamp(23));
+  ASSERT_OK(txn5->Commit());
+  txn5.reset();
+}
+
 TEST_P(WriteCommittedTxnWithTsTest, BlindWrite) {
   ASSERT_OK(ReOpenNoDelete());
 
