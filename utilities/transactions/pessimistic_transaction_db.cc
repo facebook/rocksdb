@@ -765,10 +765,9 @@ Status PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {
   assert(txn->GetName().length() > 0);
   assert(txn->GetState() == Transaction::STARTED);
   std::lock_guard<std::mutex> lock(name_map_mutex_);
-  if (GetTransactionByNameLocked(txn->GetName()) != nullptr) {
+  if (!transactions_.insert({txn->GetName(), txn}).second) {
     return Status::InvalidArgument("Duplicate txn name " + txn->GetName());
   }
-  transactions_[txn->GetName()] = txn;
   return Status::OK();
 }
 
