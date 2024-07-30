@@ -1484,9 +1484,14 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
         if (!io_s.ok()) {
           break;
         }
-        io_s = log.writer->file()->Sync(opts, immutable_db_options_.use_fsync);
-        if (!io_s.ok()) {
-          break;
+        // If last sync failed on a later WAL, this could be a fully synced
+        // and closed WAL that just needs to be recorded as synced in the
+        // manifest.
+        if (auto* f = log.writer->file()) {
+          io_s = f->Sync(opts, immutable_db_options_.use_fsync);
+          if (!io_s.ok()) {
+            break;
+          }
         }
       }
     }
