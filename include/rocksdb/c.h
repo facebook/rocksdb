@@ -141,6 +141,15 @@ typedef struct rocksdb_statistics_histogram_data_t
     rocksdb_statistics_histogram_data_t;
 typedef struct rocksdb_wait_for_compact_options_t
     rocksdb_wait_for_compact_options_t;
+typedef struct rocksdb_table_properties_collector_t
+    rocksdb_table_properties_collector_t;
+typedef struct rocksdb_table_properties_collector_factory_t
+    rocksdb_table_properties_collector_factory_t;
+typedef struct rocksdb_table_properties_collector_factory_context_t
+    rocksdb_table_properties_collector_factory_context_t;
+typedef struct rocksdb_table_properties_collection_t
+    rocksdb_table_properties_collection_t;
+typedef struct rocksdb_table_properties_t rocksdb_table_properties_t;
 
 /* DB operations */
 
@@ -1751,6 +1760,11 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_options_add_compact_on_deletion_collector_factory_del_ratio(
     rocksdb_options_t*, size_t window_size, size_t num_dels_trigger,
     double deletion_ratio);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_add_table_properties_collector_factory(
+    rocksdb_options_t*, rocksdb_table_properties_collector_factory_t*);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manual_wal_flush(
     rocksdb_options_t* opt, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_manual_wal_flush(
@@ -3078,6 +3092,82 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_statistics_histogram_data_get_sum(
     rocksdb_statistics_histogram_data_t* data);
 extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_min(
     rocksdb_statistics_histogram_data_t* data);
+
+enum {
+  rocksdb_k_entry_put,
+  rocksdb_k_entry_delete,
+  rocksdb_k_entry_single_delete,
+  rocksdb_k_entry_merge,
+  rocksdb_k_entry_range_deletion,
+  rocksdb_k_entry_block_index,
+  rocksdb_k_entry_delete_with_timestamp,
+  rocksdb_k_entry_wide_column_entity,
+  rocksdb_k_entry_timed_put,
+  rocksdb_k_entry_other,
+};
+
+typedef void (*rocksdb_add_user_collected_properties)(void* properties,
+                                                      const char* key_data,
+                                                      size_t key_len,
+                                                      const char* value_data,
+                                                      size_t value_len);
+
+extern ROCKSDB_LIBRARY_API rocksdb_table_properties_collector_factory_t*
+rocksdb_table_properties_collector_factory_create(
+    void* state, void (*destructor)(void*),
+    rocksdb_table_properties_collector_t* (*create_table_properties_collector)(
+        void*, const rocksdb_table_properties_collector_factory_context_t* ctx),
+    const char* (*name)(void*));
+extern ROCKSDB_LIBRARY_API void
+rocksdb_table_properties_collector_factory_destroy(
+    rocksdb_table_properties_collector_factory_t* factory);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_table_properties_collector_factory_context_level_at_creation(
+    const rocksdb_table_properties_collector_factory_context_t* ctx);
+extern ROCKSDB_LIBRARY_API rocksdb_table_properties_collector_t*
+rocksdb_table_properties_collector_create(
+    void* state, void (*destructor)(void*), const char* (*name)(void*),
+    void (*add_user_key)(void*, const char* key_data, size_t key_len,
+                         const char* value_data, size_t value_len,
+                         int entry_type, uint64_t seq, uint64_t file_size),
+    void (*block_add)(void*, uint64_t block_uncomp_bytes,
+                      uint64_t block_compressed_bytes_fast,
+                      uint64_t block_compressed_bytes_slow),
+    void (*finish_properties)(void*, void* properties,
+                              rocksdb_add_user_collected_properties adder),
+    void (*get_readable_properties)(
+        void*, void* properties, rocksdb_add_user_collected_properties adder));
+extern ROCKSDB_LIBRARY_API void rocksdb_table_properties_collector_destroy(
+    rocksdb_table_properties_collector_t* collector);
+
+extern ROCKSDB_LIBRARY_API rocksdb_table_properties_collection_t*
+rocksdb_get_properties_of_all_range(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_table_properties_collection_t*
+rocksdb_get_properties_of_tables_in_range(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    size_t num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_table_properties_collection_destroy(
+    rocksdb_table_properties_collection_t*);
+extern ROCKSDB_LIBRARY_API rocksdb_table_properties_t*
+rocksdb_table_properties_collection_next(
+    rocksdb_table_properties_collection_t* collection);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_table_properties_destroy(
+    rocksdb_table_properties_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_table_properties_user_collected(
+    rocksdb_table_properties_t* table_properties, void* state,
+    void (*property_reader)(void* state, const char* key_data, size_t key_ken,
+                            const char* value_data, size_t value_len));
+extern ROCKSDB_LIBRARY_API void rocksdb_table_properties_readable(
+    rocksdb_table_properties_t* table_properties, void* state,
+    void (*property_reader)(void* state, const char* key_data, size_t key_ken,
+                            const char* value_data, size_t value_len));
+extern ROCKSDB_LIBRARY_API const char* rocksdb_table_properties_table_name(
+    rocksdb_table_properties_t* table_properties);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact(
     rocksdb_t* db, rocksdb_wait_for_compact_options_t* options, char** errptr);

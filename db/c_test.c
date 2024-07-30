@@ -336,6 +336,69 @@ static rocksdb_compactionfilter_t* CFilterCreate(
                                          CFilterName);
 }
 
+// Custom table properties collector
+static void TablePropertiesCollectorDestory(void* arg) { (void)arg; }
+static const char* TablePropertiesCollectorName(void* arg) {
+  (void)arg;
+  return "foo";
+}
+static void TablePropertiesCollectorAddUserKey(
+    void* arg, const char* key_data, size_t key_len, const char* value_data,
+    size_t value_len, int entry_type, uint64_t seq, uint64_t file_size) {
+  (void)arg;
+  (void)key_data;
+  (void)key_len;
+  (void)value_data;
+  (void)value_len;
+  (void)entry_type;
+  (void)seq;
+  (void)file_size;
+}
+static void TablePropertiesCollectorBlockAdd(void* arg, uint64_t arg1,
+                                             uint64_t arg2, uint64_t arg3) {
+  (void)arg;
+  (void)arg1;
+  (void)arg2;
+  (void)arg3;
+}
+static const char* USER_PROPERTY_KEY = "user-property-key";
+static const char* USER_PROPERTY_VALUE = "user-property-value";
+static void TablePropertiesCollectorFinishProperties(
+    void* arg, void* out, rocksdb_add_user_collected_properties adder) {
+  (void)arg;
+  adder(out, USER_PROPERTY_KEY, strlen(USER_PROPERTY_KEY), USER_PROPERTY_VALUE,
+        strlen(USER_PROPERTY_VALUE));
+}
+
+static void TablePropertiesCollectorGetReadableProperties(
+    void* arg, void* out, rocksdb_add_user_collected_properties adder) {
+  (void)arg;
+  adder(out, USER_PROPERTY_KEY, strlen(USER_PROPERTY_KEY), USER_PROPERTY_VALUE,
+        strlen(USER_PROPERTY_VALUE));
+}
+
+static rocksdb_table_properties_collector_t* TablePropertiesCollectorCreate(
+    void* arg,
+    const rocksdb_table_properties_collector_factory_context_t* ctx) {
+  (void)arg;
+  rocksdb_table_properties_collector_factory_context_level_at_creation(ctx);
+  return rocksdb_table_properties_collector_create(
+      NULL, TablePropertiesCollectorDestory, TablePropertiesCollectorName,
+      TablePropertiesCollectorAddUserKey, TablePropertiesCollectorBlockAdd,
+      TablePropertiesCollectorFinishProperties,
+      TablePropertiesCollectorGetReadableProperties);
+}
+
+static void TablePropertiesReader(void* exists, const char* key, size_t key_len,
+                                  const char* value, size_t value_len) {
+  (void)value;
+  (void)value_len;
+  if (key_len == strlen(USER_PROPERTY_KEY) &&
+      strncmp(key, USER_PROPERTY_KEY, key_len) == 0) {
+    *(int*)exists = 1;
+  }
+}
+
 void CheckMetaData(rocksdb_column_family_metadata_t* cf_meta,
                    const char* expected_cf_name) {
   char* cf_name = rocksdb_column_family_metadata_get_name(cf_meta);
@@ -4030,6 +4093,62 @@ int main(int argc, char** argv) {
 
     rocksdb_write_buffer_manager_destroy(write_buffer_manager);
     rocksdb_cache_destroy(lru);
+  }
+
+  StartPhase("table_properties_collector");
+  {
+    rocksdb_options_t* options_with_collector_factory =
+        rocksdb_options_create();
+
+    rocksdb_table_properties_collector_factory_t* factory =
+        rocksdb_table_properties_collector_factory_create(
+            NULL, TablePropertiesCollectorDestory,
+            TablePropertiesCollectorCreate, TablePropertiesCollectorName);
+    rocksdb_options_add_table_properties_collector_factory(
+        options_with_collector_factory, factory);
+    rocksdb_table_properties_collector_factory_destroy(factory);
+
+    // New database
+    rocksdb_close(db);
+    rocksdb_destroy_db(options_with_collector_factory, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_create_if_missing(options_with_collector_factory, true);
+    db = rocksdb_open(options_with_collector_factory, dbname, &err);
+    CheckNoError(err);
+
+    // write and flush, make rocksdb to collect user properties.
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+    rocksdb_writebatch_put(wb, "foo", 3, "a", 1);
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put(wb, "bar", 3, "b", 1);
+    rocksdb_writebatch_put(wb, "box", 3, "c", 1);
+    rocksdb_writebatch_delete(wb, "bar", 3);
+    rocksdb_write(db, woptions, wb, &err);
+    rocksdb_writebatch_destroy(wb);
+
+    rocksdb_flushoptions_t* flush_opts = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_opts, 1);
+    rocksdb_flush(db, flush_opts, &err);
+    rocksdb_flushoptions_destroy(flush_opts);
+    CheckNoError(err);
+
+    rocksdb_table_properties_collection_t* collection =
+        rocksdb_get_properties_of_all_range(db, NULL, &err);
+    CheckNoError(err);
+
+    int exists = 0;
+    rocksdb_table_properties_t* properties = NULL;
+    while ((properties =
+                rocksdb_table_properties_collection_next(collection)) != NULL) {
+      rocksdb_table_properties_user_collected(properties, &exists,
+                                              TablePropertiesReader);
+      rocksdb_table_properties_destroy(properties);
+    }
+    rocksdb_table_properties_collection_destroy(collection);
+    CheckCondition(exists == 1);
+
+    rocksdb_options_destroy(options_with_collector_factory);
   }
 
   StartPhase("cancel_all_background_work");
