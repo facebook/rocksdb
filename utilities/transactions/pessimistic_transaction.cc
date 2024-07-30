@@ -1247,14 +1247,15 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
   if (txn_state_ == STARTED) {
     if (name_.length()) {
       s = Status::InvalidArgument("Transaction has already been named.");
-    } else if (txn_db_impl_->GetTransactionByName(name) != nullptr) {
-      s = Status::InvalidArgument("Transaction name must be unique.");
     } else if (name.length() < 1 || name.length() > 512) {
       s = Status::InvalidArgument(
           "Transaction name length must be between 1 and 512 chars.");
     } else {
       name_ = name;
-      txn_db_impl_->RegisterTransaction(this);
+      s = txn_db_impl_->RegisterTransaction(this);
+      if (!s.ok()) {
+        name_.clear();
+      }
     }
   } else {
     s = Status::InvalidArgument("Transaction is beyond state for naming.");
