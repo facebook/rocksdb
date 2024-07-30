@@ -173,7 +173,7 @@ class PessimisticTransactionDB : public TransactionDB {
 
   Transaction* GetTransactionByName(const TransactionName& name) override;
 
-  void RegisterTransaction(Transaction* txn);
+  Status RegisterTransaction(Transaction* txn);
   void UnregisterTransaction(Transaction* txn);
 
   // not thread safe. current use case is during recovery (single thread)
@@ -239,6 +239,7 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
 
   Transaction* BeginInternalTransaction(const WriteOptions& options);
+  Transaction* GetTransactionByNameLocked(const TransactionName& name);
 
   std::shared_ptr<LockManager> lock_manager_;
 
