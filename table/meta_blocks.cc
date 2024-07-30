@@ -170,7 +170,9 @@ Slice PropertyBlockBuilder::Finish() {
     assert(last_prop_added_to_block_.empty() ||
            comparator_->Compare(prop.first, last_prop_added_to_block_) > 0);
     properties_block_->Add(prop.first, prop.second);
+#ifndef NDEBUG
     last_prop_added_to_block_ = prop.first;
+#endif /* !NDEBUG */
   }
 
   return properties_block_->Finish();
@@ -220,11 +222,21 @@ bool NotifyCollectTableCollectorsOnFinish(
     UserCollectedProperties& readable_properties) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
-    Status s = collector->Finish(&user_collected_properties);
+    UserCollectedProperties user_properties;
+    Status s = collector->Finish(&user_properties);
     if (s.ok()) {
       for (const auto& prop : collector->GetReadableProperties()) {
         readable_properties.insert(prop);
       }
+#ifndef NDEBUG
+      // Check different user properties collectors are not adding properties of
+      // the same name.
+      for (const auto& pair : user_properties) {
+        assert(user_collected_properties.find(pair.first) ==
+               user_collected_properties.end());
+      }
+#endif /* !NDEBUG */
+      user_collected_properties.merge(user_properties);
     } else {
       LogPropertiesCollectionError(info_log, "Finish" /* method */,
                                    collector->Name());
