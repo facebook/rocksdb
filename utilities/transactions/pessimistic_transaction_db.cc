@@ -723,6 +723,11 @@ void PessimisticTransactionDB::ReinitializeTransaction(
 Transaction* PessimisticTransactionDB::GetTransactionByName(
     const TransactionName& name) {
   std::lock_guard<std::mutex> lock(name_map_mutex_);
+  return GetTransactionByNameLocked(name);
+}
+
+Transaction* PessimisticTransactionDB::GetTransactionByNameLocked(
+    const TransactionName& name) {
   auto it = transactions_.find(name);
   if (it == transactions_.end()) {
     return nullptr;
@@ -755,13 +760,17 @@ void PessimisticTransactionDB::SetDeadlockInfoBufferSize(uint32_t target_size) {
   lock_manager_->Resize(target_size);
 }
 
-void PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {
+Status PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {
   assert(txn);
   assert(txn->GetName().length() > 0);
-  assert(GetTransactionByName(txn->GetName()) == nullptr);
   assert(txn->GetState() == Transaction::STARTED);
   std::lock_guard<std::mutex> lock(name_map_mutex_);
+  if (GetTransactionByNameLocked(txn->GetName()) != nullptr) {
+    return Status::InvalidArgument("Duplicate txn name " +
+              txn->GetName());
+  }
   transactions_[txn->GetName()] = txn;
+  return Status::OK();
 }
 
 void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
