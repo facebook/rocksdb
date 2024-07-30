@@ -126,6 +126,28 @@ static void CheckGetCF(rocksdb_t* db, const rocksdb_readoptions_t* options,
   Free(&val);
 }
 
+static void CheckGetCols(rocksdb_t* db, const rocksdb_readoptions_t* options,
+                         rocksdb_column_family_handle_t* handle,
+                         const char* key, const size_t expected_columns_num,
+                         const char** expected_names,
+                         const char** expected_values) {
+  char* err = NULL;
+  rocksdb_pinnablewidecolumns_t* val =
+      rocksdb_get_entity_cf(db, options, handle, key, strlen(key), &err);
+  CheckNoError(err);
+  size_t num_columns = rocksdb_pinnablewidecolumns_size(val);
+  CheckCondition(num_columns == expected_columns_num);
+  for (size_t i = 0; i < num_columns; i++) {
+    size_t name_len;
+    size_t value_len;
+    const char* name = rocksdb_pinnablewidecolumns_name(val, i, &name_len);
+    const char* value = rocksdb_pinnablewidecolumns_value(val, i, &value_len);
+    CheckEqual(expected_names[i], name, name_len);
+    CheckEqual(expected_values[i], value, value_len);
+  }
+  rocksdb_pinnablewidecolumns_destroy(val);
+}
+
 static void CheckPinGet(rocksdb_t* db, const rocksdb_readoptions_t* options,
                         const char* key, const char* expected) {
   char* err = NULL;
@@ -3865,6 +3887,81 @@ int main(int argc, char** argv) {
     rocksdb_options_set_db_paths(options, paths, 1);
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
+  }
+
+  StartPhase("wide_columns");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+
+    rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    db = rocksdb_open(db_options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_column_family_handle_t* cfh =
+        rocksdb_create_column_family(db, db_options, "cf1", &err);
+    CheckNoError(err);
+
+    const char* names0[] = {"col0", "col1"};
+    const size_t names0_sizes[] = {4, 4};
+    const char* values0[] = {"val-0", "val-1"};
+    const size_t values0_sizes[] = {5, 5};
+
+    // put entity and get entity
+    rocksdb_put_entity_cf(db, woptions, cfh, "key0", 4, 2, names0, names0_sizes,
+                          values0, values0_sizes, &err);
+    CheckNoError(err);
+    CheckGetCols(db, roptions, cfh, "key0", 2, names0, values0);
+
+    // columns api of iter
+    {
+      rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db, roptions, cfh);
+      rocksdb_iter_seek_to_first(iter);
+      CheckCondition(rocksdb_iter_valid(iter));
+      rocksdb_widecolumns_t* col = rocksdb_iter_columns(iter);
+      size_t num_columns = rocksdb_widecolumns_size(col);
+      CheckCondition(num_columns == 2);
+      for (size_t i = 0; i < num_columns; i++) {
+        size_t name_len;
+        size_t value_len;
+        const char* name = rocksdb_widecolumns_name(col, i, &name_len);
+        const char* value = rocksdb_widecolumns_value(col, i, &value_len);
+        CheckEqual(names0[i], name, name_len);
+        CheckEqual(values0[i], value, value_len);
+      }
+      rocksdb_widecolumns_destroy(col);
+      rocksdb_iter_destroy(iter);
+    }
+
+    // columns api write batch
+    {
+        const char* names1[] = {"col0", "col1"};
+        const size_t names1_sizes[] = {4, 4};
+        const char* values1[] = {"val-0", "val-1"};
+        const size_t values1_sizes[] = {5, 5};
+        const char* names2[] = {"col0", "col1"};
+        const size_t names2_sizes[] = {4, 4};
+        const char* values2[] = {"val-0", "val-1"};
+        const size_t values2_sizes[] = {5, 5};
+
+        rocksdb_writebatch_t* b = rocksdb_writebatch_create();
+
+        rocksdb_writebatch_put_entity_cf(b, cfh, "key1", 4, 2, names1, names1_sizes, values1, values1_sizes, &err);
+        CheckNoError(err);
+        rocksdb_writebatch_put_entity_cf(b, cfh, "key2", 4, 2, names2, names2_sizes, values2, values2_sizes, &err);
+        CheckNoError(err);
+
+        rocksdb_write(db, woptions, b, &err);
+        CheckNoError(err);
+
+        CheckGetCols(db, roptions, cfh, "key1", 2, names1, values1);
+        CheckGetCols(db, roptions, cfh, "key2", 2, names2, values2);
+
+        rocksdb_writebatch_destroy(b);
+    }
+
+    rocksdb_column_family_handle_destroy(cfh);
+    rocksdb_options_destroy(db_options);
   }
 
   StartPhase("filter_with_prefix_seek");

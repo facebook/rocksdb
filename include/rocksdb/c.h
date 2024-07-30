@@ -124,6 +124,8 @@ typedef struct rocksdb_sstfilewriter_t rocksdb_sstfilewriter_t;
 typedef struct rocksdb_ratelimiter_t rocksdb_ratelimiter_t;
 typedef struct rocksdb_perfcontext_t rocksdb_perfcontext_t;
 typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
+typedef struct rocksdb_pinnablewidecolumns_t rocksdb_pinnablewidecolumns_t;
+typedef struct rocksdb_widecolumns_t rocksdb_widecolumns_t;
 typedef struct rocksdb_transactiondb_options_t rocksdb_transactiondb_options_t;
 typedef struct rocksdb_transactiondb_t rocksdb_transactiondb_t;
 typedef struct rocksdb_transaction_options_t rocksdb_transaction_options_t;
@@ -457,6 +459,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_put_cf(
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, const char* val, size_t vallen, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_put_entity_cf(
+    rocksdb_t* db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, size_t num_columns, const char* const* names_list,
+    const size_t* names_list_sizes, const char* const* values_list,
+    const size_t* values_list_sizes, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_delete(
     rocksdb_t* db, const rocksdb_writeoptions_t* options, const char* key,
     size_t keylen, char** errptr);
@@ -504,6 +513,11 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf_with_ts(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_pinnablewidecolumns_t* rocksdb_get_entity_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr);
 
 /**
  * Returns a malloc() buffer with the DB identity, assigning the length to
@@ -746,6 +760,8 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_key(
     const rocksdb_iterator_t*, size_t* klen);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_value(
     const rocksdb_iterator_t*, size_t* vlen);
+extern ROCKSDB_LIBRARY_API rocksdb_widecolumns_t* rocksdb_iter_columns(
+    const rocksdb_iterator_t* iter);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_timestamp(
     const rocksdb_iterator_t*, size_t* tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_get_error(
@@ -801,6 +817,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_putv_cf(
     int num_keys, const char* const* keys_list, const size_t* keys_list_sizes,
     int num_values, const char* const* values_list,
     const size_t* values_list_sizes);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_put_entity_cf(
+    rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen, size_t num_columns,
+    const char* const* names_list, const size_t* names_list_sizes,
+    const char* const* values_list, const size_t* values_list_sizes,
+    char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_merge(rocksdb_writebatch_t*,
                                                          const char* key,
                                                          size_t klen,
@@ -3013,6 +3035,23 @@ extern ROCKSDB_LIBRARY_API void rocksdb_pinnableslice_destroy(
     rocksdb_pinnableslice_t* v);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnableslice_value(
     const rocksdb_pinnableslice_t* t, size_t* vlen);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_pinnablewidecolumns_destroy(
+    rocksdb_pinnablewidecolumns_t* v);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_pinnablewidecolumns_size(const rocksdb_pinnablewidecolumns_t* v);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnablewidecolumns_name(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* name_len);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnablewidecolumns_value(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* value_len);
+extern ROCKSDB_LIBRARY_API void rocksdb_widecolumns_destroy(
+    rocksdb_widecolumns_t* v);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_widecolumns_size(const rocksdb_widecolumns_t* v);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_name(
+    const rocksdb_widecolumns_t* v, const size_t n, size_t* name_len);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_widecolumns_value(
+    const rocksdb_widecolumns_t* v, const size_t n, size_t* value_len);
 
 extern ROCKSDB_LIBRARY_API rocksdb_memory_consumers_t*
 rocksdb_memory_consumers_create(void);

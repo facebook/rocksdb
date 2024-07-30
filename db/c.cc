@@ -44,6 +44,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksdb/wide_columns.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "util/stderr_logger.h"
@@ -102,6 +103,7 @@ using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::PerfContext;
 using ROCKSDB_NAMESPACE::PerfLevel;
 using ROCKSDB_NAMESPACE::PinnableSlice;
+using ROCKSDB_NAMESPACE::PinnableWideColumns;
 using ROCKSDB_NAMESPACE::PrepopulateBlobCache;
 using ROCKSDB_NAMESPACE::RandomAccessFile;
 using ROCKSDB_NAMESPACE::Range;
@@ -125,6 +127,8 @@ using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
 using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
+using ROCKSDB_NAMESPACE::WideColumn;
+using ROCKSDB_NAMESPACE::WideColumns;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
@@ -259,6 +263,12 @@ struct rocksdb_perfcontext_t {
 };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
+};
+struct rocksdb_pinnablewidecolumns_t {
+  PinnableWideColumns rep;
+};
+struct rocksdb_widecolumns_t {
+  WideColumns rep;
 };
 struct rocksdb_transactiondb_options_t {
   TransactionDBOptions rep;
@@ -1231,6 +1241,24 @@ void rocksdb_put_cf_with_ts(rocksdb_t* db,
                          Slice(ts, tslen), Slice(val, vallen)));
 }
 
+void rocksdb_put_entity_cf(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                           rocksdb_column_family_handle_t* column_family,
+                           const char* key, size_t keylen, size_t num_columns,
+                           const char* const* names_list,
+                           const size_t* names_list_sizes,
+                           const char* const* values_list,
+                           const size_t* values_list_sizes, char** errptr) {
+  WideColumns columns;
+  columns.reserve(num_columns);
+  for (size_t i = 0; i < num_columns; i++) {
+    WideColumn column(Slice(names_list[i], names_list_sizes[i]),
+                      Slice(values_list[i], values_list_sizes[i]));
+    columns.push_back(column);
+  }
+  SaveError(errptr, db->rep->PutEntity(options->rep, column_family->rep,
+                                       Slice(key, keylen), columns));
+}
+
 void rocksdb_delete(rocksdb_t* db, const rocksdb_writeoptions_t* options,
                     const char* key, size_t keylen, char** errptr) {
   SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen)));
@@ -1427,6 +1455,16 @@ char* rocksdb_get_cf_with_ts(rocksdb_t* db,
     }
   }
   return result;
+}
+
+rocksdb_pinnablewidecolumns_t* rocksdb_get_entity_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr) {
+  rocksdb_pinnablewidecolumns_t* columns = new (rocksdb_pinnablewidecolumns_t);
+  SaveError(errptr, db->rep->GetEntity(options->rep, column_family->rep,
+                                       Slice(key, keylen), &columns->rep));
+  return columns;
 }
 
 char* rocksdb_get_db_identity(rocksdb_t* db, size_t* id_len) {
@@ -2024,6 +2062,12 @@ const char* rocksdb_iter_value(const rocksdb_iterator_t* iter, size_t* vlen) {
   return s.data();
 }
 
+rocksdb_widecolumns_t* rocksdb_iter_columns(const rocksdb_iterator_t* iter) {
+  rocksdb_widecolumns_t* cols = new (rocksdb_widecolumns_t);
+  cols->rep = std::move(iter->rep->columns());
+  return cols;
+}
+
 const char* rocksdb_iter_timestamp(const rocksdb_iterator_t* iter,
                                    size_t* tslen) {
   Slice s = iter->rep->timestamp();
@@ -2118,6 +2162,24 @@ void rocksdb_writebatch_putv_cf(rocksdb_writebatch_t* b,
   }
   b->rep.Put(column_family->rep, SliceParts(key_slices.data(), num_keys),
              SliceParts(value_slices.data(), num_values));
+}
+
+void rocksdb_writebatch_put_entity_cf(
+    rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen, size_t num_columns,
+    const char* const* names_list, const size_t* names_list_sizes,
+    const char* const* values_list, const size_t* values_list_sizes,
+    char** errptr) {
+  WideColumns columns;
+  columns.reserve(num_columns);
+  for (size_t i = 0; i < num_columns; i++) {
+    WideColumn column(Slice(names_list[i], names_list_sizes[i]),
+                      Slice(values_list[i], values_list_sizes[i]));
+
+    columns.push_back(column);
+  }
+  SaveError(errptr,
+            b->rep.PutEntity(column_family->rep, Slice(key, keylen), columns));
 }
 
 void rocksdb_writebatch_merge(rocksdb_writebatch_t* b, const char* key,
@@ -6894,6 +6956,71 @@ const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* v,
 
   *vlen = v->rep.size();
   return v->rep.data();
+}
+
+void rocksdb_pinnablewidecolumns_destroy(rocksdb_pinnablewidecolumns_t* v) {
+  delete v;
+}
+
+size_t rocksdb_pinnablewidecolumns_size(
+    const rocksdb_pinnablewidecolumns_t* v) {
+  if (!v) {
+    return 0;
+  }
+  return v->rep.columns().size();
+}
+
+const char* rocksdb_pinnablewidecolumns_name(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* name_len) {
+  if (!v) {
+    *name_len = 0;
+    return nullptr;
+  }
+  Slice column = v->rep.columns()[n].name();
+  *name_len = column.size();
+  return column.data();
+}
+
+const char* rocksdb_pinnablewidecolumns_value(
+    const rocksdb_pinnablewidecolumns_t* v, const size_t n, size_t* value_len) {
+  if (!v) {
+    *value_len = 0;
+    return nullptr;
+  }
+  Slice column = v->rep.columns()[n].value();
+  *value_len = column.size();
+  return column.data();
+}
+
+void rocksdb_widecolumns_destroy(rocksdb_widecolumns_t* v) { delete v; }
+
+size_t rocksdb_widecolumns_size(const rocksdb_widecolumns_t* v) {
+  if (!v) {
+    return 0;
+  }
+  return v->rep.size();
+}
+
+const char* rocksdb_widecolumns_name(const rocksdb_widecolumns_t* v,
+                                     const size_t n, size_t* name_len) {
+  if (!v) {
+    *name_len = 0;
+    return nullptr;
+  }
+  Slice column = v->rep[n].name();
+  *name_len = column.size();
+  return column.data();
+}
+
+const char* rocksdb_widecolumns_value(const rocksdb_widecolumns_t* v,
+                                      const size_t n, size_t* value_len) {
+  if (!v) {
+    *value_len = 0;
+    return nullptr;
+  }
+  Slice column = v->rep[n].value();
+  *value_len = column.size();
+  return column.data();
 }
 
 // container to keep databases and caches in order to use
