@@ -32,17 +32,22 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       const bool use_value_delta_encoding,
       PartitionedIndexBuilder* const p_index_builder,
       const uint32_t partition_size, size_t ts_sz,
-      const bool persist_user_defined_timestamps);
+      const bool persist_user_defined_timestamps,
+      bool decouple_from_index_partitions);
 
   virtual ~PartitionedFilterBlockBuilder();
 
   void Add(const Slice& key_without_ts) override;
+  void AddWithPrevKey(const Slice& key_without_ts,
+                      const Slice& prev_key_without_ts) override;
   bool IsEmpty() const override {
     return filter_bits_builder_->EstimateEntriesAdded() == 0 &&
            filters_.empty();
   }
+
   size_t EstimateEntriesAdded() override;
 
+  void PrevKeyBeforeFinish(const Slice& prev_key_without_ts) override;
   Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
                 std::unique_ptr<const char[]>* filter_owner = nullptr) override;
 
@@ -65,7 +70,10 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  private:  // fns
   // Whether to cut a filter block before the next key
   bool DecideCutAFilterBlock();
-  void CutAFilterBlock(const Slice* next_key, const Slice* next_prefix);
+  void CutAFilterBlock(const Slice* next_key, const Slice* next_prefix,
+                       const Slice& prev_key);
+
+  void AddImpl(const Slice& key_without_ts, const Slice& prev_key_without_ts);
 
  private:  // data
   // Currently we keep the same number of partitions for filters and indexes.
@@ -73,6 +81,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // optimizations did not realize we can use different number of partitions and
   // eliminate p_index_builder_
   PartitionedIndexBuilder* const p_index_builder_;
+  const size_t ts_sz_;
+  const bool decouple_from_index_partitions_;
 
   // Filter data
   struct FilterEntry {
@@ -88,16 +98,21 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // in all the filters we have fully built
   uint64_t total_added_in_built_ = 0;
 
-  // Tracking state about previous prefix, to solve issue with prefix Seeks
-  // at partition boundaries.
-  bool last_key_in_domain_ = false;
-  std::string last_prefix_str_;
-
   // Set to the first non-okay status if any of the filter
   // partitions experiences construction error.
   // If partitioned_filters_construction_status_ is non-okay,
   // then the whole partitioned filters should not be used.
   Status partitioned_filters_construction_status_;
+
+  // For Add without prev key
+  std::string prev_key_without_ts_;
+
+#ifndef NDEBUG
+  // For verifying accurate previous keys are provided by the caller, so that
+  // release code can be fast
+  bool DEBUG_add_with_prev_key_called_ = false;
+  std::string DEBUG_prev_key_without_ts_;
+#endif  // NDEBUG
 
   // ===== State for Finish() =====
 

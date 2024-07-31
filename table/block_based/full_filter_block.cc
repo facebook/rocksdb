@@ -30,6 +30,11 @@ size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
   return filter_bits_builder_->EstimateEntriesAdded();
 }
 
+void FullFilterBlockBuilder::AddWithPrevKey(
+    const Slice& key_without_ts, const Slice& /*prev_key_without_ts*/) {
+  FullFilterBlockBuilder::Add(key_without_ts);
+}
+
 void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
   if (prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts)) {
     Slice prefix = prefix_extractor_->Transform(key_without_ts);
