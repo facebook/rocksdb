@@ -125,6 +125,8 @@ class TablePropertiesCollector {
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
   // It will be called only once by RocksDB internal.
+  // When the returned Status is not OK, the collected properties will not be
+  // written to the file's property block.
   //
   // @params properties  User will add their collected statistics to
   // `properties`.
