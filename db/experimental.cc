@@ -711,7 +711,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
                       uint64_t /*file_size*/) override {
       // FIXME later: `key` might contain user timestamp. That should be
       // exposed properly in a future update to TablePropertiesCollector
-      KeySegmentsExtractor::Result extracted;
+      extracted.Reset();
       if (extractor) {
         extractor->Extract(key, KeySegmentsExtractor::kFullUserKey, &extracted);
         if (UNLIKELY(extracted.category >=
@@ -750,7 +750,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
         }
       }
       prev_key.assign(key.data(), key.size());
-      prev_extracted = std::move(extracted);
+      std::swap(prev_extracted, extracted);
       first_key = false;
       return Status::OK();
     }
@@ -859,6 +859,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
     std::vector<std::shared_ptr<SstQueryFilterBuilder>> builders;
     bool first_key = true;
     std::string prev_key;
+    KeySegmentsExtractor::Result extracted;
     KeySegmentsExtractor::Result prev_extracted;
     KeySegmentsExtractor::KeyCategorySet categories_seen;
   };

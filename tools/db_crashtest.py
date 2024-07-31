@@ -777,14 +777,6 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-        # Prefix-recoverability relies on tracing successful user writes.
-        # Currently we trace all user writes regardless of whether it later succeeds or not.
-        # To simplify, we disable any user write failure injection.
-        # TODO(hx235): support tracing user writes with failure injection.
-        # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
-        # have to disable metadata write fault injection to other file
-        dest_params["metadata_write_fault_one_in"] = 0
-        dest_params["exclude_wal_from_write_fault_injection"] = 1
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
@@ -844,6 +836,8 @@ def finalize_and_sanitize(src_params):
         # Wide-column pessimistic transaction APIs are initially supported for
         # WriteCommitted only
         dest_params["use_put_entity_one_in"] = 0
+        # MultiCfIterator is currently only compatible with write committed policy
+        dest_params["use_multi_cf_iterator"] = 0        
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0

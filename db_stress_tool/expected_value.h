@@ -41,7 +41,7 @@ class ExpectedValue {
 
   uint32_t Read() const { return expected_value_; }
 
-  void Put(bool pending);
+  bool Put(bool pending);
 
   bool Delete(bool pending);
 

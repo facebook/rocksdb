@@ -189,12 +189,9 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
     }
   }
 
-  if (!do_validate && kMaxTxnTimestamp != read_timestamp_) {
-    return Status::InvalidArgument(
-        "If do_validate is false then GetForUpdate with read_timestamp is not "
-        "defined.");
-  } else if (do_validate && kMaxTxnTimestamp == read_timestamp_) {
-    return Status::InvalidArgument("read_timestamp must be set for validation");
+  Status s = SanityCheckReadTimestamp(do_validate);
+  if (!s.ok()) {
+    return s;
   }
 
   if (!read_options.timestamp) {
@@ -237,17 +234,9 @@ Status WriteCommittedTxn::GetEntityForUpdate(const ReadOptions& read_options,
   }
 
   assert(ts_sz > 0);
-
-  if (!do_validate) {
-    if (read_timestamp_ != kMaxTxnTimestamp) {
-      return Status::InvalidArgument(
-          "Read timestamp must not be set if validation is disabled");
-    }
-  } else {
-    if (read_timestamp_ == kMaxTxnTimestamp) {
-      return Status::InvalidArgument(
-          "Read timestamp must be set for validation");
-    }
+  Status s = SanityCheckReadTimestamp(do_validate);
+  if (!s.ok()) {
+    return s;
   }
 
   std::string ts_buf;
@@ -269,6 +258,33 @@ Status WriteCommittedTxn::GetEntityForUpdate(const ReadOptions& read_options,
 
   return TransactionBaseImpl::GetEntityForUpdate(
       read_options, column_family, key, columns, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::SanityCheckReadTimestamp(bool do_validate) {
+  bool enable_udt_validation =
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation;
+  if (!enable_udt_validation) {
+    if (kMaxTxnTimestamp != read_timestamp_) {
+      return Status::InvalidArgument(
+          "read_timestamp is set but timestamp validation is disabled for the "
+          "DB");
+    }
+  } else {
+    if (!do_validate) {
+      if (kMaxTxnTimestamp != read_timestamp_) {
+        return Status::InvalidArgument(
+            "If do_validate is false then GetForUpdate with read_timestamp is "
+            "not "
+            "defined.");
+      }
+    } else {
+      if (kMaxTxnTimestamp == read_timestamp_) {
+        return Status::InvalidArgument(
+            "read_timestamp must be set for validation");
+      }
+    }
+  }
+  return Status::OK();
 }
 
 Status WriteCommittedTxn::PutEntityImpl(ColumnFamilyHandle* column_family,
@@ -496,7 +512,8 @@ Status WriteCommittedTxn::SetReadTimestampForValidation(TxnTimestamp ts) {
 }
 
 Status WriteCommittedTxn::SetCommitTimestamp(TxnTimestamp ts) {
-  if (read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
+  if (txn_db_impl_->GetTxnDBOptions().enable_udt_validation &&
+      read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
     return Status::InvalidArgument(
         "Cannot commit at timestamp smaller than or equal to read timestamp");
   }
@@ -1207,7 +1224,10 @@ Status PessimisticTransaction::ValidateSnapshot(
 
   return TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
-      false /* cache_only */);
+      false /* cache_only */,
+      /* snap_checker */ nullptr,
+      /* min_uncommitted */ kMaxSequenceNumber,
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation);
 }
 
 bool PessimisticTransaction::TryStealingLocks() {
@@ -1227,14 +1247,15 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
   if (txn_state_ == STARTED) {
     if (name_.length()) {
       s = Status::InvalidArgument("Transaction has already been named.");
-    } else if (txn_db_impl_->GetTransactionByName(name) != nullptr) {
-      s = Status::InvalidArgument("Transaction name must be unique.");
     } else if (name.length() < 1 || name.length() > 512) {
       s = Status::InvalidArgument(
           "Transaction name length must be between 1 and 512 chars.");
     } else {
       name_ = name;
-      txn_db_impl_->RegisterTransaction(this);
+      s = txn_db_impl_->RegisterTransaction(this);
+      if (!s.ok()) {
+        name_.clear();
+      }
     }
   } else {
     s = Status::InvalidArgument("Transaction is beyond state for naming.");

@@ -21,7 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 Status TransactionUtil::CheckKeyForConflicts(
     DBImpl* db_impl, ColumnFamilyHandle* column_family, const std::string& key,
     SequenceNumber snap_seq, const std::string* const read_ts, bool cache_only,
-    ReadCallback* snap_checker, SequenceNumber min_uncommitted) {
+    ReadCallback* snap_checker, SequenceNumber min_uncommitted,
+    bool enable_udt_validation) {
   Status result;
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -37,8 +38,9 @@ Status TransactionUtil::CheckKeyForConflicts(
     SequenceNumber earliest_seq =
         db_impl->GetEarliestMemTableSequenceNumber(sv, true);
 
-    result = CheckKey(db_impl, sv, earliest_seq, snap_seq, key, read_ts,
-                      cache_only, snap_checker, min_uncommitted);
+    result =
+        CheckKey(db_impl, sv, earliest_seq, snap_seq, key, read_ts, cache_only,
+                 snap_checker, min_uncommitted, enable_udt_validation);
 
     db_impl->ReturnAndCleanupSuperVersion(cfd, sv);
   }
@@ -52,7 +54,8 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                                  const std::string& key,
                                  const std::string* const read_ts,
                                  bool cache_only, ReadCallback* snap_checker,
-                                 SequenceNumber min_uncommitted) {
+                                 SequenceNumber min_uncommitted,
+                                 bool enable_udt_validation) {
   // When `min_uncommitted` is provided, keys are not always committed
   // in sequence number order, and `snap_checker` is used to check whether
   // specific sequence number is in the database is visible to the transaction.
@@ -130,7 +133,7 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                                 ? snap_seq < seq
                                 : !snap_checker->IsVisible(seq);
       // Perform conflict checking based on timestamp if applicable.
-      if (!write_conflict && read_ts != nullptr) {
+      if (enable_udt_validation && !write_conflict && read_ts != nullptr) {
         ColumnFamilyData* cfd = sv->cfd;
         assert(cfd);
         const Comparator* const ucmp = cfd->user_comparator();

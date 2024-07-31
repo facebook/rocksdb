@@ -224,6 +224,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   static const char* kClassName() { return "FaultInjectionTestFS"; }
   const char* Name() const override { return kClassName(); }
 
+  static bool IsInjectedError(const Status& s) {
+    assert(!s.ok());
+    return std::strstr(s.getState(), kInjected.c_str());
+  }
+
+  static bool IsFailedToWriteToWALError(const Status& s) {
+    assert(!s.ok());
+    return std::strstr(s.getState(), kFailedToWriteToWAL.c_str());
+  }
+
   IOStatus NewDirectory(const std::string& name, const IOOptions& options,
                         std::unique_ptr<FSDirectory>* result,
                         IODebugContext* dbg) override;
@@ -472,6 +482,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     kMultiReadSingleReq = 1,
     kMultiRead = 2,
     kOpen,
+    kAppend,
+    kPositionedAppend,
     kUnknown,
   };
 
@@ -520,17 +532,6 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     file_types_excluded_from_write_fault_injection_ = types;
   }
 
-  bool ShouldExcludeFromWriteFaultInjection(const std::string& file_name) {
-    MutexLock l(&mutex_);
-    FileType file_type = kTempFile;
-    uint64_t file_number = 0;
-    if (!TryParseFileName(file_name, &file_number, &file_type)) {
-      return false;
-    }
-    return file_types_excluded_from_write_fault_injection_.find(file_type) !=
-           file_types_excluded_from_write_fault_injection_.end();
-  }
-
   void EnableThreadLocalErrorInjection(FaultInjectionIOType type) {
     ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
     if (ctx) {
@@ -538,11 +539,25 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
   }
 
+  void EnableAllThreadLocalErrorInjection() {
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataRead);
+    EnableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataWrite);
+  }
+
   void DisableThreadLocalErrorInjection(FaultInjectionIOType type) {
     ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
     if (ctx) {
       ctx->enable_error_injection = false;
     }
+  }
+
+  void DisableAllThreadLocalErrorInjection() {
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataRead);
+    DisableThreadLocalErrorInjection(FaultInjectionIOType::kMetadataWrite);
   }
 
   void PrintInjectedThreadLocalErrorBacktrace(FaultInjectionIOType type);
@@ -556,7 +571,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void ReadUnsynced(const std::string& fname, uint64_t offset, size_t n,
                     Slice* result, char* scratch, int64_t* pos_at_last_sync);
 
+  inline static const std::string kInjected = "injected";
+
  private:
+  inline static const std::string kFailedToWriteToWAL =
+      "failed to write to WAL";
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
   std::set<std::string> open_managed_files_;
@@ -628,6 +647,18 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                                            bool direct_io, char* scratch,
                                            bool need_count_increase,
                                            bool* fault_injected);
+
+  bool ShouldExcludeFromWriteFaultInjection(const std::string& file_name) {
+    MutexLock l(&mutex_);
+    FileType file_type = kTempFile;
+    uint64_t file_number = 0;
+    if (!TryParseFileName(file_name, &file_number, &file_type)) {
+      return false;
+    }
+    return file_types_excluded_from_write_fault_injection_.find(file_type) !=
+           file_types_excluded_from_write_fault_injection_.end();
+  }
+
   // Extract number of type from file name. Return false if failing to fine
   // them.
   bool TryParseFileName(const std::string& file_name, uint64_t* number,
@@ -690,27 +721,39 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
   }
 
-  std::string GetErrorMessageFromFaultInjectionIOType(
-      FaultInjectionIOType type) {
-    std::string msg = "";
+  std::string GetErrorMessage(FaultInjectionIOType type,
+                              const std::string& file_name, ErrorOperation op) {
+    std::ostringstream msg;
+    msg << kInjected << " ";
     switch (type) {
       case FaultInjectionIOType::kRead:
-        msg = "injected read error";
+        msg << "read error";
         break;
       case FaultInjectionIOType::kWrite:
-        msg = "injected write error";
+        msg << "write error";
         break;
       case FaultInjectionIOType::kMetadataRead:
-        msg = "injected metadata read error";
+        msg << "metadata read error";
         break;
       case FaultInjectionIOType::kMetadataWrite:
-        msg = "injected metadata write error";
+        msg << "metadata write error";
         break;
       default:
         assert(false);
         break;
     }
-    return msg;
+
+    if (type == FaultInjectionIOType::kWrite &&
+        (op == ErrorOperation::kOpen || op == ErrorOperation::kAppend ||
+         op == ErrorOperation::kPositionedAppend)) {
+      FileType file_type = kTempFile;
+      uint64_t ignore = 0;
+      if (TryParseFileName(file_name, &ignore, &file_type) &&
+          file_type == FileType::kWalFile) {
+        msg << " " << kFailedToWriteToWAL;
+      }
+    }
+    return msg.str();
   }
 };
 
