@@ -6,7 +6,7 @@ on: [push, pull_request] #To test self-hosted runner
 jobs:
   benchmark-linux:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: benchmark-linux
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/build-for-benchmarks"
