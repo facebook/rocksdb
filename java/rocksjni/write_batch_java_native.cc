@@ -108,9 +108,6 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
         jlong jcf_handle = bp->next_long();
         auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
 
-        std::cout << "Column family id : " << cfh->GetID() << "\n" << std::flush;
-        std::cout << "Column family name : " << cfh->GetName() << "\n" << std::flush;
-
         jint key_len = bp->next_int();
         jint value_len = bp->next_int();
         auto key_slice = bp->slice(key_len);

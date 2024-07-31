@@ -65,7 +65,7 @@ public class WriteBatchJavaNativeTest {
         wb.flush();
 
         assertThat(new String(getContents(wb), StandardCharsets.UTF_8))
-            .isEqualTo("Put(k1, v1)@100");
+            .isEqualTo("Put(k1, cf_v1)@101Put(k1, v1)@100");
       }
     }
   }
