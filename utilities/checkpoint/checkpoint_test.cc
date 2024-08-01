@@ -1032,10 +1032,19 @@ TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
   delete snapshot_db;
 }
 
-TEST_F(CheckpointTest, DestroyCheckpointRateLimited) {
+class CheckpointDestroyTest : public CheckpointTest,
+                              public testing::WithParamInterface<bool> {};
+
+TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
+  bool slow_deletion = GetParam();
   Options options = CurrentOptions();
   options.num_levels = 2;
   options.disable_auto_compactions = true;
+  Status s;
+  options.sst_file_manager.reset(NewSstFileManager(
+      options.env, options.info_log, "", slow_deletion ? 1024 * 1024 : 0,
+      false /* delete_existing_trash */, &s, 1));
+  ASSERT_OK(s);
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "a"));
@@ -1070,18 +1079,26 @@ TEST_F(CheckpointTest, DestroyCheckpointRateLimited) {
   ASSERT_OK(snapshot_db->Get(read_opts, "bar", &get_result));
   ASSERT_EQ("val9", get_result);
   delete snapshot_db;
+
+  // Make sure original obsolete files for hard linked files are all deleted.
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_);
+  db_impl->TEST_DeleteObsoleteFiles();
+  auto sfm = static_cast_with_check<SstFileManagerImpl>(
+      options.sst_file_manager.get());
+  ASSERT_NE(nullptr, sfm);
+  sfm->WaitForEmptyTrash();
   // SST file 2-12 for "bar" will be compacted into one file on L1 during the
   // compaction  after checkpoint is created. SST file 1 on L1: foo, seq:
   // 1 (hard links is 1 after checkpoint destroy)
-  int bg_delete_sst = 0;
-  int fg_delete_sst = 0;
+  std::atomic<int> bg_delete_sst{0};
+  std::atomic<int> fg_delete_sst{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteFile::cb", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
         auto file_name = *static_cast<std::string*>(arg);
         if (file_name.size() >= 4 &&
             file_name.compare(file_name.size() - 4, 4, ".sst") == 0) {
-          fg_delete_sst += 1;
+          fg_delete_sst.fetch_add(1);
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -1090,26 +1107,25 @@ TEST_F(CheckpointTest, DestroyCheckpointRateLimited) {
         auto file_name = *static_cast<std::string*>(arg);
         if (file_name.size() >= 10 &&
             file_name.compare(file_name.size() - 10, 10, ".sst.trash") == 0) {
-          bg_delete_sst += 1;
+          bg_delete_sst.fetch_add(1);
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  Options destroy_options;
-  Status s;
-  // A ratio of max_trash_db_ratio that is equal to or bigger than 1 is
-  // needed for all eligible files to be slow deleted during DestroyDB
-  destroy_options.sst_file_manager.reset(
-      NewSstFileManager(options.env, options.info_log, "", 1024 * 1024,
-                        false /* delete_existing_trash */, &s, 1));
   ASSERT_OK(s);
-  ASSERT_OK(DestroyDB(snapshot_name_, destroy_options));
-  ASSERT_EQ(fg_delete_sst, 1);
-  ASSERT_EQ(bg_delete_sst, 11);
+  ASSERT_OK(DestroyDB(snapshot_name_, options));
+  if (slow_deletion) {
+    ASSERT_EQ(fg_delete_sst, 1);
+    ASSERT_EQ(bg_delete_sst, 11);
+  } else {
+    ASSERT_EQ(fg_delete_sst, 12);
+  }
 
   ASSERT_EQ("a", Get("foo"));
   ASSERT_EQ("val9", Get("bar"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
+INSTANTIATE_TEST_CASE_P(CheckpointDestroyTest, CheckpointDestroyTest,
+                        ::testing::Values(true, false));
 
 }  // namespace ROCKSDB_NAMESPACE
 

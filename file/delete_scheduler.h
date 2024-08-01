@@ -7,6 +7,7 @@
 
 
 #include <map>
+#include <optional>
 #include <queue>
 #include <string>
 #include <thread>
@@ -48,17 +49,37 @@ class DeleteScheduler {
     MaybeCreateBackgroundThread();
   }
 
-  // Mark file as trash directory and schedule its deletion. If force_bg is
+  // Mark a file as trash directory and schedule its deletion. If force_bg is
   // set, it forces the file to always be deleted in the background thread,
   // except when rate limiting is disabled.
-  // If a file's size is known and 0, it will always be immediately deleted.
   Status DeleteFile(const std::string& fname, const std::string& dir_to_sync,
-                    const bool force_bg = false,
-                    uint64_t file_size = std::numeric_limits<uint64_t>::max());
+                    const bool force_bg = false);
 
-  // Wait for all files being deleteing in the background to finish or for
+  // Delete a file that is unaccounted in the total_size_ tracked in
+  // SstFileManager and should be unaccounted in the total_trash_size_ in
+  // DeleteScheduler.
+  // If possible, this API always delete a file that will have remaining hard
+  // links and supports to assign a file to a specified bucket created by
+  // `NewTrashBucket` API. So the caller can wait for a specific bucket to be
+  // empty by checking the `WaitForEmptyTrashBucket` API.
+  Status DeleteUnaccountedFile(const std::string& file_path,
+                               const std::string& dir_to_sync,
+                               const bool force_bg = false,
+                               std::optional<int32_t> bucket = std::nullopt);
+
+  // Wait for all files being deleted in the background to finish or for
   // destructor to be called.
   void WaitForEmptyTrash();
+
+  // Creates a new trash bucket. A bucket is only created and returned when slow
+  // deletion is enabled.
+  // For each bucket that is created, the user should also call
+  // `WaitForEmptyTrashBucket` to make sure the trash bucket is cleared.
+  std::optional<int32_t> NewTrashBucket();
+
+  // Wait for all the files in the specified bucket to be deleted in the
+  // background or for the destructor to be called.
+  void WaitForEmptyTrashBucket(int32_t bucket);
 
   // Return a map containing errors that happened in BackgroundEmptyTrash
   // file_path => error status
@@ -89,11 +110,20 @@ class DeleteScheduler {
   }
 
  private:
-  Status MarkAsTrash(const std::string& file_path, std::string* path_in_trash);
+  Status DeleteFileImmediately(const std::string& file_path, bool accounted);
+
+  Status AddFileToDeletionQueue(const std::string& file_path,
+                                const std::string& dir_to_sync,
+                                std::optional<int32_t> bucket, bool accounted);
+
+  Status MarkAsTrash(const std::string& file_path, bool accounted,
+                     std::string* path_in_trash);
 
   Status DeleteTrashFile(const std::string& path_in_trash,
-                         const std::string& dir_to_sync,
+                         const std::string& dir_to_sync, bool accounted,
                          uint64_t* deleted_bytes, bool* is_complete);
+
+  Status OnDeleteFile(const std::string& file_path, bool accounted);
 
   void BackgroundEmptyTrash();
 
@@ -110,15 +140,23 @@ class DeleteScheduler {
   InstrumentedMutex mu_;
 
   struct FileAndDir {
-    FileAndDir(const std::string& f, const std::string& d) : fname(f), dir(d) {}
+    FileAndDir(const std::string& _fname, const std::string& _dir,
+               bool _accounted, std::optional<int32_t> _bucket)
+        : fname(_fname), dir(_dir), accounted(_accounted), bucket(_bucket) {}
     std::string fname;
     std::string dir;  // empty will be skipped.
+    bool accounted;
+    std::optional<int32_t> bucket;
   };
 
   // Queue of trash files that need to be deleted
   std::queue<FileAndDir> queue_;
   // Number of trash files that are waiting to be deleted
   int32_t pending_files_;
+  // Next trash bucket that can be created
+  int32_t next_trash_bucket_;
+  // A mapping from trash bucket to number of pending files in the bucket
+  std::map<int32_t, int32_t> pending_files_in_buckets_;
   uint64_t bytes_max_delete_chunk_;
   // Errors that happened in BackgroundEmptyTrash (file_path => error)
   std::map<std::string, Status> bg_errors_;

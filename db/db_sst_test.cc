@@ -507,6 +507,23 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
   ASSERT_EQ(files_deleted, 0);
   ASSERT_EQ(files_scheduled_to_delete, 0);
   Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
   ASSERT_EQ(files_deleted, blob_files.size());
   ASSERT_EQ(files_scheduled_to_delete, blob_files.size());
@@ -649,6 +666,23 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   }
 
   Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(files_deleted, 5);
@@ -1145,7 +1179,6 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   sfm->delete_scheduler()->SetMaxTrashDBRatio(1000.0);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
-  // Empty files are immediately deleted.
   ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
 }
 
@@ -1525,12 +1558,6 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
         options.max_file_opening_threads = 5;
       }
 
-      // FIXME(yuzhangyu): the test is using Env::Default() instead of
-      // DBTestBase::env_, this breaks the purpose of testing with encrypted env
-      // when `ENCRYPTED_ENV` is enabled. All the DB files are created as
-      // unencrypted files, later DestroyDB during test destruction uses
-      // encryption env and assumed these files are encrypted ones. The file
-      // size assumption it has will fail.
       DestroyAndReopen(options);
 
       // Create 5 Files in L0 (then move then to L2)
@@ -1909,6 +1936,24 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ASSERT_EQ(files_deleted, 1);
 
   Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
 
   ASSERT_EQ(files_scheduled_to_delete, 4);

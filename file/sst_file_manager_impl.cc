@@ -80,23 +80,6 @@ Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
   return Status::OK();
 }
 
-Status SstFileManagerImpl::OnAddFileForDestroyDB(const std::string& file_path,
-                                                 uint64_t* file_size) {
-  uint64_t num_hard_links = 1;
-  Status s =
-      fs_->NumFileLinks(file_path, IOOptions(), &num_hard_links, nullptr);
-  if (s.ok() && num_hard_links > 1) {
-    *file_size = 0;
-  } else {
-    s = fs_->GetFileSize(file_path, IOOptions(), file_size, nullptr);
-  }
-  if (s.ok()) {
-    MutexLock l(&mu_);
-    OnAddFileImpl(file_path, *file_size);
-  }
-  return s;
-}
-
 Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
   {
     MutexLock l(&mu_);
@@ -432,16 +415,32 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
 
 Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path,
                                                 const std::string& path_to_sync,
-                                                const bool force_bg,
-                                                uint64_t file_size) {
+                                                const bool force_bg) {
   TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::ScheduleFileDeletion",
                            const_cast<std::string*>(&file_path));
-  return delete_scheduler_.DeleteFile(file_path, path_to_sync, force_bg,
-                                      file_size);
+  return delete_scheduler_.DeleteFile(file_path, path_to_sync, force_bg);
+}
+
+Status SstFileManagerImpl::ScheduleUnaccountedFileDeletion(
+    const std::string& file_path, const std::string& dir_to_sync,
+    const bool force_bg, std::optional<int32_t> bucket) {
+  TEST_SYNC_POINT_CALLBACK(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion",
+      const_cast<std::string*>(&file_path));
+  return delete_scheduler_.DeleteUnaccountedFile(file_path, dir_to_sync,
+                                                 force_bg, bucket);
 }
 
 void SstFileManagerImpl::WaitForEmptyTrash() {
   delete_scheduler_.WaitForEmptyTrash();
+}
+
+std::optional<int32_t> SstFileManagerImpl::NewTrashBucket() {
+  return delete_scheduler_.NewTrashBucket();
+}
+
+void SstFileManagerImpl::WaitForEmptyTrashBucket(int32_t bucket) {
+  delete_scheduler_.WaitForEmptyTrashBucket(bucket);
 }
 
 void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,

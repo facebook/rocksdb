@@ -5,7 +5,7 @@
 
 #pragma once
 
-
+#include <optional>
 #include <string>
 
 #include "db/compaction/compaction.h"
@@ -42,13 +42,6 @@ class SstFileManagerImpl : public SstFileManager {
   // Overload where size of the file is provided by the caller rather than
   // queried from the filesystem. This is an optimization.
   Status OnAddFile(const std::string& file_path, uint64_t file_size);
-
-  // For the purpose of DestroyDB, if the file system supports getting a file's
-  // number of hard links, then a file with more than 1 hard links is treated
-  // as having a file size of 0. This API also returns the file size to the
-  // caller.
-  Status OnAddFileForDestroyDB(const std::string& file_path,
-                               uint64_t* file_size);
 
   // DB will call OnDeleteFile whenever a sst/blob file is deleted.
   Status OnDeleteFile(const std::string& file_path);
@@ -125,18 +118,36 @@ class SstFileManagerImpl : public SstFileManager {
   // not guaranteed
   bool CancelErrorRecovery(ErrorHandler* db);
 
-  // Mark file as trash and schedule it's deletion. If force_bg is set, it
+  // Mark a file as trash and schedule its deletion. If force_bg is set, it
   // forces the file to be deleting in the background regardless of DB size,
   // except when rate limited delete is disabled.
-  // When a file's size is known and 0, it will be deleted immediately.
-  virtual Status ScheduleFileDeletion(
+  virtual Status ScheduleFileDeletion(const std::string& file_path,
+                                      const std::string& dir_to_sync,
+                                      const bool force_bg = false);
+
+  // Delete an unaccounted file. The file is deleted immediately if slow
+  // deletion is disabled. A file with more than 1 hard links will be deleted
+  // immediately unless force_bg is set. In other cases, files will be scheduled
+  // for slow deletion, and assigned to the specified bucket if a legitimate one
+  // is provided.
+  virtual Status ScheduleUnaccountedFileDeletion(
       const std::string& file_path, const std::string& dir_to_sync,
       const bool force_bg = false,
-      uint64_t file_size = std::numeric_limits<uint64_t>::max());
+      std::optional<int32_t> bucket = std::nullopt);
 
-  // Wait for all files being deleteing in the background to finish or for
+  // Wait for all files being deleted in the background to finish or for
   // destructor to be called.
   virtual void WaitForEmptyTrash();
+
+  // Creates a new trash bucket. A legitimate bucket is only created and
+  // returned when slow deletion is enabled.
+  // For each bucket that is created, the user should also call
+  // `WaitForEmptyTrashBucket` to make sure trash are cleared.
+  std::optional<int32_t> NewTrashBucket();
+
+  // Wait for all the files in the specified bucket to be deleted in the
+  // background.
+  virtual void WaitForEmptyTrashBucket(int32_t bucket);
 
   DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
