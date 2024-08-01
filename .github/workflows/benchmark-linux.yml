@@ -1,8 +1,8 @@
 name: facebook/rocksdb/benchmark-linux
-on: [push, pull_request] #To test self-hosted runner
-  #schedule:
-  #- cron: 5 17 * * *  # Every day 5:17 morning UTC, 22:00 PST
-  #workflow_dispatch:
+on:
+  schedule:
+  - cron: 5 17 * * *  # Every day 5:17 UTC, 22:00 PST
+
 jobs:
   benchmark-linux:
     if: ${{ github.repository_owner == 'facebook' }}
