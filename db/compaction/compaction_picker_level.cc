@@ -931,10 +931,9 @@ bool LevelCompactionBuilder::PickSizeBasedIntraL0Compaction() {
   }
 
   // Avoid L0->Lbase compactions that are inefficient for write-amp.
-  const uint64_t min_lbase_size =
-      l0_size *
-      static_cast<uint64_t>(std::max(
-          10.0, mutable_cf_options_.max_bytes_for_level_multiplier * 2));
+  const double kMultiplier =
+      std::max(10.0, mutable_cf_options_.max_bytes_for_level_multiplier) * 2;
+  const uint64_t min_lbase_size = MultiplyCheckOverflow(l0_size, kMultiplier);
   assert(min_lbase_size >= l0_size);
   const std::vector<FileMetaData*>& lbase_files =
       vstorage_->LevelFiles(/*level=*/base_level);
