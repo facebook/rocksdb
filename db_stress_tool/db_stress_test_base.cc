@@ -4262,6 +4262,7 @@ void InitializeOptionsGeneral(
     options.disable_auto_compactions = true;
   }
 
+  options.table_properties_collector_factories.clear();
   options.table_properties_collector_factories.emplace_back(
       std::make_shared<DbStressTablePropertiesCollectorFactory>());
 
