@@ -299,6 +299,8 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       // Get new file to delete
       const FileAndDir& fad = queue_.front();
       std::string path_in_trash = fad.fname;
+      std::string dir_to_sync = fad.dir;
+      bool accounted = fad.accounted;
       bucket = fad.bucket;
 
       // We don't need to hold the lock while deleting the file
@@ -306,7 +308,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       uint64_t deleted_bytes = 0;
       bool is_complete = true;
       // Delete file from trash and update total_penlty value
-      Status s = DeleteTrashFile(path_in_trash, fad.dir, fad.accounted,
+      Status s = DeleteTrashFile(path_in_trash, dir_to_sync, accounted,
                                  &deleted_bytes, &is_complete);
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();

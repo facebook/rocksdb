@@ -1111,7 +1111,6 @@ TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  ASSERT_OK(s);
   ASSERT_OK(DestroyDB(snapshot_name_, options));
   if (slow_deletion) {
     ASSERT_EQ(fg_delete_sst, 1);

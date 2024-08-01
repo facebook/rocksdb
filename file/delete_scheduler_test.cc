@@ -819,7 +819,6 @@ TEST_F(DeleteSchedulerTest, ConcurrentlyDeleteUnaccountedFilesInBuckets) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifdef OS_LINUX
 TEST_F(DeleteSchedulerTest,
        ImmediatelyDeleteUnaccountedFilesWithRemainingLinks) {
   int bg_delete_file = 0;
@@ -857,7 +856,6 @@ TEST_F(DeleteSchedulerTest,
   ASSERT_EQ(2, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 }
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 

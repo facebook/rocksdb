@@ -49,19 +49,25 @@ class DeleteScheduler {
     MaybeCreateBackgroundThread();
   }
 
-  // Mark a file as trash directory and schedule its deletion. If force_bg is
-  // set, it forces the file to always be deleted in the background thread,
-  // except when rate limiting is disabled.
+  // Delete an accounted file that is tracked by `SstFileManager` and should be
+  // tracked by this `DeleteScheduler` when it's deleted.
+  // The file is deleted immediately if slow deletion is disabled. If force_bg
+  // is not set and trash to db size ratio exceeded the configured threshold,
+  // it is immediately deleted too. In all other cases, the file will be moved
+  // to a trash directory and scheduled for deletion by a background thread.
   Status DeleteFile(const std::string& fname, const std::string& dir_to_sync,
                     const bool force_bg = false);
 
-  // Delete a file that is unaccounted in the total_size_ tracked in
-  // SstFileManager and should be unaccounted in the total_trash_size_ in
-  // DeleteScheduler.
-  // If possible, this API always delete a file that will have remaining hard
-  // links and supports to assign a file to a specified bucket created by
-  // `NewTrashBucket` API. So the caller can wait for a specific bucket to be
-  // empty by checking the `WaitForEmptyTrashBucket` API.
+  // Delete an unaccounted file that is not tracked by `SstFileManager` and
+  // should not be tracked by this `DeleteScheduler` when it's deleted.
+  // The file is deleted immediately if slow deletion is disabled. If force_bg
+  // is not set and the file have more than 1 hard link, it is immediately
+  // deleted too. In all other cases, the file will be moved to a trash
+  // directory and scheduled for deletion by a background thread.
+  // This API also supports assign a file to a specified bucket created by
+  // `NewTrashBucket` when delete files in the background. So the caller can
+  // wait for a specific bucket to be empty by checking the
+  // `WaitForEmptyTrashBucket` API.
   Status DeleteUnaccountedFile(const std::string& file_path,
                                const std::string& dir_to_sync,
                                const bool force_bg = false,
@@ -74,7 +80,8 @@ class DeleteScheduler {
   // Creates a new trash bucket. A bucket is only created and returned when slow
   // deletion is enabled.
   // For each bucket that is created, the user should also call
-  // `WaitForEmptyTrashBucket` to make sure the trash bucket is cleared.
+  // `WaitForEmptyTrashBucket` after scheduling file deletions to make sure the
+  // trash files are all cleared.
   std::optional<int32_t> NewTrashBucket();
 
   // Wait for all the files in the specified bucket to be deleted in the
@@ -136,7 +143,8 @@ class DeleteScheduler {
   std::atomic<uint64_t> total_trash_size_;
   // Maximum number of bytes that should be deleted per second
   std::atomic<int64_t> rate_bytes_per_sec_;
-  // Mutex to protect queue_, pending_files_, bg_errors_, closing_, stats_
+  // Mutex to protect queue_, pending_files_, next_trash_bucket_,
+  // pending_files_in_buckets_, bg_errors_, closing_, stats_
   InstrumentedMutex mu_;
 
   struct FileAndDir {
@@ -167,6 +175,7 @@ class DeleteScheduler {
   // Condition variable signaled in these conditions
   //    - pending_files_ value change from 0 => 1
   //    - pending_files_ value change from 1 => 0
+  //    - a value in pending_files_in_buckets change from 1 => 0
   //    - closing_ value is set to true
   InstrumentedCondVar cv_;
   // Background thread running BackgroundEmptyTrash
@@ -178,6 +187,10 @@ class DeleteScheduler {
   // If the trash size constitutes for more than this fraction of the total DB
   // size we will start deleting new files passed to DeleteScheduler
   // immediately
+  // Unaccounted files passed for deletion will not cause change in
+  // total_trash_size_ or affect the DeleteScheduler::total_trash_size_ over
+  // SstFileManager::total_size_ ratio. Their slow deletion is not subject to
+  // this configured threshold either.
   std::atomic<double> max_trash_db_ratio_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
   std::shared_ptr<Statistics> stats_;

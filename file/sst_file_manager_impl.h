@@ -129,7 +129,9 @@ class SstFileManagerImpl : public SstFileManager {
   // deletion is disabled. A file with more than 1 hard links will be deleted
   // immediately unless force_bg is set. In other cases, files will be scheduled
   // for slow deletion, and assigned to the specified bucket if a legitimate one
-  // is provided.
+  // is provided. A legitimate bucket is one that is created with the
+  // `NewTrashBucket` API, and for which `WaitForEmptyTrashBucket` hasn't been
+  // called yet.
   virtual Status ScheduleUnaccountedFileDeletion(
       const std::string& file_path, const std::string& dir_to_sync,
       const bool force_bg = false,
@@ -141,12 +143,13 @@ class SstFileManagerImpl : public SstFileManager {
 
   // Creates a new trash bucket. A legitimate bucket is only created and
   // returned when slow deletion is enabled.
-  // For each bucket that is created, the user should also call
-  // `WaitForEmptyTrashBucket` to make sure trash are cleared.
+  // For each bucket that is created and used, the user should also call
+  // `WaitForEmptyTrashBucket` after scheduling file deletions to make sure all
+  // the trash files are cleared.
   std::optional<int32_t> NewTrashBucket();
 
   // Wait for all the files in the specified bucket to be deleted in the
-  // background.
+  // background or for destructor to be called.
   virtual void WaitForEmptyTrashBucket(int32_t bucket);
 
   DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
