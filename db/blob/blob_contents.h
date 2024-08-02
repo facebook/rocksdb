@@ -7,8 +7,8 @@
 
 #include <memory>
 
-#include "memory/memory_allocator.h"
-#include "rocksdb/cache.h"
+#include "memory/memory_allocator_impl.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 // A class representing a single uncompressed value read from a blob file.
 class BlobContents {
  public:
-  static std::unique_ptr<BlobContents> Create(CacheAllocationPtr&& allocation,
-                                              size_t size);
+  BlobContents(CacheAllocationPtr&& allocation, size_t size)
+      : allocation_(std::move(allocation)), data_(allocation_.get(), size) {}
 
   BlobContents(const BlobContents&) = delete;
   BlobContents& operator=(const BlobContents&) = delete;
@@ -34,23 +34,27 @@ class BlobContents {
 
   size_t ApproximateMemoryUsage() const;
 
-  // Callbacks for secondary cache
-  static size_t SizeCallback(void* obj);
-
-  static Status SaveToCallback(void* from_obj, size_t from_offset,
-                               size_t length, void* out);
-
-  static Cache::CacheItemHelper* GetCacheItemHelper();
-
-  static Status CreateCallback(CacheAllocationPtr&& allocation, const void* buf,
-                               size_t size, void** out_obj, size_t* charge);
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return data_; }
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kBlobValue;
 
  private:
-  BlobContents(CacheAllocationPtr&& allocation, size_t size)
-      : allocation_(std::move(allocation)), data_(allocation_.get(), size) {}
-
   CacheAllocationPtr allocation_;
   Slice data_;
+};
+
+class BlobContentsCreator : public Cache::CreateContext {
+ public:
+  static void Create(std::unique_ptr<BlobContents>* out, size_t* out_charge,
+                     const Slice& contents, CompressionType /*type*/,
+                     MemoryAllocator* alloc) {
+    auto raw = new BlobContents(AllocateAndCopyBlock(contents, alloc),
+                                contents.size());
+    out->reset(raw);
+    if (out_charge) {
+      *out_charge = raw->ApproximateMemoryUsage();
+    }
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

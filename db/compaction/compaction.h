@@ -18,8 +18,6 @@ namespace ROCKSDB_NAMESPACE {
 // The file contains class Compaction, as well as some helper functions
 // and data structures used by the class.
 
-const uint64_t kRangeTombstoneSentinel =
-    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
 // Utility for comparing sstable boundary keys. Returns -1 if either a or b is
 // null which provides the property that a==null indicates a key that is less
 // than any key and b==null indicates a key that is greater than any key. Note
@@ -33,8 +31,19 @@ const uint64_t kRangeTombstoneSentinel =
 // that key never appears in the database. We don't want adjacent sstables to
 // be considered overlapping if they are separated by the range tombstone
 // sentinel.
-int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
-                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const Slice&, const Slice&);
+inline int sstableKeyCompare(const Comparator* user_cmp, const Slice& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a, b.Encode());
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const Slice& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b);
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b.Encode());
+}
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
                       const InternalKey& b);
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
@@ -205,9 +214,17 @@ class Compaction {
   void AddInputDeletions(VersionEdit* edit);
 
   // Returns true if the available information we have guarantees that
-  // the input "user_key" does not exist in any level beyond "output_level()".
+  // the input "user_key" does not exist in any level beyond `output_level()`.
   bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
                                      std::vector<size_t>* level_ptrs) const;
+
+  // Returns true if the user key range [begin_key, end_key) does not exist
+  // in any level beyond `output_level()`.
+  // Used for checking range tombstones, so we assume begin_key < end_key.
+  // begin_key and end_key should include timestamp if enabled.
+  bool KeyRangeNotExistsBeyondOutputLevel(
+      const Slice& begin_key, const Slice& end_key,
+      std::vector<size_t>* level_ptrs) const;
 
   // Clear all files to indicate that they are not being compacted
   // Delete this compaction from the list of running compactions.
@@ -272,7 +289,7 @@ class Compaction {
   // is the sum of all input file sizes.
   uint64_t OutputFilePreallocationSize() const;
 
-  void SetInputVersion(Version* input_version);
+  void FinalizeInputInfo(Version* input_version);
 
   struct InputLevelSummaryBuffer {
     char buffer[128];
@@ -309,25 +326,35 @@ class Compaction {
       int output_level, VersionStorageInfo* vstorage,
       const std::vector<CompactionInputFiles>& inputs);
 
-  TablePropertiesCollection GetOutputTableProperties() const {
-    return output_table_properties_;
+  // TODO(hx235): eventually we should consider `InitInputTableProperties()`'s
+  // status and fail the compaction if needed
+  //
+  // May open and read table files for table property.
+  // Should not be called while holding mutex_.
+  const TablePropertiesCollection& GetOrInitInputTableProperties() {
+    InitInputTableProperties().PermitUncheckedError();
+    return input_table_properties_;
   }
 
-  void SetOutputTableProperties(TablePropertiesCollection tp) {
-    output_table_properties_ = std::move(tp);
+  const TablePropertiesCollection& GetInputTableProperties() const {
+    return input_table_properties_;
+  }
+
+  // TODO(hx235): consider making this function symmetric to
+  // InitInputTableProperties()
+  void SetOutputTableProperties(
+      const std::string& file_name,
+      const std::shared_ptr<const TableProperties>& tp) {
+    output_table_properties_[file_name] = tp;
+  }
+
+  const TablePropertiesCollection& GetOutputTableProperties() const {
+    return output_table_properties_;
   }
 
   Slice GetSmallestUserKey() const { return smallest_user_key_; }
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
-
-  Slice GetPenultimateLevelSmallestUserKey() const {
-    return penultimate_level_smallest_user_key_;
-  }
-
-  Slice GetPenultimateLevelLargestUserKey() const {
-    return penultimate_level_largest_user_key_;
-  }
 
   PenultimateOutputRangeType GetPenultimateOutputRangeType() const {
     return penultimate_output_range_type_;
@@ -351,10 +378,8 @@ class Compaction {
   // per_key_placement feature, which is safe to place the key to the
   // penultimate level. different compaction strategy has different rules.
   // If per_key_placement is not supported, always return false.
-  // TODO: currently it doesn't support moving data from the last level to the
-  //  penultimate level
   //  key includes timestamp if user-defined timestamp is enabled.
-  bool WithinPenultimateLevelOutputRange(const Slice& key) const;
+  bool WithinPenultimateLevelOutputRange(const ParsedInternalKey& ikey) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
 
@@ -411,6 +436,9 @@ class Compaction {
                                       const int output_level);
 
  private:
+
+  Status InitInputTableProperties();
+
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
 
@@ -419,6 +447,13 @@ class Compaction {
                               const std::vector<CompactionInputFiles>& inputs,
                               Slice* smallest_key, Slice* largest_key,
                               int exclude_level = -1);
+
+  // get the smallest and largest internal key present in files to be compacted
+  static void GetBoundaryInternalKeys(
+      VersionStorageInfo* vstorage,
+      const std::vector<CompactionInputFiles>& inputs,
+      InternalKey* smallest_key, InternalKey* largest_key,
+      int exclude_level = -1);
 
   // populate penultimate level output range, which will be used to determine if
   // a key is safe to output to the penultimate level (details see
@@ -501,7 +536,7 @@ class Compaction {
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;
 
-  // table properties of output files
+  TablePropertiesCollection input_table_properties_;
   TablePropertiesCollection output_table_properties_;
 
   // smallest user keys in compaction
@@ -532,8 +567,8 @@ class Compaction {
   // Key range for penultimate level output
   // includes timestamp if user-defined timestamp is enabled.
   // penultimate_output_range_type_ shows the range type
-  Slice penultimate_level_smallest_user_key_;
-  Slice penultimate_level_largest_user_key_;
+  InternalKey penultimate_level_smallest_;
+  InternalKey penultimate_level_largest_;
   PenultimateOutputRangeType penultimate_output_range_type_ =
       PenultimateOutputRangeType::kNotSupported;
 };
@@ -548,17 +583,20 @@ struct PerKeyPlacementContext {
   const Slice value;
   const SequenceNumber seq_num;
 
-  bool output_to_penultimate_level;
+  bool& output_to_penultimate_level;
 
   PerKeyPlacementContext(int _level, Slice _key, Slice _value,
-                         SequenceNumber _seq_num)
-      : level(_level), key(_key), value(_value), seq_num(_seq_num) {
-    output_to_penultimate_level = false;
-  }
+                         SequenceNumber _seq_num,
+                         bool& _output_to_penultimate_level)
+      : level(_level),
+        key(_key),
+        value(_value),
+        seq_num(_seq_num),
+        output_to_penultimate_level(_output_to_penultimate_level) {}
 };
 #endif /* !NDEBUG */
 
 // Return sum of sizes of all files in `files`.
-extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
+uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
 
 }  // namespace ROCKSDB_NAMESPACE

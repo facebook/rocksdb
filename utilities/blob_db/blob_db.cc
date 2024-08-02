@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db.h"
 
@@ -12,8 +11,7 @@
 #include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
+namespace ROCKSDB_NAMESPACE::blob_db {
 
 Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
                     const std::string& dbname, BlobDB** blob_db) {
@@ -21,8 +19,7 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   Status s = BlobDB::Open(db_options, bdb_options, dbname, column_families,
                           &handles, blob_db);
@@ -109,6 +106,4 @@ void BlobDBOptions::Dump(Logger* log) const {
       disable_background_tasks);
 }
 
-}  // namespace blob_db
-}  // namespace ROCKSDB_NAMESPACE
-#endif
+}  // namespace ROCKSDB_NAMESPACE::blob_db

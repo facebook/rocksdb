@@ -32,7 +32,7 @@ class UncompressionDictReader {
       std::unique_ptr<UncompressionDictReader>* uncompression_dict_reader);
 
   Status GetOrReadUncompressionDictionary(
-      FilePrefetchBuffer* prefetch_buffer, bool no_io, bool verify_checksums,
+      FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
       CachableEntry<UncompressionDict>* uncompression_dict) const;
 

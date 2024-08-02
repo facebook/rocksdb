@@ -7,11 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
-
-#include <stdlib.h>
-
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -69,7 +66,7 @@ class ObsoleteFilesTest : public DBTestBase {
     int log_cnt = 0;
     int sst_cnt = 0;
     int manifest_cnt = 0;
-    for (auto file : filenames) {
+    for (const auto& file : filenames) {
       uint64_t number;
       FileType type;
       if (ParseFileName(file, &number, &type)) {
@@ -121,7 +118,7 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DeleteObsoleteFileImpl:AfterDeletion", [&](void* arg) {
-        Status* p_status = reinterpret_cast<Status*>(arg);
+        Status* p_status = static_cast<Status*>(arg);
         ASSERT_OK(*p_status);
       });
   SyncPoint::GetInstance()->SetCallBack(
@@ -166,7 +163,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
                                      {{"paranoid_file_checks", "true"}}));
     }
   }
-  ASSERT_OK(dbfull()->EnableFileDeletions(true /* force */));
+  ASSERT_OK(dbfull()->EnableFileDeletions());
 
   Close();
 
@@ -316,13 +313,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as DBImpl::DeleteFile is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

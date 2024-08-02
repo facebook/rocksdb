@@ -45,7 +45,7 @@ public class RateLimiter extends RocksObject {
    *     when rate_bytes_per_sec is set to 10MB/s and refill_period_us is set to
    *     100ms, then 1MB is refilled every 100ms internally. Larger value can
    *     lead to burstier writes while smaller value introduces more CPU
-   *     overhead. The default of 100,000ms should work for most cases.
+   *     overhead. The default of 100,000us should work for most cases.
    */
   public RateLimiter(final long rateBytesPerSecond,
       final long refillPeriodMicros) {
@@ -66,7 +66,7 @@ public class RateLimiter extends RocksObject {
    *     when rate_bytes_per_sec is set to 10MB/s and refill_period_us is set to
    *     100ms, then 1MB is refilled every 100ms internally. Larger value can
    *     lead to burstier writes while smaller value introduces more CPU
-   *     overhead. The default of 100,000ms should work for most cases.
+   *     overhead. The default of 100,000us should work for most cases.
    * @param fairness RateLimiter accepts high-pri requests and low-pri requests.
    *     A low-pri request is usually blocked in favor of hi-pri request.
    *     Currently, RocksDB assigns low-pri to request from compaction and
@@ -95,7 +95,7 @@ public class RateLimiter extends RocksObject {
    *     when rate_bytes_per_sec is set to 10MB/s and refill_period_us is set to
    *     100ms, then 1MB is refilled every 100ms internally. Larger value can
    *     lead to burstier writes while smaller value introduces more CPU
-   *     overhead. The default of 100,000ms should work for most cases.
+   *     overhead. The default of 100,000us should work for most cases.
    * @param fairness RateLimiter accepts high-pri requests and low-pri requests.
    *     A low-pri request is usually blocked in favor of hi-pri request.
    *     Currently, RocksDB assigns low-pri to request from compaction and
@@ -127,7 +127,7 @@ public class RateLimiter extends RocksObject {
    *     when rate_bytes_per_sec is set to 10MB/s and refill_period_us is set to
    *     100ms, then 1MB is refilled every 100ms internally. Larger value can
    *     lead to burstier writes while smaller value introduces more CPU
-   *     overhead. The default of 100,000ms should work for most cases.
+   *     overhead. The default of 100,000us should work for most cases.
    * @param fairness RateLimiter accepts high-pri requests and low-pri requests.
    *     A low-pri request is usually blocked in favor of hi-pri request.
    *     Currently, RocksDB assigns low-pri to request from compaction and
@@ -215,13 +215,16 @@ public class RateLimiter extends RocksObject {
   private static native long newRateLimiterHandle(final long rateBytesPerSecond,
       final long refillPeriodMicros, final int fairness,
       final byte rateLimiterMode, final boolean autoTune);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native void setBytesPerSecond(final long handle,
-      final long bytesPerSecond);
-  private native long getBytesPerSecond(final long handle);
-  private native void request(final long handle, final long bytes);
-  private native long getSingleBurstBytes(final long handle);
-  private native long getTotalBytesThrough(final long handle);
-  private native long getTotalRequests(final long handle);
+  private static native void setBytesPerSecond(final long handle, final long bytesPerSecond);
+  private static native long getBytesPerSecond(final long handle);
+  private static native void request(final long handle, final long bytes);
+  private static native long getSingleBurstBytes(final long handle);
+  private static native long getTotalBytesThrough(final long handle);
+  private static native long getTotalRequests(final long handle);
 }

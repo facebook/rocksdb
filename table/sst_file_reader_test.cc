@@ -3,16 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_file_reader.h"
 
 #include <cinttypes>
 
+#include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/utilities/types_util.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -249,7 +250,8 @@ class SstFileReaderTimestampTest : public testing::Test {
         : KeyValueDesc(std::move(k), std::string(ts), std::string(v)) {}
   };
 
-  void CreateFile(const std::vector<InputKeyValueDesc>& descs) {
+  void CreateFile(const std::vector<InputKeyValueDesc>& descs,
+                  ExternalSstFileInfo* file_info = nullptr) {
     SstFileWriter writer(soptions_, options_);
 
     ASSERT_OK(writer.Open(sst_name_));
@@ -277,7 +279,7 @@ class SstFileReaderTimestampTest : public testing::Test {
       }
     }
 
-    ASSERT_OK(writer.Finish());
+    ASSERT_OK(writer.Finish(file_info));
   }
 
   void CheckFile(const std::string& timestamp,
@@ -305,6 +307,7 @@ class SstFileReaderTimestampTest : public testing::Test {
     }
 
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
   }
 
  protected:
@@ -413,6 +416,359 @@ TEST_F(SstFileReaderTimestampTest, TimestampSizeMismatch) {
                                 "end_key_with_a_complete_lack_of_timestamps"));
 }
 
+class SstFileReaderTimestampNotPersistedTest
+    : public SstFileReaderTimestampTest {
+ public:
+  SstFileReaderTimestampNotPersistedTest() {
+    Env* env = Env::Default();
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env, &env_guard_));
+    EXPECT_NE(nullptr, env);
+
+    options_.env = env;
+
+    options_.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+    options_.persist_user_defined_timestamps = false;
+
+    sst_name_ = test::PerThreadDBPath("sst_file_ts_not_persisted");
+  }
+
+  ~SstFileReaderTimestampNotPersistedTest() = default;
+};
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, Basic) {
+  std::vector<InputKeyValueDesc> input_descs;
+
+  for (uint64_t k = 0; k < kNumKeys; k++) {
+    input_descs.emplace_back(
+        /* key */ EncodeAsString(k), /* timestamp */ EncodeAsUint64(0),
+        /* value */ EncodeAsString(k), /* is_delete */ false,
+        /* use_contiguous_buffer */ (k % 2) == 0);
+  }
+
+  ExternalSstFileInfo external_sst_file_info;
+
+  CreateFile(input_descs, &external_sst_file_info);
+  std::vector<OutputKeyValueDesc> output_descs;
+
+  for (uint64_t k = 0; k < kNumKeys; k++) {
+    output_descs.emplace_back(/* key */ EncodeAsString(k),
+                              /* timestamp */ EncodeAsUint64(0),
+                              /* value */ EncodeAsString(k));
+  }
+  CheckFile(EncodeAsUint64(0), output_descs);
+  ASSERT_EQ(external_sst_file_info.smallest_key, EncodeAsString(0));
+  ASSERT_EQ(external_sst_file_info.largest_key, EncodeAsString(kNumKeys - 1));
+  ASSERT_EQ(external_sst_file_info.smallest_range_del_key, "");
+  ASSERT_EQ(external_sst_file_info.largest_range_del_key, "");
+}
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, NonMinTimestampNotAllowed) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  ASSERT_NOK(writer.Delete("baz", EncodeAsUint64(2)));
+  ASSERT_OK(writer.Put("baz", EncodeAsUint64(0), "foo_val"));
+
+  ASSERT_NOK(writer.Put("key", EncodeAsUint64(2), "value1"));
+  ASSERT_OK(writer.Put("key", EncodeAsUint64(0), "value2"));
+
+  // The `SstFileWriter::DeleteRange` API documentation specifies that
+  // a range deletion tombstone added in the file does NOT delete point
+  // (Put/Merge/Delete) keys in the same file. While there is no checks in
+  // `SstFileWriter` to ensure this requirement is met, when such a range
+  // deletion does exist, it will get over-written by point data in the same
+  // file after ingestion because they have the same sequence number.
+  // We allow having a point data entry and having a range deletion entry for
+  // a key in the same file when timestamps are removed for the same reason.
+  // After the file is ingested, the range deletion will effectively get
+  // over-written by the point data since they will have the same sequence
+  // number and the same user-defined timestamps.
+  ASSERT_NOK(writer.DeleteRange("bar", "foo", EncodeAsUint64(2)));
+  ASSERT_OK(writer.DeleteRange("bar", "foo", EncodeAsUint64(0)));
+
+  ExternalSstFileInfo external_sst_file_info;
+
+  ASSERT_OK(writer.Finish(&external_sst_file_info));
+  ASSERT_EQ(external_sst_file_info.smallest_key, "baz");
+  ASSERT_EQ(external_sst_file_info.largest_key, "key");
+  ASSERT_EQ(external_sst_file_info.smallest_range_del_key, "bar");
+  ASSERT_EQ(external_sst_file_info.largest_range_del_key, "foo");
+}
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, KeyWithoutTimestampOutOfOrder) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  ASSERT_OK(writer.Put("foo", EncodeAsUint64(0), "value1"));
+  ASSERT_NOK(writer.Put("bar", EncodeAsUint64(0), "value2"));
+}
+
+TEST_F(SstFileReaderTimestampNotPersistedTest, IncompatibleTimestampFormat) {
+  SstFileWriter writer(soptions_, options_);
+
+  ASSERT_OK(writer.Open(sst_name_));
+
+  // Even though in this mode timestamps are not persisted, we require users
+  // to call the timestamp-aware APIs only.
+  ASSERT_TRUE(writer.Put("key", "not_an_actual_64_bit_timestamp", "value")
+                  .IsInvalidArgument());
+  ASSERT_TRUE(writer.Delete("another_key", "timestamp_of_unexpected_size")
+                  .IsInvalidArgument());
+
+  ASSERT_TRUE(writer.Put("key_without_timestamp", "value").IsInvalidArgument());
+  ASSERT_TRUE(writer.Merge("another_key_missing_a_timestamp", "merge_operand")
+                  .IsInvalidArgument());
+  ASSERT_TRUE(
+      writer.Delete("yet_another_key_still_no_timestamp").IsInvalidArgument());
+  ASSERT_TRUE(writer
+                  .DeleteRange("begin_key_timestamp_absent",
+                               "end_key_with_a_complete_lack_of_timestamps")
+                  .IsInvalidArgument());
+}
+
+TEST_F(SstFileReaderTest, VerifyNumEntriesBasic) {
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFile(sst_name_, keys);
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  ASSERT_OK(reader.VerifyNumEntries(ReadOptions()));
+}
+
+TEST_F(SstFileReaderTest, VerifyNumEntriesDeleteRange) {
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.Open(sst_name_));
+
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(writer.Put(EncodeAsUint64(i), EncodeAsUint64(i + 1)));
+  }
+  ASSERT_OK(
+      writer.DeleteRange(EncodeAsUint64(0), EncodeAsUint64(kNumKeys / 2)));
+  ASSERT_OK(writer.Finish());
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  ASSERT_OK(reader.VerifyNumEntries(ReadOptions()));
+}
+
+TEST_F(SstFileReaderTest, VerifyNumEntriesCorruption) {
+  const int num_keys = 99;
+  const int corrupted_num_keys = num_keys + 2;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+        TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+        props->num_entries = corrupted_num_keys;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < num_keys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFile(sst_name_, keys);
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  Status s = reader.VerifyNumEntries(ReadOptions());
+  ASSERT_TRUE(s.IsCorruption());
+  std::ostringstream oss;
+  oss << "Table property expects " << corrupted_num_keys
+      << " entries when excluding range deletions,"
+      << " but scanning the table returned " << num_keys << " entries";
+  ASSERT_TRUE(std::strstr(oss.str().c_str(), s.getState()));
+}
+
+class SstFileReaderTableIteratorTest : public DBTestBase {
+ public:
+  SstFileReaderTableIteratorTest()
+      : DBTestBase("sst_file_reader_table_iterator_test",
+                   /*env_do_fsync=*/false) {}
+
+  void VerifyTableEntry(Iterator* iter, const std::string& user_key,
+                        ValueType value_type,
+                        std::optional<std::string> expected_value,
+                        bool backward_iteration = false) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(iter->status().ok());
+    ParsedInternalKey pikey;
+    ASSERT_OK(ParseInternalKey(iter->key(), &pikey, /*log_err_key=*/false));
+    ASSERT_EQ(pikey.user_key, user_key);
+    ASSERT_EQ(pikey.type, value_type);
+    if (expected_value.has_value()) {
+      ASSERT_EQ(iter->value(), expected_value.value());
+    }
+    if (!backward_iteration) {
+      iter->Next();
+    } else {
+      iter->Prev();
+    }
+  }
+};
+
+TEST_F(SstFileReaderTableIteratorTest, Basic) {
+  Options options = CurrentOptions();
+  const Comparator* ucmp = BytewiseComparator();
+  options.comparator = ucmp;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create a L0 sst file with 4 entries, two for each user key.
+  // The file should have these entries in ascending internal key order:
+  // 'bar, seq: 4, type: kTypeValue => val2'
+  // 'bar, seq: 3, type: kTypeDeletion'
+  // 'foo, seq: 2, type: kTypeDeletion'
+  // 'foo, seq: 1, type: kTypeValue => val1'
+  ASSERT_OK(Put("foo", "val1"));
+  const Snapshot* snapshot1 = dbfull()->GetSnapshot();
+  ASSERT_OK(Delete("foo"));
+  ASSERT_OK(Delete("bar"));
+  const Snapshot* snapshot2 = dbfull()->GetSnapshot();
+  ASSERT_OK(Put("bar", "val2"));
+
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_TRUE(files.size() == 1);
+  ASSERT_TRUE(files[0].level == 0);
+  std::string file_name = files[0].directory + "/" + files[0].relative_filename;
+
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(file_name));
+  ASSERT_OK(reader.VerifyChecksum());
+
+  // When iterating the file as a DB iterator, only one data entry for "bar" is
+  // visible.
+  std::unique_ptr<Iterator> db_iter(reader.NewIterator(ReadOptions()));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key(), "bar");
+  ASSERT_EQ(db_iter->value(), "val2");
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+  db_iter.reset();
+
+  // When iterating the file with a raw table iterator, all the data entries are
+  // surfaced in ascending internal key order.
+  std::unique_ptr<Iterator> table_iter = reader.NewTableIterator();
+
+  table_iter->SeekToFirst();
+  VerifyTableEntry(table_iter.get(), "bar", kTypeValue, "val2");
+  VerifyTableEntry(table_iter.get(), "bar", kTypeDeletion, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeDeletion, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeValue, "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  std::string seek_key_buf;
+  ASSERT_OK(GetInternalKeyForSeek("foo", ucmp, &seek_key_buf));
+  Slice seek_target = seek_key_buf;
+  table_iter->Seek(seek_target);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeDeletion, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo", kTypeValue, "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  ASSERT_OK(GetInternalKeyForSeekForPrev("bar", ucmp, &seek_key_buf));
+  Slice seek_for_prev_target = seek_key_buf;
+  table_iter->SeekForPrev(seek_for_prev_target);
+  VerifyTableEntry(table_iter.get(), "bar", kTypeDeletion, std::nullopt,
+                   /*backward_iteration=*/true);
+  VerifyTableEntry(table_iter.get(), "bar", kTypeValue, "val2",
+                   /*backward_iteration=*/true);
+  ASSERT_FALSE(table_iter->Valid());
+
+  dbfull()->ReleaseSnapshot(snapshot1);
+  dbfull()->ReleaseSnapshot(snapshot2);
+  Close();
+}
+
+TEST_F(SstFileReaderTableIteratorTest, UserDefinedTimestampsEnabled) {
+  Options options = CurrentOptions();
+  const Comparator* ucmp = test::BytewiseComparatorWithU64TsWrapper();
+  options.comparator = ucmp;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  // Create a L0 sst file with 4 entries, two for each user key.
+  // The file should have these entries in ascending internal key order:
+  // 'bar, ts=3, seq: 4, type: kTypeValue => val2'
+  // 'bar, ts=2, seq: 3, type: kTypeDeletionWithTimestamp'
+  // 'foo, ts=4, seq: 2, type: kTypeDeletionWithTimestamp'
+  // 'foo, ts=3, seq: 1, type: kTypeValue => val1'
+  WriteOptions wopt;
+  ColumnFamilyHandle* cfd = db_->DefaultColumnFamily();
+  ASSERT_OK(db_->Put(wopt, cfd, "foo", EncodeAsUint64(3), "val1"));
+  ASSERT_OK(db_->Delete(wopt, cfd, "foo", EncodeAsUint64(4)));
+  ASSERT_OK(db_->Delete(wopt, cfd, "bar", EncodeAsUint64(2)));
+  ASSERT_OK(db_->Put(wopt, cfd, "bar", EncodeAsUint64(3), "val2"));
+
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_TRUE(files.size() == 1);
+  ASSERT_TRUE(files[0].level == 0);
+  std::string file_name = files[0].directory + "/" + files[0].relative_filename;
+
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(file_name));
+  ASSERT_OK(reader.VerifyChecksum());
+
+  // When iterating the file as a DB iterator, only one data entry for "bar" is
+  // visible.
+  ReadOptions ropts;
+  std::string read_ts = EncodeAsUint64(4);
+  Slice read_ts_slice = read_ts;
+  ropts.timestamp = &read_ts_slice;
+  std::unique_ptr<Iterator> db_iter(reader.NewIterator(ropts));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key(), "bar");
+  ASSERT_EQ(db_iter->value(), "val2");
+  ASSERT_EQ(db_iter->timestamp(), EncodeAsUint64(3));
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+  db_iter.reset();
+
+  std::unique_ptr<Iterator> table_iter = reader.NewTableIterator();
+
+  table_iter->SeekToFirst();
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(3), kTypeValue,
+                   "val2");
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(2),
+                   kTypeDeletionWithTimestamp, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(4),
+                   kTypeDeletionWithTimestamp, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(3), kTypeValue,
+                   "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  std::string seek_key_buf;
+  ASSERT_OK(GetInternalKeyForSeek("foo", ucmp, &seek_key_buf));
+  Slice seek_target = seek_key_buf;
+  table_iter->Seek(seek_target);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(4),
+                   kTypeDeletionWithTimestamp, std::nullopt);
+  VerifyTableEntry(table_iter.get(), "foo" + EncodeAsUint64(3), kTypeValue,
+                   "val1");
+  ASSERT_FALSE(table_iter->Valid());
+
+  ASSERT_OK(GetInternalKeyForSeekForPrev("bar", ucmp, &seek_key_buf));
+  Slice seek_for_prev_target = seek_key_buf;
+  table_iter->SeekForPrev(seek_for_prev_target);
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(2),
+                   kTypeDeletionWithTimestamp, std::nullopt,
+                   /*backward_iteration=*/true);
+  VerifyTableEntry(table_iter.get(), "bar" + EncodeAsUint64(3), kTypeValue,
+                   "val2", /*backward_iteration=*/true);
+  ASSERT_FALSE(table_iter->Valid());
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
@@ -422,13 +778,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as SstFileReader is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

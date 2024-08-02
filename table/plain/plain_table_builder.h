@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <stdint.h>
 
 #include <string>
@@ -40,7 +39,7 @@ class PlainTableBuilder : public TableBuilder {
   // that the caller does not know which level the output file will reside.
   PlainTableBuilder(
       const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
-      const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
+      const InternalTblPropCollFactories* internal_tbl_prop_coll_factories,
       uint32_t column_family_id, int level_at_creation,
       WritableFileWriter* file, uint32_t user_key_size,
       EncodingType encoding_type, size_t index_sparseness,
@@ -96,14 +95,14 @@ class PlainTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
-  void SetSeqnoTimeTableProperties(const std::string& string,
+  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
                                    uint64_t uint_64) override;
 
  private:
   Arena arena_;
   const ImmutableOptions& ioptions_;
   const MutableCFOptions& moptions_;
-  std::vector<std::unique_ptr<IntTblPropCollector>>
+  std::vector<std::unique_ptr<InternalTblPropColl>>
       table_properties_collectors_;
 
   BloomBlockBuilder bloom_block_;
@@ -150,5 +149,3 @@ class PlainTableBuilder : public TableBuilder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

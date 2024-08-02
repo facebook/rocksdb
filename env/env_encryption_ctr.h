@@ -5,7 +5,6 @@
 
 #pragma once
 
-#if !defined(ROCKSDB_LITE)
 
 #include "rocksdb/env_encryption.h"
 
@@ -25,22 +24,16 @@ class CTRCipherStream final : public BlockAccessCipherStream {
  public:
   CTRCipherStream(const std::shared_ptr<BlockCipher>& c, const char* iv,
                   uint64_t initialCounter)
-      : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter){};
-  virtual ~CTRCipherStream(){};
+      : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter){}
+  virtual ~CTRCipherStream(){}
 
-  // BlockSize returns the size of each block supported by this cipher stream.
   size_t BlockSize() override { return cipher_->BlockSize(); }
 
  protected:
-  // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
   void AllocateScratch(std::string&) override;
 
-  // Encrypt a block of data at the given block index.
-  // Length of data is equal to BlockSize();
   Status EncryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 
-  // Decrypt a block of data at the given block index.
-  // Length of data is equal to BlockSize();
   Status DecryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 };
 
@@ -67,20 +60,9 @@ class CTREncryptionProvider : public EncryptionProvider {
   static const char* kClassName() { return "CTR"; }
   const char* Name() const override { return kClassName(); }
   bool IsInstanceOf(const std::string& name) const override;
-  // GetPrefixLength returns the length of the prefix that is added to every
-  // file
-  // and used for storing encryption options.
-  // For optimal performance when using direct IO, the prefix length should be a
-  // multiple of the page size.
   size_t GetPrefixLength() const override;
-
-  // CreateNewPrefix initialized an allocated block of prefix memory
-  // for a new file.
   Status CreateNewPrefix(const std::string& fname, char* prefix,
                          size_t prefixLength) const override;
-
-  // CreateCipherStream creates a block access cipher stream for a file given
-  // given name and options.
   Status CreateCipherStream(
       const std::string& fname, const EnvOptions& options, Slice& prefix,
       std::unique_ptr<BlockAccessCipherStream>* result) override;
@@ -113,4 +95,3 @@ Status NewEncryptedFileSystemImpl(
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)

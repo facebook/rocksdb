@@ -10,6 +10,158 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+/*
+ * Please add new metrics to this macro and appropriate fields will be copied,
+ * and/or emitted when converted to string.
+ * When people need to add new metrics please add the metric to the macro below
+ * and enclose the name of the specific metric within defCmd().
+ * The position of the field will be dictated by the
+ * order in which the macros are enumerated and the offsets of the fields will
+ * be matched against ''PerfContextByLevelBase'' declared in perf_context.h.
+ */
+// clang-format off
+#define DEF_PERF_CONTEXT_LEVEL_METRICS(defCmd) \
+  defCmd(bloom_filter_useful)                  \
+  defCmd(bloom_filter_full_positive)           \
+  defCmd(bloom_filter_full_true_positive)      \
+  defCmd(user_key_return_count)                \
+  defCmd(get_from_table_nanos)                 \
+  defCmd(block_cache_hit_count)                \
+  defCmd(block_cache_miss_count)
+// clang-format on
+
+// Break down performance counters by level and store per-level perf context in
+// PerfContextByLevel
+struct PerfContextByLevelInt {
+#define EMIT_FIELDS(x) uint64_t x = 0;
+  DEF_PERF_CONTEXT_LEVEL_METRICS(EMIT_FIELDS)
+#undef EMIT_FIELDS
+};
+
+/*
+ * Please add new metrics to this macro and appropriate fields will be copied,
+ * and/or emitted when converted to string.
+ * When people need to add new metrics please enclose the name of the specific
+ * metric within defCmd(). The position of the field will be dictated by the
+ * order in which the macros are enumerated and the offsets of the fields will
+ * be matched against ''PerfContextBase'' declared in perf_context.h.
+ */
+
+// clang-format off
+#define DEF_PERF_CONTEXT_METRICS(defCmd)           \
+  defCmd(user_key_comparison_count)                \
+  defCmd(block_cache_hit_count)                    \
+  defCmd(block_read_count)                         \
+  defCmd(block_read_byte)                          \
+  defCmd(block_read_time)                          \
+  defCmd(block_read_cpu_time)                      \
+  defCmd(block_cache_index_hit_count)              \
+  defCmd(block_cache_standalone_handle_count)      \
+  defCmd(block_cache_real_handle_count)            \
+  defCmd(index_block_read_count)                   \
+  defCmd(block_cache_filter_hit_count)             \
+  defCmd(filter_block_read_count)                  \
+  defCmd(compression_dict_block_read_count)        \
+  defCmd(block_cache_index_read_byte)              \
+  defCmd(block_cache_filter_read_byte)             \
+  defCmd(block_cache_compression_dict_read_byte)   \
+  defCmd(block_cache_read_byte)                    \
+  defCmd(secondary_cache_hit_count)                \
+  defCmd(compressed_sec_cache_insert_real_count)   \
+  defCmd(compressed_sec_cache_insert_dummy_count)  \
+  defCmd(compressed_sec_cache_uncompressed_bytes)  \
+  defCmd(compressed_sec_cache_compressed_bytes)    \
+  defCmd(block_checksum_time)                      \
+  defCmd(block_decompress_time)                    \
+  defCmd(get_read_bytes)                           \
+  defCmd(multiget_read_bytes)                      \
+  defCmd(iter_read_bytes)                          \
+  defCmd(blob_cache_hit_count)                     \
+  defCmd(blob_read_count)                          \
+  defCmd(blob_read_byte)                           \
+  defCmd(blob_read_time)                           \
+  defCmd(blob_checksum_time)                       \
+  defCmd(blob_decompress_time)                     \
+  defCmd(internal_key_skipped_count)               \
+  defCmd(internal_delete_skipped_count)            \
+  defCmd(internal_recent_skipped_count)            \
+  defCmd(internal_merge_count)                     \
+  defCmd(internal_merge_point_lookup_count)        \
+  defCmd(internal_range_del_reseek_count)          \
+  defCmd(get_snapshot_time)                        \
+  defCmd(get_from_memtable_time)                   \
+  defCmd(get_from_memtable_count)                  \
+  defCmd(get_post_process_time)                    \
+  defCmd(get_from_output_files_time)               \
+  defCmd(seek_on_memtable_time)                    \
+  defCmd(seek_on_memtable_count)                   \
+  defCmd(next_on_memtable_count)                   \
+  defCmd(prev_on_memtable_count)                   \
+  defCmd(seek_child_seek_time)                     \
+  defCmd(seek_child_seek_count)                    \
+  defCmd(seek_min_heap_time)                       \
+  defCmd(seek_max_heap_time)                       \
+  defCmd(seek_internal_seek_time)                  \
+  defCmd(find_next_user_entry_time)                \
+  defCmd(write_wal_time)                           \
+  defCmd(write_memtable_time)                      \
+  defCmd(write_delay_time)                         \
+  defCmd(write_scheduling_flushes_compactions_time)\
+  defCmd(write_pre_and_post_process_time)          \
+  defCmd(write_thread_wait_nanos)                  \
+  defCmd(db_mutex_lock_nanos)                      \
+  defCmd(db_condition_wait_nanos)                  \
+  defCmd(merge_operator_time_nanos)                \
+  defCmd(read_index_block_nanos)                   \
+  defCmd(read_filter_block_nanos)                  \
+  defCmd(new_table_block_iter_nanos)               \
+  defCmd(new_table_iterator_nanos)                 \
+  defCmd(block_seek_nanos)                         \
+  defCmd(find_table_nanos)                         \
+  defCmd(bloom_memtable_hit_count)                 \
+  defCmd(bloom_memtable_miss_count)                \
+  defCmd(bloom_sst_hit_count)                      \
+  defCmd(bloom_sst_miss_count)                     \
+  defCmd(key_lock_wait_time)                       \
+  defCmd(key_lock_wait_count)                      \
+  defCmd(env_new_sequential_file_nanos)            \
+  defCmd(env_new_random_access_file_nanos)         \
+  defCmd(env_new_writable_file_nanos)              \
+  defCmd(env_reuse_writable_file_nanos)            \
+  defCmd(env_new_random_rw_file_nanos)             \
+  defCmd(env_new_directory_nanos)                  \
+  defCmd(env_file_exists_nanos)                    \
+  defCmd(env_get_children_nanos)                   \
+  defCmd(env_get_children_file_attributes_nanos)   \
+  defCmd(env_delete_file_nanos)                    \
+  defCmd(env_create_dir_nanos)                     \
+  defCmd(env_create_dir_if_missing_nanos)          \
+  defCmd(env_delete_dir_nanos)                     \
+  defCmd(env_get_file_size_nanos)                  \
+  defCmd(env_get_file_modification_time_nanos)     \
+  defCmd(env_rename_file_nanos)                    \
+  defCmd(env_link_file_nanos)                      \
+  defCmd(env_lock_file_nanos)                      \
+  defCmd(env_unlock_file_nanos)                    \
+  defCmd(env_new_logger_nanos)                     \
+  defCmd(get_cpu_nanos)                            \
+  defCmd(iter_next_cpu_nanos)                      \
+  defCmd(iter_prev_cpu_nanos)                      \
+  defCmd(iter_seek_cpu_nanos)                      \
+  defCmd(iter_next_count)                          \
+  defCmd(iter_prev_count)                          \
+  defCmd(iter_seek_count)                          \
+  defCmd(encrypt_data_nanos)                       \
+  defCmd(decrypt_data_nanos)                       \
+  defCmd(number_async_seek)
+// clang-format on
+
+struct PerfContextInt {
+#define EMIT_FIELDS(x) uint64_t x;
+  DEF_PERF_CONTEXT_METRICS(EMIT_FIELDS)
+#undef EMIT_FIELDS
+};
+
 #if defined(NPERF_CONTEXT)
 // Should not be used because the counters are not thread-safe.
 // Put here just to make get_perf_context() simple without ifdef.
@@ -18,7 +170,30 @@ PerfContext perf_context;
 thread_local PerfContext perf_context;
 #endif
 
-PerfContext* get_perf_context() { return &perf_context; }
+PerfContext* get_perf_context() {
+  static_assert(sizeof(PerfContextBase) == sizeof(PerfContextInt));
+  static_assert(sizeof(PerfContextByLevelBase) ==
+                sizeof(PerfContextByLevelInt));
+  /*
+   * Validate that we have the same fields and offsets between the external user
+   * facing
+   * ''PerfContextBase'' and ''PerfContextByLevelBase' structures with the
+   * internal structures that we generate from the DEF_* macros above. This way
+   * if people add metrics to the user-facing header file, they will have a
+   * build failure and need to add similar fields to the macros in this file.
+   * These are compile-time validations and don't impose any run-time penalties.
+   */
+#define EMIT_OFFSET_ASSERTION(x) \
+  static_assert(offsetof(PerfContextBase, x) == offsetof(PerfContextInt, x));
+  DEF_PERF_CONTEXT_METRICS(EMIT_OFFSET_ASSERTION)
+#undef EMIT_OFFSET_ASSERTION
+#define EMIT_OFFSET_ASSERTION(x)                       \
+  static_assert(offsetof(PerfContextByLevelBase, x) == \
+                offsetof(PerfContextByLevelInt, x));
+  DEF_PERF_CONTEXT_LEVEL_METRICS(EMIT_OFFSET_ASSERTION)
+#undef EMIT_OFFSET_ASSERTION
+  return &perf_context;
+}
 
 PerfContext::~PerfContext() {
 #if !defined(NPERF_CONTEXT) && !defined(OS_SOLARIS)
@@ -30,118 +205,7 @@ PerfContext::PerfContext(const PerfContext& other) {
 #ifdef NPERF_CONTEXT
   (void)other;
 #else
-  user_key_comparison_count = other.user_key_comparison_count;
-  block_cache_hit_count = other.block_cache_hit_count;
-  block_read_count = other.block_read_count;
-  block_read_byte = other.block_read_byte;
-  block_read_time = other.block_read_time;
-  block_cache_index_hit_count = other.block_cache_index_hit_count;
-  block_cache_standalone_handle_count =
-      other.block_cache_standalone_handle_count;
-  block_cache_real_handle_count = other.block_cache_real_handle_count;
-  index_block_read_count = other.index_block_read_count;
-  block_cache_filter_hit_count = other.block_cache_filter_hit_count;
-  filter_block_read_count = other.filter_block_read_count;
-  compression_dict_block_read_count = other.compression_dict_block_read_count;
-  secondary_cache_hit_count = other.secondary_cache_hit_count;
-  compressed_sec_cache_insert_real_count =
-      other.compressed_sec_cache_insert_real_count;
-  compressed_sec_cache_insert_dummy_count =
-      other.compressed_sec_cache_insert_dummy_count;
-  compressed_sec_cache_uncompressed_bytes =
-      other.compressed_sec_cache_uncompressed_bytes;
-  compressed_sec_cache_compressed_bytes =
-      other.compressed_sec_cache_compressed_bytes;
-  block_checksum_time = other.block_checksum_time;
-  block_decompress_time = other.block_decompress_time;
-  get_read_bytes = other.get_read_bytes;
-  multiget_read_bytes = other.multiget_read_bytes;
-  iter_read_bytes = other.iter_read_bytes;
-
-  blob_cache_hit_count = other.blob_cache_hit_count;
-  blob_read_count = other.blob_read_count;
-  blob_read_byte = other.blob_read_byte;
-  blob_read_time = other.blob_read_time;
-  blob_checksum_time = other.blob_checksum_time;
-  blob_decompress_time = other.blob_decompress_time;
-
-  internal_key_skipped_count = other.internal_key_skipped_count;
-  internal_delete_skipped_count = other.internal_delete_skipped_count;
-  internal_recent_skipped_count = other.internal_recent_skipped_count;
-  internal_merge_count = other.internal_merge_count;
-  internal_range_del_reseek_count = other.internal_range_del_reseek_count;
-  write_wal_time = other.write_wal_time;
-  get_snapshot_time = other.get_snapshot_time;
-  get_from_memtable_time = other.get_from_memtable_time;
-  get_from_memtable_count = other.get_from_memtable_count;
-  get_post_process_time = other.get_post_process_time;
-  get_from_output_files_time = other.get_from_output_files_time;
-  seek_on_memtable_time = other.seek_on_memtable_time;
-  seek_on_memtable_count = other.seek_on_memtable_count;
-  next_on_memtable_count = other.next_on_memtable_count;
-  prev_on_memtable_count = other.prev_on_memtable_count;
-  seek_child_seek_time = other.seek_child_seek_time;
-  seek_child_seek_count = other.seek_child_seek_count;
-  seek_min_heap_time = other.seek_min_heap_time;
-  seek_internal_seek_time = other.seek_internal_seek_time;
-  find_next_user_entry_time = other.find_next_user_entry_time;
-  write_pre_and_post_process_time = other.write_pre_and_post_process_time;
-  write_memtable_time = other.write_memtable_time;
-  write_delay_time = other.write_delay_time;
-  write_thread_wait_nanos = other.write_thread_wait_nanos;
-  write_scheduling_flushes_compactions_time =
-      other.write_scheduling_flushes_compactions_time;
-  db_mutex_lock_nanos = other.db_mutex_lock_nanos;
-  db_condition_wait_nanos = other.db_condition_wait_nanos;
-  merge_operator_time_nanos = other.merge_operator_time_nanos;
-  read_index_block_nanos = other.read_index_block_nanos;
-  read_filter_block_nanos = other.read_filter_block_nanos;
-  new_table_block_iter_nanos = other.new_table_block_iter_nanos;
-  new_table_iterator_nanos = other.new_table_iterator_nanos;
-  block_seek_nanos = other.block_seek_nanos;
-  find_table_nanos = other.find_table_nanos;
-  bloom_memtable_hit_count = other.bloom_memtable_hit_count;
-  bloom_memtable_miss_count = other.bloom_memtable_miss_count;
-  bloom_sst_hit_count = other.bloom_sst_hit_count;
-  bloom_sst_miss_count = other.bloom_sst_miss_count;
-  key_lock_wait_time = other.key_lock_wait_time;
-  key_lock_wait_count = other.key_lock_wait_count;
-
-  env_new_sequential_file_nanos = other.env_new_sequential_file_nanos;
-  env_new_random_access_file_nanos = other.env_new_random_access_file_nanos;
-  env_new_writable_file_nanos = other.env_new_writable_file_nanos;
-  env_reuse_writable_file_nanos = other.env_reuse_writable_file_nanos;
-  env_new_random_rw_file_nanos = other.env_new_random_rw_file_nanos;
-  env_new_directory_nanos = other.env_new_directory_nanos;
-  env_file_exists_nanos = other.env_file_exists_nanos;
-  env_get_children_nanos = other.env_get_children_nanos;
-  env_get_children_file_attributes_nanos =
-      other.env_get_children_file_attributes_nanos;
-  env_delete_file_nanos = other.env_delete_file_nanos;
-  env_create_dir_nanos = other.env_create_dir_nanos;
-  env_create_dir_if_missing_nanos = other.env_create_dir_if_missing_nanos;
-  env_delete_dir_nanos = other.env_delete_dir_nanos;
-  env_get_file_size_nanos = other.env_get_file_size_nanos;
-  env_get_file_modification_time_nanos =
-      other.env_get_file_modification_time_nanos;
-  env_rename_file_nanos = other.env_rename_file_nanos;
-  env_link_file_nanos = other.env_link_file_nanos;
-  env_lock_file_nanos = other.env_lock_file_nanos;
-  env_unlock_file_nanos = other.env_unlock_file_nanos;
-  env_new_logger_nanos = other.env_new_logger_nanos;
-  get_cpu_nanos = other.get_cpu_nanos;
-  iter_next_cpu_nanos = other.iter_next_cpu_nanos;
-  iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
-  iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
-  number_async_seek = other.number_async_seek;
-  if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
-    ClearPerLevelPerfContext();
-  }
-  if (other.level_to_perf_context != nullptr) {
-    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
-    *level_to_perf_context = *other.level_to_perf_context;
-  }
-  per_level_perf_context_enabled = other.per_level_perf_context_enabled;
+  copyMetrics(&other);
 #endif
 }
 
@@ -149,342 +213,42 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
 #ifdef NPERF_CONTEXT
   (void)other;
 #else
-  user_key_comparison_count = other.user_key_comparison_count;
-  block_cache_hit_count = other.block_cache_hit_count;
-  block_read_count = other.block_read_count;
-  block_read_byte = other.block_read_byte;
-  block_read_time = other.block_read_time;
-  block_cache_index_hit_count = other.block_cache_index_hit_count;
-  block_cache_standalone_handle_count =
-      other.block_cache_standalone_handle_count;
-  block_cache_real_handle_count = other.block_cache_real_handle_count;
-  index_block_read_count = other.index_block_read_count;
-  block_cache_filter_hit_count = other.block_cache_filter_hit_count;
-  filter_block_read_count = other.filter_block_read_count;
-  compression_dict_block_read_count = other.compression_dict_block_read_count;
-  secondary_cache_hit_count = other.secondary_cache_hit_count;
-  compressed_sec_cache_insert_real_count =
-      other.compressed_sec_cache_insert_real_count;
-  compressed_sec_cache_insert_dummy_count =
-      other.compressed_sec_cache_insert_dummy_count;
-  compressed_sec_cache_uncompressed_bytes =
-      other.compressed_sec_cache_uncompressed_bytes;
-  compressed_sec_cache_compressed_bytes =
-      other.compressed_sec_cache_compressed_bytes;
-  block_checksum_time = other.block_checksum_time;
-  block_decompress_time = other.block_decompress_time;
-  get_read_bytes = other.get_read_bytes;
-  multiget_read_bytes = other.multiget_read_bytes;
-  iter_read_bytes = other.iter_read_bytes;
-
-  blob_cache_hit_count = other.blob_cache_hit_count;
-  blob_read_count = other.blob_read_count;
-  blob_read_byte = other.blob_read_byte;
-  blob_read_time = other.blob_read_time;
-  blob_checksum_time = other.blob_checksum_time;
-  blob_decompress_time = other.blob_decompress_time;
-
-  internal_key_skipped_count = other.internal_key_skipped_count;
-  internal_delete_skipped_count = other.internal_delete_skipped_count;
-  internal_recent_skipped_count = other.internal_recent_skipped_count;
-  internal_merge_count = other.internal_merge_count;
-  internal_range_del_reseek_count = other.internal_range_del_reseek_count;
-  write_wal_time = other.write_wal_time;
-  get_snapshot_time = other.get_snapshot_time;
-  get_from_memtable_time = other.get_from_memtable_time;
-  get_from_memtable_count = other.get_from_memtable_count;
-  get_post_process_time = other.get_post_process_time;
-  get_from_output_files_time = other.get_from_output_files_time;
-  seek_on_memtable_time = other.seek_on_memtable_time;
-  seek_on_memtable_count = other.seek_on_memtable_count;
-  next_on_memtable_count = other.next_on_memtable_count;
-  prev_on_memtable_count = other.prev_on_memtable_count;
-  seek_child_seek_time = other.seek_child_seek_time;
-  seek_child_seek_count = other.seek_child_seek_count;
-  seek_min_heap_time = other.seek_min_heap_time;
-  seek_internal_seek_time = other.seek_internal_seek_time;
-  find_next_user_entry_time = other.find_next_user_entry_time;
-  write_pre_and_post_process_time = other.write_pre_and_post_process_time;
-  write_memtable_time = other.write_memtable_time;
-  write_delay_time = other.write_delay_time;
-  write_thread_wait_nanos = other.write_thread_wait_nanos;
-  write_scheduling_flushes_compactions_time =
-      other.write_scheduling_flushes_compactions_time;
-  db_mutex_lock_nanos = other.db_mutex_lock_nanos;
-  db_condition_wait_nanos = other.db_condition_wait_nanos;
-  merge_operator_time_nanos = other.merge_operator_time_nanos;
-  read_index_block_nanos = other.read_index_block_nanos;
-  read_filter_block_nanos = other.read_filter_block_nanos;
-  new_table_block_iter_nanos = other.new_table_block_iter_nanos;
-  new_table_iterator_nanos = other.new_table_iterator_nanos;
-  block_seek_nanos = other.block_seek_nanos;
-  find_table_nanos = other.find_table_nanos;
-  bloom_memtable_hit_count = other.bloom_memtable_hit_count;
-  bloom_memtable_miss_count = other.bloom_memtable_miss_count;
-  bloom_sst_hit_count = other.bloom_sst_hit_count;
-  bloom_sst_miss_count = other.bloom_sst_miss_count;
-  key_lock_wait_time = other.key_lock_wait_time;
-  key_lock_wait_count = other.key_lock_wait_count;
-
-  env_new_sequential_file_nanos = other.env_new_sequential_file_nanos;
-  env_new_random_access_file_nanos = other.env_new_random_access_file_nanos;
-  env_new_writable_file_nanos = other.env_new_writable_file_nanos;
-  env_reuse_writable_file_nanos = other.env_reuse_writable_file_nanos;
-  env_new_random_rw_file_nanos = other.env_new_random_rw_file_nanos;
-  env_new_directory_nanos = other.env_new_directory_nanos;
-  env_file_exists_nanos = other.env_file_exists_nanos;
-  env_get_children_nanos = other.env_get_children_nanos;
-  env_get_children_file_attributes_nanos =
-      other.env_get_children_file_attributes_nanos;
-  env_delete_file_nanos = other.env_delete_file_nanos;
-  env_create_dir_nanos = other.env_create_dir_nanos;
-  env_create_dir_if_missing_nanos = other.env_create_dir_if_missing_nanos;
-  env_delete_dir_nanos = other.env_delete_dir_nanos;
-  env_get_file_size_nanos = other.env_get_file_size_nanos;
-  env_get_file_modification_time_nanos =
-      other.env_get_file_modification_time_nanos;
-  env_rename_file_nanos = other.env_rename_file_nanos;
-  env_link_file_nanos = other.env_link_file_nanos;
-  env_lock_file_nanos = other.env_lock_file_nanos;
-  env_unlock_file_nanos = other.env_unlock_file_nanos;
-  env_new_logger_nanos = other.env_new_logger_nanos;
-  get_cpu_nanos = other.get_cpu_nanos;
-  iter_next_cpu_nanos = other.iter_next_cpu_nanos;
-  iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
-  iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
-  number_async_seek = other.number_async_seek;
-  if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
-    ClearPerLevelPerfContext();
-  }
-  if (other.level_to_perf_context != nullptr) {
-    level_to_perf_context = other.level_to_perf_context;
-    other.level_to_perf_context = nullptr;
-  }
-  per_level_perf_context_enabled = other.per_level_perf_context_enabled;
+  copyMetrics(&other);
 #endif
 }
 
-// TODO(Zhongyi): reduce code duplication between copy constructor and
-// assignment operator
 PerfContext& PerfContext::operator=(const PerfContext& other) {
 #ifdef NPERF_CONTEXT
   (void)other;
 #else
-  user_key_comparison_count = other.user_key_comparison_count;
-  block_cache_hit_count = other.block_cache_hit_count;
-  block_read_count = other.block_read_count;
-  block_read_byte = other.block_read_byte;
-  block_read_time = other.block_read_time;
-  block_cache_index_hit_count = other.block_cache_index_hit_count;
-  block_cache_standalone_handle_count =
-      other.block_cache_standalone_handle_count;
-  block_cache_real_handle_count = other.block_cache_real_handle_count;
-  index_block_read_count = other.index_block_read_count;
-  block_cache_filter_hit_count = other.block_cache_filter_hit_count;
-  filter_block_read_count = other.filter_block_read_count;
-  compression_dict_block_read_count = other.compression_dict_block_read_count;
-  secondary_cache_hit_count = other.secondary_cache_hit_count;
-  compressed_sec_cache_insert_real_count =
-      other.compressed_sec_cache_insert_real_count;
-  compressed_sec_cache_insert_dummy_count =
-      other.compressed_sec_cache_insert_dummy_count;
-  compressed_sec_cache_uncompressed_bytes =
-      other.compressed_sec_cache_uncompressed_bytes;
-  compressed_sec_cache_compressed_bytes =
-      other.compressed_sec_cache_compressed_bytes;
-  block_checksum_time = other.block_checksum_time;
-  block_decompress_time = other.block_decompress_time;
-  get_read_bytes = other.get_read_bytes;
-  multiget_read_bytes = other.multiget_read_bytes;
-  iter_read_bytes = other.iter_read_bytes;
-
-  blob_cache_hit_count = other.blob_cache_hit_count;
-  blob_read_count = other.blob_read_count;
-  blob_read_byte = other.blob_read_byte;
-  blob_read_time = other.blob_read_time;
-  blob_checksum_time = other.blob_checksum_time;
-  blob_decompress_time = other.blob_decompress_time;
-
-  internal_key_skipped_count = other.internal_key_skipped_count;
-  internal_delete_skipped_count = other.internal_delete_skipped_count;
-  internal_recent_skipped_count = other.internal_recent_skipped_count;
-  internal_merge_count = other.internal_merge_count;
-  internal_range_del_reseek_count = other.internal_range_del_reseek_count;
-  write_wal_time = other.write_wal_time;
-  get_snapshot_time = other.get_snapshot_time;
-  get_from_memtable_time = other.get_from_memtable_time;
-  get_from_memtable_count = other.get_from_memtable_count;
-  get_post_process_time = other.get_post_process_time;
-  get_from_output_files_time = other.get_from_output_files_time;
-  seek_on_memtable_time = other.seek_on_memtable_time;
-  seek_on_memtable_count = other.seek_on_memtable_count;
-  next_on_memtable_count = other.next_on_memtable_count;
-  prev_on_memtable_count = other.prev_on_memtable_count;
-  seek_child_seek_time = other.seek_child_seek_time;
-  seek_child_seek_count = other.seek_child_seek_count;
-  seek_min_heap_time = other.seek_min_heap_time;
-  seek_internal_seek_time = other.seek_internal_seek_time;
-  find_next_user_entry_time = other.find_next_user_entry_time;
-  write_pre_and_post_process_time = other.write_pre_and_post_process_time;
-  write_memtable_time = other.write_memtable_time;
-  write_delay_time = other.write_delay_time;
-  write_thread_wait_nanos = other.write_thread_wait_nanos;
-  write_scheduling_flushes_compactions_time =
-      other.write_scheduling_flushes_compactions_time;
-  db_mutex_lock_nanos = other.db_mutex_lock_nanos;
-  db_condition_wait_nanos = other.db_condition_wait_nanos;
-  merge_operator_time_nanos = other.merge_operator_time_nanos;
-  read_index_block_nanos = other.read_index_block_nanos;
-  read_filter_block_nanos = other.read_filter_block_nanos;
-  new_table_block_iter_nanos = other.new_table_block_iter_nanos;
-  new_table_iterator_nanos = other.new_table_iterator_nanos;
-  block_seek_nanos = other.block_seek_nanos;
-  find_table_nanos = other.find_table_nanos;
-  bloom_memtable_hit_count = other.bloom_memtable_hit_count;
-  bloom_memtable_miss_count = other.bloom_memtable_miss_count;
-  bloom_sst_hit_count = other.bloom_sst_hit_count;
-  bloom_sst_miss_count = other.bloom_sst_miss_count;
-  key_lock_wait_time = other.key_lock_wait_time;
-  key_lock_wait_count = other.key_lock_wait_count;
-
-  env_new_sequential_file_nanos = other.env_new_sequential_file_nanos;
-  env_new_random_access_file_nanos = other.env_new_random_access_file_nanos;
-  env_new_writable_file_nanos = other.env_new_writable_file_nanos;
-  env_reuse_writable_file_nanos = other.env_reuse_writable_file_nanos;
-  env_new_random_rw_file_nanos = other.env_new_random_rw_file_nanos;
-  env_new_directory_nanos = other.env_new_directory_nanos;
-  env_file_exists_nanos = other.env_file_exists_nanos;
-  env_get_children_nanos = other.env_get_children_nanos;
-  env_get_children_file_attributes_nanos =
-      other.env_get_children_file_attributes_nanos;
-  env_delete_file_nanos = other.env_delete_file_nanos;
-  env_create_dir_nanos = other.env_create_dir_nanos;
-  env_create_dir_if_missing_nanos = other.env_create_dir_if_missing_nanos;
-  env_delete_dir_nanos = other.env_delete_dir_nanos;
-  env_get_file_size_nanos = other.env_get_file_size_nanos;
-  env_get_file_modification_time_nanos =
-      other.env_get_file_modification_time_nanos;
-  env_rename_file_nanos = other.env_rename_file_nanos;
-  env_link_file_nanos = other.env_link_file_nanos;
-  env_lock_file_nanos = other.env_lock_file_nanos;
-  env_unlock_file_nanos = other.env_unlock_file_nanos;
-  env_new_logger_nanos = other.env_new_logger_nanos;
-  get_cpu_nanos = other.get_cpu_nanos;
-  iter_next_cpu_nanos = other.iter_next_cpu_nanos;
-  iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
-  iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
-  number_async_seek = other.number_async_seek;
-  if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
-    ClearPerLevelPerfContext();
-  }
-  if (other.level_to_perf_context != nullptr) {
-    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
-    *level_to_perf_context = *other.level_to_perf_context;
-  }
-  per_level_perf_context_enabled = other.per_level_perf_context_enabled;
+  copyMetrics(&other);
 #endif
   return *this;
 }
 
+void PerfContext::copyMetrics(const PerfContext* other) noexcept {
+#ifdef NPERF_CONTEXT
+  (void)other;
+#else
+#define EMIT_COPY_FIELDS(x) x = other->x;
+  DEF_PERF_CONTEXT_METRICS(EMIT_COPY_FIELDS)
+#undef EMIT_COPY_FIELDS
+  if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
+    ClearPerLevelPerfContext();
+  }
+  if (other->level_to_perf_context != nullptr) {
+    level_to_perf_context = new std::map<uint32_t, PerfContextByLevel>();
+    *level_to_perf_context = *other->level_to_perf_context;
+  }
+  per_level_perf_context_enabled = other->per_level_perf_context_enabled;
+#endif
+}
+
 void PerfContext::Reset() {
 #ifndef NPERF_CONTEXT
-  user_key_comparison_count = 0;
-  block_cache_hit_count = 0;
-  block_read_count = 0;
-  block_read_byte = 0;
-  block_read_time = 0;
-  block_cache_index_hit_count = 0;
-  block_cache_standalone_handle_count = 0;
-  block_cache_real_handle_count = 0;
-  index_block_read_count = 0;
-  block_cache_filter_hit_count = 0;
-  filter_block_read_count = 0;
-  compression_dict_block_read_count = 0;
-  secondary_cache_hit_count = 0;
-  compressed_sec_cache_insert_real_count = 0;
-  compressed_sec_cache_insert_dummy_count = 0;
-  compressed_sec_cache_uncompressed_bytes = 0;
-  compressed_sec_cache_compressed_bytes = 0;
-  block_checksum_time = 0;
-  block_decompress_time = 0;
-  get_read_bytes = 0;
-  multiget_read_bytes = 0;
-  iter_read_bytes = 0;
-
-  blob_cache_hit_count = 0;
-  blob_read_count = 0;
-  blob_read_byte = 0;
-  blob_read_time = 0;
-  blob_checksum_time = 0;
-  blob_decompress_time = 0;
-
-  internal_key_skipped_count = 0;
-  internal_delete_skipped_count = 0;
-  internal_recent_skipped_count = 0;
-  internal_merge_count = 0;
-  internal_range_del_reseek_count = 0;
-  write_wal_time = 0;
-
-  get_snapshot_time = 0;
-  get_from_memtable_time = 0;
-  get_from_memtable_count = 0;
-  get_post_process_time = 0;
-  get_from_output_files_time = 0;
-  seek_on_memtable_time = 0;
-  seek_on_memtable_count = 0;
-  next_on_memtable_count = 0;
-  prev_on_memtable_count = 0;
-  seek_child_seek_time = 0;
-  seek_child_seek_count = 0;
-  seek_min_heap_time = 0;
-  seek_internal_seek_time = 0;
-  find_next_user_entry_time = 0;
-  write_pre_and_post_process_time = 0;
-  write_memtable_time = 0;
-  write_delay_time = 0;
-  write_thread_wait_nanos = 0;
-  write_scheduling_flushes_compactions_time = 0;
-  db_mutex_lock_nanos = 0;
-  db_condition_wait_nanos = 0;
-  merge_operator_time_nanos = 0;
-  read_index_block_nanos = 0;
-  read_filter_block_nanos = 0;
-  new_table_block_iter_nanos = 0;
-  new_table_iterator_nanos = 0;
-  block_seek_nanos = 0;
-  find_table_nanos = 0;
-  bloom_memtable_hit_count = 0;
-  bloom_memtable_miss_count = 0;
-  bloom_sst_hit_count = 0;
-  bloom_sst_miss_count = 0;
-  key_lock_wait_time = 0;
-  key_lock_wait_count = 0;
-
-  env_new_sequential_file_nanos = 0;
-  env_new_random_access_file_nanos = 0;
-  env_new_writable_file_nanos = 0;
-  env_reuse_writable_file_nanos = 0;
-  env_new_random_rw_file_nanos = 0;
-  env_new_directory_nanos = 0;
-  env_file_exists_nanos = 0;
-  env_get_children_nanos = 0;
-  env_get_children_file_attributes_nanos = 0;
-  env_delete_file_nanos = 0;
-  env_create_dir_nanos = 0;
-  env_create_dir_if_missing_nanos = 0;
-  env_delete_dir_nanos = 0;
-  env_get_file_size_nanos = 0;
-  env_get_file_modification_time_nanos = 0;
-  env_rename_file_nanos = 0;
-  env_link_file_nanos = 0;
-  env_lock_file_nanos = 0;
-  env_unlock_file_nanos = 0;
-  env_new_logger_nanos = 0;
-  get_cpu_nanos = 0;
-  iter_next_cpu_nanos = 0;
-  iter_prev_cpu_nanos = 0;
-  iter_seek_cpu_nanos = 0;
-  number_async_seek = 0;
+#define EMIT_FIELDS(x) x = 0;
+  DEF_PERF_CONTEXT_METRICS(EMIT_FIELDS)
+#undef EMIT_FIELDS
   if (per_level_perf_context_enabled && level_to_perf_context) {
     for (auto& kv : *level_to_perf_context) {
       kv.second.Reset();
@@ -493,28 +257,11 @@ void PerfContext::Reset() {
 #endif
 }
 
-#define PERF_CONTEXT_OUTPUT(counter)             \
-  if (!exclude_zero_counters || (counter > 0)) { \
-    ss << #counter << " = " << counter << ", ";  \
-  }
-
-#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(counter)        \
-  if (per_level_perf_context_enabled && level_to_perf_context) { \
-    ss << #counter << " = ";                                     \
-    for (auto& kv : *level_to_perf_context) {                    \
-      if (!exclude_zero_counters || (kv.second.counter > 0)) {   \
-        ss << kv.second.counter << "@level" << kv.first << ", "; \
-      }                                                          \
-    }                                                            \
-  }
-
 void PerfContextByLevel::Reset() {
 #ifndef NPERF_CONTEXT
-  bloom_filter_useful = 0;
-  bloom_filter_full_positive = 0;
-  bloom_filter_full_true_positive = 0;
-  block_cache_hit_count = 0;
-  block_cache_miss_count = 0;
+#define EMIT_FIELDS(x) x = 0;
+  DEF_PERF_CONTEXT_LEVEL_METRICS(EMIT_FIELDS)
+#undef EMIT_FIELDS
 #endif
 }
 
@@ -524,105 +271,23 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   return "";
 #else
   std::ostringstream ss;
-  PERF_CONTEXT_OUTPUT(user_key_comparison_count);
-  PERF_CONTEXT_OUTPUT(block_cache_hit_count);
-  PERF_CONTEXT_OUTPUT(block_read_count);
-  PERF_CONTEXT_OUTPUT(block_read_byte);
-  PERF_CONTEXT_OUTPUT(block_read_time);
-  PERF_CONTEXT_OUTPUT(block_cache_index_hit_count);
-  PERF_CONTEXT_OUTPUT(block_cache_standalone_handle_count);
-  PERF_CONTEXT_OUTPUT(block_cache_real_handle_count);
-  PERF_CONTEXT_OUTPUT(index_block_read_count);
-  PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
-  PERF_CONTEXT_OUTPUT(filter_block_read_count);
-  PERF_CONTEXT_OUTPUT(compression_dict_block_read_count);
-  PERF_CONTEXT_OUTPUT(secondary_cache_hit_count);
-  PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_real_count);
-  PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_dummy_count);
-  PERF_CONTEXT_OUTPUT(compressed_sec_cache_uncompressed_bytes);
-  PERF_CONTEXT_OUTPUT(compressed_sec_cache_compressed_bytes);
-  PERF_CONTEXT_OUTPUT(block_checksum_time);
-  PERF_CONTEXT_OUTPUT(block_decompress_time);
-  PERF_CONTEXT_OUTPUT(get_read_bytes);
-  PERF_CONTEXT_OUTPUT(multiget_read_bytes);
-  PERF_CONTEXT_OUTPUT(iter_read_bytes);
-  PERF_CONTEXT_OUTPUT(blob_cache_hit_count);
-  PERF_CONTEXT_OUTPUT(blob_read_count);
-  PERF_CONTEXT_OUTPUT(blob_read_byte);
-  PERF_CONTEXT_OUTPUT(blob_read_time);
-  PERF_CONTEXT_OUTPUT(blob_checksum_time);
-  PERF_CONTEXT_OUTPUT(blob_decompress_time);
-  PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
-  PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
-  PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);
-  PERF_CONTEXT_OUTPUT(internal_merge_count);
-  PERF_CONTEXT_OUTPUT(internal_range_del_reseek_count);
-  PERF_CONTEXT_OUTPUT(write_wal_time);
-  PERF_CONTEXT_OUTPUT(get_snapshot_time);
-  PERF_CONTEXT_OUTPUT(get_from_memtable_time);
-  PERF_CONTEXT_OUTPUT(get_from_memtable_count);
-  PERF_CONTEXT_OUTPUT(get_post_process_time);
-  PERF_CONTEXT_OUTPUT(get_from_output_files_time);
-  PERF_CONTEXT_OUTPUT(seek_on_memtable_time);
-  PERF_CONTEXT_OUTPUT(seek_on_memtable_count);
-  PERF_CONTEXT_OUTPUT(next_on_memtable_count);
-  PERF_CONTEXT_OUTPUT(prev_on_memtable_count);
-  PERF_CONTEXT_OUTPUT(seek_child_seek_time);
-  PERF_CONTEXT_OUTPUT(seek_child_seek_count);
-  PERF_CONTEXT_OUTPUT(seek_min_heap_time);
-  PERF_CONTEXT_OUTPUT(seek_internal_seek_time);
-  PERF_CONTEXT_OUTPUT(find_next_user_entry_time);
-  PERF_CONTEXT_OUTPUT(write_pre_and_post_process_time);
-  PERF_CONTEXT_OUTPUT(write_memtable_time);
-  PERF_CONTEXT_OUTPUT(write_thread_wait_nanos);
-  PERF_CONTEXT_OUTPUT(write_scheduling_flushes_compactions_time);
-  PERF_CONTEXT_OUTPUT(db_mutex_lock_nanos);
-  PERF_CONTEXT_OUTPUT(db_condition_wait_nanos);
-  PERF_CONTEXT_OUTPUT(merge_operator_time_nanos);
-  PERF_CONTEXT_OUTPUT(write_delay_time);
-  PERF_CONTEXT_OUTPUT(read_index_block_nanos);
-  PERF_CONTEXT_OUTPUT(read_filter_block_nanos);
-  PERF_CONTEXT_OUTPUT(new_table_block_iter_nanos);
-  PERF_CONTEXT_OUTPUT(new_table_iterator_nanos);
-  PERF_CONTEXT_OUTPUT(block_seek_nanos);
-  PERF_CONTEXT_OUTPUT(find_table_nanos);
-  PERF_CONTEXT_OUTPUT(bloom_memtable_hit_count);
-  PERF_CONTEXT_OUTPUT(bloom_memtable_miss_count);
-  PERF_CONTEXT_OUTPUT(bloom_sst_hit_count);
-  PERF_CONTEXT_OUTPUT(bloom_sst_miss_count);
-  PERF_CONTEXT_OUTPUT(key_lock_wait_time);
-  PERF_CONTEXT_OUTPUT(key_lock_wait_count);
-  PERF_CONTEXT_OUTPUT(env_new_sequential_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_new_random_access_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_new_writable_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_reuse_writable_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_new_random_rw_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_new_directory_nanos);
-  PERF_CONTEXT_OUTPUT(env_file_exists_nanos);
-  PERF_CONTEXT_OUTPUT(env_get_children_nanos);
-  PERF_CONTEXT_OUTPUT(env_get_children_file_attributes_nanos);
-  PERF_CONTEXT_OUTPUT(env_delete_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_create_dir_nanos);
-  PERF_CONTEXT_OUTPUT(env_create_dir_if_missing_nanos);
-  PERF_CONTEXT_OUTPUT(env_delete_dir_nanos);
-  PERF_CONTEXT_OUTPUT(env_get_file_size_nanos);
-  PERF_CONTEXT_OUTPUT(env_get_file_modification_time_nanos);
-  PERF_CONTEXT_OUTPUT(env_rename_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_link_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_lock_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_unlock_file_nanos);
-  PERF_CONTEXT_OUTPUT(env_new_logger_nanos);
-  PERF_CONTEXT_OUTPUT(get_cpu_nanos);
-  PERF_CONTEXT_OUTPUT(iter_next_cpu_nanos);
-  PERF_CONTEXT_OUTPUT(iter_prev_cpu_nanos);
-  PERF_CONTEXT_OUTPUT(iter_seek_cpu_nanos);
-  PERF_CONTEXT_OUTPUT(number_async_seek);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_useful);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_positive);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(block_cache_hit_count);
-  PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(block_cache_miss_count);
-
+#define PERF_CONTEXT_OUTPUT(counter)             \
+  if (!exclude_zero_counters || (counter > 0)) { \
+    ss << #counter << " = " << counter << ", ";  \
+  }
+  DEF_PERF_CONTEXT_METRICS(PERF_CONTEXT_OUTPUT)
+#undef PERF_CONTEXT_OUTPUT
+  if (per_level_perf_context_enabled && level_to_perf_context) {
+#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(counter)      \
+  ss << #counter << " = ";                                     \
+  for (auto& kv : *level_to_perf_context) {                    \
+    if (!exclude_zero_counters || (kv.second.counter > 0)) {   \
+      ss << kv.second.counter << "@level" << kv.first << ", "; \
+    }                                                          \
+  }
+    DEF_PERF_CONTEXT_LEVEL_METRICS(PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER)
+#undef PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER
+  }
   std::string str = ss.str();
   str.erase(str.find_last_not_of(", ") + 1);
   return str;

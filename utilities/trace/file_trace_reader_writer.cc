@@ -42,8 +42,7 @@ Status FileTraceReader::Reset() {
 Status FileTraceReader::Read(std::string* data) {
   assert(file_reader_ != nullptr);
   Status s = file_reader_->Read(IOOptions(), offset_, kTraceMetadataSize,
-                                &result_, buffer_, nullptr,
-                                Env::IO_TOTAL /* rate_limiter_priority */);
+                                &result_, buffer_, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -68,7 +67,7 @@ Status FileTraceReader::Read(std::string* data) {
       bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
   while (to_read > 0) {
     s = file_reader_->Read(IOOptions(), offset_, to_read, &result_, buffer_,
-                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+                           nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -97,7 +96,7 @@ Status FileTraceWriter::Close() {
 }
 
 Status FileTraceWriter::Write(const Slice& data) {
-  return file_writer_->Append(data);
+  return file_writer_->Append(IOOptions(), data);
 }
 
 uint64_t FileTraceWriter::GetFileSize() { return file_writer_->GetFileSize(); }

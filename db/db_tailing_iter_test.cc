@@ -10,11 +10,15 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
+
+namespace {
+static bool enable_io_uring = true;
+extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
+}  // namespace
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -48,97 +52,129 @@ TEST_P(DBTestTailingIterator, TailingIteratorSingle) {
 
   iter->Next();
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorKeepAdding) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
+  Options options = CurrentOptions();
+  options.env = env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
   if (GetParam()) {
     read_options.async_io = true;
   }
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
-  ASSERT_OK(iter->status());
-  std::string value(1024, 'a');
 
-  const int num_records = 10000;
-  for (int i = 0; i < num_records; ++i) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%016d", i);
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+    ASSERT_OK(iter->status());
+    std::string value(1024, 'a');
 
-    Slice key(buf, 16);
-    ASSERT_OK(Put(1, key, value));
+    const int num_records = 10000;
+    for (int i = 0; i < num_records; ++i) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%016d", i);
 
-    iter->Seek(key);
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().compare(key), 0);
+      Slice key(buf, 16);
+      ASSERT_OK(Put(1, key, value));
+
+      iter->Seek(key);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().compare(key), 0);
+    }
   }
+  Close();
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorSeekToNext) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
+  Options options = CurrentOptions();
+  options.env = env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
   if (GetParam()) {
     read_options.async_io = true;
   }
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
-  ASSERT_OK(iter->status());
-  std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
-  ASSERT_OK(itern->status());
-  std::string value(1024, 'a');
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+    ASSERT_OK(iter->status());
+    std::unique_ptr<Iterator> itern(
+        db_->NewIterator(read_options, handles_[1]));
+    ASSERT_OK(itern->status());
+    std::string value(1024, 'a');
 
-  const int num_records = 1000;
-  for (int i = 1; i < num_records; ++i) {
-    char buf1[32];
-    char buf2[32];
-    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
+    const int num_records = 1000;
+    for (int i = 1; i < num_records; ++i) {
+      char buf1[32];
+      char buf2[32];
+      snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
 
-    Slice key(buf1, 20);
-    ASSERT_OK(Put(1, key, value));
+      Slice key(buf1, 20);
+      ASSERT_OK(Put(1, key, value));
 
-    if (i % 100 == 99) {
-      ASSERT_OK(Flush(1));
+      if (i % 100 == 99) {
+        ASSERT_OK(Flush(1));
+      }
+
+      snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+      Slice target(buf2, 20);
+      iter->Seek(target);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().compare(key), 0);
+      if (i == 1) {
+        itern->SeekToFirst();
+      } else {
+        itern->Next();
+      }
+      ASSERT_TRUE(itern->Valid());
+      ASSERT_EQ(itern->key().compare(key), 0);
     }
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    for (int i = 2 * num_records; i > 0; --i) {
+      char buf1[32];
+      char buf2[32];
+      snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
 
-    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
-    Slice target(buf2, 20);
-    iter->Seek(target);
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().compare(key), 0);
-    if (i == 1) {
-      itern->SeekToFirst();
-    } else {
-      itern->Next();
+      Slice key(buf1, 20);
+      ASSERT_OK(Put(1, key, value));
+
+      if (i % 100 == 99) {
+        ASSERT_OK(Flush(1));
+      }
+
+      snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+      Slice target(buf2, 20);
+      iter->Seek(target);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().compare(key), 0);
     }
-    ASSERT_TRUE(itern->Valid());
-    ASSERT_EQ(itern->key().compare(key), 0);
   }
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  for (int i = 2 * num_records; i > 0; --i) {
-    char buf1[32];
-    char buf2[32];
-    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
-
-    Slice key(buf1, 20);
-    ASSERT_OK(Put(1, key, value));
-
-    if (i % 100 == 99) {
-      ASSERT_OK(Flush(1));
-    }
-
-    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
-    Slice target(buf2, 20);
-    iter->Seek(target);
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().compare(key), 0);
-  }
+  Close();
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   const uint64_t k150KB = 150 * 1024;
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
   Options options;
+  options.env = env.get();
   options.write_buffer_size = k150KB;
   options.max_write_buffer_number = 3;
   options.min_write_buffer_number_to_merge = 2;
@@ -167,13 +203,13 @@ TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   bool file_iters_renewed_copy = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::SeekInternal:Return", [&](void* arg) {
-        ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+        ForwardIterator* fiter = static_cast<ForwardIterator*>(arg);
         ASSERT_TRUE(!file_iters_deleted ||
                     fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::Next:Return", [&](void* arg) {
-        ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+        ForwardIterator* fiter = static_cast<ForwardIterator*>(arg);
         ASSERT_TRUE(!file_iters_deleted ||
                     fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
       });
@@ -241,7 +277,6 @@ TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   iterh = nullptr;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
-  table_options.block_cache_compressed = nullptr;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   read_options.read_tier = kBlockCacheTier;
@@ -280,56 +315,74 @@ TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorDeletes) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
+  Options options = CurrentOptions();
+  options.env = env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
   if (GetParam()) {
     read_options.async_io = true;
   }
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+    ASSERT_OK(iter->status());
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
-  ASSERT_OK(iter->status());
+    // write a single record, read it using the iterator, then delete it
+    ASSERT_OK(Put(1, "0test", "test"));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "0test");
+    ASSERT_OK(Delete(1, "0test"));
 
-  // write a single record, read it using the iterator, then delete it
-  ASSERT_OK(Put(1, "0test", "test"));
-  iter->SeekToFirst();
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().ToString(), "0test");
-  ASSERT_OK(Delete(1, "0test"));
+    // write many more records
+    const int num_records = 10000;
+    std::string value(1024, 'A');
 
-  // write many more records
-  const int num_records = 10000;
-  std::string value(1024, 'A');
+    for (int i = 0; i < num_records; ++i) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "1%015d", i);
 
-  for (int i = 0; i < num_records; ++i) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "1%015d", i);
+      Slice key(buf, 16);
+      ASSERT_OK(Put(1, key, value));
+    }
 
-    Slice key(buf, 16);
-    ASSERT_OK(Put(1, key, value));
+    // force a flush to make sure that no records are read from memtable
+    ASSERT_OK(Flush(1));
+
+    // skip "0test"
+    iter->Next();
+
+    // make sure we can read all new records using the existing iterator
+    int count = 0;
+    for (; iter->Valid(); iter->Next(), ++count) {
+      ;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, num_records);
   }
-
-  // force a flush to make sure that no records are read from memtable
-  ASSERT_OK(Flush(1));
-
-  // skip "0test"
-  iter->Next();
-
-  // make sure we can read all new records using the existing iterator
-  int count = 0;
-  for (; iter->Valid(); iter->Next(), ++count)
-    ;
-
-  ASSERT_EQ(count, num_records);
+  Close();
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorPrefixSeek) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   ReadOptions read_options;
   read_options.tailing = true;
   if (GetParam()) {
     read_options.async_io = true;
   }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
   Options options = CurrentOptions();
+  options.env = env.get();
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
@@ -338,28 +391,40 @@ TEST_P(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
-  ASSERT_OK(iter->status());
-  ASSERT_OK(Put(1, "0101", "test"));
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+    ASSERT_OK(iter->status());
+    ASSERT_OK(Put(1, "0101", "test"));
 
-  ASSERT_OK(Flush(1));
+    ASSERT_OK(Flush(1));
 
-  ASSERT_OK(Put(1, "0202", "test"));
+    ASSERT_OK(Put(1, "0202", "test"));
 
-  // Seek(0102) shouldn't find any records since 0202 has a different prefix
-  iter->Seek("0102");
-  ASSERT_TRUE(!iter->Valid());
+    // Seek(0102) shouldn't find any records since 0202 has a different prefix
+    iter->Seek("0102");
+    ASSERT_TRUE(!iter->Valid());
 
-  iter->Seek("0202");
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().ToString(), "0202");
+    iter->Seek("0202");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "0202");
 
-  iter->Next();
-  ASSERT_TRUE(!iter->Valid());
+    iter->Next();
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+  Close();
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorIncomplete) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
+  Options options = CurrentOptions();
+  options.env = env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
   if (GetParam()) {
@@ -372,20 +437,30 @@ TEST_P(DBTestTailingIterator, TailingIteratorIncomplete) {
 
   ASSERT_OK(db_->Put(WriteOptions(), key, value));
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
-  ASSERT_OK(iter->status());
-  iter->SeekToFirst();
-  // we either see the entry or it's not in cache
-  ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+    iter->SeekToFirst();
+    // we either see the entry or it's not in cache
+    ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
 
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  iter->SeekToFirst();
-  // should still be true after compaction
-  ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    iter->SeekToFirst();
+    // should still be true after compaction
+    ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
+  }
+  Close();
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorSeekToSame) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
   Options options = CurrentOptions();
+  options.env = env.get();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 1000;
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -405,28 +480,39 @@ TEST_P(DBTestTailingIterator, TailingIteratorSeekToSame) {
     ASSERT_OK(db_->Put(WriteOptions(), key, value));
   }
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
-  ASSERT_OK(iter->status());
-  // Seek to 00001.  We expect to find 00002.
-  std::string start_key = "00001";
-  iter->Seek(start_key);
-  ASSERT_TRUE(iter->Valid());
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+    // Seek to 00001.  We expect to find 00002.
+    std::string start_key = "00001";
+    iter->Seek(start_key);
+    ASSERT_TRUE(iter->Valid());
 
-  std::string found = iter->key().ToString();
-  ASSERT_EQ("00002", found);
+    std::string found = iter->key().ToString();
+    ASSERT_EQ("00002", found);
 
-  // Now seek to the same key.  The iterator should remain in the same
-  // position.
-  iter->Seek(found);
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(found, iter->key().ToString());
+    // Now seek to the same key.  The iterator should remain in the same
+    // position.
+    iter->Seek(found);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(found, iter->key().ToString());
+  }
+  Close();
 }
 
 // Sets iterate_upper_bound and verifies that ForwardIterator doesn't call
 // Seek() on immutable iterators when target key is >= prev_key and all
 // iterators, including the memtable iterator, are over the upper bound.
 TEST_P(DBTestTailingIterator, TailingIteratorUpperBound) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
+  Options options = CurrentOptions();
+  options.env = env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   const Slice upper_bound("20", 3);
   ReadOptions read_options;
@@ -443,34 +529,51 @@ TEST_P(DBTestTailingIterator, TailingIteratorUpperBound) {
   // Add another key to the memtable.
   ASSERT_OK(Put(1, "21", "21"));
 
-  std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
-  ASSERT_OK(it->status());
-  it->Seek("12");
-  ASSERT_TRUE(it->Valid());
-  ASSERT_EQ("12", it->key().ToString());
+  {
+    bool read_async_called = false;
 
-  it->Next();
-  // Not valid since "21" is over the upper bound.
-  ASSERT_FALSE(it->Valid());
-  ASSERT_OK(it->status());
-  // This keeps track of the number of times NeedToSeekImmutable() was true.
-  int immutable_seeks = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "ForwardIterator::SeekInternal:Immutable",
-      [&](void* /*arg*/) { ++immutable_seeks; });
+    SyncPoint::GetInstance()->SetCallBack(
+        "UpdateResults::io_uring_result",
+        [&](void* /*arg*/) { read_async_called = true; });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Seek to 13. This should not require any immutable seeks.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  it->Seek("13");
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    auto it =
+        std::unique_ptr<Iterator>(db_->NewIterator(read_options, handles_[1]));
+    ASSERT_OK(it->status());
+    it->Seek("12");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("12", it->key().ToString());
 
-  ASSERT_FALSE(it->Valid());
-  ASSERT_OK(it->status());
-  if (GetParam()) {
-    ASSERT_EQ(1, immutable_seeks);
-  } else {
-    ASSERT_EQ(0, immutable_seeks);
+    it->Next();
+    // Not valid since "21" is over the upper bound.
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+    // This keeps track of the number of times NeedToSeekImmutable() was true.
+    int immutable_seeks = 0;
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "ForwardIterator::SeekInternal:Immutable",
+        [&](void* /*arg*/) { ++immutable_seeks; });
+
+    // Seek to 13. This should not require any immutable seeks.
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    it->Seek("13");
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "UpdateResults::io_uring_result",
+        [&](void* /*arg*/) { read_async_called = true; });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+    if (GetParam() && read_async_called) {
+      ASSERT_EQ(1, immutable_seeks);
+    } else {
+      ASSERT_EQ(0, immutable_seeks);
+    }
   }
+  Close();
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorGap) {
@@ -482,7 +585,15 @@ TEST_P(DBTestTailingIterator, TailingIteratorGap) {
   // the largest key of index n file and the smallest key of index n+1 file
   // if both file fit in that gap. In this example, 25 < key < 35
   // https://github.com/facebook/rocksdb/issues/1372
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::unique_ptr<Env> env(
+      new CompositeEnvWrapper(env_, FileSystem::Default()));
+  Options options = CurrentOptions();
+  options.env = env.get();
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   ReadOptions read_options;
   read_options.tailing = true;
@@ -514,20 +625,23 @@ TEST_P(DBTestTailingIterator, TailingIteratorGap) {
   ColumnFamilyMetaData meta;
   db_->GetColumnFamilyMetaData(handles_[1], &meta);
 
-  std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
-  it->Seek("30");
-  ASSERT_TRUE(it->Valid());
-  ASSERT_EQ("30", it->key().ToString());
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
+    it->Seek("30");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("30", it->key().ToString());
 
-  it->Next();
-  ASSERT_TRUE(it->Valid());
-  ASSERT_EQ("35", it->key().ToString());
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("35", it->key().ToString());
 
-  it->Next();
-  ASSERT_TRUE(it->Valid());
-  ASSERT_EQ("40", it->key().ToString());
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("40", it->key().ToString());
 
-  ASSERT_OK(it->status());
+    ASSERT_OK(it->status());
+  }
+  Close();
 }
 
 TEST_P(DBTestTailingIterator, SeekWithUpperBoundBug) {
@@ -589,16 +703,9 @@ TEST_P(DBTestTailingIterator, SeekToFirstWithUpperBoundBug) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void)argc;
-  (void)argv;
-  return 0;
-#endif
 }

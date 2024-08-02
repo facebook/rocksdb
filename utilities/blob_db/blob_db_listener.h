@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <atomic>
 
@@ -23,18 +22,20 @@ class BlobDBListener : public EventListener {
 
   void OnFlushBegin(DB* /*db*/, const FlushJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->SyncBlobFiles();
+    blob_db_impl_->SyncBlobFiles(WriteOptions(Env::IOActivity::kFlush))
+        .PermitUncheckedError();
   }
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->UpdateLiveSSTSize();
+    blob_db_impl_->UpdateLiveSSTSize(WriteOptions(Env::IOActivity::kFlush));
   }
 
   void OnCompactionCompleted(DB* /*db*/,
                              const CompactionJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->UpdateLiveSSTSize();
+    blob_db_impl_->UpdateLiveSSTSize(
+        WriteOptions(Env::IOActivity::kCompaction));
   }
 
   const char* Name() const override { return kClassName(); }
@@ -68,4 +69,3 @@ class BlobDBListenerGC : public BlobDBListener {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

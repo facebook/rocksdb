@@ -100,57 +100,50 @@ class FilterBlockReader {
   FilterBlockReader& operator=(const FilterBlockReader&) = delete;
 
   /**
-   * If no_io is set, then it returns true if it cannot answer the query without
-   * reading data from disk. This is used in PartitionedFilterBlockReader to
-   * avoid reading partitions that are not in block cache already
-   *
    * Normally filters are built on only the user keys and the InternalKey is not
    * needed for a query. The index in PartitionedFilterBlockReader however is
    * built upon InternalKey and must be provided via const_ikey_ptr when running
    * queries.
    */
-  virtual bool KeyMayMatch(const Slice& key, const bool no_io,
-                           const Slice* const const_ikey_ptr,
+  virtual bool KeyMayMatch(const Slice& key, const Slice* const const_ikey_ptr,
                            GetContext* get_context,
                            BlockCacheLookupContext* lookup_context,
-                           Env::IOPriority rate_limiter_priority) = 0;
+                           const ReadOptions& read_options) = 0;
 
-  virtual void KeysMayMatch(MultiGetRange* range, const bool no_io,
+  virtual void KeysMayMatch(MultiGetRange* range,
                             BlockCacheLookupContext* lookup_context,
-                            Env::IOPriority rate_limiter_priority) {
+                            const ReadOptions& read_options) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey_without_ts = iter->ukey_without_ts;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
-      if (!KeyMayMatch(ukey_without_ts, no_io, &ikey, get_context,
-                       lookup_context, rate_limiter_priority)) {
+      if (!KeyMayMatch(ukey_without_ts, &ikey, get_context, lookup_context,
+                       read_options)) {
         range->SkipKey(iter);
       }
     }
   }
 
   /**
-   * no_io and const_ikey_ptr here means the same as in KeyMayMatch
+   * Similar to KeyMayMatch
    */
-  virtual bool PrefixMayMatch(const Slice& prefix, const bool no_io,
+  virtual bool PrefixMayMatch(const Slice& prefix,
                               const Slice* const const_ikey_ptr,
                               GetContext* get_context,
                               BlockCacheLookupContext* lookup_context,
-                              Env::IOPriority rate_limiter_priority) = 0;
+                              const ReadOptions& read_options) = 0;
 
   virtual void PrefixesMayMatch(MultiGetRange* range,
                                 const SliceTransform* prefix_extractor,
-                                const bool no_io,
                                 BlockCacheLookupContext* lookup_context,
-                                Env::IOPriority rate_limiter_priority) {
+                                const ReadOptions& read_options) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey_without_ts = iter->ukey_without_ts;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
       if (prefix_extractor->InDomain(ukey_without_ts) &&
-          !PrefixMayMatch(prefix_extractor->Transform(ukey_without_ts), no_io,
-                          &ikey, get_context, lookup_context,
-                          rate_limiter_priority)) {
+          !PrefixMayMatch(prefix_extractor->Transform(ukey_without_ts), &ikey,
+                          get_context, lookup_context, read_options)) {
         range->SkipKey(iter);
       }
     }
@@ -164,9 +157,14 @@ class FilterBlockReader {
     return error_msg;
   }
 
-  virtual Status CacheDependencies(const ReadOptions& /*ro*/, bool /*pin*/) {
+  virtual Status CacheDependencies(
+      const ReadOptions& /*ro*/, bool /*pin*/,
+      FilePrefetchBuffer* /* tail_prefetch_buffer */) {
     return Status::OK();
   }
+
+  virtual void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) {}
 
   virtual bool RangeMayExist(const Slice* /*iterate_upper_bound*/,
                              const Slice& user_key_without_ts,
@@ -174,9 +172,8 @@ class FilterBlockReader {
                              const Comparator* /*comparator*/,
                              const Slice* const const_ikey_ptr,
                              bool* filter_checked, bool need_upper_bound_check,
-                             bool no_io,
                              BlockCacheLookupContext* lookup_context,
-                             Env::IOPriority rate_limiter_priority) = 0;
+                             const ReadOptions& read_options) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

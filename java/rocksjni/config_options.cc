@@ -19,8 +19,8 @@
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ConfigOptions_disposeInternal(JNIEnv *, jobject,
-                                                    jlong jhandle) {
+void Java_org_rocksdb_ConfigOptions_disposeInternalJni(JNIEnv *, jclass,
+                                                       jlong jhandle) {
   auto *co = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(jhandle);
   assert(co != nullptr);
   delete co;
@@ -34,6 +34,19 @@ void Java_org_rocksdb_ConfigOptions_disposeInternal(JNIEnv *, jobject,
 jlong Java_org_rocksdb_ConfigOptions_newConfigOptions(JNIEnv *, jclass) {
   auto *cfg_opt = new ROCKSDB_NAMESPACE::ConfigOptions();
   return GET_CPLUSPLUS_POINTER(cfg_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ConfigOptions
+ * Method:    setEnv
+ * Signature: (JJ;)V
+ */
+void Java_org_rocksdb_ConfigOptions_setEnv(JNIEnv *, jclass, jlong handle,
+                                           jlong rocksdb_env_handle) {
+  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  auto *rocksdb_env =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Env *>(rocksdb_env_handle);
+  cfg_opt->env = rocksdb_env;
 }
 
 /*

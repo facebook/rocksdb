@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -40,6 +39,7 @@ class CuckooTableDBTest : public testing::Test {
 
   Options CurrentOptions() {
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
     options.table_factory.reset(NewCuckooTableFactory());
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
     options.allow_mmap_reads = true;
@@ -131,7 +131,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(3U, ptc.begin()->second->num_entries);
@@ -148,7 +148,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Put("key6", "v6"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(2U, ptc.size());
   auto row = ptc.begin();
@@ -166,7 +166,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Delete("key5"));
   ASSERT_OK(Delete("key4"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(3U, ptc.size());
   row = ptc.begin();
@@ -191,7 +191,7 @@ TEST_F(CuckooTableDBTest, FlushWithDuplicateKeys) {
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(2U, ptc.begin()->second->num_entries);
@@ -209,7 +209,7 @@ static std::string Key(int i) {
 static std::string Uint64Key(uint64_t i) {
   std::string str;
   str.resize(8);
-  memcpy(&str[0], static_cast<void*>(&i), 8);
+  memcpy(str.data(), static_cast<void*>(&i), 8);
   return str;
 }
 }  // namespace.
@@ -350,12 +350,3 @@ int main(int argc, char** argv) {
   }
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

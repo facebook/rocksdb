@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 #include "tools/block_cache_analyzer/block_cache_trace_analyzer.h"
 
@@ -578,7 +577,7 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
   std::map<std::string, std::map<uint64_t, uint64_t>> label_bucket_naccesses;
   std::vector<std::pair<std::string, uint64_t>> pairs;
   for (auto const& itr : label_naccesses) {
-    pairs.push_back(itr);
+    pairs.emplace_back(itr);
   }
   // Sort in descending order.
   sort(pairs.begin(), pairs.end(),
@@ -1572,6 +1571,10 @@ Status BlockCacheTraceAnalyzer::Analyze() {
     miss_ratio_stats_.UpdateMetrics(access.access_timestamp,
                                     is_user_access(access.caller),
                                     !access.is_cache_hit);
+    caller_miss_ratio_stats_map_[access.caller].UpdateMetrics(
+        access.access_timestamp, is_user_access(access.caller),
+        !access.is_cache_hit);
+
     if (cache_simulator_) {
       cache_simulator_->Access(access);
     }
@@ -1587,6 +1590,14 @@ Status BlockCacheTraceAnalyzer::Analyze() {
               " seconds. Observed miss ratio %.2f\n",
               duration, duration > 0 ? access_sequence_number_ / duration : 0,
               trace_duration, miss_ratio_stats_.miss_ratio());
+
+      for (const auto& caller : caller_miss_ratio_stats_map_) {
+        fprintf(stdout, "Caller %s: Observed miss ratio %.2f\n",
+                caller_to_string(caller.first).c_str(),
+                caller.second.miss_ratio());
+      }
+      print_break_lines(/*num_break_lines=*/1);
+
       time_interval++;
     }
   }
@@ -1600,6 +1611,11 @@ Status BlockCacheTraceAnalyzer::Analyze() {
           " seconds. Observed miss ratio %.2f\n",
           duration, duration > 0 ? access_sequence_number_ / duration : 0,
           trace_duration, miss_ratio_stats_.miss_ratio());
+  for (const auto& caller : caller_miss_ratio_stats_map_) {
+    fprintf(stdout, "Caller %s: Observed miss ratio %.2f\n",
+            caller_to_string(caller.first).c_str(), caller.second.miss_ratio());
+  }
+  print_break_lines(/*num_break_lines=*/1);
   return s;
 }
 
@@ -2313,4 +2329,3 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // GFLAGS
-#endif  // ROCKSDB_LITE

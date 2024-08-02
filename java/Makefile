@@ -51,6 +51,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.Options\
 	org.rocksdb.OptionsUtil\
 	org.rocksdb.PersistentCache\
+	org.rocksdb.PerfContext\
+	org.rocksdb.PerfLevel\
 	org.rocksdb.PlainTableConfig\
 	org.rocksdb.RateLimiter\
 	org.rocksdb.ReadOptions\
@@ -87,7 +89,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WriteBufferManager\
-	org.rocksdb.WBWIRocksIterator
+	org.rocksdb.WBWIRocksIterator\
+	org.rocksdb.util.StdErrLogger
 
 NATIVE_JAVA_TEST_CLASSES = \
     org.rocksdb.RocksDBExceptionTest\
@@ -110,6 +113,7 @@ JAVA_TESTS = \
 	org.rocksdb.BlobOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.BuiltinComparatorTest\
+	org.rocksdb.ByteBufferUnsupportedOperationTest\
 	org.rocksdb.BytewiseComparatorRegressionTest\
 	org.rocksdb.util.BytewiseComparatorTest\
 	org.rocksdb.util.BytewiseComparatorIntTest\
@@ -138,14 +142,18 @@ JAVA_TESTS = \
 	org.rocksdb.util.JNIComparatorTest\
 	org.rocksdb.FilterTest\
 	org.rocksdb.FlushTest\
+	org.rocksdb.ImportColumnFamilyTest\
 	org.rocksdb.InfoLogLevelTest\
+	org.rocksdb.KeyExistsTest \
 	org.rocksdb.KeyMayExistTest\
 	org.rocksdb.ConcurrentTaskLimiterTest\
 	org.rocksdb.LoggerTest\
 	org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemoryUtilTest\
 	org.rocksdb.MemTableTest\
+	org.rocksdb.MergeCFVariantsTest\
 	org.rocksdb.MergeTest\
+	org.rocksdb.MergeVariantsTest\
 	org.rocksdb.MultiColumnRegressionTest \
 	org.rocksdb.MultiGetManyKeysTest\
 	org.rocksdb.MultiGetTest\
@@ -160,6 +168,10 @@ JAVA_TESTS = \
 	org.rocksdb.OptimisticTransactionOptionsTest\
 	org.rocksdb.OptionsUtilTest\
 	org.rocksdb.OptionsTest\
+	org.rocksdb.PerfLevelTest \
+	org.rocksdb.PerfContextTest \
+	org.rocksdb.PutCFVariantsTest\
+	org.rocksdb.PutVariantsTest\
 	org.rocksdb.PlainTableConfigTest\
 	org.rocksdb.RateLimiterTest\
 	org.rocksdb.ReadOnlyTest\
@@ -195,7 +207,8 @@ JAVA_TESTS = \
 	org.rocksdb.WriteBatchTest\
 	org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
-	org.rocksdb.WriteBatchWithIndexTest
+	org.rocksdb.WriteBatchWithIndexTest\
+	org.rocksdb.util.StdErrLoggerTest
 
 MAIN_SRC = src/main/java
 TEST_SRC = src/test/java
@@ -261,6 +274,8 @@ else
 JAVADOC_CMD := javadoc
 endif
 endif
+
+MAVEN_CMD := mvn
 
 # Look for the Java version (1.6->6, 1.7->7, 1.8->8, 11.0->11, 13.0->13, 15.0->15 etc..)
 JAVAC_VERSION := $(shell $(JAVAC_CMD) -version 2>&1)
@@ -443,6 +458,7 @@ test: java java_test
 
 run_test:
 	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(ALL_JAVA_TESTS)
+	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner org.rocksdb.StatisticsTest
 
 run_plugin_test:
 	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(ROCKSDB_PLUGIN_JAVA_TESTS)
@@ -450,3 +466,6 @@ run_plugin_test:
 db_bench: java
 	$(AM_V_GEN)mkdir -p $(BENCHMARK_MAIN_CLASSES)
 	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES) -d $(BENCHMARK_MAIN_CLASSES) $(BENCHMARK_MAIN_SRC)/org/rocksdb/benchmark/*.java
+
+pmd:
+	$(MAVEN_CMD) pmd:pmd pmd:cpd pmd:check

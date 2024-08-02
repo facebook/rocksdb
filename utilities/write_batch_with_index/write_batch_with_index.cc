@@ -3,16 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/utilities/write_batch_with_index.h"
 
+#include <cassert>
 #include <memory>
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/wide/wide_columns_helper.h"
 #include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
@@ -202,13 +203,14 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
+    uint64_t unix_write_time = 0;
     char tag = 0;
 
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
-                                 &blob, &xid);
+                                 &blob, &xid, &unix_write_time);
     if (!s.ok()) {
       break;
     }
@@ -254,6 +256,20 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeRollbackXID:
       case kTypeNoop:
         break;
+      case kTypeColumnFamilyWideColumnEntity:
+      case kTypeWideColumnEntity:
+        found++;
+        if (!UpdateExistingEntryWithCfId(column_family_id, key,
+                                         kPutEntityRecord)) {
+          AddNewEntry(column_family_id);
+        }
+        break;
+      case kTypeColumnFamilyValuePreferredSeqno:
+      case kTypeValuePreferredSeqno:
+        // TimedPut is not supported in Transaction APIs.
+        return Status::Corruption(
+            "unexpected WriteBatch tag in ReBuildIndex",
+            std::to_string(static_cast<unsigned int>(tag)));
       default:
         return Status::Corruption(
             "unknown WriteBatch tag in ReBuildIndex",
@@ -274,7 +290,7 @@ WriteBatchWithIndex::WriteBatchWithIndex(
     : rep(new Rep(default_index_comparator, reserved_bytes, max_bytes,
                   overwrite_key, protection_bytes_per_key)) {}
 
-WriteBatchWithIndex::~WriteBatchWithIndex() {}
+WriteBatchWithIndex::~WriteBatchWithIndex() = default;
 
 WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
 
@@ -300,12 +316,20 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     ColumnFamilyHandle* column_family, Iterator* base_iterator,
     const ReadOptions* read_options) {
-  auto wbwiii =
-      new WBWIIteratorImpl(GetColumnFamilyID(column_family), &(rep->skip_list),
-                           &rep->write_batch, &rep->comparator);
+  WBWIIteratorImpl* wbwiii;
+  if (read_options != nullptr) {
+    wbwiii = new WBWIIteratorImpl(
+        GetColumnFamilyID(column_family), &(rep->skip_list), &rep->write_batch,
+        &rep->comparator, read_options->iterate_lower_bound,
+        read_options->iterate_upper_bound);
+  } else {
+    wbwiii = new WBWIIteratorImpl(GetColumnFamilyID(column_family),
+                                  &(rep->skip_list), &rep->write_batch,
+                                  &rep->comparator);
+  }
+
   return new BaseDeltaIterator(column_family, base_iterator, wbwiii,
-                               GetColumnFamilyUserComparator(column_family),
-                               read_options);
+                               GetColumnFamilyUserComparator(column_family));
 }
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
@@ -343,6 +367,22 @@ Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
   }
   // TODO: support WBWI::Put() with timestamp.
   return Status::NotSupported();
+}
+
+Status WriteBatchWithIndex::PutEntity(ColumnFamilyHandle* column_family,
+                                      const Slice& key,
+                                      const WideColumns& columns) {
+  assert(rep);
+
+  rep->SetLastEntryOffset();
+
+  const Status s = rep->write_batch.PutEntity(column_family, key, columns);
+
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, key, kPutEntityRecord);
+  }
+
+  return s;
 }
 
 Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
@@ -427,30 +467,56 @@ Status WriteBatchWithIndex::PutLogData(const Slice& blob) {
 
 void WriteBatchWithIndex::Clear() { rep->Clear(); }
 
-Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
-                                         const DBOptions& options,
-                                         const Slice& key, std::string* value) {
-  Status s;
-  WriteBatchWithIndexInternal wbwii(&options, column_family);
-  auto result = wbwii.GetFromBatch(this, key, value, &s);
-
-  switch (result) {
-    case WBWIIteratorImpl::kFound:
-    case WBWIIteratorImpl::kError:
-      // use returned status
-      break;
-    case WBWIIteratorImpl::kDeleted:
-    case WBWIIteratorImpl::kNotFound:
-      s = Status::NotFound();
-      break;
-    case WBWIIteratorImpl::kMergeInProgress:
-      s = Status::MergeInProgress();
-      break;
-    default:
-      assert(false);
+namespace {
+Status PostprocessStatusBatchOnly(const Status& s,
+                                  WBWIIteratorImpl::Result result) {
+  if (result == WBWIIteratorImpl::kDeleted ||
+      result == WBWIIteratorImpl::kNotFound) {
+    s.PermitUncheckedError();
+    return Status::NotFound();
   }
 
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    s.PermitUncheckedError();
+    return Status::MergeInProgress();
+  }
+
+  assert(result == WBWIIteratorImpl::kFound ||
+         result == WBWIIteratorImpl::kError);
   return s;
+}
+}  // anonymous namespace
+
+Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
+                                         const DBOptions& /* options */,
+                                         const Slice& key, std::string* value) {
+  MergeContext merge_context;
+  Status s;
+  auto result = WriteBatchWithIndexInternal::GetFromBatch(
+      this, column_family, key, &merge_context, value, &s);
+
+  return PostprocessStatusBatchOnly(s, result);
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatch(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    PinnableWideColumns* columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a column family handle");
+  }
+
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatch without a PinnableWideColumns object");
+  }
+
+  MergeContext merge_context;
+  Status s;
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  return PostprocessStatusBatchOnly(s, result);
 }
 
 Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
@@ -501,61 +567,126 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                            nullptr);
 }
 
+void WriteBatchWithIndex::MergeAcrossBatchAndDBImpl(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    std::string* value, PinnableWideColumns* columns, Status* status) {
+  assert(value || columns);
+  assert(!value || !columns);
+  assert(status);
+
+  if (status->ok()) {
+    if (WideColumnsHelper::HasDefaultColumnOnly(existing.columns())) {
+      *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
+          column_family, key, MergeHelper::kPlainBaseValue,
+          WideColumnsHelper::GetDefaultColumn(existing.columns()),
+          merge_context, value, columns);
+    } else {
+      *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
+          column_family, key, MergeHelper::kWideBaseValue, existing.columns(),
+          merge_context, value, columns);
+    }
+  } else {
+    assert(status->IsNotFound());
+    *status = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+        column_family, key, merge_context, value, columns);
+  }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableSlice* value, Status* status) {
+  assert(value);
+  assert(status);
+
+  std::string result_value;
+  constexpr PinnableWideColumns* result_entity = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context,
+                            &result_value, result_entity, status);
+
+  if (status->ok()) {
+    *value->GetSelf() = std::move(result_value);
+    value->PinSelf();
+  }
+}
+
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableWideColumns* columns, Status* status) {
+  assert(columns);
+  assert(status);
+
+  constexpr std::string* value = nullptr;
+  MergeAcrossBatchAndDBImpl(column_family, key, existing, merge_context, value,
+                            columns, status);
+}
+
 Status WriteBatchWithIndex::GetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableSlice* pinnable_val, ReadCallback* callback) {
+  assert(db);
+  assert(pinnable_val);
+
+  if (!column_family) {
+    column_family = db->DefaultColumnFamily();
+  }
+
   const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
   size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
   if (ts_sz > 0 && !read_options.timestamp) {
     return Status::InvalidArgument("Must specify timestamp");
   }
 
-  Status s;
-  WriteBatchWithIndexInternal wbwii(db, column_family);
+  pinnable_val->Reset();
 
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
-  std::string& batch_value = *pinnable_val->GetSelf();
-  auto result = wbwii.GetFromBatch(this, key, &batch_value, &s);
+  MergeContext merge_context;
+  Status s;
+
+  auto result = WriteBatchWithIndexInternal::GetFromBatch(
+      this, column_family, key, &merge_context, pinnable_val->GetSelf(), &s);
 
   if (result == WBWIIteratorImpl::kFound) {
     pinnable_val->PinSelf();
     return s;
-  } else if (!s.ok() || result == WBWIIteratorImpl::kError) {
+  }
+
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+  if (result == WBWIIteratorImpl::kError) {
     return s;
-  } else if (result == WBWIIteratorImpl::kDeleted) {
+  }
+
+  if (result == WBWIIteratorImpl::kDeleted) {
     return Status::NotFound();
   }
-  assert(result == WBWIIteratorImpl::kMergeInProgress ||
-         result == WBWIIteratorImpl::kNotFound);
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
-  if (!callback) {
-    s = db->Get(read_options, column_family, key, pinnable_val);
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+
+  // Note: we have to retrieve all columns if we have to merge KVs from the
+  // batch and the DB; otherwise, the default column is sufficient.
+  PinnableWideColumns existing;
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    get_impl_options.columns = &existing;
   } else {
-    DBImpl::GetImplOptions get_impl_options;
-    get_impl_options.column_family = column_family;
+    assert(result == WBWIIteratorImpl::kNotFound);
     get_impl_options.value = pinnable_val;
-    get_impl_options.callback = callback;
-    s = static_cast_with_check<DBImpl>(db->GetRootDB())
-            ->GetImpl(read_options, key, get_impl_options);
   }
 
-  if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
-    if (result == WBWIIteratorImpl::kMergeInProgress) {
-      // Merge result from DB with merges in Batch
-      std::string merge_result;
-      if (s.ok()) {
-        s = wbwii.MergeKey(key, pinnable_val, &merge_result);
-      } else {  // Key not present in db (s.IsNotFound())
-        s = wbwii.MergeKey(key, nullptr, &merge_result);
-      }
-      if (s.ok()) {
-        pinnable_val->Reset();
-        *pinnable_val->GetSelf() = std::move(merge_result);
-        pinnable_val->PinSelf();
-      }
+  get_impl_options.callback = callback;
+  s = static_cast_with_check<DBImpl>(db->GetRootDB())
+          ->GetImpl(read_options, key, get_impl_options);
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    if (s.ok() || s.IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, key, existing, merge_context,
+                            pinnable_val, &s);
     }
   }
 
@@ -574,6 +705,15 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const size_t num_keys, const Slice* keys, PinnableSlice* values,
     Status* statuses, bool sorted_input, ReadCallback* callback) {
+  assert(db);
+  assert(keys);
+  assert(values);
+  assert(statuses);
+
+  if (!column_family) {
+    column_family = db->DefaultColumnFamily();
+  }
+
   const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
   size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
   if (ts_sz > 0 && !read_options.timestamp) {
@@ -583,78 +723,378 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     return;
   }
 
-  WriteBatchWithIndexInternal wbwii(db, column_family);
+  struct MergeTuple {
+    MergeTuple(const Slice& _key, Status* _s, MergeContext&& _merge_context,
+               PinnableSlice* _value)
+        : key(_key),
+          s(_s),
+          merge_context(std::move(_merge_context)),
+          value(_value) {
+      assert(s);
+      assert(value);
+    }
 
-  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
-  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
-  // To hold merges from the write batch
-  autovector<std::pair<WBWIIteratorImpl::Result, MergeContext>,
-             MultiGetContext::MAX_BATCH_SIZE>
-      merges;
+    Slice key;
+    Status* s;
+    PinnableWideColumns existing;
+    MergeContext merge_context;
+    PinnableSlice* value;
+  };
+
+  autovector<MergeTuple, MultiGetContext::MAX_BATCH_SIZE> merges;
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_contexts;
+
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
   for (size_t i = 0; i < num_keys; ++i) {
+    const Slice& key = keys[i];
     MergeContext merge_context;
     std::string batch_value;
-    Status* s = &statuses[i];
-    PinnableSlice* pinnable_val = &values[i];
+    Status* const s = &statuses[i];
+    auto result = WriteBatchWithIndexInternal::GetFromBatch(
+        this, column_family, key, &merge_context, &batch_value, s);
+
+    PinnableSlice* const pinnable_val = &values[i];
     pinnable_val->Reset();
-    auto result =
-        wbwii.GetFromBatch(this, keys[i], &merge_context, &batch_value, s);
 
     if (result == WBWIIteratorImpl::kFound) {
       *pinnable_val->GetSelf() = std::move(batch_value);
       pinnable_val->PinSelf();
       continue;
     }
+
     if (result == WBWIIteratorImpl::kDeleted) {
       *s = Status::NotFound();
       continue;
     }
+
     if (result == WBWIIteratorImpl::kError) {
       continue;
     }
-    assert(result == WBWIIteratorImpl::kMergeInProgress ||
-           result == WBWIIteratorImpl::kNotFound);
-    key_context.emplace_back(column_family, keys[i], &values[i],
-                             /*timestamp*/ nullptr, &statuses[i]);
-    merges.emplace_back(result, std::move(merge_context));
+
+    // Note: we have to retrieve all columns if we have to merge KVs from the
+    // batch and the DB; otherwise, the default column is sufficient.
+    // The columns field will be populated by the loop below to prevent issues
+    // with dangling pointers.
+    if (result == WBWIIteratorImpl::kMergeInProgress) {
+      merges.emplace_back(key, s, std::move(merge_context), pinnable_val);
+      key_contexts.emplace_back(column_family, key, /* value */ nullptr,
+                                /* columns */ nullptr, /* timestamp */ nullptr,
+                                s);
+      continue;
+    }
+
+    assert(result == WBWIIteratorImpl::kNotFound);
+    key_contexts.emplace_back(column_family, key, pinnable_val,
+                              /* columns */ nullptr,
+                              /* timestamp */ nullptr, s);
   }
 
-  for (KeyContext& key : key_context) {
-    sorted_keys.emplace_back(&key);
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.reserve(key_contexts.size());
+
+  size_t merges_idx = 0;
+  for (KeyContext& key_context : key_contexts) {
+    if (!key_context.value) {
+      assert(*key_context.key == merges[merges_idx].key);
+
+      key_context.columns = &merges[merges_idx].existing;
+      ++merges_idx;
+    }
+
+    sorted_keys.emplace_back(&key_context);
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
   static_cast_with_check<DBImpl>(db->GetRootDB())
-      ->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
+      ->PrepareMultiGetKeys(sorted_keys.size(), sorted_input, &sorted_keys);
   static_cast_with_check<DBImpl>(db->GetRootDB())
       ->MultiGetWithCallback(read_options, column_family, callback,
                              &sorted_keys);
 
-  for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {
-    KeyContext& key = *iter;
-    if (key.s->ok() || key.s->IsNotFound()) {  // DB Get Succeeded
-      size_t index = iter - key_context.begin();
-      std::pair<WBWIIteratorImpl::Result, MergeContext>& merge_result =
-          merges[index];
-      if (merge_result.first == WBWIIteratorImpl::kMergeInProgress) {
-        std::string merged_value;
-        // Merge result from DB with merges in Batch
-        if (key.s->ok()) {
-          *key.s = wbwii.MergeKey(*key.key, iter->value, merge_result.second,
-                                  &merged_value);
-        } else {  // Key not present in db (s.IsNotFound())
-          *key.s = wbwii.MergeKey(*key.key, nullptr, merge_result.second,
-                                  &merged_value);
-        }
-        if (key.s->ok()) {
-          key.value->Reset();
-          *key.value->GetSelf() = std::move(merged_value);
-          key.value->PinSelf();
-        }
+  for (const auto& merge : merges) {
+    if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, merge.key, merge.existing,
+                            merge.merge_context, merge.value, merge.s);
+    }
+  }
+}
+
+Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns, ReadCallback* callback) {
+  if (!db) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a DB object");
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntityFromBatchAndDB with `ReadOptions::io_activity` "
+        "set to `Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a column family handle");
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      return Status::InvalidArgument("Must specify timestamp");
+    }
+
+    if (read_options.timestamp->size() != ts_sz) {
+      return Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+    }
+  } else {
+    if (read_options.timestamp) {
+      return Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+    }
+  }
+
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityFromBatchAndDB without a PinnableWideColumns "
+        "object");
+  }
+
+  columns->Reset();
+
+  MergeContext merge_context;
+  Status s;
+
+  auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+      this, column_family, key, &merge_context, columns, &s);
+
+  assert(!s.ok() == (result == WBWIIteratorImpl::kError));
+
+  if (result == WBWIIteratorImpl::kFound ||
+      result == WBWIIteratorImpl::kError) {
+    return s;
+  }
+
+  if (result == WBWIIteratorImpl::kDeleted) {
+    return Status::NotFound();
+  }
+
+  assert(result == WBWIIteratorImpl::kMergeInProgress ||
+         result == WBWIIteratorImpl::kNotFound);
+
+  PinnableWideColumns existing;
+
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns =
+      (result == WBWIIteratorImpl::kMergeInProgress) ? &existing : columns;
+  get_impl_options.callback = callback;
+
+  s = static_cast_with_check<DBImpl>(db->GetRootDB())
+          ->GetImpl(read_options, key, get_impl_options);
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    if (s.ok() || s.IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, key, existing, merge_context,
+                            columns, &s);
+    }
+  }
+
+  return s;
+}
+
+void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
+    DB* db, const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    size_t num_keys, const Slice* keys, PinnableWideColumns* results,
+    Status* statuses, bool sorted_input, ReadCallback* callback) {
+  assert(statuses);
+
+  if (!db) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a DB object");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    const Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntityFromBatchAndDB with "
+        "`ReadOptions::io_activity` set to `Env::IOActivity::kUnknown` or "
+        "`Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
       }
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  if (!column_family) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without a column family "
+        "handle");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
+  const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      const Status s = Status::InvalidArgument("Must specify timestamp");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+
+    if (read_options.timestamp->size() != ts_sz) {
+      const Status s = Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  } else {
+    if (read_options.timestamp) {
+      const Status s = Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  }
+
+  if (!keys) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without keys");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  if (!results) {
+    const Status s = Status::InvalidArgument(
+        "Cannot call MultiGetEntityFromBatchAndDB without "
+        "PinnableWideColumns objects");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
+  }
+
+  struct MergeTuple {
+    MergeTuple(const Slice& _key, Status* _s, MergeContext&& _merge_context,
+               PinnableWideColumns* _columns)
+        : key(_key),
+          s(_s),
+          merge_context(std::move(_merge_context)),
+          columns(_columns) {
+      assert(s);
+      assert(columns);
+    }
+
+    Slice key;
+    Status* s;
+    PinnableWideColumns existing;
+    MergeContext merge_context;
+    PinnableWideColumns* columns;
+  };
+
+  autovector<MergeTuple, MultiGetContext::MAX_BATCH_SIZE> merges;
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_contexts;
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    const Slice& key = keys[i];
+    MergeContext merge_context;
+    PinnableWideColumns* const columns = &results[i];
+    Status* const s = &statuses[i];
+
+    columns->Reset();
+
+    auto result = WriteBatchWithIndexInternal::GetEntityFromBatch(
+        this, column_family, key, &merge_context, columns, s);
+
+    if (result == WBWIIteratorImpl::kFound ||
+        result == WBWIIteratorImpl::kError) {
+      continue;
+    }
+
+    if (result == WBWIIteratorImpl::kDeleted) {
+      *s = Status::NotFound();
+      continue;
+    }
+
+    if (result == WBWIIteratorImpl::kMergeInProgress) {
+      merges.emplace_back(key, s, std::move(merge_context), columns);
+
+      // The columns field will be populated by the loop below to prevent issues
+      // with dangling pointers.
+      key_contexts.emplace_back(column_family, key, /* value */ nullptr,
+                                /* columns */ nullptr, /* timestamp */ nullptr,
+                                s);
+      continue;
+    }
+
+    assert(result == WBWIIteratorImpl::kNotFound);
+    key_contexts.emplace_back(column_family, key, /* value */ nullptr, columns,
+                              /* timestamp */ nullptr, s);
+  }
+
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.reserve(key_contexts.size());
+
+  size_t merges_idx = 0;
+  for (KeyContext& key_context : key_contexts) {
+    if (!key_context.columns) {
+      assert(*key_context.key == merges[merges_idx].key);
+
+      key_context.columns = &merges[merges_idx].existing;
+      ++merges_idx;
+    }
+
+    sorted_keys.emplace_back(&key_context);
+  }
+
+  static_cast_with_check<DBImpl>(db->GetRootDB())
+      ->PrepareMultiGetKeys(sorted_keys.size(), sorted_input, &sorted_keys);
+  static_cast_with_check<DBImpl>(db->GetRootDB())
+      ->MultiGetEntityWithCallback(read_options, column_family, callback,
+                                   &sorted_keys);
+
+  for (const auto& merge : merges) {
+    if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, merge.key, merge.existing,
+                            merge.merge_context, merge.columns, merge.s);
     }
   }
 }
@@ -692,4 +1132,3 @@ const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <memory>
 #include <thread>
@@ -18,6 +19,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -267,6 +269,47 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBWriteTest, WriteThreadWaitNanosCounter) {
+  Options options = GetOptions();
+  std::vector<port::Thread> threads;
+
+  Reopen(options);
+
+  std::function<void()> write_func = [&]() {
+    PerfContext* perf_ctx = get_perf_context();
+    SetPerfLevel(PerfLevel::kEnableWait);
+    perf_ctx->Reset();
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:WriteFunc");
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "bar", "val2"));
+    ASSERT_GT(perf_ctx->write_thread_wait_nanos, 2000000U);
+  };
+
+  std::function<void()> sleep_func = [&]() {
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:1");
+    SystemClock::Default()->SleepForMicroseconds(2000);
+    TEST_SYNC_POINT("DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:2");
+  };
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WriteThread::EnterAsBatchGroupLeader:End",
+        "DBWriteTest::WriteThreadWaitNanosCounter:WriteFunc"},
+       {"WriteThread::AwaitState:BlockingWaiting",
+        "DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:1"},
+       {"DBWriteTest::WriteThreadWaitNanosCounter:SleepFunc:2",
+        "WriteThread::ExitAsBatchGroupLeader:Start"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  threads.emplace_back(sleep_func);
+  threads.emplace_back(write_func);
+
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "foo", "val1"));
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   constexpr int kNumThreads = 5;
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
@@ -284,7 +327,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
         ready_count++;
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           leader_count++;
           while (ready_count < kNumThreads) {
@@ -294,7 +337,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   for (int i = 0; i < kNumThreads; i++) {
-    threads.push_back(port::Thread(
+    threads.emplace_back(
         [&](int index) {
           // All threads should fail.
           auto res = Put("key" + std::to_string(index), "value");
@@ -311,7 +354,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
             ASSERT_FALSE(res.ok());
           }
         },
-        i));
+        i);
   }
   for (int i = 0; i < kNumThreads; i++) {
     threads[i].join();
@@ -382,7 +425,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
           second_write_in_progress = true;
           return;
         }
-        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* w = static_cast<WriteThread::Writer*>(arg);
         if (w->state == WriteThread::STATE_GROUP_LEADER) {
           active_writers++;
           if (leader.load() == nullptr) {
@@ -402,7 +445,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:Start", [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader && !finished_WAL_write) {
           finished_WAL_write = true;
           while (active_writers.load() < 3) {
@@ -414,7 +457,7 @@ TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
       [&](void* arg) {
-        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        auto* wg = static_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader) {
           while (!second_write_in_progress.load()) {
             // wait for the old follower thread to start the next write
@@ -493,7 +536,7 @@ TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
 
   // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
   // DB WAL.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -534,7 +577,7 @@ TEST_P(DBWriteTest, InactiveWalFullySyncedBeforeUntracked) {
 
   // Simulate full loss of unsynced data. This should drop nothing since we did
   // `FlushWAL(true /* sync */)` before `Close()`.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -605,23 +648,198 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   Close();
 }
 
-// Test that db->LockWAL() flushes the WAL after locking.
-TEST_P(DBWriteTest, LockWalInEffect) {
+// Test that db->LockWAL() flushes the WAL after locking, which can fail
+TEST_P(DBWriteTest, LockWALInEffect) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   Options options = GetOptions();
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  options.env = fault_fs_env.get();
+  options.disable_auto_compactions = true;
+  options.paranoid_checks = false;
+  options.max_bgerror_resume_count = 0;  // manual Resume()
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
-  // try the 2nd wal created during SwitchWAL
+  ASSERT_OK(Put("key0", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+
+  ASSERT_OK(db_->LockWAL());
+
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  uint64_t wal_num = dbfull()->TEST_GetCurrentLogNumber();
+  // Manual flush with wait=false should abruptly fail with TryAgain
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  for (bool allow_write_stall : {true, false}) {
+    flush_opts.allow_write_stall = allow_write_stall;
+    ASSERT_TRUE(db_->Flush(flush_opts).IsTryAgain());
+  }
+  ASSERT_EQ(wal_num, dbfull()->TEST_GetCurrentLogNumber());
+
+  ASSERT_OK(db_->UnlockWAL());
+
+  // try the 2nd wal created during SwitchWAL (not locked this time)
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
+  ASSERT_NE(wal_num, dbfull()->TEST_GetCurrentLogNumber());
+  ASSERT_OK(Put("key1", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->LockWAL());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->UnlockWAL());
+
+  // The above `TEST_SwitchWAL()` triggered a flush. That flush needs to finish
+  // before we make the filesystem inactive, otherwise the flush might hit an
+  // unrecoverable error (e.g., failed MANIFEST update).
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
+
+  // Fail the WAL flush if applicable
+  fault_fs->SetFilesystemActive(false);
+  Status s = Put("key2", "value");
+  if (options.manual_wal_flush) {
+    ASSERT_OK(s);
+    // I/O failure
+    ASSERT_NOK(db_->LockWAL());
+    // Should not need UnlockWAL after LockWAL fails
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_OK(db_->LockWAL());
+    ASSERT_OK(db_->UnlockWAL());
+  }
+  fault_fs->SetFilesystemActive(true);
+  ASSERT_OK(db_->Resume());
+  // Writes should work again
+  ASSERT_OK(Put("key3", "value"));
+  ASSERT_EQ(Get("key3"), "value");
+
+  // Should be extraneous, but allowed
+  ASSERT_NOK(db_->UnlockWAL());
+
+  // Close before mock_env destruct.
+  Close();
+}
+
+TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
+  // This is a micro-stress test of LockWAL and concurrency handling.
+  // It is considered the most convenient way to balance functional
+  // coverage and reproducibility (vs. the two extremes of (a) unit tests
+  // tailored to specific interleavings and (b) db_stress)
+  Options options = GetOptions();
+  Reopen(options);
+  ASSERT_OK(Put("k1", "k1_orig"));
+  ASSERT_OK(db_->LockWAL());  // 0 -> 1
+  auto frozen_seqno = db_->GetLatestSequenceNumber();
+
+  std::string ingest_file = dbname_ + "/external.sst";
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(ingest_file));
+    ASSERT_OK(sst_file_writer.Put("k2", "k2_val"));
+    ExternalSstFileInfo external_info;
+    ASSERT_OK(sst_file_writer.Finish(&external_info));
+  }
+  AcqRelAtomic<bool> parallel_ingest_completed{false};
+  port::Thread parallel_ingest{[&]() {
+    IngestExternalFileOptions ingest_opts;
+    ingest_opts.move_files = true;  // faster than copy
+    // Shouldn't finish until WAL unlocked
+    ASSERT_OK(db_->IngestExternalFile({ingest_file}, ingest_opts));
+    parallel_ingest_completed.Store(true);
+  }};
+
+  AcqRelAtomic<bool> flush_completed{false};
+  port::Thread parallel_flush{[&]() {
+    FlushOptions flush_opts;
+    // NB: Flush with wait=false case is tested above in LockWALInEffect
+    flush_opts.wait = true;
+    // allow_write_stall = true blocks in fewer cases
+    flush_opts.allow_write_stall = true;
+    // Shouldn't finish until WAL unlocked
+    ASSERT_OK(db_->Flush(flush_opts));
+    flush_completed.Store(true);
+  }};
+
+  AcqRelAtomic<bool> parallel_put_completed{false};
+  port::Thread parallel_put{[&]() {
+    // This can make certain failure scenarios more likely:
+    //   sleep(1);
+    // Shouldn't finish until WAL unlocked
+    ASSERT_OK(Put("k1", "k1_mod"));
+    parallel_put_completed.Store(true);
+  }};
+
+  ASSERT_OK(db_->LockWAL());  // 1 -> 2
+  // Read-only ops are OK
+  ASSERT_EQ(Get("k1"), "k1_orig");
+  {
+    std::vector<LiveFileStorageInfo> files;
+    LiveFilesStorageInfoOptions lf_opts;
+    // A DB flush could deadlock
+    lf_opts.wal_size_for_flush = UINT64_MAX;
+    ASSERT_OK(db_->GetLiveFilesStorageInfo({lf_opts}, &files));
+  }
+
+  port::Thread parallel_lock_wal{[&]() {
+    ASSERT_OK(db_->LockWAL());  // 2 -> 3 or 1 -> 2
+  }};
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1 or 3 -> 2
+  // Give parallel_put an extra chance to jump in case of bug
+  std::this_thread::yield();
+  parallel_lock_wal.join();
+  ASSERT_FALSE(parallel_put_completed.Load());
+  ASSERT_FALSE(parallel_ingest_completed.Load());
+  ASSERT_FALSE(flush_completed.Load());
+
+  // Should now have 2 outstanding LockWAL
+  ASSERT_EQ(Get("k1"), "k1_orig");
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1
+
+  ASSERT_FALSE(parallel_put_completed.Load());
+  ASSERT_FALSE(parallel_ingest_completed.Load());
+  ASSERT_FALSE(flush_completed.Load());
+
+  ASSERT_EQ(Get("k1"), "k1_orig");
+  ASSERT_EQ(Get("k2"), "NOT_FOUND");
+  ASSERT_EQ(frozen_seqno, db_->GetLatestSequenceNumber());
+
+  // Ensure final Unlock is concurrency safe and extra Unlock is safe but
+  // non-OK
+  std::atomic<int> unlock_ok{0};
+  port::Thread parallel_stuff{[&]() {
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+    ASSERT_OK(db_->LockWAL());
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+  }};
+
+  if (db_->UnlockWAL().ok()) {
+    unlock_ok++;
+  }
+  parallel_stuff.join();
+
+  // There was one extra unlock, so just one non-ok
+  ASSERT_EQ(unlock_ok.load(), 2);
+
+  // Write can proceed
+  parallel_put.join();
+  ASSERT_TRUE(parallel_put_completed.Load());
+  ASSERT_EQ(Get("k1"), "k1_mod");
+  parallel_ingest.join();
+  ASSERT_TRUE(parallel_ingest_completed.Load());
+  ASSERT_EQ(Get("k2"), "k2_val");
+  parallel_flush.join();
+  ASSERT_TRUE(flush_completed.Load());
+  // And new writes
+  ASSERT_OK(Put("k3", "val"));
+  ASSERT_EQ(Get("k3"), "val");
 }
 
 TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
@@ -638,7 +856,7 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
   std::thread threads[10];
   for (int t = 0; t < 10; t++) {
     threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix,
-                              no_wal_value, this] {
+                              no_wal_value, &options, this] {
       for (int i = 0; i < 10; i++) {
         ROCKSDB_NAMESPACE::WriteOptions write_option_disable;
         write_option_disable.disableWAL = true;
@@ -649,7 +867,10 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
         std::string wal_key =
             wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
         ASSERT_OK(this->Put(wal_key, wal_value, write_option_default));
-        ASSERT_OK(dbfull()->SyncWAL());
+        ASSERT_OK(dbfull()->SyncWAL())
+            << "options.env: " << options.env << ", env_: " << env_
+            << ", env_->is_wal_sync_thread_safe_: "
+            << env_->is_wal_sync_thread_safe_.load();
       }
       return;
     });
@@ -662,6 +883,121 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
   // written WAL size should less than 100KB (even included HEADER & FOOTER
   // overhead)
   ASSERT_LE(bytes_num, 1024 * 100);
+}
+
+void CorruptLogFile(Env* env, Options& options, std::string log_path,
+                    uint64_t log_num, int record_num) {
+  std::shared_ptr<FileSystem> fs = env->GetFileSystem();
+  std::unique_ptr<SequentialFileReader> file_reader;
+  Status status;
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    status = fs->NewSequentialFile(log_path, FileOptions(), &file, nullptr);
+    ASSERT_EQ(status, IOStatus::OK());
+    file_reader.reset(new SequentialFileReader(std::move(file), log_path));
+  }
+  std::unique_ptr<log::Reader> reader(new log::Reader(
+      nullptr, std::move(file_reader), nullptr, false, log_num));
+  std::string scratch;
+  Slice record;
+  uint64_t record_checksum;
+  for (int i = 0; i < record_num; ++i) {
+    ASSERT_TRUE(reader->ReadRecord(&record, &scratch, options.wal_recovery_mode,
+                                   &record_checksum));
+  }
+  uint64_t rec_start = reader->LastRecordOffset();
+  reader.reset();
+  {
+    std::unique_ptr<FSRandomRWFile> file;
+    status = fs->NewRandomRWFile(log_path, FileOptions(), &file, nullptr);
+    ASSERT_EQ(status, IOStatus::OK());
+    uint32_t bad_lognum = 0xff;
+    ASSERT_EQ(file->Write(
+                  rec_start + 7,
+                  Slice(reinterpret_cast<char*>(&bad_lognum), sizeof(uint32_t)),
+                  IOOptions(), nullptr),
+              IOStatus::OK());
+    ASSERT_OK(file->Close(IOOptions(), nullptr));
+    file.reset();
+  }
+}
+
+TEST_P(DBWriteTest, RecycleLogTest) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  Reopen(options);
+  ASSERT_OK(Put(Key(1), "val1"));
+  ASSERT_OK(Put(Key(2), "val1"));
+
+  uint64_t latest_log_num = 0;
+  std::unique_ptr<LogFile> log_file;
+  ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+  latest_log_num = log_file->LogNumber();
+  Reopen(options);
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  // Corrupt second entry of first log
+  std::string log_path = LogFileName(dbname_, latest_log_num);
+  CorruptLogFile(env_, options, log_path, latest_log_num, 2);
+
+  Reopen(options);
+  ASSERT_EQ(Get(Key(1)), "val1");
+  ASSERT_EQ(Get(Key(2)), "NOT_FOUND");
+  ASSERT_EQ(Get(Key(3)), "NOT_FOUND");
+}
+
+TEST_P(DBWriteTest, RecycleLogTestCFAheadOfWAL) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, Key(1), "val1"));
+  ASSERT_OK(Put(0, Key(2), "val2"));
+
+  uint64_t latest_log_num = 0;
+  std::unique_ptr<LogFile> log_file;
+  ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+  latest_log_num = log_file->LogNumber();
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, Key(3), "val3"));
+
+  // Corrupt second entry of first log
+  std::string log_path = LogFileName(dbname_, latest_log_num);
+  CorruptLogFile(env_, options, log_path, latest_log_num, 2);
+
+  ASSERT_EQ(TryReopenWithColumnFamilies({"default", "pikachu"}, options),
+            Status::Corruption());
+}
+
+TEST_P(DBWriteTest, RecycleLogToggleTest) {
+  Options options = GetOptions();
+  options.recycle_log_file_num = 0;
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  Destroy(options);
+  Reopen(options);
+  // After opening, a new log gets created, say 1.log
+  ASSERT_OK(Put(Key(1), "val1"));
+
+  options.recycle_log_file_num = 1;
+  Reopen(options);
+  // 1.log is added to alive_log_files_
+  ASSERT_OK(Put(Key(2), "val1"));
+  ASSERT_OK(Flush());
+  // 1.log should be deleted and not recycled, since it
+  // was created by the previous Reopen
+  ASSERT_OK(Put(Key(1), "val2"));
+  ASSERT_OK(Flush());
+
+  options.recycle_log_file_num = 1;
+  Reopen(options);
+  ASSERT_EQ(Get(Key(1)), "val2");
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,

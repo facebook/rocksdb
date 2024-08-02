@@ -5,7 +5,7 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
-#include <ctype.h>
+#include <cctype>
 
 #include "logging/logging.h"
 #include "port/lang.h"
@@ -14,7 +14,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 namespace {
 bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
   // If it is numeric, everything up to the match must be a number
@@ -379,5 +378,4 @@ int ObjectRegistry::RegisterPlugin(const std::string &name,
   }
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

@@ -1,12 +1,11 @@
-/**
- * @author Deon Nicholas (dnicholas@fb.com)
- * Copyright 2013 Facebook
- */
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "stringappend2.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <memory>
 #include <string>
 
@@ -19,11 +18,9 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo>
     stringappend2_merge_type_info = {
-#ifndef ROCKSDB_LITE
         {"delimiter",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 }  // namespace
 

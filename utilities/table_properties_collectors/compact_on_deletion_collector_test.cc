@@ -7,20 +7,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdio.h>
+#include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
-#ifndef ROCKSDB_LITE
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "port/stack_trace.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
-#include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -28,6 +28,7 @@ TEST(CompactOnDeletionCollector, DeletionRatio) {
   TablePropertiesCollectorFactory::Context context;
   context.column_family_id =
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  context.last_level_inclusive_max_seqno_threshold = kMaxSequenceNumber;
   const size_t kTotalEntries = 100;
 
   {
@@ -87,6 +88,7 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
   TablePropertiesCollectorFactory::Context context;
   context.column_family_id =
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  context.last_level_inclusive_max_seqno_threshold = kMaxSequenceNumber;
 
   std::vector<int> window_sizes;
   std::vector<int> deletion_triggers;
@@ -237,9 +239,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#else
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as RocksDBLite does not include utilities.\n");
-  return 0;
-}
-#endif  // !ROCKSDB_LITE

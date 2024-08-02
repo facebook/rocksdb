@@ -15,7 +15,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 
 CompactOnDeletionCollector::CompactOnDeletionCollector(
     size_t sliding_window_size, size_t deletion_trigger, double deletion_ratio)
@@ -100,7 +99,6 @@ Status CompactOnDeletionCollector::Finish(
 }
 static std::unordered_map<std::string, OptionTypeInfo>
     on_deletion_collector_type_info = {
-#ifndef ROCKSDB_LITE
         {"window_size",
          {0, OptionType::kUnknown, OptionVerificationType::kNormal,
           OptionTypeFlags::kCompareNever | OptionTypeFlags::kMutable,
@@ -156,7 +154,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           },
           nullptr}},
 
-#endif  // ROCKSDB_LITE
 };
 
 CompactOnDeletionCollectorFactory::CompactOnDeletionCollectorFactory(
@@ -191,6 +188,7 @@ NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
       new CompactOnDeletionCollectorFactory(sliding_window_size,
                                             deletion_trigger, deletion_ratio));
 }
+
 namespace {
 static int RegisterTablePropertiesCollectorFactories(
     ObjectLibrary& library, const std::string& /*arg*/) {
@@ -205,23 +203,31 @@ static int RegisterTablePropertiesCollectorFactories(
         guard->reset(new CompactOnDeletionCollectorFactory(0, 0, 0));
         return guard->get();
       });
+  library.AddFactory<TablePropertiesCollectorFactory>(
+      CompactForTieringCollectorFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TablePropertiesCollectorFactory>* guard,
+         std::string* /* errmsg */) {
+        // By default, create a `CompactForTieringCollectorFactory` that is
+        // disabled. Users will need to call corresponding setters to enable
+        // the factory.
+        guard->reset(new CompactForTieringCollectorFactory(0));
+        return guard->get();
+      });
   return 1;
 }
 }  // namespace
-#endif  // !ROCKSDB_LITE
 
 Status TablePropertiesCollectorFactory::CreateFromString(
     const ConfigOptions& options, const std::string& value,
     std::shared_ptr<TablePropertiesCollectorFactory>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterTablePropertiesCollectorFactories(*(ObjectLibrary::Default().get()),
                                               "");
   });
-#endif  // ROCKSDB_LITE
   return LoadSharedObject<TablePropertiesCollectorFactory>(options, value,
-                                                           nullptr, result);
+                                                           result);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

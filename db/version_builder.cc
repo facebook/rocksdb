@@ -294,7 +294,9 @@ class VersionBuilder::Rep {
     if (f->refs <= 0) {
       if (f->table_reader_handle) {
         assert(table_cache_ != nullptr);
-        table_cache_->ReleaseHandle(f->table_reader_handle);
+        // NOTE: have to release in raw cache interface to avoid using a
+        // TypedHandle for FileMetaData::table_reader_handle
+        table_cache_->get_cache().get()->Release(f->table_reader_handle);
         f->table_reader_handle = nullptr;
       }
 
@@ -1071,6 +1073,12 @@ class VersionBuilder::Rep {
     const uint64_t oldest_blob_file_with_linked_ssts =
         GetMinOldestBlobFileNumber();
 
+    // If there are no blob files with linked SSTs, meaning that there are no
+    // valid blob files
+    if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
+      return;
+    }
+
     auto process_base =
         [vstorage](const std::shared_ptr<BlobFileMetaData>& base_meta) {
           assert(base_meta);
@@ -1255,10 +1263,12 @@ class VersionBuilder::Rep {
       InternalStats* internal_stats, int max_threads,
       bool prefetch_index_and_filter_in_cache, bool is_initial_load,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin) {
+      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
+      uint8_t block_protection_bytes_per_key) {
     assert(table_cache_ != nullptr);
 
-    size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
+    size_t table_cache_capacity =
+        table_cache_->get_cache().get()->GetCapacity();
     bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
     size_t max_load = std::numeric_limits<size_t>::max();
 
@@ -1280,7 +1290,7 @@ class VersionBuilder::Rep {
         load_limit = table_cache_capacity / 4;
       }
 
-      size_t table_cache_usage = table_cache_->get_cache()->GetUsage();
+      size_t table_cache_usage = table_cache_->get_cache().get()->GetUsage();
       if (table_cache_usage >= load_limit) {
         // TODO (yanqin) find a suitable status code.
         return Status::OK();
@@ -1319,18 +1329,18 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
+        TableCache::TypedHandle* handle = nullptr;
         statuses[file_idx] = table_cache_->FindTable(
-            ReadOptions(), file_options_,
-            *(base_vstorage_->InternalComparator()), *file_meta,
-            &file_meta->table_reader_handle, prefix_extractor, false /*no_io */,
-            true /* record_read_stats */,
+            read_options, file_options_,
+            *(base_vstorage_->InternalComparator()), *file_meta, &handle,
+            block_protection_bytes_per_key, prefix_extractor, false /*no_io */,
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
             file_meta->temperature);
-        if (file_meta->table_reader_handle != nullptr) {
+        if (handle != nullptr) {
+          file_meta->table_reader_handle = handle;
           // Load table_reader
-          file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
-              file_meta->table_reader_handle);
+          file_meta->fd.table_reader = table_cache_->get_cache().Value(handle);
         }
       }
     });
@@ -1381,10 +1391,12 @@ Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache, bool is_initial_load,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
-    size_t max_file_size_for_l0_meta_pin) {
+    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
+    uint8_t block_protection_bytes_per_key) {
   return rep_->LoadTableHandlers(
       internal_stats, max_threads, prefetch_index_and_filter_in_cache,
-      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin);
+      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin,
+      read_options, block_protection_bytes_per_key);
 }
 
 uint64_t VersionBuilder::GetMinOldestBlobFileNumber() const {

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_prepared_txn.h"
 
@@ -40,19 +39,37 @@ void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {
   prepare_batch_cnt_ = 0;
 }
 
-void WritePreparedTxn::MultiGet(const ReadOptions& options,
+void WritePreparedTxn::MultiGet(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family,
                                 const size_t num_keys, const Slice* keys,
                                 PinnableSlice* values, Status* statuses,
                                 const bool sorted_input) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+
   SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  const SnapshotBackup backed_by_snapshot = wpt_db_->AssignMinMaxSeqs(
+      read_options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
                                         backed_by_snapshot);
-  write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
-                                      keys, values, statuses, sorted_input,
-                                      &callback);
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
+                                      num_keys, keys, values, statuses,
+                                      sorted_input, &callback);
   if (UNLIKELY(!callback.valid() ||
                !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
@@ -62,9 +79,27 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
   }
 }
 
-Status WritePreparedTxn::Get(const ReadOptions& options,
+Status WritePreparedTxn::Get(const ReadOptions& _read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  return GetImpl(read_options, column_family, key, pinnable_val);
+}
+
+Status WritePreparedTxn::GetImpl(const ReadOptions& options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key,
+                                 PinnableSlice* pinnable_val) {
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
@@ -88,11 +123,7 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {
-  // Make sure to get iterator from WritePrepareTxnDB, not the root db.
-  Iterator* db_iter = wpt_db_->NewIterator(options);
-  assert(db_iter);
-
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return GetIterator(options, wpt_db_->DefaultColumnFamily());
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
@@ -101,7 +132,7 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wpt_db_->NewIterator(options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  return write_batch_.NewIteratorWithBase(column_family, db_iter, &options);
 }
 
 Status WritePreparedTxn::PrepareInternal() {
@@ -123,8 +154,9 @@ Status WritePreparedTxn::PrepareInternal() {
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                          !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
+                          /*callback*/ nullptr, /*user_write_cb=*/nullptr,
+                          &log_number_, /*log ref*/ 0, !DISABLE_MEMTABLE,
+                          &seq_used, prepare_batch_cnt_,
                           &add_prepared_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
@@ -216,9 +248,10 @@ Status WritePreparedTxn::CommitInternal() {
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery to
   // true. See the comments about GetCommitTimeWriteBatch() in
   // include/rocksdb/utilities/transaction.h.
-  s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                          zero_log_number, disable_memtable, &seq_used,
-                          batch_cnt, pre_release_callback);
+  s = db_impl_->WriteImpl(write_options_, working_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, zero_log_number,
+                          disable_memtable, &seq_used, batch_cnt,
+                          pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   const SequenceNumber commit_batch_seq = seq_used;
   if (LIKELY(do_one_write || !s.ok())) {
@@ -253,8 +286,9 @@ Status WritePreparedTxn::CommitInternal() {
   const bool DISABLE_MEMTABLE = true;
   const size_t ONE_BATCH = 1;
   const uint64_t NO_REF_LOG = 0;
-  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, NO_REF_LOG,
+                          DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_aux_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
@@ -275,6 +309,7 @@ Status WritePreparedTxn::RollbackInternal() {
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
   auto cf_comp_map_shared_ptr = wpt_db_->GetCFComparatorMap();
   auto read_at_seq = kMaxSequenceNumber;
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions roptions;
   // to prevent callback's seq to be overrriden inside DBImpk::Get
   roptions.snapshot = wpt_db_->GetMaxSnapshot();
@@ -418,8 +453,9 @@ Status WritePreparedTxn::RollbackInternal() {
   // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
   // the rollback batch commits with PreReleaseCallback.
-  s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
-                          NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+  s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, NO_REF_LOG,
+                          !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
@@ -444,8 +480,9 @@ Status WritePreparedTxn::RollbackInternal() {
   // In the absence of Prepare markers, use Noop as a batch separator
   s = WriteBatchInternal::InsertNoop(&empty_batch);
   assert(s.ok());
-  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, NO_REF_LOG,
+                          DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
@@ -492,7 +529,8 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   // TODO(yanqin): support user-defined timestamp
   return TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, /*ts=*/nullptr,
-      false /* cache_only */, &snap_checker, min_uncommitted);
+      false /* cache_only */, &snap_checker, min_uncommitted,
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation);
 }
 
 void WritePreparedTxn::SetSnapshot() {
@@ -508,5 +546,3 @@ Status WritePreparedTxn::RebuildFromWriteBatch(WriteBatch* src_batch) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

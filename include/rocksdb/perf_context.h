@@ -14,13 +14,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// A thread local context for gathering performance counter efficiently
-// and transparently.
-// Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
+/*
+ * NOTE:
+ * Please do not reorder the fields in this structure. If you plan to do that or
+ * add/remove fields to this structure, builds would fail. The way to fix the
+ * builds would be to add the appropriate fields to the
+ * DEF_PERF_CONTEXT_LEVEL_METRICS() macro in the perf_context.cc file.
+ */
 
 // Break down performance counters by level and store per-level perf context in
 // PerfContextByLevel
-struct PerfContextByLevel {
+struct PerfContextByLevelBase {
+  // These Bloom stats apply to point reads (Get/MultiGet) for whole key and
+  // prefix filters.
   // # of times bloom filter has avoided file reads, i.e., negatives.
   uint64_t bloom_filter_useful = 0;
   // # of times bloom FullFilter has not avoided the reads.
@@ -38,37 +44,34 @@ struct PerfContextByLevel {
 
   uint64_t block_cache_hit_count = 0;   // total number of block cache hits
   uint64_t block_cache_miss_count = 0;  // total number of block cache misses
+};
 
+// A thread local context for gathering performance counter efficiently
+// and transparently.
+// Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
+
+// Break down performance counters by level and store per-level perf context in
+// PerfContextByLevel
+struct PerfContextByLevel : public PerfContextByLevelBase {
   void Reset();  // reset all performance counters to zero
 };
 
-struct PerfContext {
-  ~PerfContext();
+/*
+ * NOTE:
+ * Please do not reorder the fields in this structure. If you plan to do that or
+ * add/remove fields to this structure, builds would fail. The way to fix the
+ * builds would be to add the appropriate fields to the
+ * DEF_PERF_CONTEXT_METRICS() macro in the perf_context.cc file.
+ */
 
-  PerfContext() {}
-
-  PerfContext(const PerfContext&);
-  PerfContext& operator=(const PerfContext&);
-  PerfContext(PerfContext&&) noexcept;
-
-  void Reset();  // reset all performance counters to zero
-
-  std::string ToString(bool exclude_zero_counters = false) const;
-
-  // enable per level perf context and allocate storage for PerfContextByLevel
-  void EnablePerLevelPerfContext();
-
-  // temporarily disable per level perf context by setting the flag to false
-  void DisablePerLevelPerfContext();
-
-  // free the space for PerfContextByLevel, also disable per level perf context
-  void ClearPerLevelPerfContext();
-
+struct PerfContextBase {
   uint64_t user_key_comparison_count;  // total number of user key comparisons
   uint64_t block_cache_hit_count;      // total number of block cache hits
   uint64_t block_read_count;           // total number of block reads (with IO)
   uint64_t block_read_byte;            // total number of bytes from block reads
   uint64_t block_read_time;            // total nanos spent on block reads
+  // total cpu time in nanos spent on block reads
+  uint64_t block_read_cpu_time;
   uint64_t block_cache_index_hit_count;  // total number of index block hits
   // total number of standalone handles lookup from secondary cache
   uint64_t block_cache_standalone_handle_count;
@@ -80,6 +83,11 @@ struct PerfContext {
   uint64_t filter_block_read_count;       // total number of filter block reads
   uint64_t compression_dict_block_read_count;  // total number of compression
                                                // dictionary block reads
+  // Cumulative size of blocks found in block cache
+  uint64_t block_cache_index_read_byte;
+  uint64_t block_cache_filter_read_byte;
+  uint64_t block_cache_compression_dict_read_byte;
+  uint64_t block_cache_read_byte;
 
   uint64_t secondary_cache_hit_count;  // total number of secondary cache hits
   // total number of real handles inserted into secondary cache
@@ -135,9 +143,14 @@ struct PerfContext {
   // than the snapshot that iterator is using.
   //
   uint64_t internal_recent_skipped_count;
-  // How many values were fed into merge operator by iterators.
+  // How many merge operands were fed into the merge operator by iterators.
+  // Note: base values are not included in the count.
   //
   uint64_t internal_merge_count;
+  // How many merge operands were fed into the merge operator by point lookups.
+  // Note: base values are not included in the count.
+  //
+  uint64_t internal_merge_point_lookup_count;
   // Number of times we reseeked inside a merging iterator, specifically to skip
   // after or before a range of keys covered by a range deletion in a newer LSM
   // component.
@@ -211,9 +224,9 @@ struct PerfContext {
   uint64_t bloom_memtable_hit_count;
   // total number of mem table bloom misses
   uint64_t bloom_memtable_miss_count;
-  // total number of SST table bloom hits
+  // total number of SST bloom hits
   uint64_t bloom_sst_hit_count;
-  // total number of SST table bloom misses
+  // total number of SST bloom misses
   uint64_t bloom_sst_miss_count;
 
   // Time spent waiting on key locks in transaction lock manager.
@@ -249,15 +262,47 @@ struct PerfContext {
   uint64_t iter_prev_cpu_nanos;
   uint64_t iter_seek_cpu_nanos;
 
+  // EXPERIMENTAL
+  // Total number of db iterator's Next(), Prev(), Seek-related APIs being
+  // called
+  uint64_t iter_next_count;
+  uint64_t iter_prev_count;
+  uint64_t iter_seek_count;
+
   // Time spent in encrypting data. Populated when EncryptedEnv is used.
   uint64_t encrypt_data_nanos;
   // Time spent in decrypting data. Populated when EncryptedEnv is used.
   uint64_t decrypt_data_nanos;
 
   uint64_t number_async_seek;
+};
+
+struct PerfContext : public PerfContextBase {
+  ~PerfContext();
+
+  PerfContext() { Reset(); }
+
+  PerfContext(const PerfContext&);
+  PerfContext& operator=(const PerfContext&);
+  PerfContext(PerfContext&&) noexcept;
+
+  void Reset();  // reset all performance counters to zero
+
+  std::string ToString(bool exclude_zero_counters = false) const;
+
+  // enable per level perf context and allocate storage for PerfContextByLevel
+  void EnablePerLevelPerfContext();
+
+  // temporarily disable per level perf context by setting the flag to false
+  void DisablePerLevelPerfContext();
+
+  // free the space for PerfContextByLevel, also disable per level perf context
+  void ClearPerLevelPerfContext();
 
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   bool per_level_perf_context_enabled = false;
+
+  void copyMetrics(const PerfContext* other) noexcept;
 };
 
 // If RocksDB is compiled with -DNPERF_CONTEXT, then a pointer to a global,

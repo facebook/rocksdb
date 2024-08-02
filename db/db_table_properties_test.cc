@@ -22,9 +22,9 @@
 #include "table/table_properties_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/atomic.h"
 #include "util/random.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -59,9 +59,6 @@ class DBTablePropertiesTest : public DBTestBase,
  public:
   DBTablePropertiesTest()
       : DBTestBase("db_table_properties_test", /*env_do_fsync=*/false) {}
-  TablePropertiesCollection TestGetPropertiesOfTablesInRange(
-      std::vector<Range> ranges, std::size_t* num_properties = nullptr,
-      std::size_t* num_files = nullptr);
 };
 
 TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
@@ -77,8 +74,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     if (table == 3) {
       SyncPoint::GetInstance()->SetCallBack(
           "BlockBasedTableBuilder::WritePropertiesBlock:Meta", [&](void* meta) {
-            *reinterpret_cast<const std::string**>(meta) =
-                &kPropertiesBlockOldName;
+            *static_cast<const std::string**>(meta) = &kPropertiesBlockOldName;
           });
       SyncPoint::GetInstance()->EnableProcessing();
     }
@@ -96,7 +92,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   // Part of strategy to prevent pinning table files
   SyncPoint::GetInstance()->SetCallBack(
       "VersionEditHandler::LoadTables:skip_load_table_files",
-      [&](void* skip_load) { *reinterpret_cast<bool*>(skip_load) = true; });
+      [&](void* skip_load) { *static_cast<bool*>(skip_load) = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // 1. Read table properties directly from file
@@ -181,9 +177,7 @@ TEST_F(DBTablePropertiesTest, InvalidIgnored) {
   // Inject properties block data that Block considers invalid
   SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTableBuilder::WritePropertiesBlock:BlockData",
-      [&](void* block_data) {
-        *reinterpret_cast<Slice*>(block_data) = Slice("X");
-      });
+      [&](void* block_data) { *static_cast<Slice*>(block_data) = Slice("X"); });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Corrupting the table properties corrupts the unique id.
@@ -236,53 +230,114 @@ TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
   ASSERT_EQ(0.5, del_factory->GetDeletionRatio());
 }
 
-TablePropertiesCollection
-DBTablePropertiesTest::TestGetPropertiesOfTablesInRange(
-    std::vector<Range> ranges, std::size_t* num_properties,
-    std::size_t* num_files) {
-  // Since we deref zero element in the vector it can not be empty
-  // otherwise we pass an address to some random memory
-  EXPECT_GT(ranges.size(), 0U);
-  // run the query
-  TablePropertiesCollection props;
-  EXPECT_OK(db_->GetPropertiesOfTablesInRange(
-      db_->DefaultColumnFamily(), &ranges[0], ranges.size(), &props));
+// Test params:
+// 1) whether to enable user-defined timestamps
+class DBTablePropertiesInRangeTest : public DBTestBase,
+                                     public testing::WithParamInterface<bool> {
+ public:
+  DBTablePropertiesInRangeTest()
+      : DBTestBase("db_table_properties_in_range_test",
+                   /*env_do_fsync=*/false) {}
 
-  // Make sure that we've received properties for those and for those files
-  // only which fall within requested ranges
-  std::vector<LiveFileMetaData> vmd;
-  db_->GetLiveFilesMetaData(&vmd);
-  for (auto& md : vmd) {
-    std::string fn = md.db_path + md.name;
-    bool in_range = false;
+  void SetUp() override { enable_udt_ = GetParam(); }
+
+ protected:
+  void PutKeyValue(const Slice& key, const Slice& value) {
+    if (enable_udt_) {
+      EXPECT_OK(db_->Put(WriteOptions(), key, min_ts_, value));
+    } else {
+      EXPECT_OK(Put(key, value));
+    }
+  }
+
+  std::string GetValue(const std::string& key) {
+    ReadOptions roptions;
+    std::string result;
+    if (enable_udt_) {
+      roptions.timestamp = &min_ts_;
+    }
+    Status s = db_->Get(roptions, key, &result);
+    EXPECT_TRUE(s.ok());
+    return result;
+  }
+
+  Status MaybeGetValue(const std::string& key, std::string* result) {
+    ReadOptions roptions;
+    if (enable_udt_) {
+      roptions.timestamp = &min_ts_;
+    }
+    Status s = db_->Get(roptions, key, result);
+    EXPECT_TRUE(s.IsNotFound() || s.ok());
+    return s;
+  }
+
+  TablePropertiesCollection TestGetPropertiesOfTablesInRange(
+      std::vector<Range> ranges, std::size_t* num_properties = nullptr,
+      std::size_t* num_files = nullptr) {
+    // Since we deref zero element in the vector it can not be empty
+    // otherwise we pass an address to some random memory
+    EXPECT_GT(ranges.size(), 0U);
+    // run the query
+    TablePropertiesCollection props;
+    ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+    EXPECT_OK(db_->GetPropertiesOfTablesInRange(default_cf, ranges.data(),
+                                                ranges.size(), &props));
+
+    const Comparator* ucmp = default_cf->GetComparator();
+    EXPECT_NE(ucmp, nullptr);
+    const size_t ts_sz = ucmp->timestamp_size();
+    const size_t range_size = ranges.size();
+    autovector<UserKeyRange> ukey_ranges;
+    std::vector<std::string> keys;
+    ukey_ranges.reserve(range_size);
+    keys.reserve(range_size * 2);
     for (auto& r : ranges) {
-      // smallestkey < limit && largestkey >= start
-      if (r.limit.compare(md.smallestkey) >= 0 &&
-          r.start.compare(md.largestkey) <= 0) {
-        in_range = true;
-        EXPECT_GT(props.count(fn), 0);
+      auto [start, limit] = MaybeAddTimestampsToRange(
+          &r.start, &r.limit, ts_sz, &keys.emplace_back(), &keys.emplace_back(),
+          /*exclusive_end=*/false);
+      EXPECT_TRUE(start.has_value());
+      EXPECT_TRUE(limit.has_value());
+      ukey_ranges.emplace_back(start.value(), limit.value());
+    }
+    // Make sure that we've received properties for those and for those files
+    // only which fall within requested ranges
+    std::vector<LiveFileMetaData> vmd;
+    db_->GetLiveFilesMetaData(&vmd);
+    for (auto& md : vmd) {
+      std::string fn = md.db_path + md.name;
+      bool in_range = false;
+      for (auto& r : ukey_ranges) {
+        if (ucmp->Compare(r.start, md.largestkey) <= 0 &&
+            ucmp->Compare(r.limit, md.smallestkey) >= 0) {
+          in_range = true;
+          EXPECT_GT(props.count(fn), 0);
+        }
+      }
+      if (!in_range) {
+        EXPECT_EQ(props.count(fn), 0);
       }
     }
-    if (!in_range) {
-      EXPECT_EQ(props.count(fn), 0);
+
+    if (num_properties) {
+      *num_properties = props.size();
     }
+
+    if (num_files) {
+      *num_files = vmd.size();
+    }
+    return props;
   }
 
-  if (num_properties) {
-    *num_properties = props.size();
-  }
+  bool enable_udt_ = false;
+  Slice min_ts_ = MinU64Ts();
+};
 
-  if (num_files) {
-    *num_files = vmd.size();
-  }
-  return props;
-}
-
-TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
+TEST_P(DBTablePropertiesInRangeTest, GetPropertiesOfTablesInRange) {
   // Fixed random sead
   Random rnd(301);
 
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.write_buffer_size = 4096;
   options.max_write_buffer_number = 2;
@@ -295,17 +350,21 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   options.hard_pending_compaction_bytes_limit = 16 * 1024;
   options.num_levels = 8;
   options.env = env_;
+  bool udt_enabled = GetParam();
+  if (udt_enabled) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  }
 
   DestroyAndReopen(options);
 
   // build a decent LSM
   for (int i = 0; i < 10000; i++) {
-    ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
+    PutKeyValue(test::RandomKey(&rnd, 5), rnd.RandomString(102));
   }
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   if (NumTableFilesAtLevel(0) == 0) {
-    ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
+    PutKeyValue(test::RandomKey(&rnd, 5), rnd.RandomString(102));
     ASSERT_OK(Flush());
   }
 
@@ -362,13 +421,17 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
     std::vector<Range> ranges;
     auto it = random_keys.begin();
     while (it != random_keys.end()) {
-      ranges.push_back(Range(*it, *(it + 1)));
+      ranges.emplace_back(*it, *(it + 1));
       it += 2;
     }
 
     TestGetPropertiesOfTablesInRange(std::move(ranges));
   }
 }
+
+INSTANTIATE_TEST_CASE_P(DBTablePropertiesInRangeTest,
+                        DBTablePropertiesInRangeTest,
+                        ::testing::Values(true, false));
 
 TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
   std::string kExtraCfName = "pikachu";
@@ -414,6 +477,71 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
     ASSERT_OK(db_->GetDbSessionId(sid));
     ASSERT_EQ(id, fname_to_props.begin()->second->db_id);
     ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
+  }
+}
+
+TEST_F(DBTablePropertiesTest, FactoryReturnsNull) {
+  struct JunkTablePropertiesCollector : public TablePropertiesCollector {
+    const char* Name() const override { return "JunkTablePropertiesCollector"; }
+    Status Finish(UserCollectedProperties* properties) override {
+      properties->insert({"Junk", "Junk"});
+      return Status::OK();
+    }
+    UserCollectedProperties GetReadableProperties() const override {
+      return {};
+    }
+  };
+
+  // Alternates between putting a "Junk" property and using `nullptr` to
+  // opt out.
+  static RelaxedAtomic<int> count{0};
+  struct SometimesTablePropertiesCollectorFactory
+      : public TablePropertiesCollectorFactory {
+    const char* Name() const override {
+      return "SometimesTablePropertiesCollectorFactory";
+    }
+    TablePropertiesCollector* CreateTablePropertiesCollector(
+        TablePropertiesCollectorFactory::Context /*context*/) override {
+      if (count.FetchAddRelaxed(1) & 1) {
+        return nullptr;
+      } else {
+        return new JunkTablePropertiesCollector();
+      }
+    }
+  };
+
+  Options options = CurrentOptions();
+  options.table_properties_collector_factories.emplace_back(
+      std::make_shared<SometimesTablePropertiesCollectorFactory>());
+  // For plain table
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  for (const std::shared_ptr<TableFactory>& tf :
+       {options.table_factory,
+        std::shared_ptr<TableFactory>(NewPlainTableFactory({}))}) {
+    SCOPED_TRACE("Table factory = " + std::string(tf->Name()));
+    options.table_factory = tf;
+
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("key0", "value1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("key0", "value2"));
+    ASSERT_OK(Flush());
+
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    int no_junk_count = 0;
+    int junk_count = 0;
+    for (const auto& item : props) {
+      if (item.second->user_collected_properties.find("Junk") !=
+          item.second->user_collected_properties.end()) {
+        junk_count++;
+      } else {
+        no_junk_count++;
+      }
+    }
+    EXPECT_EQ(1, no_junk_count);
+    EXPECT_EQ(1, junk_count);
   }
 }
 
@@ -616,7 +744,6 @@ INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

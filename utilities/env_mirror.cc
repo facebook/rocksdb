@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/env_mirror.h"
 
@@ -60,7 +59,7 @@ class SequentialFileMirror : public SequentialFile {
     Status bs = b_->InvalidateCache(offset, length);
     assert(as == bs);
     return as;
-  };
+  }
 };
 
 class RandomAccessFileMirror : public RandomAccessFile {
@@ -215,10 +214,11 @@ Status EnvMirror::NewSequentialFile(const std::string& f,
   Status as = a_->NewSequentialFile(f, &mf->a_, options);
   Status bs = b_->NewSequentialFile(f, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
@@ -232,25 +232,29 @@ Status EnvMirror::NewRandomAccessFile(const std::string& f,
   Status as = a_->NewRandomAccessFile(f, &mf->a_, options);
   Status bs = b_->NewRandomAccessFile(f, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
 Status EnvMirror::NewWritableFile(const std::string& f,
                                   std::unique_ptr<WritableFile>* r,
                                   const EnvOptions& options) {
-  if (f.find("/proc/") == 0) return a_->NewWritableFile(f, r, options);
+  if (f.find("/proc/") == 0) {
+    return a_->NewWritableFile(f, r, options);
+  }
   WritableFileMirror* mf = new WritableFileMirror(f, options);
   Status as = a_->NewWritableFile(f, &mf->a_, options);
   Status bs = b_->NewWritableFile(f, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
@@ -258,18 +262,19 @@ Status EnvMirror::ReuseWritableFile(const std::string& fname,
                                     const std::string& old_fname,
                                     std::unique_ptr<WritableFile>* r,
                                     const EnvOptions& options) {
-  if (fname.find("/proc/") == 0)
+  if (fname.find("/proc/") == 0) {
     return a_->ReuseWritableFile(fname, old_fname, r, options);
+  }
   WritableFileMirror* mf = new WritableFileMirror(fname, options);
   Status as = a_->ReuseWritableFile(fname, old_fname, &mf->a_, options);
   Status bs = b_->ReuseWritableFile(fname, old_fname, &mf->b_, options);
   assert(as == bs);
-  if (as.ok())
+  if (as.ok()) {
     r->reset(mf);
-  else
+  } else {
     delete mf;
+  }
   return as;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif

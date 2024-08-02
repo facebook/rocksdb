@@ -2,9 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-
-#ifndef ROCKSDB_LITE
-
 #include "db/write_callback.h"
 
 #include <atomic>
@@ -16,6 +13,7 @@
 #include "db/db_impl/db_impl.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
+#include "rocksdb/user_write_callback.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -65,7 +63,7 @@ class MockWriteCallback : public WriteCallback {
   bool allow_batching_ = false;
   std::atomic<bool> was_called_{false};
 
-  MockWriteCallback() {}
+  MockWriteCallback() = default;
 
   MockWriteCallback(const MockWriteCallback& other) {
     should_fail_ = other.should_fail_;
@@ -83,6 +81,28 @@ class MockWriteCallback : public WriteCallback {
   }
 
   bool AllowWriteBatching() override { return allow_batching_; }
+};
+
+class MockUserWriteCallback : public UserWriteCallback {
+ public:
+  std::atomic<bool> write_enqueued_{false};
+  std::atomic<bool> wal_write_done_{false};
+
+  MockUserWriteCallback() = default;
+
+  MockUserWriteCallback(const MockUserWriteCallback& other) {
+    write_enqueued_.store(other.write_enqueued_.load());
+    wal_write_done_.store(other.wal_write_done_.load());
+  }
+
+  void OnWriteEnqueued() override { write_enqueued_.store(true); }
+
+  void OnWalWriteFinish() override { wal_write_done_.store(true); }
+
+  void Reset() {
+    write_enqueued_.store(false);
+    wal_write_done_.store(false);
+  }
 };
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
@@ -112,7 +132,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     WriteOP(bool should_fail = false) { callback_.should_fail_ = should_fail; }
 
     void Put(const string& key, const string& val) {
-      kvs_.push_back(std::make_pair(key, val));
+      kvs_.emplace_back(key, val);
       ASSERT_OK(write_batch_.Put(key, val));
     }
 
@@ -120,9 +140,11 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
       kvs_.clear();
       write_batch_.Clear();
       callback_.was_called_.store(false);
+      user_write_cb_.Reset();
     }
 
     MockWriteCallback callback_;
+    MockUserWriteCallback user_write_cb_;
     WriteBatch write_batch_;
     std::vector<std::pair<string, string>> kvs_;
   };
@@ -177,11 +199,11 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     DBOptions db_options(options);
     ColumnFamilyOptions cf_options(options);
     std::vector<ColumnFamilyDescriptor> column_families;
-    column_families.push_back(
-        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+    column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
     std::vector<ColumnFamilyHandle*> handles;
     auto open_s = DBImpl::Open(db_options, dbname, column_families, &handles,
-                               &db, seq_per_batch_, true /* batch_per_txn */);
+                               &db, seq_per_batch_, true /* batch_per_txn */,
+                               false /* is_retry */, nullptr /* can_retry */);
     ASSERT_OK(open_s);
     assert(handles.size() == 1);
     delete handles[0];
@@ -222,7 +244,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
           is_last = (cur_threads_linked == write_group.size() - 1);
 
           // check my state
-          auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+          auto* writer = static_cast<WriteThread::Writer*>(arg);
 
           if (is_leader) {
             ASSERT_TRUE(writer->state ==
@@ -252,7 +274,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:DoneWaiting", [&](void* arg) {
           // check my state
-          auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+          auto* writer = static_cast<WriteThread::Writer*>(arg);
 
           if (!allow_batching_) {
             // no batching so everyone should be a leader
@@ -328,18 +350,26 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
         ASSERT_OK(WriteBatchInternal::InsertNoop(&write_op.write_batch_));
         const size_t ONE_BATCH = 1;
         s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
-                               &write_op.callback_, nullptr, 0, false, nullptr,
-                               ONE_BATCH,
+                               &write_op.callback_, &write_op.user_write_cb_,
+                               nullptr, 0, false, nullptr, ONE_BATCH,
                                two_queues_ ? &publish_seq_callback : nullptr);
       } else {
         s = db_impl->WriteWithCallback(woptions, &write_op.write_batch_,
-                                       &write_op.callback_);
+                                       &write_op.callback_,
+                                       &write_op.user_write_cb_);
       }
 
+      ASSERT_TRUE(write_op.user_write_cb_.write_enqueued_.load());
       if (write_op.callback_.should_fail_) {
         ASSERT_TRUE(s.IsBusy());
+        ASSERT_FALSE(write_op.user_write_cb_.wal_write_done_.load());
       } else {
         ASSERT_OK(s);
+        if (enable_WAL_) {
+          ASSERT_TRUE(write_op.user_write_cb_.wal_write_done_.load());
+        } else {
+          ASSERT_FALSE(write_op.user_write_cb_.wal_write_done_.load());
+        }
       }
     };
 
@@ -441,6 +471,16 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   ASSERT_OK(s);
   ASSERT_EQ("value.a2", value);
 
+  MockUserWriteCallback user_write_cb;
+  WriteBatch wb4;
+  ASSERT_OK(wb4.Put("a", "value.a4"));
+
+  ASSERT_OK(db->WriteWithCallback(write_options, &wb4, &user_write_cb));
+  ASSERT_OK(db->Get(read_options, "a", &value));
+  ASSERT_EQ(value, "value.a4");
+  ASSERT_TRUE(user_write_cb.write_enqueued_.load());
+  ASSERT_TRUE(user_write_cb.wal_write_done_.load());
+
   delete db;
   ASSERT_OK(DestroyDB(dbname, options));
 }
@@ -453,13 +493,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as WriteWithCallback is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

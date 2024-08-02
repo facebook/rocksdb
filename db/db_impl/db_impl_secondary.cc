@@ -14,10 +14,10 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/configurable.h"
 #include "util/cast_util.h"
+#include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname,
                                  std::string secondary_path)
@@ -28,13 +28,13 @@ DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
   LogFlush(immutable_db_options_.info_log);
 }
 
-DBImplSecondary::~DBImplSecondary() {}
+DBImplSecondary::~DBImplSecondary() = default;
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool /*readonly*/, bool /*error_if_wal_file_exists*/,
-    bool /*error_if_data_exists_in_wals*/, uint64_t*,
-    RecoveryContext* /*recovery_ctx*/) {
+    bool /*error_if_data_exists_in_wals*/, bool /*is_retry*/, uint64_t*,
+    RecoveryContext* /*recovery_ctx*/, bool* /*can_retry*/) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -198,6 +198,9 @@ Status DBImplSecondary::RecoverLogFiles(
     }
     assert(reader != nullptr);
   }
+
+  const UnorderedMap<uint32_t, size_t>& running_ts_sz =
+      versions_->GetRunningColumnFamiliesTimestampSize();
   for (auto log_number : log_numbers) {
     auto it = log_readers_.find(log_number);
     assert(it != log_readers_.end());
@@ -222,6 +225,14 @@ Status DBImplSecondary::RecoverLogFiles(
         continue;
       }
       status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        break;
+      }
+      const UnorderedMap<uint32_t, size_t>& record_ts_sz =
+          reader->GetRecordedTimestampSize();
+      status = HandleWriteBatchTimestampSizeDifference(
+          &batch, running_ts_sz, record_ts_sz,
+          TimestampSizeConsistencyMode::kVerifyConsistency);
       if (!status.ok()) {
         break;
       }
@@ -316,6 +327,7 @@ Status DBImplSecondary::RecoverLogFiles(
       status = *wal_read_status;
     }
     if (!status.ok()) {
+      wal_read_status->PermitUncheckedError();
       return status;
     }
   }
@@ -328,85 +340,93 @@ Status DBImplSecondary::RecoverLogFiles(
   return status;
 }
 
-// Implementation of the DB interface
-Status DBImplSecondary::Get(const ReadOptions& read_options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value,
-                 /*timestamp*/ nullptr);
-}
-
-Status DBImplSecondary::Get(const ReadOptions& read_options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            PinnableSlice* value, std::string* timestamp) {
-  return GetImpl(read_options, column_family, key, value, timestamp);
-}
-
 Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
-                                ColumnFamilyHandle* column_family,
-                                const Slice& key, PinnableSlice* pinnable_val,
-                                std::string* timestamp) {
-  assert(pinnable_val != nullptr);
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
-  PERF_TIMER_GUARD(get_snapshot_time);
+                                const Slice& key,
+                                GetImplOptions& get_impl_options) {
+  assert(get_impl_options.value != nullptr ||
+         get_impl_options.columns != nullptr);
+  assert(get_impl_options.column_family);
 
-  assert(column_family);
+  Status s;
+
   if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(
-        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
+    s = FailIfTsMismatchCf(get_impl_options.column_family,
+                           *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
   } else {
-    const Status s = FailIfCfHasTs(column_family);
+    s = FailIfCfHasTs(get_impl_options.column_family);
     if (!s.ok()) {
       return s;
     }
   }
 
-  // Clear the timestamp for returning results so that we can distinguish
-  // between tombstone or key that has never been written later.
-  if (timestamp) {
-    timestamp->clear();
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (get_impl_options.timestamp) {
+    get_impl_options.timestamp->clear();
   }
 
-  auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
-  ColumnFamilyData* cfd = cfh->cfd();
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
+  PERF_TIMER_GUARD(get_snapshot_time);
+
+  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
+  assert(ucmp);
+  std::string* ts =
+      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
+  SequenceNumber snapshot = versions_->LastSequence();
+  GetWithTimestampReadCallback read_cb(snapshot);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      get_impl_options.column_family);
+  auto cfd = cfh->cfd();
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Get(column_family, key);
+      tracer_->Get(get_impl_options.column_family, key);
     }
   }
+
   // Acquire SuperVersion
   SuperVersion* super_version = GetAndRefSuperVersion(cfd);
-  SequenceNumber snapshot = versions_->LastSequence();
-  GetWithTimestampReadCallback read_cb(snapshot);
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    s = FailIfReadCollapsedHistory(cfd, super_version,
+                                   *(read_options.timestamp));
+    if (!s.ok()) {
+      ReturnAndCleanupSuperVersion(cfd, super_version);
+      return s;
+    }
+  }
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
-  Status s;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
-
   bool done = false;
-  const Comparator* ucmp = column_family->GetComparator();
-  assert(ucmp);
-  std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
-                              /*columns=*/nullptr, ts, &s, &merge_context,
-                              &max_covering_tombstone_seq, read_options,
-                              false /* immutable_memtable */, &read_cb)) {
+
+  // Look up starts here
+  if (super_version->mem->Get(
+          lkey,
+          get_impl_options.value ? get_impl_options.value->GetSelf() : nullptr,
+          get_impl_options.columns, ts, &s, &merge_context,
+          &max_covering_tombstone_seq, read_options,
+          false /* immutable_memtable */, &read_cb)) {
     done = true;
-    pinnable_val->PinSelf();
+    if (get_impl_options.value) {
+      get_impl_options.value->PinSelf();
+    }
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
-                 lkey, pinnable_val->GetSelf(), /*columns=*/nullptr, ts, &s,
-                 &merge_context, &max_covering_tombstone_seq, read_options,
-                 &read_cb)) {
+                 lkey,
+                 get_impl_options.value ? get_impl_options.value->GetSelf()
+                                        : nullptr,
+                 get_impl_options.columns, ts, &s, &merge_context,
+                 &max_covering_tombstone_seq, read_options, &read_cb)) {
     done = true;
-    pinnable_val->PinSelf();
+    if (get_impl_options.value) {
+      get_impl_options.value->PinSelf();
+    }
     RecordTick(stats_, MEMTABLE_HIT);
   }
   if (!done && !s.ok() && !s.IsMergeInProgress()) {
@@ -417,8 +437,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
     super_version->current->Get(
-        read_options, lkey, pinnable_val, /*columns=*/nullptr, ts, &s,
-        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
+        read_options, lkey, get_impl_options.value, get_impl_options.columns,
+        ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
         /*do_merge*/ true);
@@ -428,7 +448,12 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     PERF_TIMER_GUARD(get_post_process_time);
     ReturnAndCleanupSuperVersion(cfd, super_version);
     RecordTick(stats_, NUMBER_KEYS_READ);
-    size_t size = pinnable_val->size();
+    size_t size = 0;
+    if (get_impl_options.value) {
+      size = get_impl_options.value->size();
+    } else if (get_impl_options.columns) {
+      size = get_impl_options.columns->serialized_size();
+    }
     RecordTick(stats_, BYTES_READ, size);
     RecordTimeToHistogram(stats_, BYTES_PER_READ, size);
     PERF_COUNTER_ADD(get_read_bytes, size);
@@ -436,8 +461,18 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
-Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
+Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
                                        ColumnFamilyHandle* column_family) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
   if (read_options.managed) {
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
@@ -449,8 +484,8 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
 
   assert(column_family);
   if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(
-        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
+    const Status s =
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -463,8 +498,8 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
 
   Iterator* result = nullptr;
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh != nullptr);
   auto cfd = cfh->cfd();
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
     return NewErrorIterator(Status::NotSupported(
         "tailing iterator not supported in secondary mode"));
@@ -474,37 +509,56 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
         Status::NotSupported("snapshot not supported in secondary mode"));
   } else {
     SequenceNumber snapshot(kMaxSequenceNumber);
-    result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+    if (read_options.timestamp && read_options.timestamp->size() > 0) {
+      const Status s =
+          FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+      if (!s.ok()) {
+        CleanupSuperVersion(sv);
+        return NewErrorIterator(s);
+      }
+    }
+    result = NewIteratorImpl(read_options, cfh, sv, snapshot,
+                             nullptr /*read_callback*/);
   }
   return result;
 }
 
 ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
-    const ReadOptions& read_options, ColumnFamilyData* cfd,
-    SequenceNumber snapshot, ReadCallback* read_callback,
-    bool expose_blob_index, bool allow_refresh) {
-  assert(nullptr != cfd);
-  SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
+    const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
+    SuperVersion* super_version, SequenceNumber snapshot,
+    ReadCallback* read_callback, bool expose_blob_index, bool allow_refresh) {
+  assert(nullptr != cfh);
   assert(snapshot == kMaxSequenceNumber);
   snapshot = versions_->LastSequence();
   assert(snapshot != kMaxSequenceNumber);
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
-      super_version->current, snapshot,
+      env_, read_options, *cfh->cfd()->ioptions(),
+      super_version->mutable_cf_options, super_version->current, snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number, read_callback, this, cfd,
-      expose_blob_index, read_options.snapshot ? false : allow_refresh);
+      super_version->version_number, read_callback, cfh, expose_blob_index,
+      allow_refresh);
   auto internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
+      db_iter->GetReadOptions(), cfh->cfd(), super_version, db_iter->GetArena(),
       snapshot, /* allow_unprepared_value */ true, db_iter);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
 
 Status DBImplSecondary::NewIterators(
-    const ReadOptions& read_options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return Status::InvalidArgument(
+        "Can only call NewIterators with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
   if (read_options.managed) {
     return Status::NotSupported("Managed iterator is not supported anymore.");
   }
@@ -520,8 +574,7 @@ Status DBImplSecondary::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
-                                          /*ts_for_read=*/true);
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
       if (!s.ok()) {
         return s;
       }
@@ -545,10 +598,29 @@ Status DBImplSecondary::NewIterators(
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
     SequenceNumber read_seq(kMaxSequenceNumber);
-    for (auto cfh : column_families) {
-      ColumnFamilyData* cfd = static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+    autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
+    const bool check_read_ts =
+        read_options.timestamp && read_options.timestamp->size() > 0;
+    for (auto cf : column_families) {
+      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+      auto cfd = cfh->cfd();
+      SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+      cfh_to_sv.emplace_back(cfh, sv);
+      if (check_read_ts) {
+        const Status s =
+            FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+        if (!s.ok()) {
+          for (auto prev_entry : cfh_to_sv) {
+            CleanupSuperVersion(std::get<1>(prev_entry));
+          }
+          return s;
+        }
+      }
+    }
+    assert(cfh_to_sv.size() == column_families.size());
+    for (auto [cfh, sv] : cfh_to_sv) {
       iterators->push_back(
-          NewIteratorImpl(read_options, cfd, read_seq, read_callback));
+          NewIteratorImpl(read_options, cfh, sv, read_seq, read_callback));
     }
   }
   return Status::OK();
@@ -608,7 +680,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
     InstrumentedMutexLock lock_guard(&mutex_);
     s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
             ->ReadAndApply(&mutex_, &manifest_reader_,
-                           manifest_reader_status_.get(), &cfds_changed);
+                           manifest_reader_status_.get(), &cfds_changed,
+                           /*files_to_delete=*/nullptr);
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                    static_cast<uint64_t>(versions_->LastSequence()));
@@ -733,7 +806,7 @@ Status DB::OpenAsSecondary(
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {
-    for (auto cf : column_families) {
+    for (const auto& cf : column_families) {
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (nullptr == cfd) {
@@ -816,7 +889,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
       *mutable_cf_options, mutable_db_options_, 0));
   assert(c != nullptr);
 
-  c->SetInputVersion(version);
+  c->FinalizeInputInfo(version);
 
   // Create output directory if it's not existed yet
   std::unique_ptr<FSDirectory> output_dir;
@@ -934,6 +1007,8 @@ Status DB::OpenAndCompact(
   delete db;
   if (s.ok()) {
     return serialization_status;
+  } else {
+    serialization_status.PermitUncheckedError();
   }
   return s;
 }
@@ -946,22 +1021,5 @@ Status DB::OpenAndCompact(
                         output, override_options);
 }
 
-#else   // !ROCKSDB_LITE
-
-Status DB::OpenAsSecondary(const Options& /*options*/,
-                           const std::string& /*name*/,
-                           const std::string& /*secondary_path*/,
-                           DB** /*dbptr*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-
-Status DB::OpenAsSecondary(
-    const DBOptions& /*db_options*/, const std::string& /*dbname*/,
-    const std::string& /*secondary_path*/,
-    const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
-    std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -11,19 +11,23 @@ package org.rocksdb;
  * two strings.
  */
 public class StringAppendOperator extends MergeOperator {
-    public StringAppendOperator() {
-        this(',');
-    }
+  public StringAppendOperator() {
+    this(',');
+  }
 
-    public StringAppendOperator(char delim) {
-        super(newSharedStringAppendOperator(delim));
-    }
+  public StringAppendOperator(final char delim) {
+    super(newSharedStringAppendOperator(delim));
+  }
 
-    public StringAppendOperator(String delim) {
-      super(newSharedStringAppendOperator(delim));
-    }
+  public StringAppendOperator(final String delim) {
+    super(newSharedStringAppendOperator(delim));
+  }
 
-    private native static long newSharedStringAppendOperator(final char delim);
-    private native static long newSharedStringAppendOperator(final String delim);
-    @Override protected final native void disposeInternal(final long handle);
+  private static native long newSharedStringAppendOperator(final char delim);
+  private static native long newSharedStringAppendOperator(final String delim);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

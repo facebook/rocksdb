@@ -32,8 +32,8 @@ jlong Java_org_rocksdb_AbstractTransactionNotifier_createNewTransactionNotifier(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_AbstractTransactionNotifier_disposeInternal(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+void Java_org_rocksdb_AbstractTransactionNotifier_disposeInternalJni(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
   // TODO(AR) refactor to use JniCallback::JniCallback
   // when https://github.com/facebook/rocksdb/pull/1241/ is merged
   std::shared_ptr<ROCKSDB_NAMESPACE::TransactionNotifierJniCallback>* handle =

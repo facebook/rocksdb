@@ -49,11 +49,9 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
       FLAGS_min_write_buffer_number_to_merge;
 
   if (FLAGS_use_set_based_memetable) {
-#ifndef ROCKSDB_LITE
     options.prefix_extractor.reset(
         ROCKSDB_NAMESPACE::NewFixedPrefixTransform(0));
     options.memtable_factory.reset(NewHashSkipListRepFactory());
-#endif  // ROCKSDB_LITE
   }
 
   Status s;
@@ -151,6 +149,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     ASSERT_TRUE(iter->Valid());
     StopWatchNano timer2(SystemClock::Default().get(), true);
     iter->Next();
+    ASSERT_OK(iter->status());
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
       std::cout << "next cmp: " << get_perf_context()->user_key_comparison_count
@@ -189,7 +188,8 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
   uint64_t elapsed = 0;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatch timer(SystemClock::Default().get(), nullptr, 0, &elapsed);
+  StopWatch timer(SystemClock::Default().get(), nullptr, 0,
+                  Histograms::HISTOGRAM_ENUM_MAX, &elapsed);
   for (auto& timing : timings) {
     timing = elapsed;
   }
@@ -263,7 +263,7 @@ void ProfileQueries(bool enabled_time = false) {
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
-      db->Flush(fo);
+      ASSERT_OK(db->Flush(fo));
       continue;
     }
 
@@ -498,7 +498,6 @@ void ProfileQueries(bool enabled_time = false) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableCount);
   ProfileQueries();
@@ -509,7 +508,6 @@ TEST_F(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableTime);
   ProfileQueries(true);
 }
-#endif  // ROCKSDB_LITE
 
 // make perf_context_test
 // export ROCKSDB_TESTS=PerfContextTest.SeekKeyComparison
@@ -945,15 +943,17 @@ TEST_F(PerfContextTest, CPUTimer) {
 
     // monotonically increasing
     get_perf_context()->Reset();
-    auto count = get_perf_context()->iter_seek_cpu_nanos;
+    uint64_t count = get_perf_context()->iter_seek_cpu_nanos;
+    uint64_t before_count = count;
     for (int i = 0; i < FLAGS_total_keys; ++i) {
       iter->Seek("k" + std::to_string(i));
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ("v" + std::to_string(i), iter->value().ToString());
       auto next_count = get_perf_context()->iter_seek_cpu_nanos;
-      ASSERT_GT(next_count, count);
+      ASSERT_GE(next_count, count);
       count = next_count;
     }
+    ASSERT_GT(count, before_count);
 
     // iterator creation/destruction; multiple iterators
     {
@@ -968,6 +968,176 @@ TEST_F(PerfContextTest, CPUTimer) {
     ASSERT_EQ(count, get_perf_context()->iter_seek_cpu_nanos);
   }
 }
+
+TEST_F(PerfContextTest, MergeOperandCount) {
+  ASSERT_OK(DestroyDB(kDbName, Options()));
+
+  DB* db = nullptr;
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  ASSERT_OK(DB::Open(options, kDbName, &db));
+  std::unique_ptr<DB> db_guard(db);
+
+  constexpr size_t num_keys = 3;
+  const std::string key_prefix("key");
+  const std::string value_prefix("value");
+
+  std::vector<std::string> keys;
+  keys.reserve(num_keys);
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    keys.emplace_back(key_prefix + std::to_string(i));
+  }
+
+  // Write three keys with one Put each followed by 1, 2, and 3
+  // Merge operations respectively.
+  constexpr size_t total_merges = num_keys * (num_keys + 1) / 2;
+
+  std::vector<ManagedSnapshot> snapshots;
+  snapshots.reserve(total_merges);
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    const std::string suffix = std::to_string(i);
+    const std::string value = value_prefix + suffix;
+
+    ASSERT_OK(db->Put(WriteOptions(), keys[i], value));
+
+    for (size_t j = 0; j <= i; ++j) {
+      // Take a snapshot before each Merge so they are preserved and not
+      // collapsed during flush.
+      snapshots.emplace_back(db);
+
+      ASSERT_OK(db->Merge(WriteOptions(), keys[i], value + std::to_string(j)));
+    }
+  }
+
+  auto verify = [&]() {
+    get_perf_context()->Reset();
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      // Get
+      {
+        PinnableSlice result;
+        ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), keys[i],
+                          &result));
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count, i + 1);
+
+        get_perf_context()->Reset();
+      }
+
+      // GetEntity
+      {
+        PinnableWideColumns result;
+        ASSERT_OK(db->GetEntity(ReadOptions(), db->DefaultColumnFamily(),
+                                keys[i], &result));
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count, i + 1);
+
+        get_perf_context()->Reset();
+      }
+    }
+
+    {
+      std::vector<Slice> key_slices;
+      key_slices.reserve(num_keys);
+
+      for (size_t i = 0; i < num_keys; ++i) {
+        key_slices.emplace_back(keys[i]);
+      }
+
+      // MultiGet
+      {
+        std::vector<PinnableSlice> results(num_keys);
+        std::vector<Status> statuses(num_keys);
+
+        db->MultiGet(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                     key_slices.data(), results.data(), statuses.data());
+
+        for (size_t i = 0; i < num_keys; ++i) {
+          ASSERT_OK(statuses[i]);
+        }
+
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count,
+                  total_merges);
+
+        get_perf_context()->Reset();
+      }
+
+      // MultiGetEntity
+      {
+        std::vector<PinnableWideColumns> results(num_keys);
+        std::vector<Status> statuses(num_keys);
+
+        db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                           key_slices.data(), results.data(), statuses.data());
+
+        for (size_t i = 0; i < num_keys; ++i) {
+          ASSERT_OK(statuses[i]);
+        }
+
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count,
+                  total_merges);
+
+        get_perf_context()->Reset();
+      }
+    }
+
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions()));
+
+    // Forward iteration
+    {
+      size_t i = 0;
+
+      for (it->SeekToFirst(); it->Valid(); it->Next(), ++i) {
+        ASSERT_EQ(it->key(), keys[i]);
+        ASSERT_EQ(get_perf_context()->internal_merge_count, i + 1);
+
+        get_perf_context()->Reset();
+      }
+      ASSERT_OK(it->status());
+    }
+
+    // Backward iteration
+    {
+      size_t i = num_keys - 1;
+
+      for (it->SeekToLast(); it->Valid(); it->Prev(), --i) {
+        ASSERT_EQ(it->key(), keys[i]);
+        ASSERT_EQ(get_perf_context()->internal_merge_count, i + 1);
+
+        get_perf_context()->Reset();
+      }
+      ASSERT_OK(it->status());
+    }
+  };
+
+  // Verify counters when reading from memtable
+  verify();
+
+  // Verify counters when reading from table files
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  verify();
+}
+
+TEST_F(PerfContextTest, WriteMemtableTimePerfLevel) {
+  // Write and check time
+  ASSERT_OK(DestroyDB(kDbName, Options()));
+  std::shared_ptr<DB> db = OpenDb();
+
+  SetPerfLevel(PerfLevel::kEnableWait);
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "foo1", "bar"));
+  ASSERT_GT(perf_context.write_memtable_time, 0);
+
+  SetPerfLevel(PerfLevel::kEnableCount);
+  perf_ctx->Reset();
+  ASSERT_OK(db->Put(WriteOptions(), "foo0", "bar"));
+  ASSERT_EQ(perf_context.write_memtable_time, 0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

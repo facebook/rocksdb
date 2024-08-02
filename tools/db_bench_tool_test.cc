@@ -87,9 +87,13 @@ class DBBenchTest : public testing::Test {
 
   void VerifyOptions(const Options& opt) {
     DBOptions loaded_db_opts;
+    ConfigOptions config_opts;
+    config_opts.ignore_unknown_options = false;
+    config_opts.input_strings_escaped = true;
+    config_opts.env = Env::Default();
     std::vector<ColumnFamilyDescriptor> cf_descs;
-    ASSERT_OK(LoadLatestOptions(db_path_, Env::Default(), &loaded_db_opts,
-                                &cf_descs));
+    ASSERT_OK(
+        LoadLatestOptions(config_opts, db_path_, &loaded_db_opts, &cf_descs));
 
     ConfigOptions exact;
     exact.input_strings_escaped = false;
@@ -126,7 +130,7 @@ namespace {}  // namespace
 TEST_F(DBBenchTest, OptionsFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
   Options opt = GetDefaultOptions();
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
@@ -145,7 +149,7 @@ TEST_F(DBBenchTest, OptionsFileUniversal) {
 
   Options opt = GetDefaultOptions(kCompactionStyleUniversal, 1);
 
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
@@ -162,7 +166,7 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
 
   Options opt = GetDefaultOptions(kCompactionStyleUniversal, 12);
 
-  ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
@@ -302,9 +306,13 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
   ASSERT_OK(writable->Close());
 
   DBOptions db_opt;
+  ConfigOptions config_opt;
+  config_opt.ignore_unknown_options = false;
+  config_opt.input_strings_escaped = true;
+  config_opt.env = Env::Default();
   std::vector<ColumnFamilyDescriptor> cf_descs;
-  ASSERT_OK(LoadOptionsFromFile(kOptionsFileName, Env::Default(), &db_opt,
-                                &cf_descs));
+  ASSERT_OK(
+      LoadOptionsFromFile(config_opt, kOptionsFileName, &db_opt, &cf_descs));
   Options opt(db_opt, cf_descs[0].options);
   opt.create_if_missing = true;
 

@@ -21,7 +21,6 @@ namespace ROCKSDB_NAMESPACE {
 class FileSystem;
 class SystemClock;
 
-#ifndef ROCKSDB_LITE
 // Rolls the log file by size and/or time
 class AutoRollLogger : public Logger {
  public:
@@ -37,19 +36,18 @@ class AutoRollLogger : public Logger {
 
   // Write a header entry to the log. All header information will be written
   // again every time the log rolls over.
-  virtual void LogHeader(const char* format, va_list ap) override;
+  void LogHeader(const char* format, va_list ap) override;
 
   // check if the logger has encountered any problem.
   Status GetStatus() { return status_; }
 
   size_t GetLogFileSize() const override {
-    if (!logger_) {
-      return 0;
-    }
-
     std::shared_ptr<Logger> logger;
     {
       MutexLock l(&mutex_);
+      if (!logger_) {
+        return 0;
+      }
       // pin down the current logger_ instance before releasing the mutex.
       logger = logger_;
     }
@@ -107,7 +105,7 @@ class AutoRollLogger : public Logger {
 
  protected:
   // Implementation of Close()
-  virtual Status CloseImpl() override {
+  Status CloseImpl() override {
     if (logger_) {
       return logger_->Close();
     } else {
@@ -158,7 +156,6 @@ class AutoRollLogger : public Logger {
   IODebugContext io_context_;
   mutable port::Mutex mutex_;
 };
-#endif  // !ROCKSDB_LITE
 
 // Facade to craete logger automatically
 Status CreateLoggerFromOptions(const std::string& dbname,

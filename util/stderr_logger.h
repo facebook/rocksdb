@@ -17,7 +17,11 @@ namespace ROCKSDB_NAMESPACE {
 class StderrLogger : public Logger {
  public:
   explicit StderrLogger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
-      : Logger(log_level) {}
+      : Logger(log_level), log_prefix(nullptr), log_prefix_len(0) {}
+  explicit StderrLogger(const InfoLogLevel log_level, const std::string prefix)
+      : Logger(log_level),
+        log_prefix(strdup(prefix.c_str())),
+        log_prefix_len(strlen(log_prefix)) {}
 
   ~StderrLogger() override;
 
@@ -25,7 +29,13 @@ class StderrLogger : public Logger {
   // a subset of them.
   using Logger::Logv;
 
-  virtual void Logv(const char* format, va_list ap) override;
+  void Logv(const char* format, va_list ap) override;
+
+ private:
+  // This prefix will be appended after the time/thread info of every log
+  const char* log_prefix;
+  // The length of the log_prefix
+  size_t log_prefix_len;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

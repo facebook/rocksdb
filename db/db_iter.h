@@ -118,7 +118,7 @@ class DBIter final : public Iterator {
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
-         ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+         ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
          bool expose_blob_index);
 
   // No copying allowed
@@ -126,6 +126,10 @@ class DBIter final : public Iterator {
   void operator=(const DBIter&) = delete;
 
   ~DBIter() override {
+    ThreadStatus::OperationType cur_op_type =
+        ThreadStatusUtil::GetThreadOperation();
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
@@ -134,6 +138,7 @@ class DBIter final : public Iterator {
     ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     iter_.DeleteIter(arena_mode_);
+    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
   void SetIter(InternalIterator* iter) {
     assert(iter_.iter() == nullptr);
@@ -209,6 +214,7 @@ class DBIter final : public Iterator {
     if (read_callback_) {
       read_callback_->Refresh(s);
     }
+    iter_.SetRangeDelReadSeqno(s);
   }
   void set_valid(bool v) { valid_ = v; }
 
@@ -312,14 +318,36 @@ class DBIter final : public Iterator {
 
   bool SetValueAndColumnsFromEntity(Slice slice);
 
+  bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
+                                         ValueType result_type);
+
   void ResetValueAndColumns() {
     value_.clear();
     wide_columns_.clear();
   }
 
+  // The following methods perform the actual merge operation for the
+  // no base value/plain base value/wide-column base value cases.
   // If user-defined timestamp is enabled, `user_key` includes timestamp.
-  bool Merge(const Slice* val, const Slice& user_key);
-  bool MergeEntity(const Slice& entity, const Slice& user_key);
+  bool MergeWithNoBaseValue(const Slice& user_key);
+  bool MergeWithPlainBaseValue(const Slice& value, const Slice& user_key);
+  bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
+
+  bool PrepareValue() {
+    if (!iter_.PrepareValue()) {
+      assert(!iter_.status().ok());
+      valid_ = false;
+      return false;
+    }
+    // ikey_ could change as BlockBasedTableIterator does Block cache
+    // lookup and index_iter_ could point to different block resulting
+    // in ikey_ pointing to wrong key. So ikey_ needs to be updated in
+    // case of Seek/Next calls to point to right key again.
+    if (!ParseKey(&ikey_)) {
+      return false;
+    }
+    return true;
+  }
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;
@@ -339,6 +367,12 @@ class DBIter final : public Iterator {
   // and should not be used across functions. Reusing this object can reduce
   // overhead of calling construction of the function if creating it each time.
   ParsedInternalKey ikey_;
+
+  // The approximate write time for the entry. It is deduced from the entry's
+  // sequence number if the seqno to time mapping is available. For a
+  // kTypeValuePreferredSeqno entry, this is the write time specified by the
+  // user.
+  uint64_t saved_write_unix_time_;
   std::string saved_value_;
   Slice pinned_value_;
   // for prefix seek mode to support prev()
@@ -384,37 +418,27 @@ class DBIter final : public Iterator {
   bool expose_blob_index_;
   bool is_blob_;
   bool arena_mode_;
+  const Env::IOActivity io_activity_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
-  DBImpl* db_impl_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
-  ColumnFamilyData* cfd_;
+  ColumnFamilyHandleImpl* cfh_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
-
-  // Used only if timestamp_lb_ is not nullptr.
-  std::string saved_ikey_;
 };
 
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
-extern Iterator* NewDBIterator(
+Iterator* NewDBIterator(
     Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options,
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const Version* version, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool expose_blob_index = false);
+    ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false);
 
 }  // namespace ROCKSDB_NAMESPACE

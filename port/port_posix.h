@@ -13,7 +13,7 @@
 
 #include <thread>
 
-#include "rocksdb/options.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 // size_t printf formatting named in the manner of C99 standard formatting
@@ -109,9 +109,9 @@ class Mutex {
 
   bool TryLock();
 
-  // this will assert if the mutex is not locked
-  // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld();
+  // This will fail assertion if the mutex is not locked.
+  // It does NOT verify that mutex is held by a calling thread.
+  void AssertHeld() const;
 
   // Also implement std Lockable
   inline void lock() { Lock(); }
@@ -139,7 +139,7 @@ class RWMutex {
   void WriteLock();
   void ReadUnlock();
   void WriteUnlock();
-  void AssertHeld() {}
+  void AssertHeld() const {}
 
  private:
   pthread_rwlock_t mu_;  // the underlying platform mutex
@@ -149,6 +149,9 @@ class CondVar {
  public:
   explicit CondVar(Mutex* mu);
   ~CondVar();
+
+  Mutex* GetMutex() const { return mu_; }
+
   void Wait();
   // Timed condition wait.  Returns true if timeout occurred.
   bool TimedWait(uint64_t abs_time_us);
@@ -169,16 +172,18 @@ static inline void AsmVolatilePause() {
   asm volatile("isb");
 #elif defined(__powerpc64__)
   asm volatile("or 27,27,27");
+#elif defined(__loongarch64)
+  asm volatile("dbar 0");
 #endif
   // it's okay for other platforms to be no-ops
 }
 
 // Returns -1 if not available on this platform
-extern int PhysicalCoreID();
+int PhysicalCoreID();
 
 using OnceType = pthread_once_t;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
-extern void InitOnce(OnceType* once, void (*initializer)());
+void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
 // To test behavior with non-native cache line size, e.g. for
@@ -206,9 +211,9 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 static_assert((CACHE_LINE_SIZE & (CACHE_LINE_SIZE - 1)) == 0,
               "Cache line size must be a power of 2 number of bytes");
 
-extern void* cacheline_aligned_alloc(size_t size);
+void* cacheline_aligned_alloc(size_t size);
 
-extern void cacheline_aligned_free(void* memblock);
+void cacheline_aligned_free(void* memblock);
 
 #if defined(__aarch64__)
 //  __builtin_prefetch(..., 1) turns into a prefetch into prfm pldl3keep. On
@@ -221,15 +226,15 @@ extern void cacheline_aligned_free(void* memblock);
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 #endif
 
-extern void Crash(const std::string& srcfile, int srcline);
+void Crash(const std::string& srcfile, int srcline);
 
-extern int GetMaxOpenFiles();
+int GetMaxOpenFiles();
 
 extern const size_t kPageSize;
 
 using ThreadId = pid_t;
 
-extern void SetCpuPriority(ThreadId id, CpuPriority priority);
+void SetCpuPriority(ThreadId id, CpuPriority priority);
 
 int64_t GetProcessID();
 

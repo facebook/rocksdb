@@ -145,7 +145,7 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
     return jresults;
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -154,7 +154,7 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(JNIEnv* env, jclass, jlong jopt_handle,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_TtlDB_disposeInternal(JNIEnv*, jobject, jlong jhandle) {
+void Java_org_rocksdb_TtlDB_disposeInternalJni(JNIEnv*, jclass, jlong jhandle) {
   auto* ttl_db = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jhandle);
   assert(ttl_db != nullptr);
   delete ttl_db;
@@ -181,7 +181,7 @@ void Java_org_rocksdb_TtlDB_closeDatabase(JNIEnv* /* env */, jclass,
  * Method:    createColumnFamilyWithTtl
  * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;[BJI)J;
  */
-jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(JNIEnv* env, jobject,
+jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(JNIEnv* env, jclass,
                                                        jlong jdb_handle,
                                                        jbyteArray jcolumn_name,
                                                        jlong jcolumn_options,

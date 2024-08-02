@@ -150,7 +150,7 @@ class ConditionalFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  explicit ChangeFilter() {}
+  explicit ChangeFilter() = default;
 
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
               std::string* new_value, bool* value_changed) const override {
@@ -166,9 +166,12 @@ class ChangeFilter : public CompactionFilter {
 class KeepFilterFactory : public CompactionFilterFactory {
  public:
   explicit KeepFilterFactory(bool check_context = false,
-                             bool check_context_cf_id = false)
+                             bool check_context_cf_id = false,
+                             bool check_context_input_table_properties = false)
       : check_context_(check_context),
         check_context_cf_id_(check_context_cf_id),
+        check_context_input_table_properties_(
+            check_context_input_table_properties),
         compaction_filter_created_(false) {}
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
@@ -176,6 +179,11 @@ class KeepFilterFactory : public CompactionFilterFactory {
     if (check_context_) {
       EXPECT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
       EXPECT_EQ(expect_manual_compaction_.load(), context.is_manual_compaction);
+      EXPECT_EQ(expect_input_start_level_.load(), context.input_start_level);
+    }
+    if (check_context_input_table_properties_) {
+      EXPECT_TRUE(expect_input_table_properties_ ==
+                  context.input_table_properties);
     }
     if (check_context_cf_id_) {
       EXPECT_EQ(expect_cf_id_.load(), context.column_family_id);
@@ -189,9 +197,15 @@ class KeepFilterFactory : public CompactionFilterFactory {
   const char* Name() const override { return "KeepFilterFactory"; }
   bool check_context_;
   bool check_context_cf_id_;
+  // `check_context_input_table_properties_` can be true only when access to
+  // `expect_input_table_properties_` is syncronized since we can't have
+  // std::atomic<TablePropertiesCollection> unfortunately
+  bool check_context_input_table_properties_;
   std::atomic_bool expect_full_compaction_;
   std::atomic_bool expect_manual_compaction_;
   std::atomic<uint32_t> expect_cf_id_;
+  std::atomic<int> expect_input_start_level_;
+  TablePropertiesCollection expect_input_table_properties_;
   bool compaction_filter_created_;
 };
 
@@ -275,7 +289,7 @@ class ConditionalFilterFactory : public CompactionFilterFactory {
 
 class ChangeFilterFactory : public CompactionFilterFactory {
  public:
-  explicit ChangeFilterFactory() {}
+  explicit ChangeFilterFactory() = default;
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
@@ -285,7 +299,6 @@ class ChangeFilterFactory : public CompactionFilterFactory {
   const char* Name() const override { return "ChangeFilterFactory"; }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Options options = CurrentOptions();
   options.max_open_files = -1;
@@ -329,7 +342,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
@@ -421,7 +434,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
@@ -469,7 +482,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 
   delete itr;
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, CompactionFilterFlush) {
   // Tests a `CompactionFilterFactory` that filters when table file is created
@@ -655,9 +667,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   ASSERT_EQ(newvalue, four);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
-  KeepFilterFactory* filter = new KeepFilterFactory(true, true);
+  KeepFilterFactory* filter = new KeepFilterFactory(
+      true /* check_context */, true /* check_context_cf_id */,
+      true /* check_context_input_table_properties */);
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
@@ -665,8 +678,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 8;
   Reopen(options);
+  const int kNumFiles = 3;
   int num_keys_per_file = 400;
-  for (int j = 0; j < 3; j++) {
+  for (int j = 0; j < kNumFiles; j++) {
     // Write several keys.
     const std::string value(10, 'x');
     for (int i = 0; i < num_keys_per_file; i++) {
@@ -686,6 +700,11 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   filter->expect_manual_compaction_.store(true);
   filter->expect_full_compaction_.store(true);
   filter->expect_cf_id_.store(0);
+  filter->expect_input_start_level_.store(0);
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(
+      &filter->expect_input_table_properties_));
+  ASSERT_TRUE(filter->expect_input_table_properties_.size() == kNumFiles);
+
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(cfilter_count, 700);
   ASSERT_EQ(NumSortedRuns(0), 1);
@@ -698,8 +717,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     Arena arena;
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(read_options, &arena,
-                                                           kMaxSequenceNumber));
+    ScopedArenaPtr<InternalIterator> iter(dbfull()->NewInternalIterator(
+        read_options, &arena, kMaxSequenceNumber));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -715,7 +734,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(count, 0);
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   KeepFilterFactory* filter = new KeepFilterFactory(false, true);
@@ -746,8 +764,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   ASSERT_TRUE(filter->compaction_filter_created());
 }
 
-#ifndef ROCKSDB_LITE
-// Compaction filters aplies to all records, regardless snapshots.
+// Compaction filters applies to all records, regardless snapshots.
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   std::string five = std::to_string(5);
   Options options = CurrentOptions();
@@ -788,6 +805,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
       count++;
       iter->Next();
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 6);
     read_options.snapshot = nullptr;
     std::unique_ptr<Iterator> iter1(db_->NewIterator(read_options));
@@ -798,6 +816,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
       count++;
       iter1->Next();
     }
+    ASSERT_OK(iter1->status());
     // We have deleted 10 keys from 40 using the compaction filter
     //  Keys 6-9 before the snapshot and 100-105 after the snapshot
     ASSERT_EQ(count, 30);
@@ -807,7 +826,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   // removed.
   db_->ReleaseSnapshot(snapshot);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, SkipUntil) {
   Options options = CurrentOptions();

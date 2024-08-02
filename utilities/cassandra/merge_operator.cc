@@ -5,8 +5,7 @@
 
 #include "merge_operator.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <memory>
 
 #include "rocksdb/merge_operator.h"
@@ -15,11 +14,9 @@
 #include "utilities/cassandra/format.h"
 #include "utilities/merge_operators.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 static std::unordered_map<std::string, OptionTypeInfo>
     merge_operator_options_info = {
-#ifndef ROCKSDB_LITE
         {"gc_grace_period_in_seconds",
          {offsetof(struct CassandraOptions, gc_grace_period_in_seconds),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
@@ -27,7 +24,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"operands_limit",
          {offsetof(struct CassandraOptions, operands_limit), OptionType::kSizeT,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 
 CassandraValueMergeOperator::CassandraValueMergeOperator(
@@ -77,6 +73,4 @@ bool CassandraValueMergeOperator::PartialMergeMulti(
   return true;
 }
 
-}  // namespace cassandra
-
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra

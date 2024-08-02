@@ -7,15 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/rate_limiter.h"
-
 #include <algorithm>
 
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
@@ -38,23 +37,23 @@ size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
 // Pending request
 struct GenericRateLimiter::Req {
   explicit Req(int64_t _bytes, port::Mutex* _mu)
-      : request_bytes(_bytes), bytes(_bytes), cv(_mu), granted(false) {}
+      : request_bytes(_bytes), bytes(_bytes), cv(_mu) {}
   int64_t request_bytes;
   int64_t bytes;
   port::CondVar cv;
-  bool granted;
 };
 
 GenericRateLimiter::GenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
     RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock,
-    bool auto_tuned)
+    bool auto_tuned, int64_t single_burst_bytes)
     : RateLimiter(mode),
       refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
                                      : rate_bytes_per_sec),
       refill_bytes_per_period_(
           CalculateRefillBytesPerPeriodLocked(rate_bytes_per_sec_)),
+      raw_single_burst_bytes_(single_burst_bytes),
       clock_(clock),
       stop_(false),
       exit_cv_(&request_mutex_),
@@ -109,9 +108,20 @@ void GenericRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
       std::memory_order_relaxed);
 }
 
+Status GenericRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
+  if (single_burst_bytes < 0) {
+    return Status::InvalidArgument(
+        "`single_burst_bytes` must be greater than or equal to 0");
+  }
+
+  MutexLock g(&request_mutex_);
+  raw_single_burst_bytes_.store(single_burst_bytes, std::memory_order_relaxed);
+  return Status::OK();
+}
+
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
-  assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
+  assert(bytes <= GetSingleBurstBytes());
   bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("GenericRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
@@ -137,12 +147,14 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   ++total_requests_[pri];
 
-  if (available_bytes_ >= bytes) {
-    // Refill thread assigns quota and notifies requests waiting on
-    // the queue under mutex. So if we get here, that means nobody
-    // is waiting?
-    available_bytes_ -= bytes;
-    total_bytes_through_[pri] += bytes;
+  if (available_bytes_ > 0) {
+    int64_t bytes_through = std::min(available_bytes_, bytes);
+    total_bytes_through_[pri] += bytes_through;
+    available_bytes_ -= bytes_through;
+    bytes -= bytes_through;
+  }
+
+  if (bytes == 0) {
     return;
   }
 
@@ -170,7 +182,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         wait_until_refill_pending_ = true;
-        r.cv.TimedWait(wait_until);
+        clock_->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
         TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostTimedWait",
                                  &time_until_refill_us);
         wait_until_refill_pending_ = false;
@@ -179,16 +191,16 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // Whichever thread reaches here first performs duty (2) as described
       // above.
       RefillBytesAndGrantRequestsLocked();
-      if (r.granted) {
-        // If there is any remaining requests, make sure there exists at least
-        // one candidate is awake for future duties by signaling a front request
-        // of a queue.
-        for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
-          std::deque<Req*> queue = queue_[i];
-          if (!queue.empty()) {
-            queue.front()->cv.Signal();
-            break;
-          }
+    }
+    if (r.request_bytes == 0) {
+      // If there is any remaining requests, make sure there exists at least
+      // one candidate is awake for future duties by signaling a front request
+      // of a queue.
+      for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
+        auto& queue = queue_[i];
+        if (!queue.empty()) {
+          queue.front()->cv.Signal();
+          break;
         }
       }
     }
@@ -202,13 +214,13 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         ++num_found;
       }
     }
-    if (r.granted) {
+    if (r.request_bytes == 0) {
       assert(num_found == 0);
     } else {
       assert(num_found == 1);
     }
 #endif  // NDEBUG
-  } while (!stop_ && !r.granted);
+  } while (!stop_ && r.request_bytes > 0);
 
   if (stop_) {
     // It is now in the clean-up of ~GenericRateLimiter().
@@ -265,9 +277,8 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
-  if (available_bytes_ < refill_bytes_per_period) {
-    available_bytes_ += refill_bytes_per_period;
-  }
+  assert(available_bytes_ == 0);
+  available_bytes_ = refill_bytes_per_period;
 
   std::vector<Env::IOPriority> pri_iteration_order =
       GeneratePriorityIterationOrderLocked();
@@ -279,10 +290,13 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
     while (!queue->empty()) {
       auto* next_req = queue->front();
       if (available_bytes_ < next_req->request_bytes) {
-        // Grant partial request_bytes to avoid starvation of requests
-        // that become asking for more bytes than available_bytes_
-        // due to dynamically reduced rate limiter's bytes_per_second that
-        // leads to reduced refill_bytes_per_period hence available_bytes_
+        // Grant partial request_bytes even if request is for more than
+        // `available_bytes_`, which can happen in a few situations:
+        //
+        // - The available bytes were partially consumed by other request(s)
+        // - The rate was dynamically reduced while requests were already
+        //   enqueued
+        // - The burst size was explicitly set to be larger than the refill size
         next_req->request_bytes -= available_bytes_;
         available_bytes_ = 0;
         break;
@@ -292,7 +306,6 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
       total_bytes_through_[current_pri] += next_req->bytes;
       queue->pop_front();
 
-      next_req->granted = true;
       // Quota granted, signal the thread to exit
       next_req->cv.Signal();
     }
@@ -305,9 +318,9 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriodLocked(
       refill_period_us_) {
     // Avoid unexpected result in the overflow case. The result now is still
     // inaccurate but is a number that is large enough.
-    return std::numeric_limits<int64_t>::max() / 1000000;
+    return std::numeric_limits<int64_t>::max() / kMicrosecondsPerSecond;
   } else {
-    return rate_bytes_per_sec * refill_period_us_ / 1000000;
+    return rate_bytes_per_sec * refill_period_us_ / kMicrosecondsPerSecond;
   }
 }
 
@@ -365,13 +378,13 @@ RateLimiter* NewGenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us /* = 100 * 1000 */,
     int32_t fairness /* = 10 */,
     RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */,
-    bool auto_tuned /* = false */) {
+    bool auto_tuned /* = false */, int64_t single_burst_bytes /* = 0 */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
-  std::unique_ptr<RateLimiter> limiter(
-      new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
-                             mode, SystemClock::Default(), auto_tuned));
+  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(
+      rate_bytes_per_sec, refill_period_us, fairness, mode,
+      SystemClock::Default(), auto_tuned, single_burst_bytes));
   return limiter.release();
 }
 

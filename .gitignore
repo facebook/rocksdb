@@ -47,6 +47,9 @@ package/
 unity.a
 tags
 etags
+GPATH
+GRTAGS
+GTAGS
 rocksdb_dump
 rocksdb_undump
 db_test2
@@ -85,6 +88,7 @@ fbcode/
 fbcode
 buckifier/*.pyc
 buckifier/__pycache__
+.arcconfig
 
 compile_commands.json
 clang-format-diff.py
@@ -95,3 +99,5 @@ fuzz/crash-*
 
 cmake-build-*
 third-party/folly/
+.cache
+*.sublime-*

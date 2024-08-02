@@ -18,8 +18,17 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+std::string ValueWithWriteTime(std::string value, uint64_t write_time) {
+  std::string result;
+  result = value;
+  PutFixed64(&result, write_time);
+  return result;
+}
+}  // namespace
 
 class MemTableListTest : public testing::Test {
  public:
@@ -43,6 +52,9 @@ class MemTableListTest : public testing::Test {
       // Open DB only with default column family
       ColumnFamilyOptions cf_options;
       std::vector<ColumnFamilyDescriptor> cf_descs;
+      if (udt_enabled_) {
+        cf_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+      }
       cf_descs.emplace_back(kDefaultColumnFamilyName, cf_options);
       Status s = DB::Open(options, dbname, cf_descs, &handles, &db);
       EXPECT_OK(s);
@@ -67,11 +79,9 @@ class MemTableListTest : public testing::Test {
   ~MemTableListTest() override {
     if (db) {
       std::vector<ColumnFamilyDescriptor> cf_descs(handles.size());
-#ifndef ROCKSDB_LITE
       for (int i = 0; i != static_cast<int>(handles.size()); ++i) {
         EXPECT_OK(handles[i]->GetDescriptor(&cf_descs[i]));
       }
-#endif  // !ROCKSDB_LITE
       for (auto h : handles) {
         if (h) {
           EXPECT_OK(db->DestroyColumnFamilyHandle(h));
@@ -105,8 +115,9 @@ class MemTableListTest : public testing::Test {
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
-                        /*io_tracer=*/nullptr, /*db_id*/ "",
-                        /*db_session_id*/ "");
+                        /*io_tracer=*/nullptr, /*db_id=*/"",
+                        /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+                        /*error_handler=*/nullptr, /*read_only=*/false);
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -156,8 +167,9 @@ class MemTableListTest : public testing::Test {
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
-                        /*io_tracer=*/nullptr, /*db_id*/ "",
-                        /*db_session_id*/ "");
+                        /*io_tracer=*/nullptr, /*db_id=*/"",
+                        /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+                        /*error_handler=*/nullptr, /*read_only=*/false);
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -202,6 +214,9 @@ class MemTableListTest : public testing::Test {
         nullptr /* prep_tracker */, &mutex, file_meta_ptrs,
         committed_flush_jobs_info, to_delete, nullptr, &log_buffer);
   }
+
+ protected:
+  bool udt_enabled_ = false;
 };
 
 TEST_F(MemTableListTest, Empty) {
@@ -249,6 +264,7 @@ TEST_F(MemTableListTest, GetTest) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
   ImmutableOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
@@ -264,6 +280,9 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", "value1",
                      nullptr /* kv_prot_info */));
   ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2",
+                     nullptr /* kv_prot_info */));
+  ASSERT_OK(mem->Add(++seq, kTypeValuePreferredSeqno, "key3",
+                     ValueWithWriteTime("value3.1", 20),
                      nullptr /* kv_prot_info */));
 
   // Fetch the newly written keys
@@ -291,7 +310,15 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value2.2");
 
-  ASSERT_EQ(4, mem->num_entries());
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key3", seq), &value, /*columns*/ nullptr,
+                   /*timestamp*/ nullptr, &s, &merge_context,
+                   &max_covering_tombstone_seq, ReadOptions(),
+                   false /* immutable_memtable */);
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value3.1");
+
+  ASSERT_EQ(5, mem->num_entries());
   ASSERT_EQ(1, mem->num_deletes());
 
   // Add memtable to list
@@ -311,6 +338,8 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_OK(
       mem2->Add(++seq, kTypeDeletion, "key1", "", nullptr /* kv_prot_info */));
   ASSERT_OK(mem2->Add(++seq, kTypeValue, "key2", "value2.3",
+                      nullptr /* kv_prot_info */));
+  ASSERT_OK(mem2->Add(++seq, kTypeMerge, "key3", "value3.2",
                       nullptr /* kv_prot_info */));
 
   // Add second memtable to list
@@ -348,6 +377,14 @@ TEST_F(MemTableListTest, GetTest) {
                               /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, ReadOptions());
   ASSERT_FALSE(found);
+
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key3", seq), &value, /*columns=*/nullptr,
+                          /*timestamp=*/nullptr, &s, &merge_context,
+                          &max_covering_tombstone_seq, ReadOptions());
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value3.1,value3.2");
 
   ASSERT_EQ(2, list.NumNotFlushed());
 
@@ -678,7 +715,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Revert flush
-  list.RollbackMemtableFlush(to_flush, 0);
+  list.RollbackMemtableFlush(to_flush, false);
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
   to_flush.clear();
@@ -728,7 +765,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Rollback first pick of tables
-  list.RollbackMemtableFlush(to_flush, 0);
+  list.RollbackMemtableFlush(to_flush, false);
   ASSERT_TRUE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
   to_flush.clear();
@@ -829,7 +866,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // Add another table
   list.Add(tables[5], &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
-  ASSERT_EQ(5, list.GetLatestMemTableID());
+  ASSERT_EQ(5, list.GetLatestMemTableID(false /* for_atomic_flush */));
   memtable_id = 4;
   // Pick tables to flush. The tables to pick must have ID smaller than or
   // equal to 4. Therefore, no table will be selected in this case.
@@ -870,7 +907,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_delete.clear();
 }
 
-TEST_F(MemTableListTest, EmptyAtomicFlusTest) {
+TEST_F(MemTableListTest, EmptyAtomicFlushTest) {
   autovector<MemTableList*> lists;
   autovector<uint32_t> cf_ids;
   autovector<const MutableCFOptions*> options_list;
@@ -882,7 +919,7 @@ TEST_F(MemTableListTest, EmptyAtomicFlusTest) {
   ASSERT_TRUE(to_delete.empty());
 }
 
-TEST_F(MemTableListTest, AtomicFlusTest) {
+TEST_F(MemTableListTest, AtomicFlushTest) {
   const int num_cfs = 3;
   const int num_tables_per_cf = 2;
   SequenceNumber seq = 1;
@@ -1028,6 +1065,86 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
     ASSERT_EQ(m, m->Unref());
     delete m;
   }
+}
+
+class MemTableListWithTimestampTest : public MemTableListTest {
+ public:
+  MemTableListWithTimestampTest() : MemTableListTest() {}
+
+  void SetUp() override { udt_enabled_ = true; }
+};
+
+TEST_F(MemTableListWithTimestampTest, GetTableNewestUDT) {
+  const int num_tables = 3;
+  const int num_entries = 5;
+  SequenceNumber seq = 1;
+
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  options.persist_user_defined_timestamps = false;
+  ImmutableOptions ioptions(options);
+  const Comparator* ucmp = test::BytewiseComparatorWithU64TsWrapper();
+  InternalKeyComparator cmp(ucmp);
+  WriteBufferManager wb(options.db_write_buffer_size);
+
+  // Create MemTableList
+  int min_write_buffer_number_to_merge = 1;
+  int max_write_buffer_number_to_maintain = 4;
+  int64_t max_write_buffer_size_to_maintain =
+      4 * static_cast<int>(options.write_buffer_size);
+  MemTableList list(min_write_buffer_number_to_merge,
+                    max_write_buffer_number_to_maintain,
+                    max_write_buffer_size_to_maintain);
+
+  // Create some MemTables
+  uint64_t memtable_id = 0;
+  std::vector<MemTable*> tables;
+  MutableCFOptions mutable_cf_options(options);
+  uint64_t current_ts = 0;
+  autovector<MemTable*> to_delete;
+  std::vector<std::string> newest_udts;
+
+  std::string key;
+  std::string write_ts;
+  for (int i = 0; i < num_tables; i++) {
+    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
+                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    mem->SetID(memtable_id++);
+    mem->Ref();
+
+    std::string value;
+    MergeContext merge_context;
+
+    for (int j = 0; j < num_entries; j++) {
+      key = "key1";
+      write_ts.clear();
+      PutFixed64(&write_ts, current_ts);
+      key.append(write_ts);
+      ASSERT_OK(mem->Add(++seq, kTypeValue, key, std::to_string(i),
+                         nullptr /* kv_prot_info */));
+      current_ts++;
+    }
+
+    tables.push_back(mem);
+    list.Add(tables.back(), &to_delete);
+    newest_udts.push_back(write_ts);
+  }
+
+  ASSERT_EQ(num_tables, list.NumNotFlushed());
+  ASSERT_TRUE(list.IsFlushPending());
+  std::vector<Slice> tables_newest_udts = list.GetTablesNewestUDT(num_tables);
+  ASSERT_EQ(newest_udts.size(), tables_newest_udts.size());
+  for (size_t i = 0; i < tables_newest_udts.size(); i++) {
+    const Slice& table_newest_udt = tables_newest_udts[i];
+    const Slice expected_newest_udt = newest_udts[i];
+    ASSERT_EQ(expected_newest_udt, table_newest_udt);
+  }
+
+  list.current()->Unref(&to_delete);
+  for (MemTable* m : to_delete) {
+    delete m;
+  }
+  to_delete.clear();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

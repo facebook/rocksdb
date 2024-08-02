@@ -37,8 +37,9 @@ jlong Java_org_rocksdb_BloomFilter_createNewBloomFilter(JNIEnv* /*env*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_Filter_disposeInternal(JNIEnv* /*env*/, jobject /*jobj*/,
-                                             jlong jhandle) {
+void Java_org_rocksdb_Filter_disposeInternalJni(JNIEnv* /*env*/,
+                                                jclass /*jcls*/,
+                                                jlong jhandle) {
   auto* handle =
       reinterpret_cast<std::shared_ptr<const ROCKSDB_NAMESPACE::FilterPolicy>*>(
           jhandle);

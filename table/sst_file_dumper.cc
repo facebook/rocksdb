@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "table/sst_file_dumper.h"
 
@@ -17,6 +16,8 @@
 
 #include "db/blob/blob_index.h"
 #include "db/memtable.h"
+#include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "options/cf_options.h"
 #include "port/port.h"
@@ -37,6 +38,7 @@
 #include "table/table_reader.h"
 #include "util/compression.h"
 #include "util/random.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -56,6 +58,7 @@ SstFileDumper::SstFileDumper(const Options& options,
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       read_options_(verify_checksum, false),
       internal_comparator_(BytewiseComparator()) {
   read_options_.readahead_size = readahead_size;
@@ -64,11 +67,6 @@ SstFileDumper::SstFileDumper(const Options& options,
   }
   init_result_ = GetTableReader(file_name_);
 }
-
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
-extern const uint64_t kLegacyPlainTableMagicNumber;
 
 const char* testFileName = "test_file_name";
 
@@ -88,20 +86,21 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   fopts.temperature = file_temp_;
   Status s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   if (s.ok()) {
+    // check empty file
+    // if true, skip further processing of this file
     s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
-  }
-
-  // check empty file
-  // if true, skip further processing of this file
-  if (file_size == 0) {
-    return Status::Aborted(file_path, "Empty file");
+    if (s.ok()) {
+      if (file_size == 0) {
+        return Status::Aborted(file_path, "Empty file");
+      }
+    }
   }
 
   file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
-  FilePrefetchBuffer prefetch_buffer(
-      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
-      false /* track_min_offset */);
+  FilePrefetchBuffer prefetch_buffer(ReadaheadParams(),
+                                     !fopts.use_mmap_reads /* enable */,
+                                     false /* track_min_offset */);
   if (s.ok()) {
     const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
     uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)
@@ -110,8 +109,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     uint64_t prefetch_off = file_size - prefetch_size;
     IOOptions opts;
     s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
-                                 static_cast<size_t>(prefetch_size),
-                                 Env::IO_TOTAL /* rate_limiter_priority */);
+                                 static_cast<size_t>(prefetch_size));
 
     s = ReadFooterFromFile(opts, file_.get(), *fs, &prefetch_buffer, file_size,
                            &footer);
@@ -122,8 +120,15 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 
   if (s.ok()) {
     if (magic_number == kPlainTableMagicNumber ||
-        magic_number == kLegacyPlainTableMagicNumber) {
+        magic_number == kLegacyPlainTableMagicNumber ||
+        magic_number == kCuckooTableMagicNumber) {
       soptions_.use_mmap_reads = true;
+      fopts.use_mmap_reads = soptions_.use_mmap_reads;
+
+      if (magic_number == kCuckooTableMagicNumber) {
+        fopts = soptions_;
+        fopts.temperature = file_temp_;
+      }
 
       fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
@@ -166,10 +171,17 @@ Status SstFileDumper::NewTableReader(
     const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
-  auto t_opt =
-      TableReaderOptions(ioptions_, moptions_.prefix_extractor, soptions_,
-                         internal_comparator_, false /* skip_filters */,
-                         false /* imortal */, true /* force_direct_prefetch */);
+  auto t_opt = TableReaderOptions(
+      ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
+      0 /* block_protection_bytes_per_key */, false /* skip_filters */,
+      false /* immortal */, true /* force_direct_prefetch */, -1 /* level */,
+      nullptr /* block_cache_tracer */, 0 /* max_file_size_for_l0_meta_pin */,
+      "" /* cur_db_session_id */, 0 /* cur_file_num */, {} /* unique_id */,
+      0 /* largest_seqno */, 0 /* tail_size */,
+      table_properties_ == nullptr
+          ? true
+          : static_cast<bool>(
+                table_properties_->user_defined_timestamps_persisted));
   // Allow open file with global sequence number for backward compatibility.
   t_opt.largest_seqno = kMaxSequenceNumber;
 
@@ -188,6 +200,7 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
+  assert(read_options_.verify_checksums);
   // We could pass specific readahead setting into read options if needed.
   return table_reader_->VerifyChecksum(read_options_,
                                        TableReaderCaller::kSSTDumpTool);
@@ -285,14 +298,18 @@ Status SstFileDumper::ShowCompressionSize(
   const ImmutableOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
+  // TODO: plumb Env::IOActivity, Env::IOPriority
+  const ReadOptions read_options;
+  const WriteOptions write_options;
   ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
-  IntTblPropCollectorFactories block_based_table_factories;
+  InternalTblPropCollFactories block_based_table_factories;
 
   std::string column_family_name;
   int unknown_level = -1;
+
   TableBuilderOptions tb_opts(
-      imoptions, moptions, ikc, &block_based_table_factories, compress_type,
-      compress_opt,
+      imoptions, moptions, read_options, write_options, ikc,
+      &block_based_table_factories, compress_type, compress_opt,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
@@ -316,7 +333,8 @@ Status SstFileDumper::ShowCompressionSize(
   const uint64_t compressed_blocks =
       opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
   const uint64_t not_compressed_blocks =
-      opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
+      opts.statistics->getAndResetTickerCount(
+          NUMBER_BLOCK_COMPRESSION_REJECTED);
   // When the option enable_index_compression is true,
   // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
   if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
@@ -357,7 +375,8 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, &table_properties_,
+      file, file_size, table_magic_number, ioptions_, read_options_,
+      &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
   if (!s.ok()) {
     if (!silent_) {
@@ -411,6 +430,13 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
     if (!silent_) {
       fprintf(stdout, "Sst file format: plain table\n");
     }
+  } else if (table_magic_number == kCuckooTableMagicNumber) {
+    ioptions_.allow_mmap_reads = true;
+
+    options_.table_factory.reset(NewCuckooTableFactory());
+    if (!silent_) {
+      fprintf(stdout, "Sst file format: cuckoo table\n");
+    }
   } else {
     char error_msg_buffer[80];
     snprintf(error_msg_buffer, sizeof(error_msg_buffer) - 1,
@@ -432,7 +458,7 @@ Status SstFileDumper::SetOldTableOptions() {
   return Status::OK();
 }
 
-Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
+Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
                                      bool has_from, const std::string& from_key,
                                      bool has_to, const std::string& to_key,
                                      bool use_from_as_prefix) {
@@ -444,10 +470,20 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
       read_options_, moptions_.prefix_extractor.get(),
       /*arena=*/nullptr, /*skip_filters=*/false,
       TableReaderCaller::kSSTDumpTool);
+
+  const Comparator* ucmp = internal_comparator_.user_comparator();
+  size_t ts_sz = ucmp->timestamp_size();
+
+  Slice from_slice = from_key;
+  Slice to_slice = to_key;
+  std::string from_key_buf, to_key_buf;
+  auto [from, to] = MaybeAddTimestampsToRange(
+      has_from ? &from_slice : nullptr, has_to ? &to_slice : nullptr, ts_sz,
+      &from_key_buf, &to_key_buf);
   uint64_t i = 0;
-  if (has_from) {
+  if (from.has_value()) {
     InternalKey ikey;
-    ikey.SetMinPossibleForUserKey(from_key);
+    ikey.SetMinPossibleForUserKey(from.value());
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
@@ -456,7 +492,9 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     Slice key = iter->key();
     Slice value = iter->value();
     ++i;
-    if (read_num > 0 && i > read_num) break;
+    if (read_num_limit > 0 && i > read_num_limit) {
+      break;
+    }
 
     ParsedInternalKey ikey;
     Status pik_status = ParseInternalKey(key, &ikey, true /* log_err_key */);
@@ -471,27 +509,48 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     // If end marker was specified, we stop before it
-    if (has_to && BytewiseComparator()->Compare(ikey.user_key, to_key) >= 0) {
+    if (to.has_value() && ucmp->Compare(ikey.user_key, to.value()) >= 0) {
       break;
     }
 
     if (print_kv) {
       if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
-        fprintf(stdout, "%s => %s\n",
-                ikey.DebugString(true, output_hex_).c_str(),
-                value.ToString(output_hex_).c_str());
+        if (ikey.type == kTypeWideColumnEntity) {
+          std::ostringstream oss;
+          const Status s = WideColumnsHelper::DumpSliceAsWideColumns(
+              iter->value(), oss, output_hex_);
+          if (!s.ok()) {
+            fprintf(stderr, "%s => error deserializing wide columns\n",
+                    ikey.DebugString(true, output_hex_, ucmp).c_str());
+            continue;
+          }
+          fprintf(stdout, "%s => %s\n",
+                  ikey.DebugString(true, output_hex_, ucmp).c_str(),
+                  oss.str().c_str());
+        } else if (ikey.type == kTypeValuePreferredSeqno) {
+          auto [unpacked_value, preferred_seqno] =
+              ParsePackedValueWithSeqno(value);
+          fprintf(stdout, "%s => %s, %llu\n",
+                  ikey.DebugString(true, output_hex_, ucmp).c_str(),
+                  unpacked_value.ToString(output_hex_).c_str(),
+                  static_cast<unsigned long long>(preferred_seqno));
+        } else {
+          fprintf(stdout, "%s => %s\n",
+                  ikey.DebugString(true, output_hex_, ucmp).c_str(),
+                  value.ToString(output_hex_).c_str());
+        }
       } else {
         BlobIndex blob_index;
 
         const Status s = blob_index.DecodeFrom(value);
         if (!s.ok()) {
           fprintf(stderr, "%s => error decoding blob index\n",
-                  ikey.DebugString(true, output_hex_).c_str());
+                  ikey.DebugString(true, output_hex_, ucmp).c_str());
           continue;
         }
 
         fprintf(stdout, "%s => %s\n",
-                ikey.DebugString(true, output_hex_).c_str(),
+                ikey.DebugString(true, output_hex_, ucmp).c_str(),
                 blob_index.DebugString(output_hex_).c_str());
       }
     }
@@ -500,6 +559,31 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   read_num_ += i;
 
   Status ret = iter->status();
+
+  bool verify_num_entries =
+      (read_num_limit == 0 ||
+       read_num_limit == std::numeric_limits<uint64_t>::max()) &&
+      !has_from && !has_to;
+  if (verify_num_entries && ret.ok()) {
+    // Compare the number of entries
+    if (!table_properties_) {
+      fprintf(stderr, "Table properties not available.");
+    } else {
+      // TODO: verify num_range_deletions
+      if (i != table_properties_->num_entries -
+                   table_properties_->num_range_deletions) {
+        std::ostringstream oss;
+        oss << "Table property expects "
+            << table_properties_->num_entries -
+                   table_properties_->num_range_deletions
+            << " entries when excluding range deletions,"
+            << " but scanning the table returned " << std::to_string(i)
+            << " entries";
+        ret = Status::Corruption(oss.str());
+      }
+    }
+  }
+
   delete iter;
   return ret;
 }
@@ -515,5 +599,3 @@ Status SstFileDumper::ReadTableProperties(
   return init_result_;
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

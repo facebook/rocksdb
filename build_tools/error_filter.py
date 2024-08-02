@@ -15,7 +15,7 @@ import re
 import sys
 
 
-class ErrorParserBase(object):
+class ErrorParserBase:
     def parse_error(self, line):
         """Parses a line of test output. If it contains an error, returns a
         formatted message describing the error; otherwise, returns None.

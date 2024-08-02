@@ -15,13 +15,10 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> ma_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
     {"target", OptionTypeInfo::AsCustomSharedPtr<MemoryAllocator>(
                    0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
-#endif  // ROCKSDB_LITE
 };
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinAllocators(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   library.AddFactory<MemoryAllocator>(
@@ -61,7 +58,6 @@ static int RegisterBuiltinAllocators(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 }  // namespace
 
 MemoryAllocatorWrapper::MemoryAllocatorWrapper(
@@ -73,19 +69,13 @@ MemoryAllocatorWrapper::MemoryAllocatorWrapper(
 Status MemoryAllocator::CreateFromString(
     const ConfigOptions& options, const std::string& value,
     std::shared_ptr<MemoryAllocator>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinAllocators(*(ObjectLibrary::Default().get()), "");
   });
-#else
-  if (value == DefaultMemoryAllocator::kClassName()) {
-    result->reset(new DefaultMemoryAllocator());
-    return Status::OK();
-  }
-#endif  // ROCKSDB_LITE
   ConfigOptions copy = options;
   copy.invoke_prepare_options = true;
   return LoadManagedObject<MemoryAllocator>(copy, value, result);
 }
+
 }  // namespace ROCKSDB_NAMESPACE

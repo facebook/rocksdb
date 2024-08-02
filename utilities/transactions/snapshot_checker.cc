@@ -5,31 +5,16 @@
 
 #include "db/snapshot_checker.h"
 
-#ifdef ROCKSDB_LITE
-#include <assert.h>
-#endif  // ROCKSDB_LITE
 
 #include "port/lang.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef ROCKSDB_LITE
-WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
-    WritePreparedTxnDB* /*txn_db*/) {}
-
-SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
-    SequenceNumber /*sequence*/, SequenceNumber /*snapshot_sequence*/) const {
-  // Should never be called in LITE mode.
-  assert(false);
-  return SnapshotCheckerResult::kInSnapshot;
-}
-
-#else
 
 WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
     WritePreparedTxnDB* txn_db)
-    : txn_db_(txn_db){};
+    : txn_db_(txn_db){}
 
 SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
     SequenceNumber sequence, SequenceNumber snapshot_sequence) const {
@@ -44,7 +29,6 @@ SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
                      : SnapshotCheckerResult::kNotInSnapshot;
 }
 
-#endif  // ROCKSDB_LITE
 
 DisableGCSnapshotChecker* DisableGCSnapshotChecker::Instance() {
   STATIC_AVOID_DESTRUCTION(DisableGCSnapshotChecker, instance);

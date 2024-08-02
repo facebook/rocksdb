@@ -5,7 +5,6 @@
 
 #include "rocksdb/utilities/option_change_migration.h"
 
-#ifndef ROCKSDB_LITE
 #include "rocksdb/db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -161,26 +160,10 @@ Status OptionChangeMigration(std::string dbname, const Options& old_opts,
     return MigrateToLevelBase(dbname, old_opts, new_opts);
   } else if (new_opts.compaction_style ==
              CompactionStyle::kCompactionStyleFIFO) {
-    uint64_t l0_file_size = 0;
-    if (new_opts.compaction_options_fifo.max_table_files_size > 0) {
-      // Create at least 8 files when max_table_files_size hits, so that the DB
-      // doesn't just disappear. This in fact violates the FIFO condition, but
-      // otherwise, the migrated DB is unlikley to be usable.
-      l0_file_size = new_opts.compaction_options_fifo.max_table_files_size / 8;
-    }
-    return CompactToLevel(old_opts, dbname, 0, l0_file_size, true);
+    return CompactToLevel(old_opts, dbname, 0, 0 /* l0_file_size */, true);
   } else {
     return Status::NotSupported(
         "Do not how to migrate to this compaction style");
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
-#else
-namespace ROCKSDB_NAMESPACE {
-Status OptionChangeMigration(std::string /*dbname*/,
-                             const Options& /*old_opts*/,
-                             const Options& /*new_opts*/) {
-  return Status::NotSupported();
-}
-}  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

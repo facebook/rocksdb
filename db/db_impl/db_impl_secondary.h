@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -83,11 +82,10 @@ class DBImplSecondary : public DBImpl {
   // and log_readers_ to facilitate future operations.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
-                 bool error_if_data_exists_in_wals, uint64_t* = nullptr,
-                 RecoveryContext* recovery_ctx = nullptr) override;
+                 bool error_if_data_exists_in_wals, bool is_retry = false,
+                 uint64_t* = nullptr, RecoveryContext* recovery_ctx = nullptr,
+                 bool* can_retry = nullptr) override;
 
-  // Implementations of the DB interface.
-  using DB::Get;
   // Can return IOError due to files being deleted by the primary. To avoid
   // IOError in this case, application can coordinate between primary and
   // secondaries so that primary will not delete files that are currently being
@@ -97,16 +95,9 @@ class DBImplSecondary : public DBImpl {
   // workaround, the secondaries can be opened with `max_open_files=-1` so that
   // it eagerly keeps all talbe files open and is able to access the contents of
   // deleted files via prior open fd.
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
-
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             std::string* timestamp) override;
-
-  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value,
-                 std::string* timestamp);
+  using DBImpl::GetImpl;
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions& get_impl_options) override;
 
   using DBImpl::NewIterator;
   // Operations on the created iterators can return IOError due to files being
@@ -118,17 +109,17 @@ class DBImplSecondary : public DBImpl {
   // deleted. As a partial hacky workaround, the secondaries can be opened with
   // `max_open_files=-1` so that it eagerly keeps all talbe files open and is
   // able to access the contents of deleted files via prior open fd.
-  Iterator* NewIterator(const ReadOptions&,
+  Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family) override;
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
-                                      ColumnFamilyData* cfd,
-                                      SequenceNumber snapshot,
+                                      ColumnFamilyHandleImpl* cfh,
+                                      SuperVersion* sv, SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool expose_blob_index = false,
                                       bool allow_refresh = true);
 
-  Status NewIterators(const ReadOptions& options,
+  Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
 
@@ -144,6 +135,10 @@ class DBImplSecondary : public DBImpl {
                    ColumnFamilyHandle* /* column_family */,
                    const Slice& /* key */,
                    const WideColumns& /* columns */) override {
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+  Status PutEntity(const WriteOptions& /* options */, const Slice& /* key */,
+                   const AttributeGroups& /* attribute_groups */) override {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
@@ -195,7 +190,7 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
-  Status EnableFileDeletions(bool /*force*/) override {
+  Status EnableFileDeletions() override {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
@@ -269,90 +264,9 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
-#ifndef ROCKSDB_LITE
   Status FlushForGetLiveFiles() override {
     // No-op for read-only DB
     return Status::OK();
-  }
-#endif  // !ROCKSDB_LITE
-
-  // ColumnFamilyCollector is a write batch handler which does nothing
-  // except recording unique column family IDs
-  class ColumnFamilyCollector : public WriteBatch::Handler {
-    std::unordered_set<uint32_t> column_family_ids_;
-
-    Status AddColumnFamilyId(uint32_t column_family_id) {
-      if (column_family_ids_.find(column_family_id) ==
-          column_family_ids_.end()) {
-        column_family_ids_.insert(column_family_id);
-      }
-      return Status::OK();
-    }
-
-   public:
-    explicit ColumnFamilyCollector() {}
-
-    ~ColumnFamilyCollector() override {}
-
-    Status PutCF(uint32_t column_family_id, const Slice&,
-                 const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status DeleteCF(uint32_t column_family_id, const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status SingleDeleteCF(uint32_t column_family_id, const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status DeleteRangeCF(uint32_t column_family_id, const Slice&,
-                         const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status MergeCF(uint32_t column_family_id, const Slice&,
-                   const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
-                          const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status MarkBeginPrepare(bool) override { return Status::OK(); }
-
-    Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
-
-    Status MarkRollback(const Slice&) override { return Status::OK(); }
-
-    Status MarkCommit(const Slice&) override { return Status::OK(); }
-
-    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
-      return Status::OK();
-    }
-
-    Status MarkNoop(bool) override { return Status::OK(); }
-
-    const std::unordered_set<uint32_t>& column_families() const {
-      return column_family_ids_;
-    }
-  };
-
-  Status CollectColumnFamilyIdsFromWriteBatch(
-      const WriteBatch& batch, std::vector<uint32_t>* column_family_ids) {
-    assert(column_family_ids != nullptr);
-    column_family_ids->clear();
-    ColumnFamilyCollector handler;
-    Status s = batch.Iterate(&handler);
-    if (s.ok()) {
-      for (const auto& cf : handler.column_families()) {
-        column_family_ids->push_back(cf);
-      }
-    }
-    return s;
   }
 
   bool OwnTablesAndLogs() const override {
@@ -362,6 +276,10 @@ class DBImplSecondary : public DBImpl {
     // create links to database files. OwnTablesAndLogs will return true then.
     return false;
   }
+
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
+  std::unique_ptr<Status> manifest_reader_status_;
 
  private:
   friend class DB;
@@ -391,10 +309,6 @@ class DBImplSecondary : public DBImpl {
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
 
-  std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
-  std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
-  std::unique_ptr<Status> manifest_reader_status_;
-
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
@@ -406,5 +320,3 @@ class DBImplSecondary : public DBImpl {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE

@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include "logging/auto_roll_logger.h"
 
@@ -575,8 +574,8 @@ TEST_F(AutoRollLoggerTest, Close) {
 static std::vector<std::string> GetOldFileNames(const std::string& path) {
   std::vector<std::string> ret;
 
-  const std::string dirname = path.substr(/*start=*/0, path.find_last_of("/"));
-  const std::string fname = path.substr(path.find_last_of("/") + 1);
+  const std::string dirname = path.substr(/*start=*/0, path.find_last_of('/'));
+  const std::string fname = path.substr(path.find_last_of('/') + 1);
 
   std::vector<std::string> children;
   EXPECT_OK(Env::Default()->GetChildren(dirname, &children));
@@ -730,13 +729,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as AutoRollLogger is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

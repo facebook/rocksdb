@@ -3,85 +3,159 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <atomic>
 #ifdef GFLAGS
 
-#include "db_stress_tool/expected_state.h"
-
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "db_stress_tool/expected_state.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record_result.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
     : max_key_(max_key),
       num_column_families_(num_column_families),
       values_(nullptr) {}
 
 void ExpectedState::ClearColumnFamily(int cf) {
-  std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */),
-            SharedState::DELETION_SENTINEL);
+  const uint32_t del_mask = ExpectedValue::GetDelMask();
+  std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */), del_mask);
 }
 
-void ExpectedState::Put(int cf, int64_t key, uint32_t value_base,
-                        bool pending) {
-  if (!pending) {
-    // prevent expected-value update from reordering before Write
-    std::atomic_thread_fence(std::memory_order_release);
+void ExpectedState::Precommit(int cf, int64_t key, const ExpectedValue& value) {
+  Value(cf, key).store(value.Read());
+  // To prevent low-level instruction reordering that results
+  // in db write happens before setting pending state in expected value
+  std::atomic_thread_fence(std::memory_order_release);
+}
+
+PendingExpectedValue ExpectedState::PreparePut(int cf, int64_t key,
+                                               bool* prepared) {
+  assert(prepared);
+  ExpectedValue expected_value = Load(cf, key);
+
+  // Calculate the original expected value
+  const ExpectedValue orig_expected_value = expected_value;
+
+  // Calculate the pending expected value
+  bool res = expected_value.Put(true /* pending */);
+  if (!res) {
+    PendingExpectedValue ret = PendingExpectedValue(
+        &Value(cf, key), orig_expected_value, orig_expected_value);
+    *prepared = false;
+    return ret;
   }
-  Value(cf, key).store(pending ? SharedState::UNKNOWN_SENTINEL : value_base,
-                       std::memory_order_relaxed);
-  if (pending) {
-    // prevent Write from reordering before expected-value update
-    std::atomic_thread_fence(std::memory_order_release);
+  const ExpectedValue pending_expected_value = expected_value;
+
+  // Calculate the final expected value
+  res = expected_value.Put(false /* pending */);
+  assert(res);
+  const ExpectedValue final_expected_value = expected_value;
+
+  // Precommit
+  Precommit(cf, key, pending_expected_value);
+  *prepared = true;
+  return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                              final_expected_value);
+}
+
+ExpectedValue ExpectedState::Get(int cf, int64_t key) { return Load(cf, key); }
+
+PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key,
+                                                  bool* prepared) {
+  assert(prepared);
+  ExpectedValue expected_value = Load(cf, key);
+
+  // Calculate the original expected value
+  const ExpectedValue orig_expected_value = expected_value;
+
+  // Calculate the pending expected value
+  bool res = expected_value.Delete(true /* pending */);
+  if (!res) {
+    PendingExpectedValue ret = PendingExpectedValue(
+        &Value(cf, key), orig_expected_value, orig_expected_value);
+    *prepared = false;
+    return ret;
   }
+  const ExpectedValue pending_expected_value = expected_value;
+
+  // Calculate the final expected value
+  res = expected_value.Delete(false /* pending */);
+  assert(res);
+  const ExpectedValue final_expected_value = expected_value;
+
+  // Precommit
+  Precommit(cf, key, pending_expected_value);
+  *prepared = true;
+  return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                              final_expected_value);
 }
 
-uint32_t ExpectedState::Get(int cf, int64_t key) const {
-  return Value(cf, key);
+PendingExpectedValue ExpectedState::PrepareSingleDelete(int cf, int64_t key,
+                                                        bool* prepared) {
+  return PrepareDelete(cf, key, prepared);
 }
 
-bool ExpectedState::Delete(int cf, int64_t key, bool pending) {
-  if (Value(cf, key) == SharedState::DELETION_SENTINEL) {
-    return false;
-  }
-  Put(cf, key, SharedState::DELETION_SENTINEL, pending);
-  return true;
-}
+std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
+    int cf, int64_t begin_key, int64_t end_key, bool* prepared) {
+  std::vector<PendingExpectedValue> pending_expected_values;
+  bool has_prepared_failed = false;
 
-bool ExpectedState::SingleDelete(int cf, int64_t key, bool pending) {
-  return Delete(cf, key, pending);
-}
-
-int ExpectedState::DeleteRange(int cf, int64_t begin_key, int64_t end_key,
-                               bool pending) {
-  int covered = 0;
   for (int64_t key = begin_key; key < end_key; ++key) {
-    if (Delete(cf, key, pending)) {
-      ++covered;
+    bool each_prepared = false;
+    PendingExpectedValue pending_expected_value =
+        PrepareDelete(cf, key, &each_prepared);
+    if (each_prepared) {
+      pending_expected_values.push_back(pending_expected_value);
+    } else {
+      has_prepared_failed = true;
+      pending_expected_value.PermitUnclosedPendingState();
+      break;
     }
   }
-  return covered;
+
+  *prepared = !has_prepared_failed;
+  return pending_expected_values;
 }
 
 bool ExpectedState::Exists(int cf, int64_t key) {
-  // UNKNOWN_SENTINEL counts as exists. That assures a key for which overwrite
-  // is disallowed can't be accidentally added a second time, in which case
-  // SingleDelete wouldn't be able to properly delete the key. It does allow
-  // the case where a SingleDelete might be added which covers nothing, but
-  // that's not a correctness issue.
-  uint32_t expected_value = Value(cf, key).load();
-  return expected_value != SharedState::DELETION_SENTINEL;
+  return Load(cf, key).Exists();
 }
 
 void ExpectedState::Reset() {
+  const uint32_t del_mask = ExpectedValue::GetDelMask();
   for (size_t i = 0; i < num_column_families_; ++i) {
     for (size_t j = 0; j < max_key_; ++j) {
-      Value(static_cast<int>(i), j)
-          .store(SharedState::DELETION_SENTINEL, std::memory_order_relaxed);
+      Value(static_cast<int>(i), j).store(del_mask, std::memory_order_relaxed);
     }
+  }
+}
+
+void ExpectedState::SyncPut(int cf, int64_t key, uint32_t value_base) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncPut(value_base);
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncPendingPut(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncPendingPut();
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncDelete(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncDelete();
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncDeleteRange(int cf, int64_t begin_key,
+                                    int64_t end_key) {
+  for (int64_t key = begin_key; key < end_key; ++key) {
+    SyncDelete(cf, key);
   }
 }
 
@@ -148,7 +222,7 @@ ExpectedStateManager::ExpectedStateManager(size_t max_key,
       num_column_families_(num_column_families),
       latest_(nullptr) {}
 
-ExpectedStateManager::~ExpectedStateManager() {}
+ExpectedStateManager::~ExpectedStateManager() = default;
 
 const std::string FileExpectedStateManager::kLatestBasename = "LATEST";
 const std::string FileExpectedStateManager::kStateFilenameSuffix = ".state";
@@ -254,7 +328,6 @@ Status FileExpectedStateManager::Open() {
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   SequenceNumber seqno = db->GetLatestSequenceNumber();
 
@@ -270,9 +343,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
 
   // Populate a tempfile and then rename it to atomically create "<seqno>.state"
   // with contents from "LATEST.state"
-  Status s = CopyFile(FileSystem::Default(), latest_file_path,
-                      state_file_temp_path, 0 /* size */, false /* use_fsync */,
-                      nullptr /* io_tracer */, Temperature::kUnknown);
+  Status s =
+      CopyFile(FileSystem::Default(), latest_file_path, Temperature::kUnknown,
+               state_file_temp_path, Temperature::kUnknown, 0 /* size */,
+               false /* use_fsync */, nullptr /* io_tracer */);
   if (s.ok()) {
     s = FileSystem::Default()->RenameFile(state_file_temp_path, state_file_path,
                                           IOOptions(), nullptr /* dbg */);
@@ -322,17 +396,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   }
   return s;
 }
-#else   // ROCKSDB_LITE
-Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
-  return Status::NotSupported();
-}
-#endif  // ROCKSDB_LITE
 
 bool FileExpectedStateManager::HasHistory() {
   return saved_seqno_ != kMaxSequenceNumber;
 }
-
-#ifndef ROCKSDB_LITE
 
 namespace {
 
@@ -392,7 +459,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
     }
-    uint32_t value_id = GetValueBase(value);
+    uint32_t value_base = GetValueBase(value);
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
@@ -400,8 +467,29 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                      key, value);
     }
 
-    state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
-                false /* pending */);
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
+    ++num_write_ops_;
+    return Status::OK();
+  }
+
+  Status TimedPutCF(uint32_t column_family_id, const Slice& key_with_ts,
+                    const Slice& value, uint64_t write_unix_time) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+    uint64_t key_id;
+    if (!GetIntVal(key.ToString(), &key_id)) {
+      return Status::Corruption("unable to parse key", key.ToString());
+    }
+    uint32_t value_base = GetValueBase(value);
+
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      return WriteBatchInternal::TimedPut(buffered_writes_.get(),
+                                          column_family_id, key, value,
+                                          write_unix_time);
+    }
+
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
     ++num_write_ops_;
     return Status::OK();
   }
@@ -423,16 +511,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                 entity.ToString(/* hex */ true));
     }
 
-    if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
-      return Status::Corruption("Cannot find default column in entity",
-                                entity.ToString(/* hex */ true));
-    }
-
-    const Slice& value_of_default = columns[0].value();
-
-    const uint32_t value_base = GetValueBase(value_of_default);
-
-    if (columns != GenerateExpectedWideColumns(value_base, value_of_default)) {
+    if (!VerifyWideColumns(columns)) {
       return Status::Corruption("Wide columns in entity inconsistent",
                                 entity.ToString(/* hex */ true));
     }
@@ -442,8 +521,10 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                            column_family_id, key, columns);
     }
 
-    state_->Put(column_family_id, static_cast<int64_t>(key_id), value_base,
-                false /* pending */);
+    const uint32_t value_base =
+        GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
+
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
 
     ++num_write_ops_;
 
@@ -465,8 +546,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                         column_family_id, key);
     }
 
-    state_->Delete(column_family_id, static_cast<int64_t>(key_id),
-                   false /* pending */);
+    state_->SyncDelete(column_family_id, static_cast<int64_t>(key_id));
     ++num_write_ops_;
     return Status::OK();
   }
@@ -510,8 +590,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
           buffered_writes_.get(), column_family_id, begin_key, end_key);
     }
 
-    state_->DeleteRange(column_family_id, static_cast<int64_t>(begin_key_id),
-                        static_cast<int64_t>(end_key_id), false /* pending */);
+    state_->SyncDeleteRange(column_family_id,
+                            static_cast<int64_t>(begin_key_id),
+                            static_cast<int64_t>(end_key_id));
     ++num_write_ops_;
     return Status::OK();
   }
@@ -610,9 +691,9 @@ Status FileExpectedStateManager::Restore(DB* db) {
     // We are going to replay on top of "`seqno`.state" to create a new
     // "LATEST.state". Start off by creating a tempfile so we can later make the
     // new "LATEST.state" appear atomically using `RenameFile()`.
-    s = CopyFile(FileSystem::Default(), state_file_path, latest_file_temp_path,
-                 0 /* size */, false /* use_fsync */, nullptr /* io_tracer */,
-                 Temperature::kUnknown);
+    s = CopyFile(FileSystem::Default(), state_file_path, Temperature::kUnknown,
+                 latest_file_temp_path, Temperature::kUnknown, 0 /* size */,
+                 false /* use_fsync */, nullptr /* io_tracer */);
   }
 
   {
@@ -637,26 +718,26 @@ Status FileExpectedStateManager::Restore(DB* db) {
     if (s.ok()) {
       s = replayer->Prepare();
     }
-    for (;;) {
+    for (; s.ok();) {
       std::unique_ptr<TraceRecord> record;
       s = replayer->Next(&record);
       if (!s.ok()) {
+        if (s.IsCorruption() && handler->IsDone()) {
+          // There could be a corruption reading the tail record of the trace
+          // due to `db_stress` crashing while writing it. It shouldn't matter
+          // as long as we already found all the write ops we need to catch up
+          // the expected state.
+          s = Status::OK();
+        }
+        if (s.IsIncomplete()) {
+          // OK because `Status::Incomplete` is expected upon finishing all the
+          // trace records.
+          s = Status::OK();
+        }
         break;
       }
       std::unique_ptr<TraceRecordResult> res;
-      record->Accept(handler.get(), &res);
-    }
-    if (s.IsCorruption() && handler->IsDone()) {
-      // There could be a corruption reading the tail record of the trace due to
-      // `db_stress` crashing while writing it. It shouldn't matter as long as
-      // we already found all the write ops we need to catch up the expected
-      // state.
-      s = Status::OK();
-    }
-    if (s.IsIncomplete()) {
-      // OK because `Status::Incomplete` is expected upon finishing all the
-      // trace records.
-      s = Status::OK();
+      s = record->Accept(handler.get(), &res);
     }
   }
 
@@ -683,11 +764,6 @@ Status FileExpectedStateManager::Restore(DB* db) {
   }
   return s;
 }
-#else   // ROCKSDB_LITE
-Status FileExpectedStateManager::Restore(DB* /* db */) {
-  return Status::NotSupported();
-}
-#endif  // ROCKSDB_LITE
 
 Status FileExpectedStateManager::Clean() {
   std::vector<std::string> expected_state_dir_children;

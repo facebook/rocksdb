@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <set>
 
@@ -68,6 +67,10 @@ class CacheDumpReader {
 // dump or load process related control variables can be added here.
 struct CacheDumpOptions {
   SystemClock* clock;
+  // Deadline for dumper or loader in microseconds
+  std::chrono::microseconds deadline = std::chrono::microseconds::zero();
+  // Max size bytes for dumper or loader
+  uint64_t max_size_bytes = 0;
 };
 
 // NOTE that: this class is EXPERIMENTAL! May be changed in the future!
@@ -139,4 +142,3 @@ Status NewDefaultCacheDumpedLoader(
     std::unique_ptr<CacheDumpedLoader>* cache_dump_loader);
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

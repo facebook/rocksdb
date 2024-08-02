@@ -27,6 +27,7 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -66,15 +67,9 @@ struct ThreadStatus;
 class FileSystem;
 class SystemClock;
 struct ConfigOptions;
+struct IOOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
-
-enum class CpuPriority {
-  kIdle = 0,
-  kLow = 1,
-  kNormal = 2,
-  kHigh = 3,
-};
 
 // Options while opening a file to read/write
 struct EnvOptions {
@@ -150,6 +145,11 @@ struct EnvOptions {
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
+// An interface that abstracts RocksDB's interactions with the operating system
+// environment. There are three main types of APIs:
+// 1) File system operations, like creating a file, writing to a file, etc.
+// 2) Thread management.
+// 3) Misc functions, like getting the current time.
 class Env : public Customizable {
  public:
   static const char* kDefaultName() { return "DefaultEnv"; }
@@ -178,17 +178,6 @@ class Env : public Customizable {
   // Deprecated. Will be removed in a major release. Derived classes
   // should implement this method.
   const char* Name() const override { return ""; }
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result);
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result,
-                        std::shared_ptr<Env>* guard);
 
   // Loads the environment specified by the input value into the result
   // @see Customizable for a more detailed description of the parameters and
@@ -297,7 +286,7 @@ class Env : public Customizable {
                                    const EnvOptions& options);
 
   // Open `fname` for random read and write, if file doesn't exist the file
-  // will be created.  On success, stores a pointer to the new file in
+  // will not be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
@@ -451,6 +440,21 @@ class Env : public Customizable {
     IO_HIGH = 2,
     IO_USER = 3,
     IO_TOTAL = 4
+  };
+
+  // EXPERIMENTAL
+  enum class IOActivity : uint8_t {
+    kFlush = 0,
+    kCompaction = 1,
+    kDBOpen = 2,
+    kGet = 3,
+    kMultiGet = 4,
+    kDBIterator = 5,
+    kVerifyDBChecksum = 6,
+    kVerifyFileChecksums = 7,
+    kGetEntity = 8,
+    kMultiGetEntity = 9,
+    kUnknown,  // Keep last for easy array of non-unknowns
   };
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
@@ -884,6 +888,9 @@ class WritableFile {
   WritableFile(const WritableFile&) = delete;
   void operator=(const WritableFile&) = delete;
 
+  // For cases when Close() hasn't been called, many derived classes of
+  // WritableFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~WritableFile();
 
   // Append data to the end of the file
@@ -947,6 +954,12 @@ class WritableFile {
   // size due to whole pages writes. The behavior is undefined if called
   // with other writes to follow.
   virtual Status Truncate(uint64_t /*size*/) { return Status::OK(); }
+
+  // The caller should call Close() before destroying the WritableFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0;  // sync data
@@ -994,7 +1007,7 @@ class WritableFile {
   /*
    * Get the size of valid data in the file.
    */
-  virtual uint64_t GetFileSize() { return 0; }
+  virtual uint64_t GetFileSize() = 0;
 
   /*
    * Get and set the default pre-allocation block size for writes to
@@ -1093,6 +1106,9 @@ class RandomRWFile {
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;
 
+  // For cases when Close() hasn't been called, many derived classes of
+  // RandomRWFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~RandomRWFile() {}
 
   // Indicates if the class makes use of direct I/O
@@ -1124,6 +1140,11 @@ class RandomRWFile {
 
   virtual Status Fsync() { return Sync(); }
 
+  // The caller should call Close() before destroying the RandomRWFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual Status Close() = 0;
 
   // If you're adding methods here, remember to add them to
@@ -1156,10 +1177,14 @@ class MemoryMappedFileBuffer {
 // filesystem operations that can be executed on directories.
 class Directory {
  public:
+  // Many derived classes of Directory will need to call Close() in their
+  // destructor, when not called already, to ensure resources are released.
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
-  // Close directory.
+  // Calling Close() before destroying a Directory is recommended to surface
+  // any errors associated with finishing writes (in case of future features).
+  // The directory is considered closed regardless of return status.
   virtual Status Close() { return Status::NotSupported("Close"); }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
@@ -1187,7 +1212,11 @@ enum InfoLogLevel : unsigned char {
 // including data loss, unreported corruption, deadlocks, and more.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
+  static constexpr size_t kDoNotSupportGetLogFileSize = SIZE_MAX;
+
+  // Set to INFO_LEVEL when RocksDB is compiled in release mode, and
+  // DEBUG_LEVEL when compiled in debug mode. See DBOptions::info_log_level.
+  static const InfoLogLevel kDefaultLogLevel;
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : closed_(false), log_level_(log_level) {}
@@ -1197,9 +1226,11 @@ class Logger {
 
   virtual ~Logger();
 
-  // Close the log file. Must be called before destructor. If the return
-  // status is NotSupported(), it means the implementation does cleanup in
-  // the destructor
+  // Because Logger is typically a shared object, Close() may or may not be
+  // called before the object is destroyed, but is recommended to reveal any
+  // final errors in finishing outstanding writes. No other functions are
+  // supported after calling Close(), and the Logger is considered closed
+  // regardless of return status.
   virtual Status Close();
 
   // Write a header to the log file with the specified format
@@ -1280,62 +1311,60 @@ class DynamicLibrary {
   virtual Status LoadSymbol(const std::string& sym_name, void** func) = 0;
 };
 
-extern void LogFlush(const std::shared_ptr<Logger>& info_log);
+void LogFlush(const std::shared_ptr<Logger>& info_log);
 
-extern void Log(const InfoLogLevel log_level,
-                const std::shared_ptr<Logger>& info_log, const char* format,
-                ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
+void Log(const InfoLogLevel log_level, const std::shared_ptr<Logger>& info_log,
+         const char* format, ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // a set of log functions with different log levels.
-extern void Header(const std::shared_ptr<Logger>& info_log, const char* format,
-                   ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Debug(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Info(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Warn(const std::shared_ptr<Logger>& info_log, const char* format,
-                 ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Error(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Fatal(const std::shared_ptr<Logger>& info_log, const char* format,
-                  ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Header(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Debug(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Info(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Warn(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Error(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Fatal(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // Log the specified data to *info_log if info_log is non-nullptr.
 // The default info log level is InfoLogLevel::INFO_LEVEL.
-extern void Log(const std::shared_ptr<Logger>& info_log, const char* format,
-                ...) ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
+void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...)
+    ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
-extern void LogFlush(Logger* info_log);
+void LogFlush(Logger* info_log);
 
-extern void Log(const InfoLogLevel log_level, Logger* info_log,
-                const char* format, ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
+void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
+         ...) ROCKSDB_PRINTF_FORMAT_ATTR(3, 4);
 
 // The default info log level is InfoLogLevel::INFO_LEVEL.
-extern void Log(Logger* info_log, const char* format, ...)
+void Log(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // a set of log functions with different log levels.
-extern void Header(Logger* info_log, const char* format, ...)
+void Header(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Debug(Logger* info_log, const char* format, ...)
+void Debug(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Info(Logger* info_log, const char* format, ...)
+void Info(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Warn(Logger* info_log, const char* format, ...)
+void Warn(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Error(Logger* info_log, const char* format, ...)
+void Error(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
-extern void Fatal(Logger* info_log, const char* format, ...)
+void Fatal(Logger* info_log, const char* format, ...)
     ROCKSDB_PRINTF_FORMAT_ATTR(2, 3);
 
 // A utility routine: write "data" to the named file.
-extern Status WriteStringToFile(Env* env, const Slice& data,
-                                const std::string& fname,
-                                bool should_sync = false);
+Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
+                         bool should_sync = false,
+                         const IOOptions* io_options = nullptr);
 
 // A utility routine: read contents of named file into *data
-extern Status ReadFileToString(Env* env, const std::string& fname,
-                               std::string* data);
+Status ReadFileToString(Env* env, const std::string& fname, std::string* data);
 
 // Below are helpers for wrapping most of the classes in this file.
 // They forward all calls to another instance of the class.
@@ -1660,10 +1689,8 @@ class EnvWrapper : public Env {
     target_.env->SanitizeEnvOptions(env_opts);
   }
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
 
  private:
   Target target_;

@@ -117,8 +117,7 @@ class FullCompactor : public Compactor {
   }
 
   static void CompactFiles(void* arg) {
-    std::unique_ptr<CompactionTask> task(
-        reinterpret_cast<CompactionTask*>(arg));
+    std::unique_ptr<CompactionTask> task(static_cast<CompactionTask*>(arg));
     assert(task);
     assert(task->db);
     Status s = task->db->CompactFiles(
@@ -144,6 +143,8 @@ int main() {
   options.create_if_missing = true;
   // Disable RocksDB background compaction.
   options.compaction_style = ROCKSDB_NAMESPACE::kCompactionStyleNone;
+  // Small write buffer size for generating more sst files in level 0.
+  options.write_buffer_size = 4 << 20;
   // Small slowdown and stop trigger for experimental purpose.
   options.level0_slowdown_writes_trigger = 3;
   options.level0_stop_writes_trigger = 5;

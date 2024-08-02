@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <memory>
 #include <string>
@@ -24,7 +23,12 @@ class SstFileDumper {
                          const EnvOptions& soptions = EnvOptions(),
                          bool silent = false);
 
-  Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
+  // read_num_limit limits the total number of keys read. If read_num_limit = 0,
+  // then there is no limit. If read_num_limit = 0 or
+  // std::numeric_limits<uint64_t>::max(), has_from and has_to are false, then
+  // the number of keys read is compared with `num_entries` field in table
+  // properties. A Corruption status is returned if they do not match.
+  Status ReadSequential(bool print_kv, uint64_t read_num_limit, bool has_from,
                         const std::string& from_key, bool has_to,
                         const std::string& to_key,
                         bool use_from_as_prefix = false);
@@ -89,7 +93,7 @@ class SstFileDumper {
   std::unique_ptr<TableReader> table_reader_;
   std::unique_ptr<RandomAccessFileReader> file_;
 
-  const ImmutableOptions ioptions_;
+  ImmutableOptions ioptions_;
   const MutableCFOptions moptions_;
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;
@@ -98,4 +102,3 @@ class SstFileDumper {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -37,12 +37,13 @@ struct TableReaderOptions {
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
       const EnvOptions& _env_options,
       const InternalKeyComparator& _internal_comparator,
-      bool _skip_filters = false, bool _immortal = false,
-      bool _force_direct_prefetch = false, int _level = -1,
-      BlockCacheTracer* const _block_cache_tracer = nullptr,
+      uint8_t _block_protection_bytes_per_key, bool _skip_filters = false,
+      bool _immortal = false, bool _force_direct_prefetch = false,
+      int _level = -1, BlockCacheTracer* const _block_cache_tracer = nullptr,
       size_t _max_file_size_for_l0_meta_pin = 0,
       const std::string& _cur_db_session_id = "", uint64_t _cur_file_num = 0,
-      UniqueId64x2 _unique_id = {}, SequenceNumber _largest_seqno = 0)
+      UniqueId64x2 _unique_id = {}, SequenceNumber _largest_seqno = 0,
+      uint64_t _tail_size = 0, bool _user_defined_timestamps_persisted = true)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -56,7 +57,10 @@ struct TableReaderOptions {
         max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin),
         cur_db_session_id(_cur_db_session_id),
         cur_file_num(_cur_file_num),
-        unique_id(_unique_id) {}
+        unique_id(_unique_id),
+        block_protection_bytes_per_key(_block_protection_bytes_per_key),
+        tail_size(_tail_size),
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
 
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
@@ -86,13 +90,21 @@ struct TableReaderOptions {
 
   // Known unique_id or {}, kNullUniqueId64x2 means unknown
   UniqueId64x2 unique_id;
+
+  uint8_t block_protection_bytes_per_key;
+
+  uint64_t tail_size;
+
+  // Whether the key in the table contains user-defined timestamps.
+  bool user_defined_timestamps_persisted;
 };
 
-struct TableBuilderOptions {
+struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   TableBuilderOptions(
       const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
+      const ReadOptions& _read_options, const WriteOptions& _write_options,
       const InternalKeyComparator& _internal_comparator,
-      const IntTblPropCollectorFactories* _int_tbl_prop_collector_factories,
+      const InternalTblPropCollFactories* _internal_tbl_prop_coll_factories,
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, uint32_t _column_family_id,
       const std::string& _column_family_name, int _level,
@@ -101,32 +113,38 @@ struct TableBuilderOptions {
       const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
       const std::string& _db_session_id = "",
-      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
-      : ioptions(_ioptions),
+      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0,
+      const SequenceNumber _last_level_inclusive_max_seqno_threshold =
+          kMaxSequenceNumber)
+      : TablePropertiesCollectorFactory::Context(
+            _column_family_id, _level, _ioptions.num_levels,
+            _last_level_inclusive_max_seqno_threshold),
+        ioptions(_ioptions),
         moptions(_moptions),
+        read_options(_read_options),
+        write_options(_write_options),
         internal_comparator(_internal_comparator),
-        int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
+        internal_tbl_prop_coll_factories(_internal_tbl_prop_coll_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        column_family_id(_column_family_id),
         column_family_name(_column_family_name),
         oldest_key_time(_oldest_key_time),
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
         db_session_id(_db_session_id),
-        level_at_creation(_level),
         is_bottommost(_is_bottommost),
         reason(_reason),
         cur_file_num(_cur_file_num) {}
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
+  const ReadOptions& read_options;
+  const WriteOptions& write_options;
   const InternalKeyComparator& internal_comparator;
-  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories;
+  const InternalTblPropCollFactories* internal_tbl_prop_coll_factories;
   const CompressionType compression_type;
   const CompressionOptions& compression_opts;
-  const uint32_t column_family_id;
   const std::string& column_family_name;
   const int64_t oldest_key_time;
   const uint64_t target_file_size;
@@ -134,7 +152,6 @@ struct TableBuilderOptions {
   const std::string db_id;
   const std::string db_session_id;
   // BEGIN for FilterBuildingContext
-  const int level_at_creation;
   const bool is_bottommost;
   const TableFileCreationReason reason;
   // END for FilterBuildingContext
@@ -197,6 +214,8 @@ class TableBuilder {
   // is enabled.
   virtual uint64_t EstimatedFileSize() const { return FileSize(); }
 
+  virtual uint64_t GetTailSize() const { return 0; }
+
   // If the user defined table properties collector suggest the file to
   // be further compacted.
   virtual bool NeedCompact() const { return false; }
@@ -210,10 +229,11 @@ class TableBuilder {
   // Return file checksum function name
   virtual const char* GetFileChecksumFuncName() const = 0;
 
-  // Set the sequence number to time mapping
+  // Set the sequence number to time mapping. `relevant_mapping` must be in
+  // enforced state (ready to encode to string).
   virtual void SetSeqnoTimeTableProperties(
-      const std::string& /*encoded_seqno_to_time_mapping*/,
-      uint64_t /*oldest_ancestor_time*/){};
+      const SeqnoToTimeMapping& /*relevant_mapping*/,
+      uint64_t /*oldest_ancestor_time*/){}
 };
 
 }  // namespace ROCKSDB_NAMESPACE

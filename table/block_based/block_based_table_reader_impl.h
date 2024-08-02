@@ -7,6 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+#include <type_traits>
+
+#include "block.h"
+#include "block_cache.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/reader_common.h"
 
@@ -16,6 +20,25 @@
 // are templates.
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+using IterPlaceholderCacheInterface =
+    PlaceholderCacheInterface<CacheEntryRole::kMisc>;
+
+template <typename TBlockIter>
+struct IterTraits {};
+
+template <>
+struct IterTraits<DataBlockIter> {
+  using IterBlocklike = Block_kData;
+};
+
+template <>
+struct IterTraits<IndexBlockIter> {
+  using IterBlocklike = Block_kIndex;
+};
+
+}  // namespace
+
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
 // If input_iter is null, new a iterator
@@ -26,7 +49,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     BlockType block_type, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     FilePrefetchBuffer* prefetch_buffer, bool for_compaction, bool async_read,
-    Status& s) const {
+    Status& s, bool use_block_cache_for_lookup) const {
+  using IterBlocklike = typename IterTraits<TBlockIter>::IterBlocklike;
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
@@ -38,14 +62,16 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   CachableEntry<Block> block;
   if (rep_->uncompression_dict_reader && block_type == BlockType::kData) {
     CachableEntry<UncompressionDict> uncompression_dict;
-    const bool no_io = (ro.read_tier == kBlockCacheTier);
     // For async scans, don't use the prefetch buffer since an async prefetch
     // might already be under way and this would invalidate it. Also, the
     // uncompression dict is typically at the end of the file and would
     // most likely break the sequentiality of the access pattern.
+    // Same is with auto_readahead_size. It iterates over index to lookup for
+    // data blocks. And this could break the the sequentiality of the access
+    // pattern.
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        ro.async_io ? nullptr : prefetch_buffer, no_io, ro.verify_checksums,
-        get_context, lookup_context, &uncompression_dict);
+        ((ro.async_io || ro.auto_readahead_size) ? nullptr : prefetch_buffer),
+        ro, get_context, lookup_context, &uncompression_dict);
     if (!s.ok()) {
       iter->Invalidate(s);
       return iter;
@@ -53,15 +79,15 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const UncompressionDict& dict = uncompression_dict.GetValue()
                                         ? *uncompression_dict.GetValue()
                                         : UncompressionDict::GetEmptyDict();
-    s = RetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
-                      get_context, lookup_context, for_compaction,
-                      /* use_cache */ true, /* wait_for_cache */ true,
-                      async_read);
+    s = RetrieveBlock(
+        prefetch_buffer, ro, handle, dict, &block.As<IterBlocklike>(),
+        get_context, lookup_context, for_compaction,
+        /* use_cache */ true, async_read, use_block_cache_for_lookup);
   } else {
     s = RetrieveBlock(
-        prefetch_buffer, ro, handle, UncompressionDict::GetEmptyDict(), &block,
-        block_type, get_context, lookup_context, for_compaction,
-        /* use_cache */ true, /* wait_for_cache */ true, async_read);
+        prefetch_buffer, ro, handle, UncompressionDict::GetEmptyDict(),
+        &block.As<IterBlocklike>(), get_context, lookup_context, for_compaction,
+        /* use_cache */ true, async_read, use_block_cache_for_lookup);
   }
 
   if (s.IsTryAgain() && async_read) {
@@ -91,18 +117,20 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 
   if (!block.IsCached()) {
     if (!ro.fill_cache) {
-      Cache* const block_cache = rep_->table_options.block_cache.get();
+      IterPlaceholderCacheInterface block_cache{
+          rep_->table_options.block_cache.get()};
       if (block_cache) {
         // insert a dummy record to block cache to track the memory usage
         Cache::Handle* cache_handle = nullptr;
-        CacheKey key = CacheKey::CreateUniqueForCacheLifetime(block_cache);
-        s = block_cache->Insert(key.AsSlice(), nullptr,
-                                block.GetValue()->ApproximateMemoryUsage(),
-                                nullptr, &cache_handle);
+        CacheKey key =
+            CacheKey::CreateUniqueForCacheLifetime(block_cache.get());
+        s = block_cache.Insert(key.AsSlice(),
+                               block.GetValue()->ApproximateMemoryUsage(),
+                               &cache_handle);
 
         if (s.ok()) {
           assert(cache_handle != nullptr);
-          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
+          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache.get(),
                                 cache_handle);
         }
       }
@@ -149,18 +177,20 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
 
   if (!block.IsCached()) {
     if (!ro.fill_cache) {
-      Cache* const block_cache = rep_->table_options.block_cache.get();
+      IterPlaceholderCacheInterface block_cache{
+          rep_->table_options.block_cache.get()};
       if (block_cache) {
         // insert a dummy record to block cache to track the memory usage
         Cache::Handle* cache_handle = nullptr;
-        CacheKey key = CacheKey::CreateUniqueForCacheLifetime(block_cache);
-        s = block_cache->Insert(key.AsSlice(), nullptr,
-                                block.GetValue()->ApproximateMemoryUsage(),
-                                nullptr, &cache_handle);
+        CacheKey key =
+            CacheKey::CreateUniqueForCacheLifetime(block_cache.get());
+        s = block_cache.Insert(key.AsSlice(),
+                               block.GetValue()->ApproximateMemoryUsage(),
+                               &cache_handle);
 
         if (s.ok()) {
           assert(cache_handle != nullptr);
-          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
+          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache.get(),
                                 cache_handle);
         }
       }

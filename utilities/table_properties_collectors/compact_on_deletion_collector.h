@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/table_properties_collectors.h"
 namespace ROCKSDB_NAMESPACE {
 
@@ -19,29 +18,26 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
   // @params file_size  file size up to now
-  virtual Status AddUserKey(const Slice& key, const Slice& value,
-                            EntryType type, SequenceNumber seq,
-                            uint64_t file_size) override;
+  Status AddUserKey(const Slice& key, const Slice& value, EntryType type,
+                    SequenceNumber seq, uint64_t file_size) override;
 
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
   // @params properties  User will add their collected statistics to
   // `properties`.
-  virtual Status Finish(UserCollectedProperties* /*properties*/) override;
+  Status Finish(UserCollectedProperties* /*properties*/) override;
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties();
   }
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const override {
-    return "CompactOnDeletionCollector";
-  }
+  const char* Name() const override { return "CompactOnDeletionCollector"; }
 
   // EXPERIMENTAL Return whether the output file should be further compacted
-  virtual bool NeedCompact() const override { return need_compaction_; }
+  bool NeedCompact() const override { return need_compaction_; }
 
   static const int kNumBuckets = 128;
 
@@ -67,4 +63,3 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   bool finished_;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

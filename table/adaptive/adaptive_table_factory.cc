@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/adaptive/adaptive_table_factory.h"
 
 #include "port/port.h"
@@ -34,12 +33,6 @@ AdaptiveTableFactory::AdaptiveTableFactory(
     table_factory_to_write_ = block_based_table_factory_;
   }
 }
-
-extern const uint64_t kPlainTableMagicNumber;
-extern const uint64_t kLegacyPlainTableMagicNumber;
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kCuckooTableMagicNumber;
 
 Status AdaptiveTableFactory::NewTableReader(
     const ReadOptions& ro, const TableReaderOptions& table_reader_options,
@@ -113,7 +106,7 @@ std::string AdaptiveTableFactory::GetPrintableOptions() const {
   return ret;
 }
 
-extern TableFactory* NewAdaptiveTableFactory(
+TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write,
     std::shared_ptr<TableFactory> block_based_table_factory,
     std::shared_ptr<TableFactory> plain_table_factory,
@@ -124,4 +117,3 @@ extern TableFactory* NewAdaptiveTableFactory(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

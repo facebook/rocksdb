@@ -42,6 +42,8 @@ class SimulatedBackgroundTask {
     std::unique_lock<std::mutex> l(mutex_);
     running_count_++;
     bg_cv_.notify_all();
+    assert(cf_key_);
+    Env::Default()->GetThreadStatusUpdater()->SetEnableTracking(true);
     Env::Default()->GetThreadStatusUpdater()->SetColumnFamilyInfoKey(cf_key_);
     Env::Default()->GetThreadStatusUpdater()->SetThreadOperation(
         operation_type_);
@@ -77,7 +79,7 @@ class SimulatedBackgroundTask {
   }
 
   static void DoSimulatedTask(void* arg) {
-    reinterpret_cast<SimulatedBackgroundTask*>(arg)->Run();
+    static_cast<SimulatedBackgroundTask*>(arg)->Run();
   }
 
  private:
@@ -95,7 +97,7 @@ class SimulatedBackgroundTask {
 
 class ThreadListTest : public testing::Test {
  public:
-  ThreadListTest() {}
+  ThreadListTest() = default;
 };
 
 TEST_F(ThreadListTest, GlobalTables) {
@@ -159,7 +161,7 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
   // Verify the number of running threads in each pool.
   ASSERT_OK(env->GetThreadList(&thread_list));
   int running_count[ThreadStatus::NUM_THREAD_TYPES] = {0};
-  for (auto thread_status : thread_list) {
+  for (const auto& thread_status : thread_list) {
     if (thread_status.cf_name == "pikachu" &&
         thread_status.db_name == "running") {
       running_count[thread_status.thread_type]++;
@@ -187,7 +189,7 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
   for (int i = 0; i < ThreadStatus::NUM_THREAD_TYPES; ++i) {
     running_count[i] = 0;
   }
-  for (auto thread_status : thread_list) {
+  for (const auto& thread_status : thread_list) {
     if (thread_status.cf_name == "pikachu" &&
         thread_status.db_name == "running") {
       running_count[thread_status.thread_type]++;
@@ -202,7 +204,7 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
 namespace {
 void UpdateStatusCounts(const std::vector<ThreadStatus>& thread_list,
                         int operation_counts[], int state_counts[]) {
-  for (auto thread_status : thread_list) {
+  for (const auto& thread_status : thread_list) {
     operation_counts[thread_status.operation_type]++;
     state_counts[thread_status.state_type]++;
   }

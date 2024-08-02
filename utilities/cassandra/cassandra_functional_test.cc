@@ -18,8 +18,7 @@
 #include "utilities/cassandra/test_utils.h"
 #include "utilities/merge_operators.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 
 // Path to the database on file system
 const std::string kDbName = test::PerThreadDBPath("cassandra_functional_test");
@@ -343,7 +342,6 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
   ASSERT_FALSE(std::get<0>(store.Get("k1")));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(CassandraFunctionalTest, LoadMergeOperator) {
   ConfigOptions config_options;
   std::shared_ptr<MergeOperator> mo;
@@ -434,10 +432,8 @@ TEST_F(CassandraFunctionalTest, LoadCompactionFilterFactory) {
   ASSERT_EQ(opts->gc_grace_period_in_seconds, 42);
   ASSERT_TRUE(opts->purge_ttl_on_expiration);
 }
-#endif  // ROCKSDB_LITE
 
-}  // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

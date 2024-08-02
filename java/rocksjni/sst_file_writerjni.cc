@@ -73,7 +73,7 @@ jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJ(JNIEnv * /*env*/,
  * Method:    open
  * Signature: (JLjava/lang/String;)V
  */
-void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jclass /*jcls*/,
                                          jlong jhandle, jstring jfile_path) {
   const char *file_path = env->GetStringUTFChars(jfile_path, nullptr);
   if (file_path == nullptr) {
@@ -95,7 +95,7 @@ void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jobject /*jobj*/,
  * Method:    put
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_put__JJJ(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_put__JJJ(JNIEnv *env, jclass /*jcls*/,
                                              jlong jhandle, jlong jkey_handle,
                                              jlong jvalue_handle) {
   auto *key_slice = reinterpret_cast<ROCKSDB_NAMESPACE::Slice *>(jkey_handle);
@@ -114,7 +114,7 @@ void Java_org_rocksdb_SstFileWriter_put__JJJ(JNIEnv *env, jobject /*jobj*/,
  * Method:    put
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_put__J_3B_3B(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_put__J_3B_3B(JNIEnv *env, jclass /*jcls*/,
                                                  jlong jhandle, jbyteArray jkey,
                                                  jbyteArray jval) {
   jbyte *key = env->GetByteArrayElements(jkey, nullptr);
@@ -151,7 +151,7 @@ void Java_org_rocksdb_SstFileWriter_put__J_3B_3B(JNIEnv *env, jobject /*jobj*/,
  * Method:    putDirect
  * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
  */
-void Java_org_rocksdb_SstFileWriter_putDirect(JNIEnv *env, jobject /*jdb*/,
+void Java_org_rocksdb_SstFileWriter_putDirect(JNIEnv *env, jclass /*jcls*/,
                                               jlong jdb_handle, jobject jkey,
                                               jint jkey_off, jint jkey_len,
                                               jobject jval, jint jval_off,
@@ -175,7 +175,7 @@ void Java_org_rocksdb_SstFileWriter_putDirect(JNIEnv *env, jobject /*jdb*/,
  * Method:    fileSize
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_SstFileWriter_fileSize(JNIEnv * /*env*/, jobject /*jdb*/,
+jlong Java_org_rocksdb_SstFileWriter_fileSize(JNIEnv * /*env*/, jclass /*jcls*/,
                                               jlong jdb_handle) {
   auto *writer =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileWriter *>(jdb_handle);
@@ -187,7 +187,7 @@ jlong Java_org_rocksdb_SstFileWriter_fileSize(JNIEnv * /*env*/, jobject /*jdb*/,
  * Method:    merge
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_merge__JJJ(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_merge__JJJ(JNIEnv *env, jclass /*jcls*/,
                                                jlong jhandle, jlong jkey_handle,
                                                jlong jvalue_handle) {
   auto *key_slice = reinterpret_cast<ROCKSDB_NAMESPACE::Slice *>(jkey_handle);
@@ -206,8 +206,7 @@ void Java_org_rocksdb_SstFileWriter_merge__JJJ(JNIEnv *env, jobject /*jobj*/,
  * Method:    merge
  * Signature: (J[B[B)V
  */
-void Java_org_rocksdb_SstFileWriter_merge__J_3B_3B(JNIEnv *env,
-                                                   jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_merge__J_3B_3B(JNIEnv *env, jclass /*jcls*/,
                                                    jlong jhandle,
                                                    jbyteArray jkey,
                                                    jbyteArray jval) {
@@ -245,7 +244,7 @@ void Java_org_rocksdb_SstFileWriter_merge__J_3B_3B(JNIEnv *env,
  * Method:    delete
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_delete__J_3B(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_delete__J_3B(JNIEnv *env, jclass /*jcls*/,
                                                  jlong jhandle,
                                                  jbyteArray jkey) {
   jbyte *key = env->GetByteArrayElements(jkey, nullptr);
@@ -272,7 +271,7 @@ void Java_org_rocksdb_SstFileWriter_delete__J_3B(JNIEnv *env, jobject /*jobj*/,
  * Method:    delete
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_delete__JJ(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_delete__JJ(JNIEnv *env, jclass /*jcls*/,
                                                jlong jhandle,
                                                jlong jkey_handle) {
   auto *key_slice = reinterpret_cast<ROCKSDB_NAMESPACE::Slice *>(jkey_handle);
@@ -289,7 +288,7 @@ void Java_org_rocksdb_SstFileWriter_delete__JJ(JNIEnv *env, jobject /*jobj*/,
  * Method:    finish
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileWriter_finish(JNIEnv *env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileWriter_finish(JNIEnv *env, jclass /*jcls*/,
                                            jlong jhandle) {
   ROCKSDB_NAMESPACE::Status s =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileWriter *>(jhandle)->Finish();
@@ -303,8 +302,8 @@ void Java_org_rocksdb_SstFileWriter_finish(JNIEnv *env, jobject /*jobj*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileWriter_disposeInternal(JNIEnv * /*env*/,
-                                                    jobject /*jobj*/,
-                                                    jlong jhandle) {
+void Java_org_rocksdb_SstFileWriter_disposeInternalJni(JNIEnv * /*env*/,
+                                                       jclass /*jobj*/,
+                                                       jlong jhandle) {
   delete reinterpret_cast<ROCKSDB_NAMESPACE::SstFileWriter *>(jhandle);
 }

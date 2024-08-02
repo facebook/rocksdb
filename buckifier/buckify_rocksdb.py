@@ -26,7 +26,7 @@ from util import ColorString
 # $python3 buckifier/buckify_rocksdb.py \
 #        '{"fake": {
 #                      "extra_deps": [":test_dep", "//fakes/module:mock1"],
-#                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"]
+#                      "extra_compiler_flags": ["-DFOO_BAR", "-Os"]
 #                  }
 #         }'
 # (Generated TARGETS file has test_dep and mock1 as dependencies for RocksDB
@@ -154,16 +154,9 @@ def generate_targets(repo_path, deps_map):
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
         "rocksdb_whole_archive_lib",
-        src_mk["LIB_SOURCES"] +
-        # always add range_tree, it's only excluded on ppc64, which we don't use internally
-        src_mk["RANGE_TREE_SOURCES"] + src_mk["TOOL_LIB_SOURCES"],
+        [],
         deps=[
-            "//folly/container:f14_hash",
-            "//folly/experimental/coro:blocking_wait",
-            "//folly/experimental/coro:collect",
-            "//folly/experimental/coro:coroutine",
-            "//folly/experimental/coro:task",
-            "//folly/synchronization:distributed_mutex",
+            ":rocksdb_lib",
         ],
         headers=None,
         extra_external_deps="",
@@ -200,9 +193,17 @@ def generate_targets(repo_path, deps_map):
         + src_mk.get("STRESS_LIB_SOURCES", [])
         + ["test_util/testutil.cc"],
     )
+    # ldb binary
+    TARGETS.add_binary(
+        "ldb", ["tools/ldb.cc"], [":rocksdb_tools_lib"]
+    )
     # db_stress binary
     TARGETS.add_binary(
         "db_stress", ["db_stress_tool/db_stress.cc"], [":rocksdb_stress_lib"]
+    )
+    # cache_bench binary
+    TARGETS.add_binary(
+        "cache_bench", ["cache/cache_bench.cc"], [":rocksdb_cache_bench_tools_lib"]
     )
     # bench binaries
     for src in src_mk.get("MICROBENCH_SOURCES", []):
@@ -306,6 +307,7 @@ def generate_targets(repo_path, deps_map):
                     deps=json.dumps(deps["extra_deps"] + [":rocksdb_test_lib"]),
                     extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
                 )
+    TARGETS.export_file("tools/db_crashtest.py")
 
     print(ColorString.info("Generated TARGETS Summary:"))
     print(ColorString.info("- %d libs" % TARGETS.total_lib))

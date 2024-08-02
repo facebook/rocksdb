@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <deque>
 #include <string>
 #include <vector>
@@ -37,7 +36,7 @@ class DBWithTTLImpl : public DBWithTTL {
 
   virtual ~DBWithTTLImpl();
 
-  virtual Status Close() override;
+  Status Close() override;
 
   Status CreateColumnFamilyWithTtl(const ColumnFamilyOptions& options,
                                    const std::string& column_family_name,
@@ -49,40 +48,36 @@ class DBWithTTLImpl : public DBWithTTL {
                             ColumnFamilyHandle** handle) override;
 
   using StackableDB::Put;
-  virtual Status Put(const WriteOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& val) override;
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& val) override;
 
   using StackableDB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override;
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
 
   using StackableDB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+  void MultiGet(const ReadOptions& options, const size_t num_keys,
+                ColumnFamilyHandle** column_families, const Slice* keys,
+                PinnableSlice* values, std::string* timestamps,
+                Status* statuses, const bool sorted_input) override;
 
   using StackableDB::KeyMayExist;
-  virtual bool KeyMayExist(const ReadOptions& options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value,
-                           bool* value_found = nullptr) override;
+  bool KeyMayExist(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   std::string* value, bool* value_found = nullptr) override;
 
   using StackableDB::Merge;
-  virtual Status Merge(const WriteOptions& options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override;
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& value) override;
 
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   using StackableDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& opts,
-                                ColumnFamilyHandle* column_family) override;
+  Iterator* NewIterator(const ReadOptions& _read_options,
+                        ColumnFamilyHandle* column_family) override;
 
-  virtual DB* GetBaseDB() override { return db_; }
+  DB* GetBaseDB() override { return db_; }
 
   static bool IsStale(const Slice& value, int32_t ttl, SystemClock* clock);
 
@@ -158,8 +153,8 @@ class TtlCompactionFilter : public LayeredCompactionFilterBase {
                       std::unique_ptr<const CompactionFilter>
                           _user_comp_filter_from_factory = nullptr);
 
-  virtual bool Filter(int level, const Slice& key, const Slice& old_val,
-                      std::string* new_val, bool* value_changed) const override;
+  bool Filter(int level, const Slice& key, const Slice& old_val,
+              std::string* new_val, bool* value_changed) const override;
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "TtlCompactionFilter"; }
@@ -242,4 +237,3 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/);
 }  // extern "C"
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

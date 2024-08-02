@@ -5,13 +5,12 @@
 //
 #include "util/string_util.h"
 
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <algorithm>
+#include <cerrno>
 #include <cinttypes>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -115,8 +114,17 @@ void AppendEscapedStringTo(std::string* str, const Slice& value) {
 }
 
 std::string NumberToHumanString(int64_t num) {
-  char buf[19];
-  int64_t absnum = num < 0 ? -num : num;
+  char buf[21];
+  int64_t absnum;
+
+  if (num < 0) {
+    // abs(INT64_MIN) is INT64_MAX+1 which overflows int64_t and become itself.
+    // So we convert it to INT64_MAX to avoid fall into <10000 slot.
+    absnum = num == INT64_MIN ? INT64_MAX : -num;
+  } else {
+    absnum = num;
+  }
+
   if (absnum < 10000) {
     snprintf(buf, sizeof(buf), "%" PRIi64, num);
   } else if (absnum < 10000000) {
@@ -257,7 +265,9 @@ std::string UnescapeOptionString(const std::string& escaped_string) {
 }
 
 std::string trim(const std::string& str) {
-  if (str.empty()) return std::string();
+  if (str.empty()) {
+    return std::string();
+  }
   size_t start = 0;
   size_t end = str.size() - 1;
   while (isspace(str[start]) != 0 && start < end) {
@@ -286,7 +296,6 @@ bool StartsWith(const std::string& string, const std::string& pattern) {
   return string.compare(0, pattern.size(), pattern) == 0;
 }
 
-#ifndef ROCKSDB_LITE
 
 bool ParseBoolean(const std::string& type, const std::string& value) {
   if (value == "true" || value == "1") {
@@ -325,7 +334,6 @@ int32_t ParseInt32(const std::string& value) {
   }
 }
 
-#endif
 
 uint64_t ParseUint64(const std::string& value) {
   size_t endchar;
@@ -339,14 +347,15 @@ uint64_t ParseUint64(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10LL;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20LL;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30LL;
-    else if (c == 't' || c == 'T')
+    } else if (c == 't' || c == 'T') {
       num <<= 40LL;
+    }
   }
 
   return num;
@@ -364,14 +373,15 @@ int64_t ParseInt64(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10LL;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20LL;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30LL;
-    else if (c == 't' || c == 'T')
+    } else if (c == 't' || c == 'T') {
       num <<= 40LL;
+    }
   }
 
   return num;
@@ -389,12 +399,13 @@ int ParseInt(const std::string& value) {
 
   if (endchar < value.length()) {
     char c = value[endchar];
-    if (c == 'k' || c == 'K')
+    if (c == 'k' || c == 'K') {
       num <<= 10;
-    else if (c == 'm' || c == 'M')
+    } else if (c == 'm' || c == 'M') {
       num <<= 20;
-    else if (c == 'g' || c == 'G')
+    } else if (c == 'g' || c == 'G') {
       num <<= 30;
+    }
   }
 
   return num;
@@ -435,6 +446,45 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
       *value += ":";
     }
     *value += std::to_string(vec[i]);
+  }
+  return true;
+}
+
+int ParseTimeStringToSeconds(const std::string& value) {
+  int hours, minutes;
+  char colon;
+
+  std::istringstream stream(value);
+  stream >> hours >> colon >> minutes;
+
+  if (stream.fail() || !stream.eof() || colon != ':') {
+    return -1;
+  }
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return -1;
+  }
+  return hours * 3600 + minutes * 60;
+}
+
+bool TryParseTimeRangeString(const std::string& value, int& start_time,
+                             int& end_time) {
+  if (value.empty()) {
+    start_time = 0;
+    end_time = 0;
+    return true;
+  }
+  auto split = StringSplit(value, '-');
+  if (split.size() != 2) {
+    return false;
+  }
+  start_time = ParseTimeStringToSeconds(split[0]);
+  if (start_time < 0) {
+    return false;
+  }
+  end_time = ParseTimeStringToSeconds(split[1]);
+  if (end_time < 0) {
+    return false;
   }
   return true;
 }

@@ -11,38 +11,33 @@ import java.util.*;
 /**
  * DBOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
- *
+ * <p>
  * As a descendent of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class DBOptions extends RocksObject
-    implements DBOptionsInterface<DBOptions>,
-    MutableDBOptionsInterface<DBOptions> {
-  static {
-    RocksDB.loadLibrary();
-  }
-
+    implements DBOptionsInterface<DBOptions>, MutableDBOptionsInterface<DBOptions> {
   /**
    * Construct DBOptions.
-   *
+   * <p>
    * This constructor will create (by allocating a block of memory)
    * an {@code rocksdb::DBOptions} in the c++ side.
    */
   public DBOptions() {
-    super(newDBOptions());
+    super(newDBOptionsInstance());
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
     env_ = Env.getDefault();
   }
 
   /**
    * Copy constructor for DBOptions.
-   *
+   * <p>
    * NOTE: This does a shallow copy, which means env, rate_limiter, sst_file_manager,
    * info_log and other pointers will be cloned!
    *
    * @param other The DBOptions to copy.
    */
-  public DBOptions(DBOptions other) {
+  public DBOptions(final DBOptions other) {
     super(copyDBOptions(other.nativeHandle_));
     this.env_ = other.env_;
     this.numShardBits_ = other.numShardBits_;
@@ -218,9 +213,9 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setLogger(final Logger logger) {
+  public DBOptions setLogger(final LoggerInterface logger) {
     assert(isOwningHandle());
-    setLogger(nativeHandle_, logger.nativeHandle_);
+    setLogger(nativeHandle_, logger.getNativeHandle(), logger.getLoggerType().getValue());
     return this;
   }
 
@@ -752,19 +747,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setAccessHintOnCompactionStart(final AccessHint accessHint) {
-    assert(isOwningHandle());
-    setAccessHintOnCompactionStart(nativeHandle_, accessHint.getValue());
-    return this;
-  }
-
-  @Override
-  public AccessHint accessHintOnCompactionStart() {
-    assert(isOwningHandle());
-    return AccessHint.getAccessHint(accessHintOnCompactionStart(nativeHandle_));
-  }
-
-  @Override
   public DBOptions setCompactionReadaheadSize(final long compactionReadaheadSize) {
     assert(isOwningHandle());
     setCompactionReadaheadSize(nativeHandle_, compactionReadaheadSize);
@@ -1251,219 +1233,191 @@ public class DBOptions extends RocksObject
   private static native long getDBOptionsFromProps(long cfgHandle, String optString);
   private static native long getDBOptionsFromProps(String optString);
 
+  private static long newDBOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newDBOptions();
+  }
   private static native long newDBOptions();
+
   private static native long copyDBOptions(final long handle);
   private static native long newDBOptionsFromOptions(final long optionsHandle);
-  @Override protected final native void disposeInternal(final long handle);
-
-  private native void optimizeForSmallDb(final long handle);
-  private native void setIncreaseParallelism(long handle, int totalThreads);
-  private native void setCreateIfMissing(long handle, boolean flag);
-  private native boolean createIfMissing(long handle);
-  private native void setCreateMissingColumnFamilies(
-      long handle, boolean flag);
-  private native boolean createMissingColumnFamilies(long handle);
-  private native void setEnv(long handle, long envHandle);
-  private native void setErrorIfExists(long handle, boolean errorIfExists);
-  private native boolean errorIfExists(long handle);
-  private native void setParanoidChecks(
-      long handle, boolean paranoidChecks);
-  private native boolean paranoidChecks(long handle);
-  private native void setRateLimiter(long handle,
-      long rateLimiterHandle);
-  private native void setSstFileManager(final long handle,
-      final long sstFileManagerHandle);
-  private native void setLogger(long handle,
-      long loggerHandle);
-  private native void setInfoLogLevel(long handle, byte logLevel);
-  private native byte infoLogLevel(long handle);
-  private native void setMaxOpenFiles(long handle, int maxOpenFiles);
-  private native int maxOpenFiles(long handle);
-  private native void setMaxFileOpeningThreads(final long handle,
-      final int maxFileOpeningThreads);
-  private native int maxFileOpeningThreads(final long handle);
-  private native void setMaxTotalWalSize(long handle,
-      long maxTotalWalSize);
-  private native long maxTotalWalSize(long handle);
-  private native void setStatistics(final long handle, final long statisticsHandle);
-  private native long statistics(final long handle);
-  private native boolean useFsync(long handle);
-  private native void setUseFsync(long handle, boolean useFsync);
-  private native void setDbPaths(final long handle, final String[] paths,
-      final long[] targetSizes);
-  private native long dbPathsLen(final long handle);
-  private native void dbPaths(final long handle, final String[] paths,
-                                 final long[] targetSizes);
-  private native void setDbLogDir(long handle, String dbLogDir);
-  private native String dbLogDir(long handle);
-  private native void setWalDir(long handle, String walDir);
-  private native String walDir(long handle);
-  private native void setDeleteObsoleteFilesPeriodMicros(
-      long handle, long micros);
-  private native long deleteObsoleteFilesPeriodMicros(long handle);
-  private native void setMaxBackgroundCompactions(
-      long handle, int maxBackgroundCompactions);
-  private native int maxBackgroundCompactions(long handle);
-  private native void setMaxSubcompactions(long handle, int maxSubcompactions);
-  private native int maxSubcompactions(long handle);
-  private native void setMaxBackgroundFlushes(
-      long handle, int maxBackgroundFlushes);
-  private native int maxBackgroundFlushes(long handle);
-  private native void setMaxBackgroundJobs(long handle, int maxBackgroundJobs);
-  private native int maxBackgroundJobs(long handle);
-  private native void setMaxLogFileSize(long handle, long maxLogFileSize)
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
+  private static native void optimizeForSmallDb(final long handle);
+  private static native void setIncreaseParallelism(long handle, int totalThreads);
+  private static native void setCreateIfMissing(long handle, boolean flag);
+  private static native boolean createIfMissing(long handle);
+  private static native void setCreateMissingColumnFamilies(long handle, boolean flag);
+  private static native boolean createMissingColumnFamilies(long handle);
+  private static native void setEnv(long handle, long envHandle);
+  private static native void setErrorIfExists(long handle, boolean errorIfExists);
+  private static native boolean errorIfExists(long handle);
+  private static native void setParanoidChecks(long handle, boolean paranoidChecks);
+  private static native boolean paranoidChecks(long handle);
+  private static native void setRateLimiter(long handle, long rateLimiterHandle);
+  private static native void setSstFileManager(final long handle, final long sstFileManagerHandle);
+  private static native void setLogger(
+      final long handle, final long loggerHandle, final byte loggerType);
+  private static native void setInfoLogLevel(long handle, byte logLevel);
+  private static native byte infoLogLevel(long handle);
+  private static native void setMaxOpenFiles(long handle, int maxOpenFiles);
+  private static native int maxOpenFiles(long handle);
+  private static native void setMaxFileOpeningThreads(
+      final long handle, final int maxFileOpeningThreads);
+  private static native int maxFileOpeningThreads(final long handle);
+  private static native void setMaxTotalWalSize(long handle, long maxTotalWalSize);
+  private static native long maxTotalWalSize(long handle);
+  private static native void setStatistics(final long handle, final long statisticsHandle);
+  private static native long statistics(final long handle);
+  private static native boolean useFsync(long handle);
+  private static native void setUseFsync(long handle, boolean useFsync);
+  private static native void setDbPaths(
+      final long handle, final String[] paths, final long[] targetSizes);
+  private static native long dbPathsLen(final long handle);
+  private static native void dbPaths(
+      final long handle, final String[] paths, final long[] targetSizes);
+  private static native void setDbLogDir(long handle, String dbLogDir);
+  private static native String dbLogDir(long handle);
+  private static native void setWalDir(long handle, String walDir);
+  private static native String walDir(long handle);
+  private static native void setDeleteObsoleteFilesPeriodMicros(long handle, long micros);
+  private static native long deleteObsoleteFilesPeriodMicros(long handle);
+  private static native void setMaxBackgroundCompactions(long handle, int maxBackgroundCompactions);
+  private static native int maxBackgroundCompactions(long handle);
+  private static native void setMaxSubcompactions(long handle, int maxSubcompactions);
+  private static native int maxSubcompactions(long handle);
+  private static native void setMaxBackgroundFlushes(long handle, int maxBackgroundFlushes);
+  private static native int maxBackgroundFlushes(long handle);
+  private static native void setMaxBackgroundJobs(long handle, int maxBackgroundJobs);
+  private static native int maxBackgroundJobs(long handle);
+  private static native void setMaxLogFileSize(long handle, long maxLogFileSize)
       throws IllegalArgumentException;
-  private native long maxLogFileSize(long handle);
-  private native void setLogFileTimeToRoll(
-      long handle, long logFileTimeToRoll) throws IllegalArgumentException;
-  private native long logFileTimeToRoll(long handle);
-  private native void setKeepLogFileNum(long handle, long keepLogFileNum)
+  private static native long maxLogFileSize(long handle);
+  private static native void setLogFileTimeToRoll(long handle, long logFileTimeToRoll)
       throws IllegalArgumentException;
-  private native long keepLogFileNum(long handle);
-  private native void setRecycleLogFileNum(long handle, long recycleLogFileNum);
-  private native long recycleLogFileNum(long handle);
-  private native void setMaxManifestFileSize(
-      long handle, long maxManifestFileSize);
-  private native long maxManifestFileSize(long handle);
-  private native void setTableCacheNumshardbits(
-      long handle, int tableCacheNumshardbits);
-  private native int tableCacheNumshardbits(long handle);
-  private native void setWalTtlSeconds(long handle, long walTtlSeconds);
-  private native long walTtlSeconds(long handle);
-  private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
-  private native long walSizeLimitMB(long handle);
+  private static native long logFileTimeToRoll(long handle);
+  private static native void setKeepLogFileNum(long handle, long keepLogFileNum)
+      throws IllegalArgumentException;
+  private static native long keepLogFileNum(long handle);
+  private static native void setRecycleLogFileNum(long handle, long recycleLogFileNum);
+  private static native long recycleLogFileNum(long handle);
+  private static native void setMaxManifestFileSize(long handle, long maxManifestFileSize);
+  private static native long maxManifestFileSize(long handle);
+  private static native void setTableCacheNumshardbits(long handle, int tableCacheNumshardbits);
+  private static native int tableCacheNumshardbits(long handle);
+  private static native void setWalTtlSeconds(long handle, long walTtlSeconds);
+  private static native long walTtlSeconds(long handle);
+  private static native void setWalSizeLimitMB(long handle, long sizeLimitMB);
+  private static native long walSizeLimitMB(long handle);
   private static native void setMaxWriteBatchGroupSizeBytes(
       final long handle, final long maxWriteBatchGroupSizeBytes);
   private static native long maxWriteBatchGroupSizeBytes(final long handle);
-  private native void setManifestPreallocationSize(
-      long handle, long size) throws IllegalArgumentException;
-  private native long manifestPreallocationSize(long handle);
-  private native void setUseDirectReads(long handle, boolean useDirectReads);
-  private native boolean useDirectReads(long handle);
-  private native void setUseDirectIoForFlushAndCompaction(
+  private static native void setManifestPreallocationSize(long handle, long size)
+      throws IllegalArgumentException;
+  private static native long manifestPreallocationSize(long handle);
+  private static native void setUseDirectReads(long handle, boolean useDirectReads);
+  private static native boolean useDirectReads(long handle);
+  private static native void setUseDirectIoForFlushAndCompaction(
       long handle, boolean useDirectIoForFlushAndCompaction);
-  private native boolean useDirectIoForFlushAndCompaction(long handle);
-  private native void setAllowFAllocate(final long handle,
-      final boolean allowFAllocate);
-  private native boolean allowFAllocate(final long handle);
-  private native void setAllowMmapReads(
-      long handle, boolean allowMmapReads);
-  private native boolean allowMmapReads(long handle);
-  private native void setAllowMmapWrites(
-      long handle, boolean allowMmapWrites);
-  private native boolean allowMmapWrites(long handle);
-  private native void setIsFdCloseOnExec(
-      long handle, boolean isFdCloseOnExec);
-  private native boolean isFdCloseOnExec(long handle);
-  private native void setStatsDumpPeriodSec(
-      long handle, int statsDumpPeriodSec);
-  private native int statsDumpPeriodSec(long handle);
-  private native void setStatsPersistPeriodSec(
+  private static native boolean useDirectIoForFlushAndCompaction(long handle);
+  private static native void setAllowFAllocate(final long handle, final boolean allowFAllocate);
+  private static native boolean allowFAllocate(final long handle);
+  private static native void setAllowMmapReads(long handle, boolean allowMmapReads);
+  private static native boolean allowMmapReads(long handle);
+  private static native void setAllowMmapWrites(long handle, boolean allowMmapWrites);
+  private static native boolean allowMmapWrites(long handle);
+  private static native void setIsFdCloseOnExec(long handle, boolean isFdCloseOnExec);
+  private static native boolean isFdCloseOnExec(long handle);
+  private static native void setStatsDumpPeriodSec(long handle, int statsDumpPeriodSec);
+  private static native int statsDumpPeriodSec(long handle);
+  private static native void setStatsPersistPeriodSec(
       final long handle, final int statsPersistPeriodSec);
-  private native int statsPersistPeriodSec(
-      final long handle);
-  private native void setStatsHistoryBufferSize(
+  private static native int statsPersistPeriodSec(final long handle);
+  private static native void setStatsHistoryBufferSize(
       final long handle, final long statsHistoryBufferSize);
-  private native long statsHistoryBufferSize(
-      final long handle);
-  private native void setAdviseRandomOnOpen(
-      long handle, boolean adviseRandomOnOpen);
-  private native boolean adviseRandomOnOpen(long handle);
-  private native void setDbWriteBufferSize(final long handle,
-      final long dbWriteBufferSize);
-  private native void setWriteBufferManager(final long dbOptionsHandle,
-      final long writeBufferManagerHandle);
-  private native long dbWriteBufferSize(final long handle);
-  private native void setAccessHintOnCompactionStart(final long handle,
-      final byte accessHintOnCompactionStart);
-  private native byte accessHintOnCompactionStart(final long handle);
-  private native void setCompactionReadaheadSize(final long handle,
-      final long compactionReadaheadSize);
-  private native long compactionReadaheadSize(final long handle);
-  private native void setRandomAccessMaxBufferSize(final long handle,
-      final long randomAccessMaxBufferSize);
-  private native long randomAccessMaxBufferSize(final long handle);
-  private native void setWritableFileMaxBufferSize(final long handle,
-      final long writableFileMaxBufferSize);
-  private native long writableFileMaxBufferSize(final long handle);
-  private native void setUseAdaptiveMutex(
-      long handle, boolean useAdaptiveMutex);
-  private native boolean useAdaptiveMutex(long handle);
-  private native void setBytesPerSync(
-      long handle, long bytesPerSync);
-  private native long bytesPerSync(long handle);
-  private native void setWalBytesPerSync(long handle, long walBytesPerSync);
-  private native long walBytesPerSync(long handle);
-  private native void setStrictBytesPerSync(
+  private static native long statsHistoryBufferSize(final long handle);
+  private static native void setAdviseRandomOnOpen(long handle, boolean adviseRandomOnOpen);
+  private static native boolean adviseRandomOnOpen(long handle);
+  private static native void setDbWriteBufferSize(final long handle, final long dbWriteBufferSize);
+  private static native void setWriteBufferManager(
+      final long dbOptionsHandle, final long writeBufferManagerHandle);
+  private static native long dbWriteBufferSize(final long handle);
+  private static native void setCompactionReadaheadSize(
+      final long handle, final long compactionReadaheadSize);
+  private static native long compactionReadaheadSize(final long handle);
+  private static native void setRandomAccessMaxBufferSize(
+      final long handle, final long randomAccessMaxBufferSize);
+  private static native long randomAccessMaxBufferSize(final long handle);
+  private static native void setWritableFileMaxBufferSize(
+      final long handle, final long writableFileMaxBufferSize);
+  private static native long writableFileMaxBufferSize(final long handle);
+  private static native void setUseAdaptiveMutex(long handle, boolean useAdaptiveMutex);
+  private static native boolean useAdaptiveMutex(long handle);
+  private static native void setBytesPerSync(long handle, long bytesPerSync);
+  private static native long bytesPerSync(long handle);
+  private static native void setWalBytesPerSync(long handle, long walBytesPerSync);
+  private static native long walBytesPerSync(long handle);
+  private static native void setStrictBytesPerSync(
       final long handle, final boolean strictBytesPerSync);
-  private native boolean strictBytesPerSync(
-      final long handle);
+  private static native boolean strictBytesPerSync(final long handle);
   private static native void setEventListeners(
       final long handle, final long[] eventListenerHandles);
   private static native AbstractEventListener[] eventListeners(final long handle);
-  private native void setEnableThreadTracking(long handle,
-      boolean enableThreadTracking);
-  private native boolean enableThreadTracking(long handle);
-  private native void setDelayedWriteRate(long handle, long delayedWriteRate);
-  private native long delayedWriteRate(long handle);
-  private native void setEnablePipelinedWrite(final long handle,
-      final boolean enablePipelinedWrite);
-  private native boolean enablePipelinedWrite(final long handle);
-  private native void setUnorderedWrite(final long handle,
-      final boolean unorderedWrite);
-  private native boolean unorderedWrite(final long handle);
-  private native void setAllowConcurrentMemtableWrite(long handle,
-      boolean allowConcurrentMemtableWrite);
-  private native boolean allowConcurrentMemtableWrite(long handle);
-  private native void setEnableWriteThreadAdaptiveYield(long handle,
-      boolean enableWriteThreadAdaptiveYield);
-  private native boolean enableWriteThreadAdaptiveYield(long handle);
-  private native void setWriteThreadMaxYieldUsec(long handle,
-      long writeThreadMaxYieldUsec);
-  private native long writeThreadMaxYieldUsec(long handle);
-  private native void setWriteThreadSlowYieldUsec(long handle,
-      long writeThreadSlowYieldUsec);
-  private native long writeThreadSlowYieldUsec(long handle);
-  private native void setSkipStatsUpdateOnDbOpen(final long handle,
-      final boolean skipStatsUpdateOnDbOpen);
-  private native boolean skipStatsUpdateOnDbOpen(final long handle);
+  private static native void setEnableThreadTracking(long handle, boolean enableThreadTracking);
+  private static native boolean enableThreadTracking(long handle);
+  private static native void setDelayedWriteRate(long handle, long delayedWriteRate);
+  private static native long delayedWriteRate(long handle);
+  private static native void setEnablePipelinedWrite(
+      final long handle, final boolean enablePipelinedWrite);
+  private static native boolean enablePipelinedWrite(final long handle);
+  private static native void setUnorderedWrite(final long handle, final boolean unorderedWrite);
+  private static native boolean unorderedWrite(final long handle);
+  private static native void setAllowConcurrentMemtableWrite(
+      long handle, boolean allowConcurrentMemtableWrite);
+  private static native boolean allowConcurrentMemtableWrite(long handle);
+  private static native void setEnableWriteThreadAdaptiveYield(
+      long handle, boolean enableWriteThreadAdaptiveYield);
+  private static native boolean enableWriteThreadAdaptiveYield(long handle);
+  private static native void setWriteThreadMaxYieldUsec(long handle, long writeThreadMaxYieldUsec);
+  private static native long writeThreadMaxYieldUsec(long handle);
+  private static native void setWriteThreadSlowYieldUsec(
+      long handle, long writeThreadSlowYieldUsec);
+  private static native long writeThreadSlowYieldUsec(long handle);
+  private static native void setSkipStatsUpdateOnDbOpen(
+      final long handle, final boolean skipStatsUpdateOnDbOpen);
+  private static native boolean skipStatsUpdateOnDbOpen(final long handle);
   private static native void setSkipCheckingSstFileSizesOnDbOpen(
       final long handle, final boolean skipChecking);
   private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
-  private native void setWalRecoveryMode(final long handle,
-      final byte walRecoveryMode);
-  private native byte walRecoveryMode(final long handle);
-  private native void setAllow2pc(final long handle,
-      final boolean allow2pc);
-  private native boolean allow2pc(final long handle);
-  private native void setRowCache(final long handle,
-      final long rowCacheHandle);
-  private native void setWalFilter(final long handle,
-      final long walFilterHandle);
-  private native void setFailIfOptionsFileError(final long handle,
-      final boolean failIfOptionsFileError);
-  private native boolean failIfOptionsFileError(final long handle);
-  private native void setDumpMallocStats(final long handle,
-      final boolean dumpMallocStats);
-  private native boolean dumpMallocStats(final long handle);
-  private native void setAvoidFlushDuringRecovery(final long handle,
-      final boolean avoidFlushDuringRecovery);
-  private native boolean avoidFlushDuringRecovery(final long handle);
-  private native void setAvoidFlushDuringShutdown(final long handle,
-      final boolean avoidFlushDuringShutdown);
-  private native boolean avoidFlushDuringShutdown(final long handle);
-  private native void setAllowIngestBehind(final long handle,
-      final boolean allowIngestBehind);
-  private native boolean allowIngestBehind(final long handle);
-  private native void setTwoWriteQueues(final long handle,
-      final boolean twoWriteQueues);
-  private native boolean twoWriteQueues(final long handle);
-  private native void setManualWalFlush(final long handle,
-      final boolean manualWalFlush);
-  private native boolean manualWalFlush(final long handle);
-  private native void setAtomicFlush(final long handle,
-      final boolean atomicFlush);
-  private native boolean atomicFlush(final long handle);
+  private static native void setWalRecoveryMode(final long handle, final byte walRecoveryMode);
+  private static native byte walRecoveryMode(final long handle);
+  private static native void setAllow2pc(final long handle, final boolean allow2pc);
+  private static native boolean allow2pc(final long handle);
+  private static native void setRowCache(final long handle, final long rowCacheHandle);
+  private static native void setWalFilter(final long handle, final long walFilterHandle);
+  private static native void setFailIfOptionsFileError(
+      final long handle, final boolean failIfOptionsFileError);
+  private static native boolean failIfOptionsFileError(final long handle);
+  private static native void setDumpMallocStats(final long handle, final boolean dumpMallocStats);
+  private static native boolean dumpMallocStats(final long handle);
+  private static native void setAvoidFlushDuringRecovery(
+      final long handle, final boolean avoidFlushDuringRecovery);
+  private static native boolean avoidFlushDuringRecovery(final long handle);
+  private static native void setAvoidFlushDuringShutdown(
+      final long handle, final boolean avoidFlushDuringShutdown);
+  private static native boolean avoidFlushDuringShutdown(final long handle);
+  private static native void setAllowIngestBehind(
+      final long handle, final boolean allowIngestBehind);
+  private static native boolean allowIngestBehind(final long handle);
+  private static native void setTwoWriteQueues(final long handle, final boolean twoWriteQueues);
+  private static native boolean twoWriteQueues(final long handle);
+  private static native void setManualWalFlush(final long handle, final boolean manualWalFlush);
+  private static native boolean manualWalFlush(final long handle);
+  private static native void setAtomicFlush(final long handle, final boolean atomicFlush);
+  private static native boolean atomicFlush(final long handle);
   private static native void setAvoidUnnecessaryBlockingIO(
       final long handle, final boolean avoidBlockingIO);
   private static native boolean avoidUnnecessaryBlockingIO(final long handle);

@@ -6,7 +6,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#if !defined ROCKSDB_LITE
 
 #include "utilities/persistent_cache/persistent_cache_test.h"
 
@@ -256,7 +255,7 @@ std::shared_ptr<PersistentCacheTier> MakeTieredCache(
 
 #ifdef OS_LINUX
 static void UniqueIdCallback(void* arg) {
-  int* result = reinterpret_cast<int*>(arg);
+  int* result = static_cast<int*>(arg);
   if (*result == -1) {
     *result = 0;
   }
@@ -296,7 +295,7 @@ PersistentCacheDBTest::PersistentCacheDBTest()
 // test template
 void PersistentCacheDBTest::RunTest(
     const std::function<std::shared_ptr<PersistentCacheTier>(bool)>& new_pcache,
-    const size_t max_keys = 100 * 1024, const size_t max_usecase = 5) {
+    const size_t max_keys = 100 * 1024, const size_t max_usecase = 3) {
   // number of insertion interations
   int num_iter = static_cast<int>(max_keys * kStressFactor);
 
@@ -320,43 +319,21 @@ void PersistentCacheDBTest::RunTest(
         pcache = new_pcache(/*is_compressed=*/true);
         table_options.persistent_cache = pcache;
         table_options.block_cache = NewLRUCache(size_max);
-        table_options.block_cache_compressed = nullptr;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       case 1:
-        // page cache, block cache, compressed cache
-        pcache = new_pcache(/*is_compressed=*/true);
-        table_options.persistent_cache = pcache;
-        table_options.block_cache = NewLRUCache(size_max);
-        table_options.block_cache_compressed = NewLRUCache(size_max);
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        break;
-      case 2:
-        // page cache, block cache, compressed cache + KNoCompression
-        // both block cache and compressed cache, but DB is not compressed
-        // also, make block cache sizes bigger, to trigger block cache hits
-        pcache = new_pcache(/*is_compressed=*/true);
-        table_options.persistent_cache = pcache;
-        table_options.block_cache = NewLRUCache(size_max);
-        table_options.block_cache_compressed = NewLRUCache(size_max);
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        options.compression = kNoCompression;
-        break;
-      case 3:
         // page cache, no block cache, no compressed cache
         pcache = new_pcache(/*is_compressed=*/false);
         table_options.persistent_cache = pcache;
         table_options.block_cache = nullptr;
-        table_options.block_cache_compressed = nullptr;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
-      case 4:
+      case 2:
         // page cache, no block cache, no compressed cache
         // Page cache caches compressed blocks
         pcache = new_pcache(/*is_compressed=*/true);
         table_options.persistent_cache = pcache;
         table_options.block_cache = nullptr;
-        table_options.block_cache_compressed = nullptr;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       default:
@@ -372,10 +349,6 @@ void PersistentCacheDBTest::RunTest(
     Verify(num_iter, values);
 
     auto block_miss = TestGetTickerCount(options, BLOCK_CACHE_MISS);
-    auto compressed_block_hit =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT);
-    auto compressed_block_miss =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS);
     auto page_hit = TestGetTickerCount(options, PERSISTENT_CACHE_HIT);
     auto page_miss = TestGetTickerCount(options, PERSISTENT_CACHE_MISS);
 
@@ -386,31 +359,12 @@ void PersistentCacheDBTest::RunTest(
         ASSERT_GT(page_miss, 0);
         ASSERT_GT(page_hit, 0);
         ASSERT_GT(block_miss, 0);
-        ASSERT_EQ(compressed_block_miss, 0);
-        ASSERT_EQ(compressed_block_hit, 0);
         break;
       case 1:
-        // page cache, block cache, compressed cache
-        ASSERT_GT(page_miss, 0);
-        ASSERT_GT(block_miss, 0);
-        ASSERT_GT(compressed_block_miss, 0);
-        break;
       case 2:
-        // page cache, block cache, compressed cache + KNoCompression
-        ASSERT_GT(page_miss, 0);
-        ASSERT_GT(page_hit, 0);
-        ASSERT_GT(block_miss, 0);
-        ASSERT_GT(compressed_block_miss, 0);
-        // remember kNoCompression
-        ASSERT_EQ(compressed_block_hit, 0);
-        break;
-      case 3:
-      case 4:
         // page cache, no block cache, no compressed cache
         ASSERT_GT(page_miss, 0);
         ASSERT_GT(page_hit, 0);
-        ASSERT_EQ(compressed_block_hit, 0);
-        ASSERT_EQ(compressed_block_miss, 0);
         break;
       default:
         FAIL();
@@ -457,6 +411,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#else   // !defined ROCKSDB_LITE
-int main() { return 0; }
-#endif  // !defined ROCKSDB_LITE

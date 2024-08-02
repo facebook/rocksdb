@@ -22,16 +22,16 @@ class TraceExecutionHandler : public TraceRecord::Handler {
  public:
   TraceExecutionHandler(DB* db,
                         const std::vector<ColumnFamilyHandle*>& handles);
-  virtual ~TraceExecutionHandler() override;
+  ~TraceExecutionHandler() override;
 
-  virtual Status Handle(const WriteQueryTraceRecord& record,
-                        std::unique_ptr<TraceRecordResult>* result) override;
-  virtual Status Handle(const GetQueryTraceRecord& record,
-                        std::unique_ptr<TraceRecordResult>* result) override;
-  virtual Status Handle(const IteratorSeekQueryTraceRecord& record,
-                        std::unique_ptr<TraceRecordResult>* result) override;
-  virtual Status Handle(const MultiGetQueryTraceRecord& record,
-                        std::unique_ptr<TraceRecordResult>* result) override;
+  Status Handle(const WriteQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
+  Status Handle(const GetQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
+  Status Handle(const IteratorSeekQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
+  Status Handle(const MultiGetQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* result) override;
 
  private:
   DB* db_;

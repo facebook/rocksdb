@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -25,29 +24,24 @@ class DBImplReadOnly : public DBImpl {
   virtual ~DBImplReadOnly();
 
   // Implementations of the DB interface
-  using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             std::string* timestamp) override;
+  using DBImpl::GetImpl;
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions& get_impl_options) override;
 
   // TODO: Implement ReadOnly MultiGet?
 
   using DBImpl::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions&,
-                                ColumnFamilyHandle* column_family) override;
+  Iterator* NewIterator(const ReadOptions& _read_options,
+                        ColumnFamilyHandle* column_family) override;
 
-  virtual Status NewIterators(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators) override;
+  Status NewIterators(const ReadOptions& options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
 
   using DBImpl::Put;
-  virtual Status Put(const WriteOptions& /*options*/,
-                     ColumnFamilyHandle* /*column_family*/,
-                     const Slice& /*key*/, const Slice& /*value*/) override {
+  Status Put(const WriteOptions& /*options*/,
+             ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+             const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
@@ -58,39 +52,42 @@ class DBImplReadOnly : public DBImpl {
                    const WideColumns& /* columns */) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+  Status PutEntity(const WriteOptions& /* options */, const Slice& /* key */,
+                   const AttributeGroups& /* attribute_groups */) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
 
   using DBImpl::Merge;
-  virtual Status Merge(const WriteOptions& /*options*/,
-                       ColumnFamilyHandle* /*column_family*/,
-                       const Slice& /*key*/, const Slice& /*value*/) override {
+  Status Merge(const WriteOptions& /*options*/,
+               ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::Delete;
-  virtual Status Delete(const WriteOptions& /*options*/,
-                        ColumnFamilyHandle* /*column_family*/,
-                        const Slice& /*key*/) override {
+  Status Delete(const WriteOptions& /*options*/,
+                ColumnFamilyHandle* /*column_family*/,
+                const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& /*options*/,
-                              ColumnFamilyHandle* /*column_family*/,
-                              const Slice& /*key*/) override {
+  Status SingleDelete(const WriteOptions& /*options*/,
+                      ColumnFamilyHandle* /*column_family*/,
+                      const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
-  virtual Status Write(const WriteOptions& /*options*/,
-                       WriteBatch* /*updates*/) override {
+  Status Write(const WriteOptions& /*options*/,
+               WriteBatch* /*updates*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::CompactRange;
-  virtual Status CompactRange(const CompactRangeOptions& /*options*/,
-                              ColumnFamilyHandle* /*column_family*/,
-                              const Slice* /*begin*/,
-                              const Slice* /*end*/) override {
+  Status CompactRange(const CompactRangeOptions& /*options*/,
+                      ColumnFamilyHandle* /*column_family*/,
+                      const Slice* /*begin*/, const Slice* /*end*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
   using DBImpl::CompactFiles;
-  virtual Status CompactFiles(
+  Status CompactFiles(
       const CompactionOptions& /*compact_options*/,
       ColumnFamilyHandle* /*column_family*/,
       const std::vector<std::string>& /*input_file_names*/,
@@ -100,33 +97,33 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
-  virtual Status DisableFileDeletions() override {
+  Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
-  virtual Status EnableFileDeletions(bool /*force*/) override {
+  Status EnableFileDeletions() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
-  virtual Status GetLiveFiles(std::vector<std::string>& ret,
-                              uint64_t* manifest_file_size,
-                              bool /*flush_memtable*/) override {
+  Status GetLiveFiles(std::vector<std::string>& ret,
+                      uint64_t* manifest_file_size,
+                      bool /*flush_memtable*/) override {
     return DBImpl::GetLiveFiles(ret, manifest_file_size,
                                 false /* flush_memtable */);
   }
 
   using DBImpl::Flush;
-  virtual Status Flush(const FlushOptions& /*options*/,
-                       ColumnFamilyHandle* /*column_family*/) override {
+  Status Flush(const FlushOptions& /*options*/,
+               ColumnFamilyHandle* /*column_family*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
   using DBImpl::SyncWAL;
-  virtual Status SyncWAL() override {
+  Status SyncWAL() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
   using DB::IngestExternalFile;
-  virtual Status IngestExternalFile(
+  Status IngestExternalFile(
       ColumnFamilyHandle* /*column_family*/,
       const std::vector<std::string>& /*external_files*/,
       const IngestExternalFileOptions& /*ingestion_options*/) override {
@@ -134,7 +131,7 @@ class DBImplReadOnly : public DBImpl {
   }
 
   using DB::CreateColumnFamilyWithImport;
-  virtual Status CreateColumnFamilyWithImport(
+  Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
@@ -143,15 +140,29 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& /*options*/,
+      const std::string& /*column_family_name*/,
+      const ImportColumnFamilyOptions& /*import_options*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
+      ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
+  using DB::ClipColumnFamily;
+  Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                          const Slice& /*begin*/,
+                          const Slice& /*end*/) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   // FIXME: some missing overrides for more "write" functions
 
  protected:
-#ifndef ROCKSDB_LITE
   Status FlushForGetLiveFiles() override {
     // No-op for read-only DB
     return Status::OK();
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   // A "helper" function for DB::OpenForReadOnly without column families
@@ -166,5 +177,3 @@ class DBImplReadOnly : public DBImpl {
   friend class DB;
 };
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE

@@ -5,15 +5,17 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * CompactRangeOptions is used by CompactRange() call. In the documentation of the methods "the compaction" refers to
  * any compaction that is using this CompactRangeOptions.
  */
 public class CompactRangeOptions extends RocksObject {
-
-  private final static byte VALUE_kSkip = 0;
-  private final static byte VALUE_kIfHaveCompactionFilter = 1;
-  private final static byte VALUE_kForce = 2;
+  private static final byte VALUE_kSkip = 0;
+  private static final byte VALUE_kIfHaveCompactionFilter = 1;
+  private static final byte VALUE_kForce = 2;
+  private static final byte VALUE_kForceOptimized = 3;
 
   // For level based compaction, we can configure if we want to skip/force bottommost level
   // compaction. The order of this enum MUST follow the C++ layer. See BottommostLevelCompaction in
@@ -30,7 +32,12 @@ public class CompactRangeOptions extends RocksObject {
     /**
      * Always compact bottommost level
      */
-    kForce(VALUE_kForce);
+    kForce(VALUE_kForce),
+    /**
+     * Always compact bottommost level but in bottommost level avoid
+     * double-compacting files created in the same compaction
+     */
+    kForceOptimized(VALUE_kForceOptimized);
 
     private final byte value;
 
@@ -57,8 +64,40 @@ public class CompactRangeOptions extends RocksObject {
         case VALUE_kSkip: return kSkip;
         case VALUE_kIfHaveCompactionFilter: return kIfHaveCompactionFilter;
         case VALUE_kForce: return kForce;
+        case VALUE_kForceOptimized:
+          return kForceOptimized;
         default: return null;
       }
+    }
+  }
+
+  public static class Timestamp {
+    public final long start;
+    public final long range;
+
+    public Timestamp(final long start, final long duration) {
+      this.start = start;
+      this.range = duration;
+    }
+
+    public Timestamp() {
+      this.start = 0;
+      this.range = 0;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o)
+        return true;
+      if (o == null || getClass() != o.getClass())
+        return false;
+      Timestamp timestamp = (Timestamp) o;
+      return start == timestamp.start && range == timestamp.range;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(start, range);
     }
   }
 
@@ -211,28 +250,54 @@ public class CompactRangeOptions extends RocksObject {
     return this;
   }
 
-  private native static long newCompactRangeOptions();
-  @Override protected final native void disposeInternal(final long handle);
+  public CompactRangeOptions setFullHistoryTSLow(final Timestamp tsLow) {
+    setFullHistoryTSLow(nativeHandle_, tsLow.start, tsLow.range);
+    return this;
+  }
 
-  private native boolean exclusiveManualCompaction(final long handle);
-  private native void setExclusiveManualCompaction(final long handle,
-      final boolean exclusive_manual_compaction);
-  private native boolean changeLevel(final long handle);
-  private native void setChangeLevel(final long handle,
-      final boolean changeLevel);
-  private native int targetLevel(final long handle);
-  private native void setTargetLevel(final long handle,
-      final int targetLevel);
-  private native int targetPathId(final long handle);
-  private native void setTargetPathId(final long handle,
-      final int targetPathId);
-  private native int bottommostLevelCompaction(final long handle);
-  private native void setBottommostLevelCompaction(final long handle,
-      final int bottommostLevelCompaction);
-  private native boolean allowWriteStall(final long handle);
-  private native void setAllowWriteStall(final long handle,
-      final boolean allowWriteStall);
-  private native void setMaxSubcompactions(final long handle,
-      final int maxSubcompactions);
-  private native int maxSubcompactions(final long handle);
+  public Timestamp fullHistoryTSLow() {
+    return fullHistoryTSLow(nativeHandle_);
+  }
+
+  public CompactRangeOptions setCanceled(final boolean canceled) {
+    setCanceled(nativeHandle_, canceled);
+    return this;
+  }
+
+  public boolean canceled() {
+    return canceled(nativeHandle_);
+  }
+
+  private static native long newCompactRangeOptions();
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
+
+  private static native boolean exclusiveManualCompaction(final long handle);
+  private static native void setExclusiveManualCompaction(
+      final long handle, final boolean exclusive_manual_compaction);
+  private static native boolean changeLevel(final long handle);
+  private static native void setChangeLevel(final long handle, final boolean changeLevel);
+  private static native int targetLevel(final long handle);
+  private static native void setTargetLevel(final long handle, final int targetLevel);
+  private static native int targetPathId(final long handle);
+  private static native void setTargetPathId(final long handle, final int targetPathId);
+  private static native int bottommostLevelCompaction(final long handle);
+  private static native void setBottommostLevelCompaction(
+      final long handle, final int bottommostLevelCompaction);
+  private static native boolean allowWriteStall(final long handle);
+  private static native void setAllowWriteStall(final long handle, final boolean allowWriteStall);
+  private static native void setMaxSubcompactions(final long handle, final int maxSubcompactions);
+  private static native int maxSubcompactions(final long handle);
+
+  private static native void setFullHistoryTSLow(
+      final long handle, final long timestampStart, final long timestampRange);
+
+  private static native Timestamp fullHistoryTSLow(final long handle);
+
+  private static native void setCanceled(final long handle, final boolean canceled);
+
+  private static native boolean canceled(final long handle);
 }

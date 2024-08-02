@@ -42,10 +42,10 @@ TEST_P(DBWriteBufferManagerTest, SharedBufferAcrossCFs1) {
 
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3".
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -84,10 +84,10 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
 
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3". No flush will be triggered.
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -119,7 +119,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         InstrumentedMutexLock lock(&mutex);
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         w_set.insert(w);
         // Allow the flush to continue if all writer threads are blocked.
         if (w_set.size() == (unsigned long)num_writers) {
@@ -368,7 +368,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         {
           InstrumentedMutexLock lock(&mutex);
           w_set.insert(w);
@@ -471,10 +471,10 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
 
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3". No flush will be triggered.
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -511,7 +511,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         {
           InstrumentedMutexLock lock(&mutex);
-          WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+          WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
           w_slowdown_set.insert(w);
           // Allow the flush continue if all writer threads are blocked.
           if (w_slowdown_set.size() + (unsigned long)w_no_slowdown.load(
@@ -674,7 +674,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
-        WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        WriteThread::Writer* w = static_cast<WriteThread::Writer*>(arg);
         InstrumentedMutexLock lock(&mutex);
         w_slowdown_set.insert(w);
         // Allow the flush continue if all writer threads are blocked.
@@ -780,7 +780,6 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifndef ROCKSDB_LITE
 
 // Tests a `WriteBufferManager` constructed with `allow_stall == false` does not
 // thrash memtable switching when full and a CF receives multiple writes.
@@ -847,7 +846,73 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   delete shared_wbm_db;
 }
 
-#endif  // ROCKSDB_LITE
+TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
+  constexpr int kBigValue = 10000;
+
+  Options options = CurrentOptions();
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(1, nullptr /* cache */, true /* allow_stall */));
+  DestroyAndReopen(options);
+
+  // Pause flush thread so that
+  // (a) the only way to exist write stall below is to change the `allow_stall`
+  // (b) the write stall is "stable" without being interfered by flushes so that
+  // we can check it without flakiness
+  std::unique_ptr<test::SleepingBackgroundTask> sleeping_task(
+      new test::SleepingBackgroundTask());
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  // Test 1: test setting `allow_stall` from true to false
+  //
+  // Assert existence of a write stall
+  WriteOptions wo_no_slowdown;
+  wo_no_slowdown.no_slowdown = true;
+  Status s = Put(Key(0), DummyString(kBigValue), wo_no_slowdown);
+  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.ToString().find("Write stall") != std::string::npos);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WBMStallInterface::BlockDB",
+        "DBWriteBufferManagerTest::RuntimeChangeableThreadSafeParameters::"
+        "ChangeParameter"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Test `SetAllowStall()`
+  port::Thread thread1([&] { ASSERT_OK(Put(Key(0), DummyString(kBigValue))); });
+  port::Thread thread2([&] {
+    TEST_SYNC_POINT(
+        "DBWriteBufferManagerTest::RuntimeChangeableThreadSafeParameters::"
+        "ChangeParameter");
+    options.write_buffer_manager->SetAllowStall(false);
+  });
+
+  // Verify `allow_stall` is successfully set to false in thread2.
+  // Othwerwise, thread1's write will be stalled and this test will hang
+  // forever.
+  thread1.join();
+  thread2.join();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Test 2: test setting `allow_stall` from false to true
+  //
+  // Assert no write stall
+  ASSERT_OK(Put(Key(0), DummyString(kBigValue), wo_no_slowdown));
+
+  // Test `SetAllowStall()`
+  options.write_buffer_manager->SetAllowStall(true);
+
+  // Verify `allow_stall` is successfully set to true.
+  // Otherwise the following write will not be stalled and therefore succeed.
+  s = Put(Key(0), DummyString(kBigValue), wo_no_slowdown);
+  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.ToString().find("Write stall") != std::string::npos);
+  sleeping_task->WakeUp();
+}
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());

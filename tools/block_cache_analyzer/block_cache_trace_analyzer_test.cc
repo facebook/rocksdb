@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -95,7 +94,8 @@ class BlockCacheTracerTest : public testing::Test {
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
-                        TraceType block_type, uint32_t nblocks) {
+                        TraceType block_type, uint32_t nblocks,
+                        bool is_referenced_key_null = false) {
     assert(writer);
     for (uint32_t i = 0; i < nblocks; i++) {
       uint32_t key_id = from_key_id + i;
@@ -122,6 +122,11 @@ class BlockCacheTracerTest : public testing::Test {
       record.referenced_key =
           kRefKeyPrefix + std::to_string(key_id) + std::string(8, 0);
       record.referenced_key_exist_in_block = true;
+      if (is_referenced_key_null &&
+          record.caller == TableReaderCaller::kUserMultiGet) {
+        record.referenced_key = "";
+        record.get_from_user_specified_snapshot = true;
+      }
       record.num_keys_in_block = kNumKeysInBlock;
       ASSERT_OK(writer->WriteBlockAccess(
           record, record.block_key, record.cf_name, record.referenced_key));
@@ -487,7 +492,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       ASSERT_EQ(20, ParseDouble(percent));
     }
     ASSERT_EQ(expected_callers.size(), callers.size());
-    for (auto caller : callers) {
+    for (const auto& caller : callers) {
       ASSERT_TRUE(expected_callers.find(caller) != expected_callers.end());
     }
     ASSERT_OK(env_->DeleteFile(percent_access_summary_file));
@@ -499,7 +504,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       std::string caller;
       ASSERT_TRUE(getline(analyzing_callers, caller, ','));
       std::vector<std::string> breakdowns{"level", "bt"};
-      for (auto breakdown : breakdowns) {
+      for (const auto& breakdown : breakdowns) {
         const std::string file_name = test_path_ + "/" + caller + "_" +
                                       breakdown +
                                       "_percentage_of_accesses_summary";
@@ -549,7 +554,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   }
   for (auto const& access_type : access_types) {
     std::vector<std::string> block_types{"Index", "Data", "Filter"};
-    for (auto block_type : block_types) {
+    for (const auto& block_type : block_types) {
       // Validate reuse block timeline.
       const std::string reuse_blocks_timeline = test_path_ + "/" + block_type +
                                                 "_" + access_type +
@@ -717,6 +722,65 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
   }
 }
 
+TEST_F(BlockCacheTracerTest, MultiGetWithNullReferenceKey) {
+  {
+    // Generate a trace file containing MultiGet records with reference key
+    // being 0.
+    BlockCacheTraceWriterOptions trace_writer_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    const auto& clock = env_->GetSystemClock();
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+        NewBlockCacheTraceWriter(clock.get(), trace_writer_opt,
+                                 std::move(trace_writer));
+    ASSERT_NE(block_cache_trace_writer, nullptr);
+    ASSERT_OK(block_cache_trace_writer->WriteHeader());
+    // Write blocks of different types.
+
+    WriteBlockAccess(block_cache_trace_writer.get(), 0,
+                     TraceType::kBlockTraceUncompressionDictBlock, 10, true);
+    WriteBlockAccess(block_cache_trace_writer.get(), 10,
+                     TraceType::kBlockTraceDataBlock, 10, true);
+    WriteBlockAccess(block_cache_trace_writer.get(), 20,
+                     TraceType::kBlockTraceFilterBlock, 10, true);
+    WriteBlockAccess(block_cache_trace_writer.get(), 30,
+                     TraceType::kBlockTraceIndexBlock, 10, true);
+    WriteBlockAccess(block_cache_trace_writer.get(), 40,
+                     TraceType::kBlockTraceRangeDeletionBlock, 10, true);
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+  }
+
+  {
+    // Verify trace file is generated correctly.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+                                 &trace_reader));
+    BlockCacheTraceReader reader(std::move(trace_reader));
+    BlockCacheTraceHeader header;
+    ASSERT_OK(reader.ReadHeader(&header));
+    ASSERT_EQ(static_cast<uint32_t>(kMajorVersion),
+              header.rocksdb_major_version);
+    ASSERT_EQ(static_cast<uint32_t>(kMinorVersion),
+              header.rocksdb_minor_version);
+    std::string human_readable_trace_file_path =
+        test_path_ + "/readable_block_cache_trace";
+    // Read blocks.
+    BlockCacheTraceAnalyzer analyzer(
+        trace_file_path_,
+        /*output_dir=*/"",
+        /*human_readable_trace_file_path=*/human_readable_trace_file_path,
+        /*compute_reuse_distance=*/true,
+        /*mrc_only=*/false,
+        /*is_human_readable_trace_file=*/false,
+        /*cache_simulator=*/nullptr);
+    // The analyzer ends when it detects an incomplete access record.
+    ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
+
+    ASSERT_OK(env_->DeleteFile(human_readable_trace_file_path));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
@@ -725,11 +789,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 #endif  // GFLAG
-#else
-#include <stdio.h>
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "block_cache_trace_analyzer_test is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-#endif  // ROCKSDB_LITE

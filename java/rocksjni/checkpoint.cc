@@ -37,9 +37,9 @@ jlong Java_org_rocksdb_Checkpoint_newCheckpoint(JNIEnv* /*env*/,
  * Method:    dispose
  * Signature: (J)V
  */
-void Java_org_rocksdb_Checkpoint_disposeInternal(JNIEnv* /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle) {
+void Java_org_rocksdb_Checkpoint_disposeInternalJni(JNIEnv* /*env*/,
+                                                    jclass /*jobj*/,
+                                                    jlong jhandle) {
   auto* checkpoint = reinterpret_cast<ROCKSDB_NAMESPACE::Checkpoint*>(jhandle);
   assert(checkpoint != nullptr);
   delete checkpoint;
@@ -50,7 +50,7 @@ void Java_org_rocksdb_Checkpoint_disposeInternal(JNIEnv* /*env*/,
  * Method:    createCheckpoint
  * Signature: (JLjava/lang/String;)V
  */
-void Java_org_rocksdb_Checkpoint_createCheckpoint(JNIEnv* env, jobject /*jobj*/,
+void Java_org_rocksdb_Checkpoint_createCheckpoint(JNIEnv* env, jclass /*jcls*/,
                                                   jlong jcheckpoint_handle,
                                                   jstring jcheckpoint_path) {
   const char* checkpoint_path = env->GetStringUTFChars(jcheckpoint_path, 0);
@@ -68,4 +68,39 @@ void Java_org_rocksdb_Checkpoint_createCheckpoint(JNIEnv* env, jobject /*jobj*/,
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
+}
+
+/*
+ * Class:     org_rocksdb_Checkpoint
+ * Method:    exportColumnFamily
+ * Signature: (JJLjava/lang/String;)Lorg/rocksdb/ExportImportFilesMetaData;
+ */
+jlong Java_org_rocksdb_Checkpoint_exportColumnFamily(
+    JNIEnv* env, jobject /*jobj*/, jlong jcheckpoint_handle,
+    jlong jcolumn_family_handle, jstring jexport_path) {
+  const char* export_path = env->GetStringUTFChars(jexport_path, 0);
+  if (export_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+
+  auto* checkpoint =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Checkpoint*>(jcheckpoint_handle);
+
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+
+  ROCKSDB_NAMESPACE::ExportImportFilesMetaData* metadata = nullptr;
+
+  ROCKSDB_NAMESPACE::Status s = checkpoint->ExportColumnFamily(
+      column_family_handle, export_path, &metadata);
+
+  env->ReleaseStringUTFChars(jexport_path, export_path);
+
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+
+  return GET_CPLUSPLUS_POINTER(metadata);
 }

@@ -43,6 +43,17 @@ class InternalIteratorBase : public Cleanable {
 
   virtual ~InternalIteratorBase() {}
 
+  // This iterator will only process range tombstones with sequence
+  // number <= `read_seqno`.
+  // Noop for most child classes.
+  // For range tombstone iterators (TruncatedRangeDelIterator,
+  // FragmentedRangeTombstoneIterator), will only return range tombstones with
+  // sequence number <= `read_seqno`. For LevelIterator, it may open new table
+  // files and create new range tombstone iterators during scanning. It will use
+  // `read_seqno` as the sequence number for creating new range tombstone
+  // iterators.
+  virtual void SetRangeDelReadSeqno(SequenceNumber /* read_seqno */) {}
+
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
   // Always returns false if !status().ok().
@@ -104,6 +115,14 @@ class InternalIteratorBase : public Cleanable {
   // the iterator.
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
+
+  // Returns the approximate write time of this entry, which is deduced from
+  // sequence number if sequence number to time mapping is available.
+  // The default implementation returns maximum uint64_t and that indicates the
+  // write time is unknown.
+  virtual uint64_t write_unix_time() const {
+    return std::numeric_limits<uint64_t>::max();
+  }
 
   // Return user key for the current entry.
   // REQUIRES: Valid()
@@ -203,24 +222,21 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
-
-  bool is_mutable_;
 };
 
 using InternalIterator = InternalIteratorBase<Slice>;
 
 // Return an empty iterator (yields nothing).
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewEmptyInternalIterator();
+InternalIteratorBase<TValue>* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
-    const Status& status);
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status);
 
 // Return an empty iterator with the specified status, allocated arena.
 template <class TValue = Slice>
-extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
-    const Status& status, Arena* arena);
+InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
+                                                       Arena* arena);
 
 }  // namespace ROCKSDB_NAMESPACE

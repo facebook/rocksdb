@@ -19,9 +19,12 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/utilities/options_util.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -29,7 +32,6 @@ class DBOptionsTest : public DBTestBase {
  public:
   DBOptionsTest() : DBTestBase("db_options_test", /*env_do_fsync=*/true) {}
 
-#ifndef ROCKSDB_LITE
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
@@ -76,7 +78,6 @@ class DBOptionsTest : public DBTestBase {
     auto sanitized_options = SanitizeOptions(dbname_, db_options);
     return GetMutableDBOptionsMap(sanitized_options);
   }
-#endif  // ROCKSDB_LITE
 };
 
 TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
@@ -112,7 +113,6 @@ TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
 }
 
 // RocksDB lite don't support dynamic options.
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
   Options options;
@@ -584,6 +584,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
 
 TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 1000;
   options.env = env_;
@@ -741,6 +742,55 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   Close();
 }
 
+TEST_F(DBOptionsTest, SetStatsDumpPeriodSecRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and the behavior in effect for the DB, after the last
+  // modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetDBOptions(
+          {{"stats_dump_period_sec", i % 2 ? "100" : "0"}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  bool stats_dump_set = dbfull()->GetDBOptions().stats_dump_period_sec > 0;
+  bool task_enabled = dbfull()->TEST_GetPeriodicTaskScheduler().TEST_HasTask(
+      PeriodicTaskType::kDumpStats);
+
+  ASSERT_EQ(stats_dump_set, task_enabled);
+}
+
+TEST_F(DBOptionsTest, SetOptionsAndFileRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and what is persisted in the options file, after the
+  // last modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetOptions({{"ttl", std::to_string(i * 100)}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  auto setting_in_mem = dbfull()->GetOptions().ttl;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  DBOptions db_options;
+  ConfigOptions cfg;
+  cfg.env = env_;
+  ASSERT_OK(LoadLatestOptions(cfg, dbname_, &db_options, &cf_descs, nullptr));
+  ASSERT_EQ(cf_descs.size(), 1);
+  ASSERT_EQ(setting_in_mem, cf_descs[0].options.ttl);
+}
+
 TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
@@ -881,9 +931,13 @@ TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
   options.env = CurrentOptions().env;
+  // Default value allows RocksDB to set ttl to 30 days.
+  ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+
+  // Disable
   options.ttl = 0;
   Reopen(options);
-  ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+  ASSERT_EQ(0, dbfull()->GetOptions().ttl);
 
   options.ttl = 100;
   Reopen(options);
@@ -893,26 +947,25 @@ TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Reopen(options);
   ASSERT_EQ(100 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
 
-  options.ttl = 200;
-  options.periodic_compaction_seconds = 300;
-  Reopen(options);
-  ASSERT_EQ(200, dbfull()->GetOptions().ttl);
-
+  // periodic_compaction_seconds should have no effect
+  // on FIFO compaction.
   options.ttl = 500;
   options.periodic_compaction_seconds = 300;
   Reopen(options);
-  ASSERT_EQ(300, dbfull()->GetOptions().ttl);
+  ASSERT_EQ(500, dbfull()->GetOptions().ttl);
 }
 
 TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
   options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleFIFO;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.write_buffer_size = 10 << 10;  // 10KB
   options.arena_block_size = 4096;
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.compaction_options_fifo.allow_compaction = false;
+  options.num_levels = 1;
   env_->SetMockSleep();
   options.env = env_;
 
@@ -940,12 +993,19 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+
   // Set ttl to 1 minute. So all files should get deleted.
   ASSERT_OK(dbfull()->SetOptions({{"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
@@ -970,6 +1030,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+
   // Set max_table_files_size to 12 KB. So only 1 file should remain now.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo", "{max_table_files_size=12288;}"}}));
@@ -978,6 +1041,10 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // Test dynamically changing compaction_options_fifo.allow_compaction
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
@@ -1012,32 +1079,236 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_GE(NumTableFilesAtLevel(0), 1);
   ASSERT_LE(NumTableFilesAtLevel(0), 5);
+
+  // Test dynamically setting `file_temperature_age_thresholds`
+  ASSERT_TRUE(
+      dbfull()
+          ->GetOptions()
+          .compaction_options_fifo.file_temperature_age_thresholds.empty());
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo",
+                                   "{file_temperature_age_thresholds={{age=10;"
+                                   "temperature=kWarm}:{age=30000;"
+                                   "temperature=kCold}}}"}}));
+  auto opts = dbfull()->GetOptions();
+  const auto& fifo_temp_opt =
+      opts.compaction_options_fifo.file_temperature_age_thresholds;
+  ASSERT_EQ(fifo_temp_opt.size(), 2);
+  ASSERT_EQ(fifo_temp_opt[0].temperature, Temperature::kWarm);
+  ASSERT_EQ(fifo_temp_opt[0].age, 10);
+  ASSERT_EQ(fifo_temp_opt[1].temperature, Temperature::kCold);
+  ASSERT_EQ(fifo_temp_opt[1].age, 30000);
+}
+
+TEST_F(DBOptionsTest, OffpeakTimes) {
+  Options options;
+  options.create_if_missing = true;
+  Random rnd(test::RandomSeed());
+
+  auto verify_invalid = [&]() {
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsInvalidArgument());
+  };
+
+  auto verify_valid = [&]() {
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_OK(s);
+    ASSERT_FALSE(s.IsInvalidArgument());
+  };
+  std::vector<std::string> invalid_cases = {
+      "06:30-",
+      "-23:30",  // Both need to be set
+      "00:00-00:00",
+      "06:30-06:30"  //  Start time cannot be the same as end time
+      "12:30 PM-23:30",
+      "12:01AM-11:00PM",  // Invalid format
+      "01:99-22:00",      // Invalid value for minutes
+      "00:00-24:00",      // 24:00 is an invalid value
+      "6-7",
+      "6:-7",
+      "06:31.42-7:00",
+      "6.31:42-7:00",
+      "6:0-7:",
+      "15:0.2-3:.7",
+      ":00-00:02",
+      "02:00-:00",
+      "random-value",
+      "No:No-Hi:Hi",
+  };
+
+  std::vector<std::string> valid_cases = {
+      "",  // Not enabled. Valid case
+      "06:30-11:30",
+      "06:30-23:30",
+      "13:30-14:30",
+      "00:00-23:59",  // Entire Day
+      "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case.
+      "1:0000000000000-2:000000000042",  // Weird, but we can parse the int.
+  };
+
+  for (const std::string& invalid_case : invalid_cases) {
+    options.daily_offpeak_time_utc = invalid_case;
+    verify_invalid();
+  }
+  for (const std::string& valid_case : valid_cases) {
+    options.daily_offpeak_time_utc = valid_case;
+    verify_valid();
+  }
+
+  auto verify_offpeak_info = [&](bool expected_is_now_off_peak,
+                                 int expected_seconds_till_next_offpeak_start,
+                                 int now_utc_hour, int now_utc_minute,
+                                 int now_utc_second = 0) {
+    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    // Add some extra random days to current time
+    int days = rnd.Uniform(100);
+    mock_clock->SetCurrentTime(
+        days * OffpeakTimeOption::kSecondsPerDay +
+        now_utc_hour * OffpeakTimeOption::kSecondsPerHour +
+        now_utc_minute * OffpeakTimeOption::kSecondsPerMinute + now_utc_second);
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_OK(s);
+    auto offpeak_option = OffpeakTimeOption(options.daily_offpeak_time_utc);
+    int64_t now;
+    ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+    auto offpeak_info = offpeak_option.GetOffpeakTimeInfo(now);
+    ASSERT_EQ(expected_is_now_off_peak, offpeak_info.is_now_offpeak);
+    ASSERT_EQ(expected_seconds_till_next_offpeak_start,
+              offpeak_info.seconds_till_next_offpeak_start);
+  };
+
+  options.daily_offpeak_time_utc = "";
+  verify_offpeak_info(false, 0, 12, 30);
+
+  options.daily_offpeak_time_utc = "06:30-11:30";
+  verify_offpeak_info(false, 1 * OffpeakTimeOption::kSecondsPerHour, 5, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 20 * OffpeakTimeOption::kSecondsPerHour, 10, 30);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 11, 30);
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 13, 30);
+
+  options.daily_offpeak_time_utc = "23:30-04:30";
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 23, 30);
+  verify_offpeak_info(true,
+                      23 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      0, 0);
+  verify_offpeak_info(true,
+                      22 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      1, 0);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 4, 30);
+  verify_offpeak_info(false,
+                      18 * OffpeakTimeOption::kSecondsPerHour +
+                          59 * OffpeakTimeOption::kSecondsPerMinute,
+                      4, 31);
+
+  // Entire day offpeak
+  options.daily_offpeak_time_utc = "00:00-23:59";
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 0, 0);
+  verify_offpeak_info(true, 12 * OffpeakTimeOption::kSecondsPerHour, 12, 00);
+  verify_offpeak_info(true, 1 * OffpeakTimeOption::kSecondsPerMinute, 23, 59);
+  verify_offpeak_info(true, 59, 23, 59, 1);
+  verify_offpeak_info(true, 1, 23, 59, 59);
+
+  // Start with a valid option
+  options.daily_offpeak_time_utc = "01:30-04:15";
+  DestroyAndReopen(options);
+  ASSERT_EQ("01:30-04:15", dbfull()->GetDBOptions().daily_offpeak_time_utc);
+
+  int may_schedule_compaction_called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScheduleFlushOrCompaction:Start",
+      [&](void*) { may_schedule_compaction_called++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Make sure calling SetDBOptions with invalid option does not change the
+  // value nor call MaybeScheduleFlushOrCompaction()
+  for (std::string invalid_case : invalid_cases) {
+    ASSERT_NOK(
+        dbfull()->SetDBOptions({{"daily_offpeak_time_utc", invalid_case}}));
+    ASSERT_EQ("01:30-04:15", dbfull()
+                                 ->GetVersionSet()
+                                 ->offpeak_time_option()
+                                 .daily_offpeak_time_utc);
+    ASSERT_EQ(1 * kSecondInHour + 30 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_start_time_utc);
+    ASSERT_EQ(4 * kSecondInHour + 15 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_end_time_utc);
+  }
+  ASSERT_EQ(0, may_schedule_compaction_called);
+
+  // Changing to new valid values should call MaybeScheduleFlushOrCompaction()
+  // and sets the offpeak_time_option in VersionSet
+  int expected_count = 0;
+  for (std::string valid_case : valid_cases) {
+    if (dbfull()
+            ->GetVersionSet()
+            ->offpeak_time_option()
+            .daily_offpeak_time_utc != valid_case) {
+      expected_count++;
+    }
+    ASSERT_OK(dbfull()->SetDBOptions({{"daily_offpeak_time_utc", valid_case}}));
+    ASSERT_EQ(valid_case, dbfull()->GetDBOptions().daily_offpeak_time_utc);
+    ASSERT_EQ(valid_case, dbfull()
+                              ->GetVersionSet()
+                              ->offpeak_time_option()
+                              .daily_offpeak_time_utc);
+  }
+  ASSERT_EQ(expected_count, may_schedule_compaction_called);
+
+  // Changing to the same value should not call MaybeScheduleFlushOrCompaction()
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"daily_offpeak_time_utc", "06:30-11:30"}}));
+  may_schedule_compaction_called = 0;
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"daily_offpeak_time_utc", "06:30-11:30"}}));
+  ASSERT_EQ(0, may_schedule_compaction_called);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
-  SpecialEnv env(env_);
-  Options options;
-  options.env = &env;
+  for (bool use_direct_reads : {true, false}) {
+    SpecialEnv env(env_);
+    Options options;
+    options.env = &env;
 
-  options.compaction_readahead_size = 0;
-  options.level0_file_num_compaction_trigger = 2;
-  const std::string kValue(1024, 'v');
-  Reopen(options);
+    options.use_direct_reads = use_direct_reads;
+    options.level0_file_num_compaction_trigger = 2;
+    const std::string kValue(1024, 'v');
+    Status s = TryReopen(options);
+    if (use_direct_reads && (s.IsNotSupported() || s.IsInvalidArgument())) {
+      continue;
+    } else {
+      ASSERT_OK(s);
+    }
 
-  ASSERT_EQ(0, dbfull()->GetDBOptions().compaction_readahead_size);
-  ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
-  ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
-  for (int i = 0; i < 1024; i++) {
-    ASSERT_OK(Put(Key(i), kValue));
+    ASSERT_EQ(1024 * 1024 * 2,
+              dbfull()->GetDBOptions().compaction_readahead_size);
+    ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
+    ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
+    for (int i = 0; i < 1024; i++) {
+      ASSERT_OK(Put(Key(i), kValue));
+    }
+    ASSERT_OK(Flush());
+    for (int i = 0; i < 1024 * 2; i++) {
+      ASSERT_OK(Put(Key(i), kValue));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(256, env_->compaction_readahead_size_);
+    Close();
   }
-  ASSERT_OK(Flush());
-  for (int i = 0; i < 1024 * 2; i++) {
-    ASSERT_OK(Put(Key(i), kValue));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(256, env_->compaction_readahead_size_);
-  Close();
 }
 
 TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
@@ -1046,6 +1317,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   options.write_buffer_size = 10 << 10;  // 10KB
   options.create_if_missing = true;
   options.env = CurrentOptions().env;
+  options.num_levels = 1;
 
   ASSERT_OK(TryReopen(options));
 
@@ -1066,12 +1338,19 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   // ttl under compaction_options_fifo.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo",
-        "{allow_compaction=true;max_table_files_size=1024;ttl=731;}"},
+        "{allow_compaction=true;max_table_files_size=1024;ttl=731;file_"
+        "temperature_age_thresholds={temperature=kCold;age=12345}}"},
        {"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             true);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
+  auto opts = dbfull()->GetOptions();
+  const auto& file_temp_age =
+      opts.compaction_options_fifo.file_temperature_age_thresholds;
+  ASSERT_EQ(file_temp_age.size(), 1);
+  ASSERT_EQ(file_temp_age[0].temperature, Temperature::kCold);
+  ASSERT_EQ(file_temp_age[0].age, 12345);
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
 
   // Put ttl as the first option inside compaction_options_fifo. That works as
@@ -1084,6 +1363,9 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
             true);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
+  ASSERT_EQ(file_temp_age.size(), 1);
+  ASSERT_EQ(file_temp_age[0].temperature, Temperature::kCold);
+  ASSERT_EQ(file_temp_age[0].age, 12345);
   ASSERT_EQ(dbfull()->GetOptions().ttl, 191);
 }
 
@@ -1108,7 +1390,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   bool compacted = false;
   SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* c = reinterpret_cast<Compaction*>(arg);
+        Compaction* c = static_cast<Compaction*>(arg);
         compression_used = c->output_compression();
         compression_opt_used = c->output_compression_opts();
         compacted = true;
@@ -1148,7 +1430,6 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   // Verify the bottommost compression options still take effect even when the
@@ -1208,6 +1489,90 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
   ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+}
+
+TEST_F(DBOptionsTest, FIFOTemperatureAgeThresholdValidation) {
+  Options options = CurrentOptions();
+  Destroy(options);
+
+  options.num_levels = 1;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.max_open_files = -1;
+  // elements are not sorted
+  // During DB open
+  options.compaction_options_fifo.file_temperature_age_thresholds.push_back(
+      {Temperature::kCold, 1000});
+  options.compaction_options_fifo.file_temperature_age_thresholds.push_back(
+      {Temperature::kWarm, 500});
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(
+      s.getState(),
+      "Option file_temperature_age_thresholds requires elements to be sorted "
+      "in increasing order with respect to `age` field."));
+  // Dynamically set option
+  options.compaction_options_fifo.file_temperature_age_thresholds.pop_back();
+  ASSERT_OK(TryReopen(options));
+  s = db_->SetOptions({{"compaction_options_fifo",
+                        "{file_temperature_age_thresholds={{temperature=kCold;"
+                        "age=1000000}:{temperature=kWarm;age=1}}}"}});
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(
+      s.getState(),
+      "Option file_temperature_age_thresholds requires elements to be sorted "
+      "in increasing order with respect to `age` field."));
+
+  // not single level
+  // During DB open
+  options.num_levels = 2;
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Option file_temperature_age_thresholds is only "
+                          "supported when num_levels = 1."));
+  // Dynamically set option
+  options.compaction_options_fifo.file_temperature_age_thresholds.clear();
+  DestroyAndReopen(options);
+  s = db_->SetOptions(
+      {{"compaction_options_fifo",
+        "{file_temperature_age_thresholds={temperature=kCold;age=1000}}"}});
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Option file_temperature_age_thresholds is only "
+                          "supported when num_levels = 1."));
+}
+
+TEST_F(DBOptionsTest, TempOptionsFailTest) {
+  std::shared_ptr<FaultInjectionTestFS> fs;
+  std::unique_ptr<Env> env;
+
+  fs.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
+  env = NewCompositeEnv(fs);
+  Options options = CurrentOptions();
+  options.env = env.get();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:create",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:written",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(true); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(TryReopen(options));
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  std::vector<std::string> filenames;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  uint64_t number;
+  FileType type;
+  bool found_temp_file = false;
+  for (size_t i = 0; i < filenames.size(); i++) {
+    if (ParseFileName(filenames[i], &number, &type) && type == kTempFile) {
+      found_temp_file = true;
+    }
+  }
+  ASSERT_FALSE(found_temp_file);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

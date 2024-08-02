@@ -8,12 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Footer;
+
 // Release the cached entry and decrement its ref count.
-extern void ForceReleaseCachedEntry(void* arg, void* h);
+void ForceReleaseCachedEntry(void* arg, void* h);
 
 inline MemoryAllocator* GetMemoryAllocator(
     const BlockBasedTableOptions& table_options) {
@@ -22,17 +24,13 @@ inline MemoryAllocator* GetMemoryAllocator(
              : nullptr;
 }
 
-inline MemoryAllocator* GetMemoryAllocatorForCompressedBlock(
-    const BlockBasedTableOptions& table_options) {
-  return table_options.block_cache_compressed.get()
-             ? table_options.block_cache_compressed->memory_allocator()
-             : nullptr;
-}
-
-// Assumes block has a trailer as in format.h. file_name and offset provided
-// for generating a diagnostic message in returned status.
-extern Status VerifyBlockChecksum(ChecksumType type, const char* data,
-                                  size_t block_size,
-                                  const std::string& file_name,
-                                  uint64_t offset);
+// Assumes block has a trailer past `data + block_size` as in format.h.
+// `file_name` provided for generating diagnostic message in returned status.
+// `offset` might be required for proper verification (also used for message).
+//
+// Returns Status::OK() on checksum match, or Status::Corruption() on checksum
+// mismatch.
+Status VerifyBlockChecksum(const Footer& footer, const char* data,
+                           size_t block_size, const std::string& file_name,
+                           uint64_t offset);
 }  // namespace ROCKSDB_NAMESPACE

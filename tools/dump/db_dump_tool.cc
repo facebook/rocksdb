@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/db_dump_tool.h"
 
@@ -196,16 +195,20 @@ bool DbUndumpTool::Run(const UndumpOptions& undump_options,
   std::unique_ptr<char[]> keyscratch(new char[last_keysize]);
   std::unique_ptr<char[]> valscratch(new char[last_valsize]);
 
-  while (1) {
+  while (true) {
     uint32_t keysize, valsize;
     ROCKSDB_NAMESPACE::Slice keyslice;
     ROCKSDB_NAMESPACE::Slice valslice;
 
     status = dumpfile->Read(4, &slice, scratch8);
-    if (!status.ok() || slice.size() != 4) break;
+    if (!status.ok() || slice.size() != 4) {
+      break;
+    }
     keysize = ROCKSDB_NAMESPACE::DecodeFixed32(slice.data());
     if (keysize > last_keysize) {
-      while (keysize > last_keysize) last_keysize *= 2;
+      while (keysize > last_keysize) {
+        last_keysize *= 2;
+      }
       keyscratch = std::unique_ptr<char[]>(new char[last_keysize]);
     }
 
@@ -226,7 +229,9 @@ bool DbUndumpTool::Run(const UndumpOptions& undump_options,
     }
     valsize = ROCKSDB_NAMESPACE::DecodeFixed32(slice.data());
     if (valsize > last_valsize) {
-      while (valsize > last_valsize) last_valsize *= 2;
+      while (valsize > last_valsize) {
+        last_valsize *= 2;
+      }
       valscratch = std::unique_ptr<char[]>(new char[last_valsize]);
     }
 
@@ -257,4 +262,3 @@ bool DbUndumpTool::Run(const UndumpOptions& undump_options,
   return true;
 }
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

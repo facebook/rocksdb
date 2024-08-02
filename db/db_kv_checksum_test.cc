@@ -437,14 +437,13 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALCorrupted) {
   // This callback should only be called by the leader thread
   SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait2", [&](void* arg_leader) {
-        auto* leader = reinterpret_cast<WriteThread::Writer*>(arg_leader);
+        auto* leader = static_cast<WriteThread::Writer*>(arg_leader);
         ASSERT_EQ(leader->state, WriteThread::STATE_GROUP_LEADER);
 
         // This callback should only be called by the follower thread
         SyncPoint::GetInstance()->SetCallBack(
             "WriteThread::JoinBatchGroup:Wait", [&](void* arg_follower) {
-              auto* follower =
-                  reinterpret_cast<WriteThread::Writer*>(arg_follower);
+              auto* follower = static_cast<WriteThread::Writer*>(arg_follower);
               // The leader thread will wait on this bool and hence wait until
               // this writer joins the write group
               ASSERT_NE(follower->state, WriteThread::STATE_GROUP_LEADER);
@@ -549,14 +548,13 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALWithColumnFamilyCorrupted) {
   // This callback should only be called by the leader thread
   SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait2", [&](void* arg_leader) {
-        auto* leader = reinterpret_cast<WriteThread::Writer*>(arg_leader);
+        auto* leader = static_cast<WriteThread::Writer*>(arg_leader);
         ASSERT_EQ(leader->state, WriteThread::STATE_GROUP_LEADER);
 
         // This callback should only be called by the follower thread
         SyncPoint::GetInstance()->SetCallBack(
             "WriteThread::JoinBatchGroup:Wait", [&](void* arg_follower) {
-              auto* follower =
-                  reinterpret_cast<WriteThread::Writer*>(arg_follower);
+              auto* follower = static_cast<WriteThread::Writer*>(arg_follower);
               // The leader thread will wait on this bool and hence wait until
               // this writer joins the write group
               ASSERT_NE(follower->state, WriteThread::STATE_GROUP_LEADER);
@@ -658,11 +656,11 @@ TEST_F(DbKVChecksumWALToWriteBatchTest, WriteBatchChecksumHandoff) {
   Options options = CurrentOptions();
   Reopen(options);
   ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
-  std::string content = "";
+  std::string content;
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch",
       [&](void* batch_ptr) {
-        WriteBatch* batch = reinterpret_cast<WriteBatch*>(batch_ptr);
+        WriteBatch* batch = static_cast<WriteBatch*>(batch_ptr);
         content.assign(batch->Data().data(), batch->GetDataSize());
         Slice batch_content = batch->Data();
         // Corrupt first bit
@@ -672,7 +670,7 @@ TEST_F(DbKVChecksumWALToWriteBatchTest, WriteBatchChecksumHandoff) {
       "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
       [&](void* checksum_ptr) {
         // Verify that checksum is produced on the batch content
-        uint64_t checksum = *reinterpret_cast<uint64_t*>(checksum_ptr);
+        uint64_t checksum = *static_cast<uint64_t*>(checksum_ptr);
         ASSERT_EQ(checksum, XXH3_64bits(content.data(), content.size()));
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -734,7 +732,7 @@ TEST_P(DbMemtableKVChecksumTest, GetWithCorruptAfterMemtableInsert) {
       });
 
   SyncPoint::GetInstance()->SetCallBack(
-      "Memtable::SaveValue:Begin:entry", [&](void* entry) {
+      "Memtable::SaveValue:Found:entry", [&](void* entry) {
         char* buf = *static_cast<char**>(entry);
         buf[corrupt_byte_offset_] += corrupt_byte_addend_;
         ++corrupt_byte_offset_;
@@ -771,7 +769,7 @@ TEST_P(DbMemtableKVChecksumTest,
       });
 
   SyncPoint::GetInstance()->SetCallBack(
-      "Memtable::SaveValue:Begin:entry", [&](void* entry) {
+      "Memtable::SaveValue:Found:entry", [&](void* entry) {
         char* buf = *static_cast<char**>(entry);
         buf[corrupt_byte_offset_] += corrupt_byte_addend_;
         ++corrupt_byte_offset_;

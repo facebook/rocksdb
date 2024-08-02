@@ -30,7 +30,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override;
 
-  Status CacheDependencies(const ReadOptions& ro, bool pin) override;
+  Status CacheDependencies(const ReadOptions& ro, bool pin,
+                           FilePrefetchBuffer* tail_prefetch_buffer) override;
   size_t ApproximateMemoryUsage() const override {
     size_t usage = ApproximateIndexBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -41,6 +42,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     // TODO(myabandeh): more accurate estimate of partition_map_ mem usage
     return usage;
   }
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
 
  private:
   PartitionIndexReader(const BlockBasedTable* t,

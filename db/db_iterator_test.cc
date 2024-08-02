@@ -16,7 +16,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -30,20 +30,71 @@ class DummyReadCallback : public ReadCallback {
   void SetSnapshot(SequenceNumber seq) { max_visible_seq_ = seq; }
 };
 
+class DBIteratorBaseTest : public DBTestBase {
+ public:
+  DBIteratorBaseTest()
+      : DBTestBase("db_iterator_test", /*env_do_fsync=*/true) {}
+};
+
+TEST_F(DBIteratorBaseTest, APICallsWithPerfContext) {
+  // Set up the DB
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 1; i <= 3; i++) {
+    ASSERT_OK(Put(std::to_string(i), std::to_string(i)));
+  }
+
+  // Setup iterator and PerfContext
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  std::string key_str = std::to_string(2);
+  Slice key(key_str);
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+
+  // Initial PerfContext counters
+  ASSERT_EQ(0, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(0, get_perf_context()->iter_next_count);
+  ASSERT_EQ(0, get_perf_context()->iter_prev_count);
+
+  // Test Seek-related API calls PerfContext counter
+  iter->Seek(key);
+  iter->SeekToFirst();
+  iter->SeekToLast();
+  iter->SeekForPrev(key);
+  ASSERT_EQ(4, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(0, get_perf_context()->iter_next_count);
+  ASSERT_EQ(0, get_perf_context()->iter_prev_count);
+
+  // Test Next() calls PerfContext counter
+  iter->Next();
+  ASSERT_EQ(4, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(1, get_perf_context()->iter_next_count);
+  ASSERT_EQ(0, get_perf_context()->iter_prev_count);
+
+  // Test Prev() calls PerfContext counter
+  iter->Prev();
+  ASSERT_EQ(4, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(1, get_perf_context()->iter_next_count);
+  ASSERT_EQ(1, get_perf_context()->iter_prev_count);
+
+  delete iter;
+}
+
 // Test param:
 //   bool: whether to pass read_callback to NewIterator().
-class DBIteratorTest : public DBTestBase,
+class DBIteratorTest : public DBIteratorBaseTest,
                        public testing::WithParamInterface<bool> {
  public:
-  DBIteratorTest() : DBTestBase("db_iterator_test", /*env_do_fsync=*/true) {}
+  DBIteratorTest() = default;
 
   Iterator* NewIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family = nullptr) {
     if (column_family == nullptr) {
       column_family = db_->DefaultColumnFamily();
     }
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+    auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    auto* cfd = cfh->cfd();
     SequenceNumber seq = read_options.snapshot != nullptr
                              ? read_options.snapshot->GetSequenceNumber()
                              : db_->GetLatestSequenceNumber();
@@ -56,7 +107,10 @@ class DBIteratorTest : public DBTestBase,
       read_callbacks_.push_back(
           std::unique_ptr<DummyReadCallback>(read_callback));
     }
-    return dbfull()->NewIteratorImpl(read_options, cfd, seq, read_callback);
+    DBImpl* db_impl = dbfull();
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl);
+    return db_impl->NewIteratorImpl(read_options, cfh, super_version, seq,
+                                    read_callback);
   }
 
  private:
@@ -79,15 +133,28 @@ TEST_P(DBIteratorTest, IteratorProperty) {
     ASSERT_NOK(iter->GetProperty("non_existing.value", &prop_value));
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("0", prop_value);
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("0", prop_value);
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
     ASSERT_EQ("1", prop_value);
     iter->Next();
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("Iterator is not valid.", prop_value);
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("Iterator is not valid.", prop_value);
 
     // Get internal key at which the iteration stopped (tombstone in this case).
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.internal-key", &prop_value));
     ASSERT_EQ("2", prop_value);
+
+    prop_value.clear();
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.write-time", &prop_value));
+    uint64_t write_time;
+    Slice prop_slice = prop_value;
+    ASSERT_TRUE(GetFixed64(&prop_slice, &write_time));
+    ASSERT_EQ(std::numeric_limits<uint64_t>::max(), write_time);
   }
   Close();
 }
@@ -129,6 +196,7 @@ TEST_P(DBIteratorTest, NonBlockingIteration) {
       ASSERT_OK(iter->status());
       count++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 1);
     delete iter;
 
@@ -163,6 +231,7 @@ TEST_P(DBIteratorTest, NonBlockingIteration) {
       ASSERT_OK(iter->status());
       count++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 1);
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
@@ -816,6 +885,7 @@ TEST_P(DBIteratorTest, IterWithSnapshot) {
       }
     }
     db_->ReleaseSnapshot(snapshot);
+    ASSERT_OK(iter->status());
     delete iter;
   } while (ChangeOptions());
 }
@@ -891,7 +961,6 @@ TEST_P(DBIteratorTest, IteratorDeleteAfterCfDrop) {
 }
 
 // SetOptions not defined in ROCKSDB LITE
-#ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -1119,7 +1188,6 @@ TEST_P(DBIteratorTest, DBIteratorBoundMultiSeek) {
               TestGetTickerCount(options, BLOCK_CACHE_MISS));
   }
 }
-#endif
 
 TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
   for (auto format_version : {2, 3, 4}) {
@@ -1162,6 +1230,7 @@ TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
 
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     ASSERT_EQ(upper_bound_hits, 1);
   }
 }
@@ -1286,6 +1355,7 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
 
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
     EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
   }
@@ -1527,6 +1597,7 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
         ASSERT_EQ("1", prop_value);
         all_keys.push_back(iter->key());
       }
+      ASSERT_OK(iter->status());
       ASSERT_EQ(all_keys.size(), true_data.size());
 
       // Verify that all keys slices are valid (backward)
@@ -1564,7 +1635,6 @@ INSTANTIATE_TEST_CASE_P(DBIteratorTestForPinnedDataInstance,
                         DBIteratorTestForPinnedData,
                         testing::Values(true, false));
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   Options options = CurrentOptions();
   BlockBasedTableOptions table_options;
@@ -1616,12 +1686,15 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   ro.pin_data = true;
   auto iter = NewIterator(ro);
 
-  std::vector<std::pair<Slice, std::string>> results;
+  std::vector<std::pair<Slice, Slice>> results;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
-    results.emplace_back(iter->key(), iter->value().ToString());
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("1", prop_value);
+    results.emplace_back(iter->key(), iter->value());
   }
 
   ASSERT_EQ(results.size(), true_data.size());
@@ -1631,10 +1704,9 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
     ASSERT_EQ(kv.first, data_iter->first);
     ASSERT_EQ(kv.second, data_iter->second);
   }
-
+  ASSERT_OK(iter->status());
   delete iter;
 }
-#endif
 
 TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
   Options options = CurrentOptions();
@@ -1676,8 +1748,12 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("0", prop_value);
     results.emplace_back(iter->key(), iter->value().ToString());
   }
+  ASSERT_OK(iter->status());
 
   ASSERT_EQ(results.size(), 1000);
   for (size_t i = 0; i < results.size(); i++) {
@@ -1728,13 +1804,17 @@ TEST_P(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
     }
   }
 
-  std::vector<std::pair<Slice, std::string>> results;
+  std::vector<std::pair<Slice, Slice>> results;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     std::string prop_value;
     ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
-    results.emplace_back(iter->key(), iter->value().ToString());
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("1", prop_value);
+    results.emplace_back(iter->key(), iter->value());
   }
+  ASSERT_OK(iter->status());
 
   auto data_iter = true_data.begin();
   for (size_t i = 0; i < results.size(); i++, data_iter++) {
@@ -2029,6 +2109,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
       ASSERT_EQ(iter->value().ToString(), data_iter->second);
       data_iter++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_iter, true_data.rend());
 
     delete iter;
@@ -2086,6 +2167,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
       entries_right++;
       data_iter++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_iter, true_data.rend());
 
     delete iter;
@@ -2125,6 +2207,7 @@ TEST_P(DBIteratorTest, IteratorWithLocalStatistics) {
       total_next++;
 
       if (!iter->Valid()) {
+        EXPECT_OK(iter->status());
         break;
       }
       total_next_found++;
@@ -2152,6 +2235,7 @@ TEST_P(DBIteratorTest, IteratorWithLocalStatistics) {
       total_prev++;
 
       if (!iter->Valid()) {
+        EXPECT_OK(iter->status());
         break;
       }
       total_prev_found++;
@@ -2216,9 +2300,7 @@ TEST_P(DBIteratorTest, ReadAhead) {
     ASSERT_OK(Put(Key(i), value));
   }
   ASSERT_OK(Flush());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ("1,1,1", FilesPerLevel());
-#endif  // !ROCKSDB_LITE
 
   env_->random_read_bytes_counter_ = 0;
   options.statistics->setTickerCount(NO_FILE_OPENS, 0);
@@ -2229,7 +2311,6 @@ TEST_P(DBIteratorTest, ReadAhead) {
   size_t bytes_read = env_->random_read_bytes_counter_;
   delete iter;
 
-  int64_t num_file_closes = TestGetTickerCount(options, NO_FILE_CLOSES);
   env_->random_read_bytes_counter_ = 0;
   options.statistics->setTickerCount(NO_FILE_OPENS, 0);
   read_options.readahead_size = 1024 * 10;
@@ -2238,10 +2319,7 @@ TEST_P(DBIteratorTest, ReadAhead) {
   int64_t num_file_opens_readahead = TestGetTickerCount(options, NO_FILE_OPENS);
   size_t bytes_read_readahead = env_->random_read_bytes_counter_;
   delete iter;
-  int64_t num_file_closes_readahead =
-      TestGetTickerCount(options, NO_FILE_CLOSES);
   ASSERT_EQ(num_file_opens, num_file_opens_readahead);
-  ASSERT_EQ(num_file_closes, num_file_closes_readahead);
   ASSERT_GT(bytes_read_readahead, bytes_read);
   ASSERT_GT(bytes_read_readahead, read_options.readahead_size * 3);
 
@@ -2285,12 +2363,10 @@ TEST_P(DBIteratorTest, DBIteratorSkipRecentDuplicatesTest) {
     ASSERT_OK(Put("b", std::to_string(i + 1).c_str()));
   }
 
-#ifndef ROCKSDB_LITE
   // Check that memtable wasn't flushed.
   std::string val;
   ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level0", &val));
   EXPECT_EQ("0", val);
-#endif
 
   // Seek iterator to a smaller key.
   get_perf_context()->Reset();
@@ -2374,43 +2450,104 @@ TEST_P(DBIteratorTest, Refresh) {
   ASSERT_EQ(iter->key().compare(Slice("x")), 0);
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 
   iter.reset();
 }
 
 TEST_P(DBIteratorTest, RefreshWithSnapshot) {
-  ASSERT_OK(Put("x", "y"));
+  // L1 file, uses LevelIterator internally
+  ASSERT_OK(Put(Key(0), "val0"));
+  ASSERT_OK(Put(Key(5), "val5"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  // L0 file, uses table iterator internally
+  ASSERT_OK(Put(Key(1), "val1"));
+  ASSERT_OK(Put(Key(4), "val4"));
+  ASSERT_OK(Flush());
+
+  // Memtable
+  ASSERT_OK(Put(Key(2), "val2"));
+  ASSERT_OK(Put(Key(3), "val3"));
   const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(Key(2), "new val"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(4),
+                             Key(7)));
+  const Snapshot* snapshot2 = db_->GetSnapshot();
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
   ReadOptions options;
   options.snapshot = snapshot;
   Iterator* iter = NewIterator(options);
+  ASSERT_OK(Put(Key(6), "val6"));
   ASSERT_OK(iter->status());
 
-  iter->Seek(Slice("a"));
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
+  auto verify_iter = [&](int start, int end, bool new_key2 = false) {
+    for (int i = start; i < end; ++i) {
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), Key(i));
+      if (i == 2 && new_key2) {
+        ASSERT_EQ(iter->value(), "new val");
+      } else {
+        ASSERT_EQ(iter->value(), "val" + std::to_string(i));
+      }
+      iter->Next();
+    }
+  };
 
-  ASSERT_OK(Put("c", "d"));
+  for (int j = 0; j < 2; j++) {
+    iter->Seek(Key(1));
+    verify_iter(1, 3);
+    // Refresh to same snapshot
+    ASSERT_OK(iter->Refresh(snapshot));
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+    iter->Seek(Key(3));
+    verify_iter(3, 6);
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
 
-  iter->Seek(Slice("a"));
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
+    // Refresh to a newer snapshot
+    ASSERT_OK(iter->Refresh(snapshot2));
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+    iter->SeekToFirst();
+    verify_iter(0, 4, /*new_key2=*/true);
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
 
-  ASSERT_OK(iter->status());
-  Status s = iter->Refresh();
-  ASSERT_TRUE(s.IsNotSupported());
-  db_->ReleaseSnapshot(snapshot);
+    // Refresh to an older snapshot
+    ASSERT_OK(iter->Refresh(snapshot));
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+    iter->Seek(Key(3));
+    verify_iter(3, 6);
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+
+    // Refresh to no snapshot
+    ASSERT_OK(iter->Refresh());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+    iter->Seek(Key(2));
+    verify_iter(2, 4, /*new_key2=*/true);
+    verify_iter(6, 7);
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+
+    // Change LSM shape, new SuperVersion is created.
+    ASSERT_OK(Flush());
+
+    // Refresh back to original snapshot
+    ASSERT_OK(iter->Refresh(snapshot));
+  }
+
   delete iter;
+  db_->ReleaseSnapshot(snapshot);
+  db_->ReleaseSnapshot(snapshot2);
+  ASSERT_OK(db_->Close());
 }
 
 TEST_P(DBIteratorTest, CreationFailure) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::NewInternalIterator:StatusCallback", [](void* arg) {
-        *(reinterpret_cast<Status*>(arg)) = Status::Corruption("test status");
+        *(static_cast<Status*>(arg)) = Status::Corruption("test status");
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -2497,6 +2634,7 @@ TEST_P(DBIteratorTest, TableFilter) {
     ASSERT_EQ(IterStatus(iter), "f->6");
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     ASSERT_TRUE(unseen.empty());
     delete iter;
   }
@@ -2519,6 +2657,7 @@ TEST_P(DBIteratorTest, TableFilter) {
     ASSERT_EQ(IterStatus(iter), "f->6");
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     delete iter;
   }
 }
@@ -2603,6 +2742,7 @@ TEST_P(DBIteratorTest, SkipStatistics) {
     ASSERT_OK(iter->status());
     count++;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(count, 3);
   delete iter;
   skip_count += 8;  // Same as above, but in reverse order
@@ -2638,6 +2778,7 @@ TEST_P(DBIteratorTest, SkipStatistics) {
     ASSERT_OK(iter->status());
     count++;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(count, 2);
   delete iter;
   // 3 deletes + 3 original keys + lower sequence of "a"
@@ -3087,12 +3228,14 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   ASSERT_OK(Put("bar", "v7"));
 
   SequenceNumber seq2 = db_->GetLatestSequenceNumber();
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* cfd = cfh->cfd();
   // The iterator are suppose to see data before seq1.
-  Iterator* iter =
-      dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq2, &callback1);
+  DBImpl* db_impl = dbfull();
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl);
+  Iterator* iter = db_impl->NewIteratorImpl(ReadOptions(), cfh, super_version,
+                                            seq2, &callback1);
 
   // Seek
   // The latest value of "foo" before seq1 is "v3"
@@ -3170,7 +3313,9 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   SequenceNumber seq4 = db_->GetLatestSequenceNumber();
 
   // The iterator is suppose to see data before seq3.
-  iter = dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq4, &callback2);
+  super_version = cfd->GetReferencedSuperVersion(db_impl);
+  iter = db_impl->NewIteratorImpl(ReadOptions(), cfh, super_version, seq4,
+                                  &callback2);
   // Seek to "z", which is visible.
   iter->Seek("z");
   ASSERT_TRUE(iter->Valid());
@@ -3216,6 +3361,7 @@ TEST_F(DBIteratorTest, BackwardIterationOnInplaceUpdateMemtable) {
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       ++count;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(kNumKeys, count);
   }
 
@@ -3254,6 +3400,289 @@ TEST_F(DBIteratorTest, IteratorRefreshReturnSV) {
   // iter used to not cleanup SV, so the Close() below would hit an assertion
   // error.
   Close();
+}
+
+TEST_F(DBIteratorTest, ErrorWhenReadFile) {
+  // This is to test a bug that is fixed in
+  // https://github.com/facebook/rocksdb/pull/11782.
+  //
+  // Ingest error when reading from a file, and
+  // see if Iterator handles it correctly.
+  Options opts = CurrentOptions();
+  opts.num_levels = 7;
+  opts.compression = kNoCompression;
+  BlockBasedTableOptions bbto;
+  // Always do I/O
+  bbto.no_block_cache = true;
+  opts.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(opts);
+
+  // Set up LSM
+  // L5: F1 [key0, key99], F2 [key100, key199]
+  // L6:        F3 [key50, key149]
+  Random rnd(301);
+  const int kValLen = 100;
+  for (int i = 50; i < 150; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValLen)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  std::vector<std::string> values;
+  for (int i = 0; i < 100; ++i) {
+    values.emplace_back(rnd.RandomString(kValLen));
+    ASSERT_OK(Put(Key(i), values.back()));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
+  for (int i = 100; i < 200; ++i) {
+    values.emplace_back(rnd.RandomString(kValLen));
+    ASSERT_OK(Put(Key(i), values.back()));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
+  ASSERT_EQ(2, NumTableFilesAtLevel(5));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+  std::vector<LiveFileMetaData> files;
+  db_->GetLiveFilesMetaData(&files);
+  // Get file names for F1, F2 and F3.
+  // These are file names, not full paths.
+  std::string f1, f2, f3;
+  for (auto& file_meta : files) {
+    if (file_meta.level == 6) {
+      f3 = file_meta.name;
+    } else {
+      if (file_meta.smallestkey == Key(0)) {
+        f1 = file_meta.name;
+      } else {
+        f2 = file_meta.name;
+      }
+    }
+  }
+  ASSERT_TRUE(!f1.empty());
+  ASSERT_TRUE(!f2.empty());
+  ASSERT_TRUE(!f3.empty());
+
+  std::string error_file;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read::BeforeReturn",
+      [&error_file](void* io_s_ptr) {
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(io_s_ptr);
+        if (p->first->find(error_file) != std::string::npos) {
+          *p->second = IOStatus::IOError();
+          p->second->SetRetryable(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  // Error reading F1
+  error_file = f1;
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  iter->SeekToFirst();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  // This does not require reading the first block.
+  iter->Seek(Key(90));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[90]);
+  // iter has ok status before this Seek.
+  iter->Seek(Key(1));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+
+  // Error reading F2
+  error_file = f2;
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->Seek(Key(99));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[99]);
+  // Need to read from F2.
+  iter->Next();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->Seek(Key(190));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[190]);
+  // Seek for first key of F2.
+  iter->Seek(Key(100));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[199]);
+  // SeekForPrev for first key of F2.
+  iter->SeekForPrev(Key(100));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  // Does not read first block (offset 0).
+  iter->SeekForPrev(Key(98));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[98]);
+
+  // Error reading F3
+  error_file = f3;
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->Seek(Key(50));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->SeekForPrev(Key(50));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  // Does not read file 3
+  iter->Seek(Key(150));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[150]);
+
+  // Test when file read error occurs during Prev().
+  // This requires returning an error when reading near the end of a file
+  // instead of offset 0.
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read::AnyOffset", [&f1](void* pair_ptr) {
+        auto p = static_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        if (p->first->find(f1) != std::string::npos) {
+          *p->second = IOStatus::IOError();
+          p->second->SetRetryable(true);
+        }
+      });
+  iter->SeekForPrev(Key(101));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[101]);
+  // DBIter will not stop at Key(100) since it needs
+  // to make sure the key it returns has the max sequence number for Key(100).
+  // So it will call MergingIterator::Prev() which will read F1.
+  iter->Prev();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  SyncPoint::GetInstance()->DisableProcessing();
+  iter->Reset();
+}
+
+TEST_F(DBIteratorTest, IteratorsConsistentViewImplicitSnapshot) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1", "cf_2"}, options);
+
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush:done",
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
+
+  bool flushed = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
+        if (!flushed) {
+          for (int i = 0; i < 3; ++i) {
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val_new"));
+          }
+          // After SV is obtained for the first CF, flush for the second CF
+          ASSERT_OK(Flush(1));
+          flushed = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ReadOptions read_options;
+  std::vector<Iterator*> iters;
+  ASSERT_OK(db_->NewIterators(read_options, handles_, &iters));
+
+  for (int i = 0; i < 3; ++i) {
+    auto iter = iters[i];
+    ASSERT_OK(iter->status());
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "cf" + std::to_string(i) + "_key->cf" +
+                                    std::to_string(i) + "_val_new");
+  }
+  for (auto* iter : iters) {
+    delete iter;
+  }
+
+  // Thread-local SVs are no longer obsolete nor in use
+  for (int i = 0; i < 3; ++i) {
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(handles_[i])->cfd();
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
+}
+
+TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
+  Options options = GetDefaultOptions();
+  options.atomic_flush = true;
+  CreateAndReopenWithCF({"cf_1", "cf_2"}, options);
+
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                  "cf" + std::to_string(i) + "_val"));
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush:done",
+        "DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot"}});
+
+  bool flushed = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MultiCFSnapshot::AfterRefSV", [&](void* /*arg*/) {
+        if (!flushed) {
+          for (int i = 0; i < 3; ++i) {
+            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                          "cf" + std::to_string(i) + "_val_new"));
+          }
+          // After SV is obtained for the first CF, do the atomic flush()
+          ASSERT_OK(Flush());
+          flushed = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // Explicit snapshot wouldn't force reloading all svs. We should expect old
+  // values
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  std::vector<Iterator*> iters;
+  ASSERT_OK(db_->NewIterators(read_options, handles_, &iters));
+
+  for (int i = 0; i < 3; ++i) {
+    auto iter = iters[i];
+    ASSERT_OK(iter->status());
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "cf" + std::to_string(i) + "_key->cf" +
+                                    std::to_string(i) + "_val");
+  }
+  db_->ReleaseSnapshot(snapshot);
+  for (auto* iter : iters) {
+    delete iter;
+  }
+
+  // Thread-local SV for cf_0 is obsolete (atomic flush happened after the first
+  // SV Ref)
+  auto* cfd0 =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles_[0])->cfd();
+  ASSERT_EQ(cfd0->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+  ASSERT_NE(cfd0->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  // Rest are not InUse nor Obsolete
+  for (int i = 1; i < 3; ++i) {
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(handles_[i])->cfd();
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+    ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -35,7 +35,6 @@ std::string Customizable::GenerateIndividualId() const {
   return ostr.str();
 }
 
-#ifndef ROCKSDB_LITE
 Status Customizable::GetOption(const ConfigOptions& config_options,
                                const std::string& opt_name,
                                std::string* value) const {
@@ -68,14 +67,13 @@ std::string Customizable::SerializeOptions(const ConfigOptions& config_options,
   return result;
 }
 
-#endif  // ROCKSDB_LITE
 
 bool Customizable::AreEquivalent(const ConfigOptions& config_options,
                                  const Configurable* other,
                                  std::string* mismatch) const {
   if (config_options.sanity_level > ConfigOptions::kSanityLevelNone &&
       this != other) {
-    const Customizable* custom = reinterpret_cast<const Customizable*>(other);
+    const Customizable* custom = static_cast<const Customizable*>(other);
     if (custom == nullptr) {  // Cast failed
       return false;
     } else if (GetId() != custom->GetId()) {
@@ -102,9 +100,6 @@ Status Customizable::GetOptionsMap(
   } else if (customizable != nullptr) {
     status =
         Configurable::GetOptionsMap(value, customizable->GetId(), id, props);
-#ifdef ROCKSDB_LITE
-    (void)config_options;
-#else
     if (status.ok() && customizable->IsInstanceOf(*id)) {
       // The new ID and the old ID match, so the objects are the same type.
       // Try to get the existing options, ignoring any errors
@@ -118,7 +113,6 @@ Status Customizable::GetOptionsMap(
         }
       }
     }
-#endif  // ROCKSDB_LITE
   } else {
     status = Configurable::GetOptionsMap(value, "", id, props);
   }

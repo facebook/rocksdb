@@ -5,7 +5,6 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <limits>
 #include <list>
@@ -254,22 +253,22 @@ class PersistentCacheTier : public PersistentCache {
   // Print stats to string recursively
   virtual std::string PrintStats();
 
-  virtual PersistentCache::StatsType Stats() override;
+  PersistentCache::StatsType Stats() override;
 
   // Insert to page cache
-  virtual Status Insert(const Slice& page_key, const char* data,
-                        const size_t size) override = 0;
+  Status Insert(const Slice& page_key, const char* data,
+                const size_t size) override = 0;
 
   // Lookup page cache by page identifier
-  virtual Status Lookup(const Slice& page_key, std::unique_ptr<char[]>* data,
-                        size_t* size) override = 0;
+  Status Lookup(const Slice& page_key, std::unique_ptr<char[]>* data,
+                size_t* size) override = 0;
 
   // Does it store compressed data ?
-  virtual bool IsCompressed() override = 0;
+  bool IsCompressed() override = 0;
 
-  virtual std::string GetPrintableOptions() const override = 0;
+  std::string GetPrintableOptions() const override = 0;
 
-  virtual uint64_t NewId() override;
+  uint64_t NewId() override;
 
   // Return a reference to next tier
   virtual Tier& next_tier() { return next_tier_; }
@@ -339,4 +338,3 @@ class PersistentTieredCache : public PersistentCacheTier {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif

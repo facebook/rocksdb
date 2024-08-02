@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 
 #include <algorithm>
@@ -61,7 +60,7 @@ class RangeLockingTest : public ::testing::Test {
   PessimisticTransaction* NewTxn(
       TransactionOptions txn_opt = TransactionOptions()) {
     Transaction* txn = db->BeginTransaction(WriteOptions(), txn_opt);
-    return reinterpret_cast<PessimisticTransaction*>(txn);
+    return static_cast<PessimisticTransaction*>(txn);
   }
 };
 
@@ -447,13 +446,3 @@ int main(int /*argc*/, char** /*argv*/) {
 
 #endif  // OS_WIN
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "skipped as transactions are not supported in rocksdb_lite\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

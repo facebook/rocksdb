@@ -13,9 +13,9 @@
 
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
+#include "port/likely.h"
 #include "port/malloc.h"
 #include "port/port.h"
-#include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
 #include "util/distributed_mutex.h"
 
@@ -47,20 +47,10 @@ namespace lru_cache {
 // LRUCacheShard::Lookup.
 // While refs > 0, public properties like value and deleter must not change.
 
-struct LRUHandle {
-  void* value;
-  union Info {
-    Info() {}
-    ~Info() {}
-    Cache::DeleterFn deleter;
-    const Cache::CacheItemHelper* helper;
-  } info_;
-  // An entry is not added to the LRUHandleTable until the secondary cache
-  // lookup is complete, so its safe to have this union.
-  union {
-    LRUHandle* next_hash;
-    SecondaryCacheResultHandle* sec_handle;
-  };
+struct LRUHandle : public Cache::Handle {
+  Cache::ObjectPtr value;
+  const Cache::CacheItemHelper* helper;
+  LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
@@ -93,14 +83,8 @@ struct LRUHandle {
     IM_IS_HIGH_PRI = (1 << 0),
     // Whether this entry is low priority entry.
     IM_IS_LOW_PRI = (1 << 1),
-    // Can this be inserted into the secondary cache.
-    IM_IS_SECONDARY_CACHE_COMPATIBLE = (1 << 2),
-    // Is the handle still being read from a lower tier.
-    IM_IS_PENDING = (1 << 3),
-    // Whether this handle is still in a lower tier
-    IM_IS_IN_SECONDARY_CACHE = (1 << 4),
     // Marks result handles that should not be inserted into cache
-    IM_IS_STANDALONE = (1 << 5),
+    IM_IS_STANDALONE = (1 << 2),
   };
 
   // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
@@ -130,13 +114,6 @@ struct LRUHandle {
   bool IsLowPri() const { return im_flags & IM_IS_LOW_PRI; }
   bool InLowPriPool() const { return m_flags & M_IN_LOW_PRI_POOL; }
   bool HasHit() const { return m_flags & M_HAS_HIT; }
-  bool IsSecondaryCacheCompatible() const {
-    return im_flags & IM_IS_SECONDARY_CACHE_COMPATIBLE;
-  }
-  bool IsPending() const { return im_flags & IM_IS_PENDING; }
-  bool IsInSecondaryCache() const {
-    return im_flags & IM_IS_IN_SECONDARY_CACHE;
-  }
   bool IsStandalone() const { return im_flags & IM_IS_STANDALONE; }
 
   void SetInCache(bool in_cache) {
@@ -178,30 +155,6 @@ struct LRUHandle {
 
   void SetHit() { m_flags |= M_HAS_HIT; }
 
-  void SetSecondaryCacheCompatible(bool compat) {
-    if (compat) {
-      im_flags |= IM_IS_SECONDARY_CACHE_COMPATIBLE;
-    } else {
-      im_flags &= ~IM_IS_SECONDARY_CACHE_COMPATIBLE;
-    }
-  }
-
-  void SetIsPending(bool pending) {
-    if (pending) {
-      im_flags |= IM_IS_PENDING;
-    } else {
-      im_flags &= ~IM_IS_PENDING;
-    }
-  }
-
-  void SetIsInSecondaryCache(bool is_in_secondary_cache) {
-    if (is_in_secondary_cache) {
-      im_flags |= IM_IS_IN_SECONDARY_CACHE;
-    } else {
-      im_flags &= ~IM_IS_IN_SECONDARY_CACHE;
-    }
-  }
-
   void SetIsStandalone(bool is_standalone) {
     if (is_standalone) {
       im_flags |= IM_IS_STANDALONE;
@@ -210,22 +163,11 @@ struct LRUHandle {
     }
   }
 
-  void Free() {
+  void Free(MemoryAllocator* allocator) {
     assert(refs == 0);
-
-    if (!IsSecondaryCacheCompatible() && info_.deleter) {
-      (*info_.deleter)(key(), value);
-    } else if (IsSecondaryCacheCompatible()) {
-      if (IsPending()) {
-        assert(sec_handle != nullptr);
-        SecondaryCacheResultHandle* tmp_sec_handle = sec_handle;
-        tmp_sec_handle->Wait();
-        value = tmp_sec_handle->Value();
-        delete tmp_sec_handle;
-      }
-      if (value) {
-        (*info_.helper->del_cb)(key(), value);
-      }
+    assert(helper);
+    if (helper->del_cb) {
+      helper->del_cb(value, allocator);
     }
 
     free(this);
@@ -267,7 +209,7 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  explicit LRUHandleTable(int max_upper_hash_bits);
+  explicit LRUHandleTable(int max_upper_hash_bits, MemoryAllocator* allocator);
   ~LRUHandleTable();
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
@@ -291,6 +233,8 @@ class LRUHandleTable {
 
   size_t GetOccupancyCount() const { return elems_; }
 
+  MemoryAllocator* GetAllocator() const { return allocator_; }
+
  private:
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
@@ -312,16 +256,22 @@ class LRUHandleTable {
 
   // Set from max_upper_hash_bits (see constructor).
   const int max_length_bits_;
+
+  // From Cache, needed for delete
+  MemoryAllocator* const allocator_;
 };
 
 // A single shard of sharded cache.
 class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
  public:
+  // NOTE: the eviction_callback ptr is saved, as is it assumed to be kept
+  // alive in Cache.
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, double low_pri_pool_ratio,
                 bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
-                int max_upper_hash_bits, SecondaryCache* secondary_cache);
+                int max_upper_hash_bits, MemoryAllocator* allocator,
+                const Cache::EvictionCallback* eviction_callback);
 
  public:  // Type definitions expected as parameter to ShardedCache
   using HandleImpl = LRUHandle;
@@ -329,8 +279,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   using HashCref = uint32_t;
 
  public:  // Function definitions expected as parameter to ShardedCache
-  static inline HashVal ComputeHash(const Slice& key) {
-    return Lower32of64(GetSliceNPHash64(key));
+  static inline HashVal ComputeHash(const Slice& key, uint32_t seed) {
+    return Lower32of64(GetSliceNPHash64(key, seed));
   }
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -348,29 +298,21 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   void SetLowPriorityPoolRatio(double low_pri_pool_ratio);
 
   // Like Cache methods, but with an extra "hash" parameter.
-  inline Status Insert(const Slice& key, uint32_t hash, void* value,
-                       size_t charge, Cache::DeleterFn deleter,
-                       LRUHandle** handle, Cache::Priority priority) {
-    return Insert(key, hash, value, charge, deleter, nullptr, handle, priority);
-  }
-  inline Status Insert(const Slice& key, uint32_t hash, void* value,
-                       const Cache::CacheItemHelper* helper, size_t charge,
-                       LRUHandle** handle, Cache::Priority priority) {
-    assert(helper);
-    return Insert(key, hash, value, charge, nullptr, helper, handle, priority);
-  }
-  // If helper_cb is null, the values of the following arguments don't matter.
+  Status Insert(const Slice& key, uint32_t hash, Cache::ObjectPtr value,
+                const Cache::CacheItemHelper* helper, size_t charge,
+                LRUHandle** handle, Cache::Priority priority);
+
+  LRUHandle* CreateStandalone(const Slice& key, uint32_t hash,
+                              Cache::ObjectPtr obj,
+                              const Cache::CacheItemHelper* helper,
+                              size_t charge, bool allow_uncharged);
+
   LRUHandle* Lookup(const Slice& key, uint32_t hash,
                     const Cache::CacheItemHelper* helper,
-                    const Cache::CreateCallback& create_cb,
-                    Cache::Priority priority, bool wait, Statistics* stats);
-  inline LRUHandle* Lookup(const Slice& key, uint32_t hash) {
-    return Lookup(key, hash, nullptr, nullptr, Cache::Priority::LOW, true,
-                  nullptr);
-  }
+                    Cache::CreateContext* create_context,
+                    Cache::Priority priority, Statistics* stats);
+
   bool Release(LRUHandle* handle, bool useful, bool erase_if_last_ref);
-  bool IsReady(LRUHandle* /*handle*/);
-  void Wait(LRUHandle* /*handle*/) {}
   bool Ref(LRUHandle* handle);
   void Erase(const Slice& key, uint32_t hash);
 
@@ -384,8 +326,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   size_t GetTableAddressCount() const;
 
   void ApplyToSomeEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, Cache::ObjectPtr value,
+                               size_t charge,
+                               const Cache::CacheItemHelper* helper)>& callback,
       size_t average_entries_per_lock, size_t* state);
 
   void EraseUnRefEntries();
@@ -409,23 +352,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
  private:
   friend class LRUCache;
   // Insert an item into the hash table and, if handle is null, insert into
-  // the LRU list. Older items are evicted as necessary. If the cache is full
-  // and free_handle_on_fail is true, the item is deleted and handle is set to
-  // nullptr.
-  Status InsertItem(LRUHandle* item, LRUHandle** handle,
-                    bool free_handle_on_fail);
-  Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
-                DeleterFn deleter, const Cache::CacheItemHelper* helper,
-                LRUHandle** handle, Cache::Priority priority);
-  // Promote an item looked up from the secondary cache to the LRU cache.
-  // The item may be still in the secondary cache.
-  // It is only inserted into the hash table and not the LRU list, and only
-  // if the cache is not at full capacity, as is the case during Insert.  The
-  // caller should hold a reference on the LRUHandle. When the caller releases
-  // the last reference, the item is added to the LRU list.
-  // The item is promoted to the high pri or low pri pool as specified by the
-  // caller in Lookup.
-  void Promote(LRUHandle* e);
+  // the LRU list. Older items are evicted as necessary. Frees `item` on
+  // non-OK status.
+  Status InsertItem(LRUHandle* item, LRUHandle** handle);
+
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 
@@ -439,8 +369,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
-  // Try to insert the evicted handles into the secondary cache.
-  void TryInsertIntoSecondaryCache(autovector<LRUHandle*> evicted_handles);
+  void NotifyEvicted(const autovector<LRUHandle*>& evicted_handles);
+
+  LRUHandle* CreateHandle(const Slice& key, uint32_t hash,
+                          Cache::ObjectPtr value,
+                          const Cache::CacheItemHelper* helper, size_t charge);
 
   // Initialized before use.
   size_t capacity_;
@@ -503,8 +436,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // don't mind mutex_ invoking the non-const actions.
   mutable DMutex mutex_;
 
-  // Owned by LRUCache
-  SecondaryCache* secondary_cache_;
+  // A reference to Cache::eviction_callback_
+  const Cache::EvictionCallback& eviction_callback_;
 };
 
 class LRUCache
@@ -513,28 +446,16 @@ class LRUCache
 #endif
     : public ShardedCache<LRUCacheShard> {
  public:
-  LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-           double high_pri_pool_ratio, double low_pri_pool_ratio,
-           std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-           bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
-           CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata,
-           std::shared_ptr<SecondaryCache> secondary_cache = nullptr);
+  explicit LRUCache(const LRUCacheOptions& opts);
   const char* Name() const override { return "LRUCache"; }
-  void* Value(Handle* handle) override;
+  ObjectPtr Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
-  DeleterFn GetDeleter(Handle* handle) const override;
-  void WaitAll(std::vector<Handle*>& handles) override;
+  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
 
   // Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
   // Retrieves high pri pool ratio.
   double GetHighPriPoolRatio();
-
-  void AppendPrintableOptions(std::string& str) const override;
-
- private:
-  std::shared_ptr<SecondaryCache> secondary_cache_;
 };
 
 }  // namespace lru_cache

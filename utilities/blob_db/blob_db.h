@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <functional>
 #include <limits>
@@ -89,11 +88,10 @@ struct BlobDBOptions {
 class BlobDB : public StackableDB {
  public:
   using ROCKSDB_NAMESPACE::StackableDB::Put;
-  virtual Status Put(const WriteOptions& options, const Slice& key,
-                     const Slice& value) override = 0;
-  virtual Status Put(const WriteOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) override {
+  Status Put(const WriteOptions& options, const Slice& key,
+             const Slice& value) override = 0;
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& value) override {
     if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
@@ -102,9 +100,8 @@ class BlobDB : public StackableDB {
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::Delete;
-  virtual Status Delete(const WriteOptions& options,
-                        ColumnFamilyHandle* column_family,
-                        const Slice& key) override {
+  Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
+                const Slice& key) override {
     if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
@@ -140,9 +137,9 @@ class BlobDB : public StackableDB {
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override = 0;
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override = 0;
 
   // Get value and expiration.
   virtual Status Get(const ReadOptions& options,
@@ -153,57 +150,26 @@ class BlobDB : public StackableDB {
     return Get(options, DefaultColumnFamily(), key, value, expiration);
   }
 
-  using ROCKSDB_NAMESPACE::StackableDB::MultiGet;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options, const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override = 0;
-  virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override {
-    for (auto column_family : column_families) {
-      if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
-        return std::vector<Status>(
-            column_families.size(),
-            Status::NotSupported(
-                "Blob DB doesn't support non-default column family."));
-      }
-    }
-    return MultiGet(options, keys, values);
-  }
-  virtual void MultiGet(const ReadOptions& /*options*/,
-                        ColumnFamilyHandle* /*column_family*/,
-                        const size_t num_keys, const Slice* /*keys*/,
-                        PinnableSlice* /*values*/, Status* statuses,
-                        const bool /*sorted_input*/ = false) override {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] =
-          Status::NotSupported("Blob DB doesn't support batched MultiGet");
-    }
-  }
-
   using ROCKSDB_NAMESPACE::StackableDB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& /*wopts*/,
-                              ColumnFamilyHandle* /*column_family*/,
-                              const Slice& /*key*/) override {
+  Status SingleDelete(const WriteOptions& /*wopts*/,
+                      ColumnFamilyHandle* /*column_family*/,
+                      const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::Merge;
-  virtual Status Merge(const WriteOptions& /*options*/,
-                       ColumnFamilyHandle* /*column_family*/,
-                       const Slice& /*key*/, const Slice& /*value*/) override {
+  Status Merge(const WriteOptions& /*options*/,
+               ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
-  virtual Status Write(const WriteOptions& opts,
-                       WriteBatch* updates) override = 0;
+  Status Write(const WriteOptions& opts, WriteBatch* updates) override = 0;
 
   using ROCKSDB_NAMESPACE::StackableDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& options) override = 0;
-  virtual Iterator* NewIterator(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family) override {
+  Iterator* NewIterator(const ReadOptions& options) override = 0;
+  Iterator* NewIterator(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family) override {
     if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       // Blob DB doesn't support non-default column family.
       return nullptr;
@@ -234,7 +200,7 @@ class BlobDB : public StackableDB {
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::Close;
-  virtual Status Close() override = 0;
+  Status Close() override = 0;
 
   // Opening blob db.
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
@@ -249,9 +215,9 @@ class BlobDB : public StackableDB {
 
   virtual BlobDBOptions GetBlobDBOptions() const = 0;
 
-  virtual Status SyncBlobFiles() = 0;
+  virtual Status SyncBlobFiles(const WriteOptions& write_options) = 0;
 
-  virtual ~BlobDB() {}
+  ~BlobDB() override {}
 
  protected:
   explicit BlobDB();
@@ -263,4 +229,3 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

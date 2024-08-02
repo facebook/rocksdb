@@ -25,7 +25,7 @@ public class BackupEngineOptions extends RocksObject {
   /**
    * <p>BackupEngineOptions constructor.</p>
    *
-   * @param path Where to keep the backup files. Has to be different than db
+   * @param path Where to keep the backup files. Has to be different from db
    *   name. Best to set this to {@code db name_ + "/backups"}
    * @throws java.lang.IllegalArgumentException if illegal path is used.
    */
@@ -55,9 +55,9 @@ public class BackupEngineOptions extends RocksObject {
 
   /**
    * Backup Env object. It will be used for backup file I/O. If it's
-   * null, backups will be written out using DBs Env. Otherwise
+   * null, backups will be written out using DBs Env. Otherwise,
    * backup's I/O will be performed using this object.
-   *
+   * <p>
    * Default: null
    *
    * @param env The environment to use
@@ -72,9 +72,9 @@ public class BackupEngineOptions extends RocksObject {
 
   /**
    * Backup Env object. It will be used for backup file I/O. If it's
-   * null, backups will be written out using DBs Env. Otherwise
+   * null, backups will be written out using DBs Env. Otherwise,
    * backup's I/O will be performed using this object.
-   *
+   * <p>
    * Default: null
    *
    * @return The environment in use
@@ -128,7 +128,7 @@ public class BackupEngineOptions extends RocksObject {
 
   /**
    * Set the logger to use for Backup info and error messages
-   *
+   * <p>
    * Default: null
    *
    * @return The logger in use for the backup
@@ -143,7 +143,7 @@ public class BackupEngineOptions extends RocksObject {
    * @param sync If {@code sync == true}, we can guarantee you'll get consistent
    *   backup even on a machine crash/reboot. Backup process is slower with sync
    *   enabled. If {@code sync == false}, we don't guarantee anything on machine
-   *   reboot. However, chances are some of the backups are consistent.
+   *   reboot. However, chances are some backups are consistent.
    *
    * <p>Default: true</p>
    *
@@ -194,7 +194,7 @@ public class BackupEngineOptions extends RocksObject {
   /**
    * <p>Set if log files shall be persisted.</p>
    *
-   * @param backupLogFiles If false, we won't backup log files. This option can
+   * @param backupLogFiles If false, we won't back up log files. This option can
    *   be useful for backing up in-memory databases where log file are
    *   persisted, but table files are in memory.
    *
@@ -228,10 +228,9 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
-  public BackupEngineOptions setBackupRateLimit(long backupRateLimit) {
+  public BackupEngineOptions setBackupRateLimit(final long backupRateLimit) {
     assert(isOwningHandle());
-    backupRateLimit = (backupRateLimit <= 0) ? 0 : backupRateLimit;
-    setBackupRateLimit(nativeHandle_, backupRateLimit);
+    setBackupRateLimit(nativeHandle_, (backupRateLimit <= 0) ? 0 : backupRateLimit);
     return this;
   }
 
@@ -250,7 +249,7 @@ public class BackupEngineOptions extends RocksObject {
   /**
    * Backup rate limiter. Used to control transfer speed for backup. If this is
    * not null, {@link #backupRateLimit()} is ignored.
-   *
+   * <p>
    * Default: null
    *
    * @param backupRateLimiter The rate limiter to use for the backup
@@ -266,7 +265,7 @@ public class BackupEngineOptions extends RocksObject {
   /**
    * Backup rate limiter. Used to control transfer speed for backup. If this is
    * not null, {@link #backupRateLimit()} is ignored.
-   *
+   * <p>
    * Default: null
    *
    * @return The rate limiter in use for the backup
@@ -286,10 +285,9 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
-  public BackupEngineOptions setRestoreRateLimit(long restoreRateLimit) {
+  public BackupEngineOptions setRestoreRateLimit(final long restoreRateLimit) {
     assert(isOwningHandle());
-    restoreRateLimit = (restoreRateLimit <= 0) ? 0 : restoreRateLimit;
-    setRestoreRateLimit(nativeHandle_, restoreRateLimit);
+    setRestoreRateLimit(nativeHandle_, (restoreRateLimit <= 0) ? 0 : restoreRateLimit);
     return this;
   }
 
@@ -308,7 +306,7 @@ public class BackupEngineOptions extends RocksObject {
   /**
    * Restore rate limiter. Used to control transfer speed during restore. If
    * this is not null, {@link #restoreRateLimit()} is ignored.
-   *
+   * <p>
    * Default: null
    *
    * @param restoreRateLimiter The rate limiter to use during restore
@@ -324,7 +322,7 @@ public class BackupEngineOptions extends RocksObject {
   /**
    * Restore rate limiter. Used to control transfer speed during restore. If
    * this is not null, {@link #restoreRateLimit()} is ignored.
-   *
+   * <p>
    * Default: null
    *
    * @return The rate limiter in use during restore
@@ -400,7 +398,7 @@ public class BackupEngineOptions extends RocksObject {
   /**
    * During backup user can get callback every time next
    * {@link #callbackTriggerIntervalSize()} bytes being copied.
-   *
+   * <p>
    * Default: 4194304
    *
    * @param callbackTriggerIntervalSize The interval size for the
@@ -416,8 +414,8 @@ public class BackupEngineOptions extends RocksObject {
 
   /**
    * During backup user can get callback every time next
-   * {@link #callbackTriggerIntervalSize()} bytes being copied.
-   *
+   * {@code #callbackTriggerIntervalSize()} bytes being copied.
+   * <p>
    * Default: 4194304
    *
    * @return The interval size for the callback trigger
@@ -427,32 +425,36 @@ public class BackupEngineOptions extends RocksObject {
     return callbackTriggerIntervalSize(nativeHandle_);
   }
 
-  private native static long newBackupEngineOptions(final String path);
-  private native String backupDir(long handle);
-  private native void setBackupEnv(final long handle, final long envHandle);
-  private native void setShareTableFiles(long handle, boolean flag);
-  private native boolean shareTableFiles(long handle);
-  private native void setInfoLog(final long handle, final long infoLogHandle);
-  private native void setSync(long handle, boolean flag);
-  private native boolean sync(long handle);
-  private native void setDestroyOldData(long handle, boolean flag);
-  private native boolean destroyOldData(long handle);
-  private native void setBackupLogFiles(long handle, boolean flag);
-  private native boolean backupLogFiles(long handle);
-  private native void setBackupRateLimit(long handle, long rateLimit);
-  private native long backupRateLimit(long handle);
-  private native void setBackupRateLimiter(long handle, long rateLimiterHandle);
-  private native void setRestoreRateLimit(long handle, long rateLimit);
-  private native long restoreRateLimit(long handle);
-  private native void setRestoreRateLimiter(final long handle,
-      final long rateLimiterHandle);
-  private native void setShareFilesWithChecksum(long handle, boolean flag);
-  private native boolean shareFilesWithChecksum(long handle);
-  private native void setMaxBackgroundOperations(final long handle,
-      final int maxBackgroundOperations);
-  private native int maxBackgroundOperations(final long handle);
-  private native void setCallbackTriggerIntervalSize(final long handle,
-      long callbackTriggerIntervalSize);
-  private native long callbackTriggerIntervalSize(final long handle);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native long newBackupEngineOptions(final String path);
+  private static native String backupDir(long handle);
+  private static native void setBackupEnv(final long handle, final long envHandle);
+  private static native void setShareTableFiles(long handle, boolean flag);
+  private static native boolean shareTableFiles(long handle);
+  private static native void setInfoLog(final long handle, final long infoLogHandle);
+  private static native void setSync(long handle, boolean flag);
+  private static native boolean sync(long handle);
+  private static native void setDestroyOldData(long handle, boolean flag);
+  private static native boolean destroyOldData(long handle);
+  private static native void setBackupLogFiles(long handle, boolean flag);
+  private static native boolean backupLogFiles(long handle);
+  private static native void setBackupRateLimit(long handle, long rateLimit);
+  private static native long backupRateLimit(long handle);
+  private static native void setBackupRateLimiter(long handle, long rateLimiterHandle);
+  private static native void setRestoreRateLimit(long handle, long rateLimit);
+  private static native long restoreRateLimit(long handle);
+  private static native void setRestoreRateLimiter(final long handle, final long rateLimiterHandle);
+  private static native void setShareFilesWithChecksum(long handle, boolean flag);
+  private static native boolean shareFilesWithChecksum(long handle);
+  private static native void setMaxBackgroundOperations(
+      final long handle, final int maxBackgroundOperations);
+  private static native int maxBackgroundOperations(final long handle);
+  private static native void setCallbackTriggerIntervalSize(
+      final long handle, long callbackTriggerIntervalSize);
+  private static native long callbackTriggerIntervalSize(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+
+  private static native void disposeInternalJni(final long handle);
 }

@@ -62,12 +62,12 @@ public class TableFileDeletionInfo {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    TableFileDeletionInfo that = (TableFileDeletionInfo) o;
+    final TableFileDeletionInfo that = (TableFileDeletionInfo) o;
     return jobId == that.jobId && Objects.equals(dbName, that.dbName)
         && Objects.equals(filePath, that.filePath) && Objects.equals(status, that.status);
   }

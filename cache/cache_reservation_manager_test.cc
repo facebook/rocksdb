@@ -129,7 +129,6 @@ TEST_F(CacheReservationManagerTest,
 
 TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
      IncreaseCacheReservationOnFullCache) {
-  ;
   constexpr std::size_t kSizeDummyEntry =
       CacheReservationManagerImpl<CacheEntryRole::kMisc>::GetDummyEntrySize();
   constexpr std::size_t kSmallCacheCapacity = 4 * kSizeDummyEntry;

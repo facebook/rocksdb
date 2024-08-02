@@ -73,9 +73,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   ASSERT_OK(dbfull()->Flush(no_wait));
   // If the issue is hit we will wait here forever.
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ(2, TotalTableFiles());
-#endif  // ROCKSDB_LITE
 }
 
 // Disable this test temporarily on Travis as it fails intermittently.
@@ -88,8 +86,8 @@ TEST_F(DBFlushTest, SyncFail) {
   options.env = fault_injection_env.get();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
-       {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
+      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedWals:Start"},
+       {"DBImpl::SyncClosedWals:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -105,9 +103,7 @@ TEST_F(DBFlushTest, SyncFail) {
   // Now the background job will do the flush; wait for it.
   // Returns the IO error happend during flush.
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
-#endif                             // ROCKSDB_LITE
   Destroy(options);
 }
 
@@ -115,8 +111,8 @@ TEST_F(DBFlushTest, SyncSkip) {
   Options options = CurrentOptions();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncSkip:1", "DBImpl::SyncClosedLogs:Skip"},
-       {"DBImpl::SyncClosedLogs:Skip", "DBFlushTest::SyncSkip:2"}});
+      {{"DBFlushTest::SyncSkip:1", "DBImpl::SyncClosedWals:Skip"},
+       {"DBImpl::SyncClosedWals:Skip", "DBFlushTest::SyncSkip:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
@@ -226,7 +222,7 @@ TEST_F(DBFlushTest, CloseDBWhenFlushInLowPri) {
   sleeping_task_low.WaitUntilDone();
   ASSERT_EQ(0, num_flushes);
 
-  TryReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "cf1", "cf2"}, options));
   ASSERT_OK(Put(0, "key3", DummyString(8192)));
   ASSERT_OK(Flush(0));
   ASSERT_EQ(1, num_flushes);
@@ -276,7 +272,7 @@ TEST_F(DBFlushTest, ScheduleOnlyOneBgThread) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
-        auto unscheduled_flushes = *reinterpret_cast<int*>(arg);
+        auto unscheduled_flushes = *static_cast<int*>(arg);
         ASSERT_EQ(0, unscheduled_flushes);
         ++called;
       });
@@ -664,7 +660,6 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 // This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
@@ -744,7 +739,152 @@ class TestFlushListener : public EventListener {
   Env* env_;
   DBFlushTest* test_;
 };
-#endif  // !ROCKSDB_LITE
+
+TEST_F(
+    DBFlushTest,
+    FixUnrecoverableWriteDuringAtomicFlushWaitUntilFlushWouldNotStallWrites) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+
+  // To simulate a real-life crash where we can't flush during db's shutdown
+  options.avoid_flush_during_shutdown = true;
+
+  // Set 3 low thresholds (while `disable_auto_compactions=false`) here so flush
+  // adding one more L0 file during `GetLiveFiles()` will have to wait till such
+  // flush will not stall writes
+  options.level0_stop_writes_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  // Disable level-0 compaction triggered by number of files to avoid
+  // stalling check being skipped (resulting in the flush mentioned above didn't
+  // wait)
+  options.level0_file_num_compaction_trigger = -1;
+
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  // Manually pause compaction thread to ensure enough L0 files as
+  // `disable_auto_compactions=false`is needed, in order to meet the 3 low
+  // thresholds above
+  std::unique_ptr<test::SleepingBackgroundTask> sleeping_task_;
+  sleeping_task_.reset(new test::SleepingBackgroundTask());
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task_.get(), Env::Priority::LOW);
+  sleeping_task_->WaitUntilSleeping();
+
+  // Create some initial file to help meet the 3 low thresholds above
+  ASSERT_OK(Put(1, "dontcare", "dontcare"));
+  ASSERT_OK(Flush(1));
+
+  // Insert some initial data so we have something to atomic-flush later
+  // triggered by `GetLiveFiles()`
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  ASSERT_OK(Put(1, "k1", "v1", write_opts));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({{
+      "DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
+      "DBFlushTest::"
+      "UnrecoverableWriteInAtomicFlushWaitUntilFlushWouldNotStallWrites::Write",
+  }});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write to db when atomic flush releases the lock to wait on write stall
+  // condition to be gone in `WaitUntilFlushWouldNotStallWrites()`
+  port::Thread write_thread([&] {
+    TEST_SYNC_POINT(
+        "DBFlushTest::"
+        "UnrecoverableWriteInAtomicFlushWaitUntilFlushWouldNotStallWrites::"
+        "Write");
+    // Before the fix, the empty default CF would've been prematurely excluded
+    // from this atomic flush. The following two writes together make default CF
+    // later contain data that should've been included in the atomic flush.
+    ASSERT_OK(Put(0, "k2", "v2", write_opts));
+    // The following write increases the max seqno of this atomic flush to be 3,
+    // which is greater than the seqno of default CF's data. This then violates
+    // the invariant that all entries of seqno less than the max seqno
+    // of this atomic flush should've been flushed by the time of this atomic
+    // flush finishes.
+    ASSERT_OK(Put(1, "k3", "v3", write_opts));
+
+    // Resume compaction threads and reduce L0 files so `GetLiveFiles()` can
+    // resume from the wait
+    sleeping_task_->WakeUp();
+    sleeping_task_->WaitUntilDone();
+    MoveFilesToLevel(1, 1);
+  });
+
+  // Trigger an atomic flush by `GetLiveFiles()`
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+
+  write_thread.join();
+
+  ReopenWithColumnFamilies({"default", "cf1"}, options);
+
+  ASSERT_EQ(Get(1, "k3"), "v3");
+  // Prior to the fix, `Get()` will return `NotFound as "k2" entry in default CF
+  // can't be recovered from a crash right after the atomic flush finishes,
+  // resulting in a "recovery hole" as "k3" can be recovered. It's due to the
+  // invariant violation described above.
+  ASSERT_EQ(Get(0, "k2"), "v2");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBFlushTest, FixFlushReasonRaceFromConcurrentFlushes) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  for (int idx = 0; idx < 1; ++idx) {
+    ASSERT_OK(Put(0, Key(idx), std::string(1, 'v')));
+    ASSERT_OK(Put(1, Key(idx), std::string(1, 'v')));
+  }
+
+  // To coerce a manual flush happenning in the middle of GetLiveFiles's flush,
+  // we need to pause background flush thread and enable it later.
+  std::shared_ptr<test::SleepingBackgroundTask> sleeping_task =
+      std::make_shared<test::SleepingBackgroundTask>();
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  // Coerce a manual flush happenning in the middle of GetLiveFiles's flush
+  bool get_live_files_paused_at_sync_point = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush", [&](void* /* arg */) {
+        if (get_live_files_paused_at_sync_point) {
+          // To prevent non-GetLiveFiles() flush from pausing at this sync point
+          return;
+        }
+        get_live_files_paused_at_sync_point = true;
+
+        FlushOptions fo;
+        fo.wait = false;
+        fo.allow_write_stall = true;
+        ASSERT_OK(dbfull()->Flush(fo));
+
+        // Resume background flush thread so GetLiveFiles() can finish
+        sleeping_task->WakeUp();
+        sleeping_task->WaitUntilDone();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  // Before the fix, a race condition on default cf's flush reason due to
+  // concurrent GetLiveFiles's flush and manual flush will fail
+  // an internal assertion.
+  // After the fix, such race condition is fixed and there is no assertion
+  // failure.
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ASSERT_TRUE(get_live_files_paused_at_sync_point);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
 
 TEST_F(DBFlushTest, MemPurgeBasic) {
   Options options = CurrentOptions();
@@ -777,24 +917,16 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
-#ifndef ROCKSDB_LITE
   // Initially deactivate the MemPurge prototype.
   options.experimental_mempurge_threshold = 0.0;
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#else
-  // Activate directly the MemPurge prototype.
-  // (RocksDB lite does not support dynamic options)
-  options.experimental_mempurge_threshold = 1.0;
-#endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
 
   // RocksDB lite does not support dynamic options
-#ifndef ROCKSDB_LITE
   // Dynamically activate the MemPurge prototype without restarting the DB.
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}}));
-#endif
 
   std::atomic<uint32_t> mempurge_count{0};
   std::atomic<uint32_t> sst_count{0};
@@ -927,7 +1059,6 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 }
 
 // RocksDB lite does not support dynamic options
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   Options options = CurrentOptions();
 
@@ -1040,12 +1171,10 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
 
   Close();
 }
-// Closes the "#ifndef ROCKSDB_LITE"
 // End of MemPurgeBasicToggle, which is not
 // supported with RocksDB LITE because it
 // relies on dynamically changing the option
 // flag experimental_mempurge_threshold.
-#endif
 
 // At the moment, MemPurge feature is deactivated
 // when atomic_flush is enabled. This is because the level
@@ -1163,10 +1292,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-#ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#endif  // !ROCKSDB_LITE
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
@@ -1240,16 +1367,18 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
       ASSERT_OK(iter->status());
       key = (iter->key()).ToString(false);
       value = (iter->value()).ToString(false);
-      if (key.compare(KEY3) == 0)
+      if (key.compare(KEY3) == 0) {
         ASSERT_EQ(value, p_v3b);
-      else if (key.compare(KEY4) == 0)
+      } else if (key.compare(KEY4) == 0) {
         ASSERT_EQ(value, p_v4);
-      else if (key.compare(KEY5) == 0)
+      } else if (key.compare(KEY5) == 0) {
         ASSERT_EQ(value, p_v5);
-      else
+      } else {
         ASSERT_EQ(value, NOT_FOUND);
+      }
       count++;
     }
+    ASSERT_OK(iter->status());
 
     // Expected count here is 3: KEY3, KEY4, KEY5.
     ASSERT_EQ(count, EXPECTED_COUNT_FORLOOP);
@@ -1276,22 +1405,25 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
     ASSERT_OK(iter->status());
     key = (iter->key()).ToString(false);
     value = (iter->value()).ToString(false);
-    if (key.compare(KEY2) == 0)
+    if (key.compare(KEY2) == 0) {
       ASSERT_EQ(value, p_v2);
-    else if (key.compare(KEY3) == 0)
+    } else if (key.compare(KEY3) == 0) {
       ASSERT_EQ(value, p_v3b);
-    else if (key.compare(KEY4) == 0)
+    } else if (key.compare(KEY4) == 0) {
       ASSERT_EQ(value, p_v4);
-    else if (key.compare(KEY5) == 0)
+    } else if (key.compare(KEY5) == 0) {
       ASSERT_EQ(value, p_v5);
-    else
+    } else {
       ASSERT_EQ(value, NOT_FOUND);
+    }
     count++;
   }
 
   // Expected count here is 4: KEY2, KEY3, KEY4, KEY5.
   ASSERT_EQ(count, EXPECTED_COUNT_END);
-  if (iter) delete iter;
+  if (iter) {
+    delete iter;
+  }
 
   Close();
 }
@@ -1364,10 +1496,8 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-#ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#endif  // !ROCKSDB_LITE
   // Create a ConditionalUpdate compaction filter
   // that will update all the values of the KV pairs
   // where the keys are "lower" than KEY4.
@@ -1665,7 +1795,7 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   std::atomic<uint64_t> num_memtable_at_first_flush(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table:num_memtables", [&](void* arg) {
-        uint64_t* mems_size = reinterpret_cast<uint64_t*>(arg);
+        uint64_t* mems_size = static_cast<uint64_t*>(arg);
         // atomic_compare_exchange_strong sometimes updates the value
         // of ZERO (the "expected" object), so we make sure ZERO is indeed...
         // zero.
@@ -1820,12 +1950,10 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   ASSERT_OK(db_->ContinueBackgroundWork());
   // We ingested the error to env, so the returned status is not OK.
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   uint64_t num_bg_errors;
   ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kBackgroundErrors, &num_bg_errors));
   ASSERT_GT(num_bg_errors, 0);
-#endif  // ROCKSDB_LITE
 
   // In the bug scenario, triggering another flush would cause the second flush
   // to hang forever. After the fix we expect it to return an error.
@@ -1867,7 +1995,6 @@ TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   class TestListener : public EventListener {
    public:
@@ -1915,7 +2042,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table", [&listener](void* arg) {
         // Wait for the second flush finished, out of mutex.
-        auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
+        auto* mems = static_cast<autovector<MemTable*>*>(arg);
         if (mems->front()->GetEarliestSequenceNumber() == listener->seq1 - 1) {
           TEST_SYNC_POINT(
               "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:"
@@ -1958,7 +2085,6 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBFlushTest, FlushWithBlob) {
   constexpr uint64_t min_blob_size = 10;
@@ -2020,7 +2146,6 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 
   ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
@@ -2036,7 +2161,6 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
@@ -2257,7 +2381,7 @@ TEST_F(DBFlushTest, PickRightMemtables) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SyncClosedLogs:BeforeReLock", [&](void* /*arg*/) {
+      "DBImpl::SyncClosedWals:BeforeReLock", [&](void* /*arg*/) {
         ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "what", "v"));
         auto* cfhi =
             static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1]);
@@ -2266,7 +2390,7 @@ TEST_F(DBFlushTest, PickRightMemtables) {
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", [&](void* arg) {
-        auto* job = reinterpret_cast<FlushJob*>(arg);
+        auto* job = static_cast<FlushJob*>(arg);
         assert(job);
         const auto& mems = job->GetMemTables();
         assert(mems.size() == 1);
@@ -2350,7 +2474,6 @@ TEST_P(DBFlushTestBlobError, FlushError) {
     ASSERT_NE(type, kBlobFile);
   }
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
@@ -2374,15 +2497,13 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
   class SimpleTestFlushListener : public EventListener {
    public:
     explicit SimpleTestFlushListener(DBFlushTest* _test) : test_(_test) {}
-    ~SimpleTestFlushListener() override {}
+    ~SimpleTestFlushListener() override = default;
 
     void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
       ASSERT_EQ(static_cast<uint32_t>(0), info.cf_id);
@@ -2440,7 +2561,9 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   options.atomic_flush = GetParam();
   // 64MB so that memtable flush won't be trigger by the small writes.
   options.write_buffer_size = (static_cast<size_t>(64) << 20);
-
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kManualFlush;
+  options.listeners.push_back(flush_listener);
   // Destroy the DB to recreate as a TransactionDB.
   Close();
   Destroy(options, true);
@@ -2507,7 +2630,6 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
     ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
-    ASSERT_EQ(cfh->cfd()->GetFlushReason(), FlushReason::kManualFlush);
   }
 
   // The recovered min log number with prepared data should be non-zero.
@@ -2516,17 +2638,19 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* db_impl = static_cast<DBImpl*>(db_);
   ASSERT_TRUE(db_impl->allow_2pc());
   ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.atomic_flush = GetParam();
   options.write_buffer_size = (static_cast<size_t>(64) << 20);
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kManualFlush;
+  options.listeners.push_back(flush_listener);
 
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   size_t num_cfs = handles_.size();
@@ -2551,7 +2675,6 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
 
   for (size_t i = 0; i != num_cfs; ++i) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
-    ASSERT_EQ(cfh->cfd()->GetFlushReason(), FlushReason::kManualFlush);
     ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }
@@ -2916,6 +3039,39 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBAtomicFlushTest, FailureInMultiCfAutomaticFlush) {
+  bool atomic_flush = GetParam();
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  const int kNumKeysTriggerFlush = 4;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysTriggerFlush));
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    ASSERT_OK(Put(static_cast<int>(cf), "a", "value"));
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ScheduleFlushes:PreSwitchMemtable",
+      [&](void* /*arg*/) { fault_injection_env->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 1; i < kNumKeysTriggerFlush; ++i) {
+    ASSERT_OK(Put(0, "key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  // Next write after failed flush should fail.
+  ASSERT_NOK(Put(0, "x", "y"));
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // In atomic flush, concurrent bg flush threads commit to the MANIFEST in
 // serial, in the order of their picked memtables for each column family.
 // Only when a bg flush thread finds out that its memtables are the earliest
@@ -3019,7 +3175,7 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
-        auto* ptr = reinterpret_cast<IOStatus*>(arg);
+        auto* ptr = static_cast<IOStatus*>(arg);
         assert(ptr);
         *ptr = IOStatus::IOError("Injected failure");
       });
@@ -3075,6 +3231,279 @@ INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
 
 INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
+TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes) {
+  // Fix a bug in when atomic_flush=false.
+  // The bug can happen as follows:
+  // Start Flush0 for memtable M0 to SST0
+  // Start Flush1 for memtable M1 to SST1
+  // Flush1 returns OK, but don't install to MANIFEST and let whoever flushes
+  // M0 to take care of it
+  // Flush0 finishes with a retryable IOError
+  //   - It rollbacks M0, (incorrectly) not M1
+  //   - Deletes SST1 and SST2
+  //
+  // Auto-recovery will start Flush2 for M0, it does not pick up M1 since it
+  // thinks that M1 is flushed
+  // Flush2 writes SST3 and finishes OK, tries to install SST3 and SST2
+  // Error opening SST2 since it's already deleted
+  //
+  // The fix is to let Flush0 also rollback M1.
+  Options opts = CurrentOptions();
+  opts.atomic_flush = false;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 4;
+  env_->SetBackgroundThreads(4, Env::HIGH);
+  DestroyAndReopen(opts);
+  std::atomic_int flush_count = 0;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        int c = flush_count.fetch_add(1);
+        if (c == 0) {
+          Status* s = (Status*)(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+          TEST_SYNC_POINT("Let mem1 flush start");
+          TEST_SYNC_POINT("Wait for mem1 flush to finish");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Let mem1 flush start", "Mem1 flush starts"},
+       {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "Wait for error recover"}});
+  // Need first flush to wait for the second flush to finish
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(Key(1), "val1"));
+  // trigger bg flush mem0
+  ASSERT_OK(Put(Key(2), "val2"));
+  TEST_SYNC_POINT("Mem1 flush starts");
+  // trigger bg flush mem1
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  TEST_SYNC_POINT("Wait for error recover");
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
+  // Fix a bug in when atomic_flush=false.
+  // The bug can happen as follows:
+  // Start Flush0 for memtable M0 to SST0
+  // Start Flush1 for memtable M1 to SST1
+  // Flush1 returns OK, but doesn't install output MANIFEST and let whoever
+  // flushes M0 to take care of it
+  // Start Flush2 for memtable M2 to SST2
+  // Flush0 finishes with a retryable IOError
+  //   - It rollbacks M0 AND M1
+  //   - Deletes SST1 and SST2
+  // Flush2 finishes, does not rollback M2,
+  //  - releases the pending file number that keeps SST2 alive
+  //  - deletes SST2
+  //
+  // Then auto-recovery starts, error opening SST2 when try to install
+  // flush result
+  //
+  // The fix is to let Flush2 rollback M2 if it finds that
+  // there is a background error.
+  Options opts = CurrentOptions();
+  opts.atomic_flush = false;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 4;
+  env_->SetBackgroundThreads(4, Env::HIGH);
+  DestroyAndReopen(opts);
+  std::atomic_int flush_count = 0;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        int c = flush_count.fetch_add(1);
+        if (c == 0) {
+          Status* s = (Status*)(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+          TEST_SYNC_POINT("Let mem1 flush start");
+          TEST_SYNC_POINT("Wait for mem1 flush to finish");
+
+          TEST_SYNC_POINT("Let mem2 flush start");
+          TEST_SYNC_POINT("Wait for mem2 to start writing table");
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table", [&](void* mems) {
+        autovector<MemTable*>* mems_ptr = (autovector<MemTable*>*)mems;
+        if ((*mems_ptr)[0]->GetID() == 3) {
+          TEST_SYNC_POINT("Mem2 flush starts writing table");
+          TEST_SYNC_POINT("Mem2 flush waits until rollback");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Let mem1 flush start", "Mem1 flush starts"},
+       {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
+       {"Let mem2 flush start", "Mem2 flush starts"},
+       {"Mem2 flush starts writing table",
+        "Wait for mem2 to start writing table"},
+       {"RollbackMemtableFlush", "Mem2 flush waits until rollback"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "Wait for error recover"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  // trigger bg flush mem0
+  ASSERT_OK(Put(Key(2), "val2"));
+  TEST_SYNC_POINT("Mem1 flush starts");
+  // trigger bg flush mem1
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  TEST_SYNC_POINT("Mem2 flush starts");
+  ASSERT_OK(Put(Key(4), "val4"));
+
+  TEST_SYNC_POINT("Wait for error recover");
+  // Recovery flush writes 3 memtables together into 1 file.
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBFlushTest, NonAtomicNormalFlushAbortWhenBGError) {
+  Options opts = CurrentOptions();
+  opts.atomic_flush = false;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 1;
+  env_->SetBackgroundThreads(2, Env::HIGH);
+  DestroyAndReopen(opts);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  std::atomic_int flush_write_table_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        int c = flush_write_table_count.fetch_add(1);
+        if (c == 0) {
+          Status* s = (Status*)(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+        }
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Let error recovery start",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "Wait for error recover"}});
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  // trigger bg flush0 for mem0
+  ASSERT_OK(Put(Key(2), "val2"));
+  // Not checking status since this wait can finish before flush starts.
+  dbfull()->TEST_WaitForFlushMemTable().PermitUncheckedError();
+
+  // trigger bg flush1 for mem1, should see bg error and abort
+  // before picking a memtable to flush
+  ASSERT_OK(Put(Key(3), "val3"));
+  ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+  TEST_SYNC_POINT("Let error recovery start");
+  TEST_SYNC_POINT("Wait for error recover");
+  // Recovery flush writes 2 memtables together into 1 file.
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  // 1 for flush 0 and 1 for recovery flush
+  ASSERT_EQ(2, flush_write_table_count);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBFlushTest, DBStuckAfterAtomicFlushError) {
+  // Test for a bug with atomic flush where DB can become stuck
+  // after a flush error. A repro timeline:
+  //
+  // Start Flush0 for mem0
+  // Start Flush1 for mem1
+  // Now Flush1 will wait for Flush0 to install mem0
+  // Flush0 finishes with retryable IOError, rollbacks mem0
+  // Resume starts and waits for background job to finish, i.e., Flush1
+  // Fill memtable again, trigger Flush2 for mem0
+  // Flush2 will get error status, and not rollback mem0, see code in
+  // https://github.com/facebook/rocksdb/blob/b927ba5936216861c2c35ab68f50ba4a78e65747/db/db_impl/db_impl_compaction_flush.cc#L725
+  //
+  // DB is stuck since mem0 can never be picked now
+  //
+  // The fix is to rollback mem0 in Flush2, and let Flush1 also abort upon
+  // background error besides waiting for older memtables to be installed.
+  // The recovery flush in this case should pick up all memtables
+  // and write them to a single L0 file.
+  Options opts = CurrentOptions();
+  opts.atomic_flush = true;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 4;
+  env_->SetBackgroundThreads(4, Env::HIGH);
+  DestroyAndReopen(opts);
+
+  std::atomic_int flush_count = 0;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        int c = flush_count.fetch_add(1);
+        if (c == 0) {
+          Status* s = (Status*)(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+          TEST_SYNC_POINT("Let flush for mem1 start");
+          // Wait for Flush1 to start waiting to install flush result
+          TEST_SYNC_POINT("Wait for flush for mem1");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Let flush for mem1 start", "Flush for mem1"},
+       {"DBImpl::AtomicFlushMemTablesToOutputFiles:WaitCV",
+        "Wait for flush for mem1"},
+       {"RecoverFromRetryableBGIOError:BeforeStart",
+        "Wait for resume to start"},
+       {"Recovery should continue here",
+        "RecoverFromRetryableBGIOError:BeforeStart2"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "Wait for error recover"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(Key(1), "val1"));
+  // trigger Flush0 for mem0
+  ASSERT_OK(Put(Key(2), "val2"));
+
+  // trigger Flush1 for mem1
+  TEST_SYNC_POINT("Flush for mem1");
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  // Wait until resume started to schedule another flush
+  TEST_SYNC_POINT("Wait for resume to start");
+  // This flush should not be scheduled due to bg error
+  ASSERT_OK(Put(Key(4), "val4"));
+
+  // TEST_WaitForBackgroundWork() returns background error
+  // after all background work is done.
+  ASSERT_NOK(dbfull()->TEST_WaitForBackgroundWork());
+  // Flush should abort and not writing any table
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+  // Wait until this flush is done.
+  TEST_SYNC_POINT("Recovery should continue here");
+  TEST_SYNC_POINT("Wait for error recover");
+  // error recovery can schedule new flushes, but should not
+  // encounter error
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

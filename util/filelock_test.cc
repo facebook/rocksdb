@@ -11,6 +11,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #endif
+#ifdef __OpenBSD__
+#include <sys/wait.h>
+#endif
 #include <vector>
 
 #include "test_util/testharness.h"
@@ -31,7 +34,7 @@ class LockTest : public testing::Test {
     current_ = this;
   }
 
-  ~LockTest() override {}
+  ~LockTest() override = default;
 
   Status LockFile(FileLock** db_lock) { return env_->LockFile(file_, db_lock); }
 
@@ -91,8 +94,8 @@ class LockTest : public testing::Test {
     } else if (pid > 0) {
       // parent process
       int status;
-      while (-1 == waitpid(pid, &status, 0))
-        ;
+      while (-1 == waitpid(pid, &status, 0)) {
+      }
       if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         // child process exited with non success status
         return false;

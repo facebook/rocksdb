@@ -83,7 +83,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 
   // This is below the fast path, so that the stat is zero when all writes are
   // from the same thread.
-  PERF_TIMER_GUARD(write_thread_wait_nanos);
+  PERF_TIMER_FOR_WAIT_GUARD(write_thread_wait_nanos);
 
   // If we're only going to end up waiting a short period of time,
   // it can be a lot more efficient to call std::this_thread::yield()
@@ -228,6 +228,7 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
   assert(w->state == STATE_INIT);
   Writer* writers = newest_writer->load(std::memory_order_relaxed);
   while (true) {
+    assert(writers != w);
     // If write stall in effect, and w->no_slowdown is not true,
     // block here until stall is cleared. If its true, then return
     // immediately
@@ -325,6 +326,7 @@ void WriteThread::CompleteFollower(Writer* w, WriteGroup& write_group) {
 }
 
 void WriteThread::BeginWriteStall() {
+  ++stall_begun_count_;
   LinkOne(&write_stall_dummy_, &newest_writer_);
 
   // Walk writer list until w->write_group != nullptr. The current write group
@@ -367,8 +369,32 @@ void WriteThread::EndWriteStall() {
   }
   newest_writer_.exchange(write_stall_dummy_.link_older);
 
+  ++stall_ended_count_;
+
   // Wake up writers
   stall_cv_.SignalAll();
+}
+
+uint64_t WriteThread::GetBegunCountOfOutstandingStall() {
+  if (stall_begun_count_ > stall_ended_count_) {
+    // Oustanding stall in queue
+    assert(newest_writer_.load(std::memory_order_relaxed) ==
+           &write_stall_dummy_);
+    return stall_begun_count_;
+  } else {
+    // No stall in queue
+    assert(newest_writer_.load(std::memory_order_relaxed) !=
+           &write_stall_dummy_);
+    return 0;
+  }
+}
+
+void WriteThread::WaitForStallEndedCount(uint64_t stall_count) {
+  MutexLock lock(&stall_mu_);
+
+  while (stall_ended_count_ < stall_count) {
+    stall_cv_.Wait();
+  }
 }
 
 static WriteThread::AdaptationContext jbg_ctx("JoinBatchGroup");
@@ -377,6 +403,8 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   assert(w->batch != nullptr);
 
   bool linked_as_leader = LinkOne(w, &newest_writer_);
+
+  w->CheckWriteEnqueuedCallback();
 
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
@@ -402,6 +430,7 @@ void WriteThread::JoinBatchGroup(Writer* w) {
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:BeganWaiting", w);
     AwaitState(w,
                STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
+                   STATE_PARALLEL_MEMTABLE_CALLER |
                    STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
                &jbg_ctx);
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:DoneWaiting", w);
@@ -438,62 +467,101 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // so we have already received our MarkJoined).
   CreateMissingNewerLinks(newest_writer);
 
+  // This comment illustrates how the rest of the function works using an
+  // example. Notation:
+  //
+  // - Items are `Writer`s
+  // - Items prefixed by "@" have been included in `write_group`
+  // - Items prefixed by "*" have compatible options with `leader`, but have not
+  //   been included in `write_group` yet
+  // - Items after several spaces are in `r_list`. These have incompatible
+  //   options with `leader` and are temporarily separated from the main list.
+  //
+  // Each line below depicts the state of the linked lists at the beginning of
+  // an iteration of the while-loop.
+  //
+  // @leader, n1, *n2, n3, *newest_writer
+  // @leader, *n2, n3, *newest_writer,    n1
+  // @leader, @n2, n3, *newest_writer,    n1
+  //
+  // After the while-loop, the `r_list` is grafted back onto the main list.
+  //
+  // case A: no new `Writer`s arrived
+  // @leader, @n2, @newest_writer,        n1, n3
+  // @leader, @n2, @newest_writer, n1, n3
+  //
+  // case B: a new `Writer` (n4) arrived
+  // @leader, @n2, @newest_writer, n4     n1, n3
+  // @leader, @n2, @newest_writer, n1, n3, n4
+
   // Tricky. Iteration start (leader) is exclusive and finish
   // (newest_writer) is inclusive. Iteration goes from old to new.
   Writer* w = leader;
+  // write_group end
+  Writer* we = leader;
+  // declare r_list
+  Writer* rb = nullptr;
+  Writer* re = nullptr;
+
   while (w != newest_writer) {
     assert(w->link_newer);
     w = w->link_newer;
 
-    if (w->sync && !leader->sync) {
-      // Do not include a sync write into a batch handled by a non-sync write.
-      break;
+    if ((w->sync && !leader->sync) ||
+        // Do not include a sync write into a batch handled by a non-sync write.
+        (w->no_slowdown != leader->no_slowdown) ||
+        // Do not mix writes that are ok with delays with the ones that request
+        // fail on delays.
+        (w->disable_wal != leader->disable_wal) ||
+        // Do not mix writes that enable WAL with the ones whose WAL disabled.
+        (w->protection_bytes_per_key != leader->protection_bytes_per_key) ||
+        // Do not mix writes with different levels of integrity protection.
+        (w->rate_limiter_priority != leader->rate_limiter_priority) ||
+        // Do not mix writes with different rate limiter priorities.
+        (w->batch == nullptr) ||
+        // Do not include those writes with nullptr batch. Those are not writes
+        // those are something else. They want to be alone
+        (w->callback != nullptr && !w->callback->AllowWriteBatching()) ||
+        // dont batch writes that don't want to be batched
+        (size + WriteBatchInternal::ByteSize(w->batch) > max_size)
+        // Do not make batch too big
+    ) {
+      // remove from list
+      w->link_older->link_newer = w->link_newer;
+      if (w->link_newer != nullptr) {
+        w->link_newer->link_older = w->link_older;
+      }
+      // insert into r_list
+      if (re == nullptr) {
+        rb = re = w;
+        w->link_older = nullptr;
+      } else {
+        w->link_older = re;
+        re->link_newer = w;
+        re = w;
+      }
+    } else {
+      // grow up
+      we = w;
+      w->write_group = write_group;
+      size += WriteBatchInternal::ByteSize(w->batch);
+      write_group->last_writer = w;
+      write_group->size++;
     }
-
-    if (w->no_slowdown != leader->no_slowdown) {
-      // Do not mix writes that are ok with delays with the ones that
-      // request fail on delays.
-      break;
-    }
-
-    if (w->disable_wal != leader->disable_wal) {
-      // Do not mix writes that enable WAL with the ones whose
-      // WAL disabled.
-      break;
-    }
-
-    if (w->protection_bytes_per_key != leader->protection_bytes_per_key) {
-      // Do not mix writes with different levels of integrity protection.
-      break;
-    }
-
-    if (w->rate_limiter_priority != leader->rate_limiter_priority) {
-      // Do not mix writes with different rate limiter priorities.
-      break;
-    }
-
-    if (w->batch == nullptr) {
-      // Do not include those writes with nullptr batch. Those are not writes,
-      // those are something else. They want to be alone
-      break;
-    }
-
-    if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
-      // don't batch writes that don't want to be batched
-      break;
-    }
-
-    auto batch_size = WriteBatchInternal::ByteSize(w->batch);
-    if (size + batch_size > max_size) {
-      // Do not make batch too big
-      break;
-    }
-
-    w->write_group = write_group;
-    size += batch_size;
-    write_group->last_writer = w;
-    write_group->size++;
   }
+  // append r_list after write_group end
+  if (rb != nullptr) {
+    rb->link_older = we;
+    re->link_newer = nullptr;
+    we->link_newer = rb;
+    if (!newest_writer_.compare_exchange_weak(w, re)) {
+      while (w->link_older != newest_writer) {
+        w = w->link_older;
+      }
+      w->link_older = re;
+    }
+  }
+
   TEST_SYNC_POINT_CALLBACK("WriteThread::EnterAsBatchGroupLeader:End", w);
   return size;
 }
@@ -591,12 +659,57 @@ void WriteThread::ExitAsMemTableWriter(Writer* /*self*/,
   SetState(leader, STATE_COMPLETED);
 }
 
+void WriteThread::SetMemWritersEachStride(Writer* w) {
+  WriteGroup* write_group = w->write_group;
+  Writer* last_writer = write_group->last_writer;
+
+  // The stride is the same for each writer in write_group, so w will
+  // call the writers with the same number in write_group mod total size
+  size_t stride = static_cast<size_t>(std::sqrt(write_group->size));
+  size_t count = 0;
+  while (w) {
+    if (count++ % stride == 0) {
+      SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+    }
+    w = (w == last_writer) ? nullptr : w->link_newer;
+  }
+}
+
 void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
   assert(write_group != nullptr);
-  write_group->running.store(write_group->size);
-  for (auto w : *write_group) {
-    SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+  size_t group_size = write_group->size;
+  write_group->running.store(group_size);
+
+  // The minimum number to allow the group use parallel caller mode.
+  // The number must no lower than 3;
+  const size_t MinParallelSize = 20;
+
+  // The group_size is too small, and there is no need to have
+  // the parallel partial callers.
+  if (group_size < MinParallelSize) {
+    for (auto w : *write_group) {
+      SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+    }
+    return;
   }
+
+  // The stride is equal to std::sqrt(group_size) which can minimize
+  // the total number of leader SetSate.
+  // Set the leader itself STATE_PARALLEL_MEMTABLE_WRITER, and set
+  // (stride-1) writers to be STATE_PARALLEL_MEMTABLE_CALLER.
+  size_t stride = static_cast<size_t>(std::sqrt(group_size));
+  auto w = write_group->leader;
+  SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
+
+  for (size_t i = 1; i < stride; i++) {
+    w = w->link_newer;
+    SetState(w, STATE_PARALLEL_MEMTABLE_CALLER);
+  }
+
+  // After setting all STATE_PARALLEL_MEMTABLE_CALLER, the leader also
+  // does the job as STATE_PARALLEL_MEMTABLE_CALLER.
+  w = w->link_newer;
+  SetMemWritersEachStride(w);
 }
 
 static WriteThread::AdaptationContext cpmtw_ctx(
@@ -723,8 +836,8 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     }
 
     AwaitState(leader,
-               STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_WRITER |
-                   STATE_COMPLETED,
+               STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_CALLER |
+                   STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
                &eabgl_ctx);
   } else {
     Writer* head = newest_writer_.load(std::memory_order_acquire);

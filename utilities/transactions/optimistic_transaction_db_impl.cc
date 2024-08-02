@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
 
@@ -18,6 +17,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+std::shared_ptr<OccLockBuckets> MakeSharedOccLockBuckets(size_t bucket_count,
+                                                         bool cache_aligned) {
+  if (cache_aligned) {
+    return std::make_shared<OccLockBucketsImpl<true>>(bucket_count);
+  } else {
+    return std::make_shared<OccLockBucketsImpl<false>>(bucket_count);
+  }
+}
+
 Transaction* OptimisticTransactionDBImpl::BeginTransaction(
     const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options, Transaction* old_txn) {
@@ -29,20 +37,13 @@ Transaction* OptimisticTransactionDBImpl::BeginTransaction(
   }
 }
 
-std::unique_lock<std::mutex> OptimisticTransactionDBImpl::LockBucket(
-    size_t idx) {
-  assert(idx < bucketed_locks_.size());
-  return std::unique_lock<std::mutex>(*bucketed_locks_[idx]);
-}
-
 Status OptimisticTransactionDB::Open(const Options& options,
                                      const std::string& dbname,
                                      OptimisticTransactionDB** dbptr) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   std::vector<ColumnFamilyHandle*> handles;
   Status s = Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
@@ -102,10 +103,9 @@ void OptimisticTransactionDBImpl::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options) {
   assert(dynamic_cast<OptimisticTransaction*>(txn) != nullptr);
-  auto txn_impl = reinterpret_cast<OptimisticTransaction*>(txn);
+  auto txn_impl = static_cast<OptimisticTransaction*>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

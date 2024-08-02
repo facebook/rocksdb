@@ -86,18 +86,20 @@ class CompactionPicker {
 
   virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const = 0;
 
-// Sanitize the input set of compaction input files.
-// When the input parameters do not describe a valid compaction, the
-// function will try to fix the input_files by adding necessary
-// files.  If it's not possible to conver an invalid input_files
-// into a valid one by adding more files, the function will return a
-// non-ok status with specific reason.
-//
-#ifndef ROCKSDB_LITE
-  Status SanitizeCompactionInputFiles(std::unordered_set<uint64_t>* input_files,
-                                      const ColumnFamilyMetaData& cf_meta,
-                                      const int output_level) const;
-#endif  // ROCKSDB_LITE
+  // Sanitize the input set of compaction input files and convert it to
+  // `std::vector<CompactionInputFiles>` in the output parameter
+  // `converted_input_files`.
+  // When the input parameters do not describe a valid
+  // compaction, the function will try to fix the input_files by adding
+  // necessary files.  If it's not possible to convert an invalid input_files
+  // into a valid one by adding more files, the function will return a
+  // non-ok status with specific reason.
+  //
+  Status SanitizeAndConvertCompactionInputFiles(
+      std::unordered_set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta, const int output_level,
+      const VersionStorageInfo* vstorage,
+      std::vector<CompactionInputFiles>* converted_input_files) const;
 
   // Free up the files that participated in a compaction
   //
@@ -111,8 +113,8 @@ class CompactionPicker {
   // object.
   //
   // Caller must provide a set of input files that has been passed through
-  // `SanitizeCompactionInputFiles` earlier. The lock should not be released
-  // between that call and this one.
+  // `SanitizeAndConvertCompactionInputFiles` earlier. The lock should not be
+  // released between that call and this one.
   Compaction* CompactFiles(const CompactionOptions& compact_options,
                            const std::vector<CompactionInputFiles>& input_files,
                            int output_level, VersionStorageInfo* vstorage,
@@ -122,6 +124,7 @@ class CompactionPicker {
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.
+  // TODO(hx235): remove the unused paramter `compact_options`
   Status GetCompactionInputsFromFileNumbers(
       std::vector<CompactionInputFiles>* input_files,
       std::unordered_set<uint64_t>* input_set,
@@ -227,13 +230,11 @@ class CompactionPicker {
  protected:
   const ImmutableOptions& ioptions_;
 
-// A helper function to SanitizeCompactionInputFiles() that
-// sanitizes "input_files" by adding necessary files.
-#ifndef ROCKSDB_LITE
+  // A helper function to SanitizeAndConvertCompactionInputFiles() that
+  // sanitizes "input_files" by adding necessary files.
   virtual Status SanitizeCompactionInputFilesForAllLevels(
       std::unordered_set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta, const int output_level) const;
-#endif  // ROCKSDB_LITE
 
   // Keeps track of all compactions that are running on Level0.
   // Protected by DB mutex
@@ -246,7 +247,6 @@ class CompactionPicker {
   const InternalKeyComparator* const icmp_;
 };
 
-#ifndef ROCKSDB_LITE
 // A dummy compaction that never triggers any automatic
 // compaction.
 class NullCompactionPicker : public CompactionPicker {
@@ -282,12 +282,10 @@ class NullCompactionPicker : public CompactionPicker {
   }
 
   // Always returns false.
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* /*vstorage*/) const override {
+  bool NeedsCompaction(const VersionStorageInfo* /*vstorage*/) const override {
     return false;
   }
 };
-#endif  // !ROCKSDB_LITE
 
 // Attempts to find an intra L0 compaction conforming to the given parameters.
 //

@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * BackupEngine allows you to backup
  * and restore the database
- *
+ * <p>
  * Be aware, that `new BackupEngine` takes time proportional to the amount
  * of backups. So if you have a slow filesystem to backup
  * and you have a lot of backups then restoring can take some time.
@@ -39,12 +39,12 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
 
   /**
    * Captures the state of the database in the latest backup
-   *
+   * <p>
    * Just a convenience for {@link #createNewBackup(RocksDB, boolean)} with
    * the flushBeforeBackup parameter set to false
    *
    * @param db The database to backup
-   *
+   * <p>
    * Note - This method is not thread safe
    *
    * @throws RocksDBException thrown if a new backup could not be created
@@ -72,7 +72,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *                          always be consistent with the current state of the
    *                          database regardless of the flushBeforeBackup
    *                          parameter.
-   *
+   * <p>
    * Note - This method is not thread safe
    *
    * @throws RocksDBException thrown if a new backup could not be created
@@ -105,7 +105,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *                          always be consistent with the current state of the
    *                          database regardless of the flushBeforeBackup
    *                          parameter.
-   *
+   * <p>
    * Note - This method is not thread safe
    *
    * @throws RocksDBException thrown if a new backup could not be created
@@ -179,11 +179,11 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
 
   /**
    * Restore the database from a backup
-   *
+   * <p>
    * IMPORTANT: if options.share_table_files == true and you restore the DB
    * from some backup that is not the latest, and you start creating new
    * backups from the new DB, they will probably fail!
-   *
+   * <p>
    * Example: Let's say you have backups 1, 2, 3, 4, 5 and you restore 3.
    * If you add new data to the DB and try creating a new backup now, the
    * database will diverge from backups 4 and 5 and the new backup will fail.
@@ -226,34 +226,38 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
         restoreOptions.nativeHandle_);
   }
 
-  private native static long open(final long env, final long backupEngineOptions)
+  private static native long open(final long env, final long backupEngineOptions)
       throws RocksDBException;
 
-  private native void createNewBackup(final long handle, final long dbHandle,
+  private static native void createNewBackup(final long handle, final long dbHandle,
       final boolean flushBeforeBackup) throws RocksDBException;
 
-  private native void createNewBackupWithMetadata(final long handle, final long dbHandle,
+  private static native void createNewBackupWithMetadata(final long handle, final long dbHandle,
       final String metadata, final boolean flushBeforeBackup) throws RocksDBException;
 
-  private native List<BackupInfo> getBackupInfo(final long handle);
+  private static native List<BackupInfo> getBackupInfo(final long handle);
 
-  private native int[] getCorruptedBackups(final long handle);
+  private static native int[] getCorruptedBackups(final long handle);
 
-  private native void garbageCollect(final long handle) throws RocksDBException;
+  private static native void garbageCollect(final long handle) throws RocksDBException;
 
-  private native void purgeOldBackups(final long handle,
-      final int numBackupsToKeep) throws RocksDBException;
-
-  private native void deleteBackup(final long handle, final int backupId)
+  private static native void purgeOldBackups(final long handle, final int numBackupsToKeep)
       throws RocksDBException;
 
-  private native void restoreDbFromBackup(final long handle, final int backupId,
+  private static native void deleteBackup(final long handle, final int backupId)
+      throws RocksDBException;
+
+  private static native void restoreDbFromBackup(final long handle, final int backupId,
       final String dbDir, final String walDir, final long restoreOptionsHandle)
       throws RocksDBException;
 
-  private native void restoreDbFromLatestBackup(final long handle,
-      final String dbDir, final String walDir, final long restoreOptionsHandle)
-      throws RocksDBException;
+  private static native void restoreDbFromLatestBackup(final long handle, final String dbDir,
+      final String walDir, final long restoreOptionsHandle) throws RocksDBException;
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+
+  private static native void disposeInternalJni(final long handle);
 }

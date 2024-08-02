@@ -18,16 +18,20 @@ void CompactionOutputs::NewBuilder(const TableBuilderOptions& tboptions) {
   builder_.reset(NewTableBuilder(tboptions, file_writer_.get()));
 }
 
-Status CompactionOutputs::Finish(const Status& intput_status,
-                                 const SeqnoToTimeMapping& seqno_time_mapping) {
+Status CompactionOutputs::Finish(
+    const Status& intput_status,
+    const SeqnoToTimeMapping& seqno_to_time_mapping) {
   FileMetaData* meta = GetMetaData();
   assert(meta != nullptr);
   Status s = intput_status;
   if (s.ok()) {
-    std::string seqno_time_mapping_str;
-    seqno_time_mapping.Encode(seqno_time_mapping_str, meta->fd.smallest_seqno,
-                              meta->fd.largest_seqno, meta->file_creation_time);
-    builder_->SetSeqnoTimeTableProperties(seqno_time_mapping_str,
+    SeqnoToTimeMapping relevant_mapping;
+    relevant_mapping.CopyFromSeqnoRange(
+        seqno_to_time_mapping,
+        std::min(smallest_preferred_seqno_, meta->fd.smallest_seqno),
+        meta->fd.largest_seqno);
+    relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
+    builder_->SetSeqnoTimeTableProperties(relevant_mapping,
                                           meta->oldest_ancester_time);
     s = builder_->Finish();
 
@@ -43,7 +47,10 @@ Status CompactionOutputs::Finish(const Status& intput_status,
   const uint64_t current_bytes = builder_->FileSize();
   if (s.ok()) {
     meta->fd.file_size = current_bytes;
+    meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
+    meta->user_defined_timestamps_persisted = static_cast<bool>(
+        builder_->GetTableProperties().user_defined_timestamps_persisted);
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
@@ -57,12 +64,15 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
                                             Statistics* statistics,
                                             bool use_fsync) {
   IOStatus io_s;
-  if (input_status.ok()) {
+  IOOptions opts;
+  io_s = WritableFileWriter::PrepareIOOptions(
+      WriteOptions(Env::IOActivity::kCompaction), opts);
+  if (input_status.ok() && io_s.ok()) {
     StopWatch sw(clock, statistics, COMPACTION_OUTFILE_SYNC_MICROS);
-    io_s = file_writer_->Sync(use_fsync);
+    io_s = file_writer_->Sync(opts, use_fsync);
   }
   if (input_status.ok() && io_s.ok()) {
-    io_s = file_writer_->Close();
+    io_s = file_writer_->Close(opts);
   }
 
   if (input_status.ok() && io_s.ok()) {
@@ -76,6 +86,46 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
   return io_s;
 }
 
+bool CompactionOutputs::UpdateFilesToCutForTTLStates(
+    const Slice& internal_key) {
+  if (!files_to_cut_for_ttl_.empty()) {
+    const InternalKeyComparator* icmp =
+        &compaction_->column_family_data()->internal_comparator();
+    if (cur_files_to_cut_for_ttl_ != -1) {
+      // Previous key is inside the range of a file
+      if (icmp->Compare(internal_key,
+                        files_to_cut_for_ttl_[cur_files_to_cut_for_ttl_]
+                            ->largest.Encode()) > 0) {
+        next_files_to_cut_for_ttl_ = cur_files_to_cut_for_ttl_ + 1;
+        cur_files_to_cut_for_ttl_ = -1;
+        return true;
+      }
+    } else {
+      // Look for the key position
+      while (next_files_to_cut_for_ttl_ <
+             static_cast<int>(files_to_cut_for_ttl_.size())) {
+        if (icmp->Compare(internal_key,
+                          files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                              ->smallest.Encode()) >= 0) {
+          if (icmp->Compare(internal_key,
+                            files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                                ->largest.Encode()) <= 0) {
+            // With in the current file
+            cur_files_to_cut_for_ttl_ = next_files_to_cut_for_ttl_;
+            return true;
+          }
+          // Beyond the current file
+          next_files_to_cut_for_ttl_++;
+        } else {
+          // Still fall into the gap
+          break;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
     const Slice& internal_key) {
   size_t curr_key_boundary_switched_num = 0;
@@ -84,11 +134,6 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   if (grandparents.empty()) {
     return curr_key_boundary_switched_num;
   }
-  assert(!internal_key.empty());
-  InternalKey ikey;
-  ikey.DecodeFrom(internal_key);
-  assert(ikey.Valid());
-
   const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
 
   // Move the grandparent_index_ to the file containing the current user_key.
@@ -96,7 +141,7 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   // index points to the last file containing the key.
   while (grandparent_index_ < grandparents.size()) {
     if (being_grandparent_gap_) {
-      if (sstableKeyCompare(ucmp, ikey,
+      if (sstableKeyCompare(ucmp, internal_key,
                             grandparents[grandparent_index_]->smallest) < 0) {
         break;
       }
@@ -109,13 +154,13 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
       being_grandparent_gap_ = false;
     } else {
       int cmp_result = sstableKeyCompare(
-          ucmp, ikey, grandparents[grandparent_index_]->largest);
+          ucmp, internal_key, grandparents[grandparent_index_]->largest);
       // If it's same key, make sure grandparent_index_ is pointing to the last
       // one.
       if (cmp_result < 0 ||
           (cmp_result == 0 &&
            (grandparent_index_ == grandparents.size() - 1 ||
-            sstableKeyCompare(ucmp, ikey,
+            sstableKeyCompare(ucmp, internal_key,
                               grandparents[grandparent_index_ + 1]->smallest) <
                 0))) {
         break;
@@ -185,16 +230,37 @@ uint64_t CompactionOutputs::GetCurrentKeyGrandparentOverlappedBytes(
 
 bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   assert(c_iter.Valid());
-
-  // always update grandparent information like overlapped file number, size
-  // etc.
   const Slice& internal_key = c_iter.key();
+#ifndef NDEBUG
+  bool should_stop = false;
+  std::pair<bool*, const Slice> p{&should_stop, internal_key};
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionOutputs::ShouldStopBefore::manual_decision", (void*)&p);
+  if (should_stop) {
+    return true;
+  }
+#endif  // NDEBUG
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
-  size_t num_grandparent_boundaries_crossed =
-      UpdateGrandparentBoundaryInfo(internal_key);
+  const InternalKeyComparator* icmp =
+      &compaction_->column_family_data()->internal_comparator();
+  size_t num_grandparent_boundaries_crossed = 0;
+  bool should_stop_for_ttl = false;
+  // Always update grandparent information like overlapped file number, size
+  // etc., and TTL states.
+  // If compaction_->output_level() == 0, there is no need to update grandparent
+  // info, and that `grandparent` should be empty.
+  if (compaction_->output_level() > 0) {
+    num_grandparent_boundaries_crossed =
+        UpdateGrandparentBoundaryInfo(internal_key);
+    should_stop_for_ttl = UpdateFilesToCutForTTLStates(internal_key);
+  }
 
   if (!HasBuilder()) {
     return false;
+  }
+
+  if (should_stop_for_ttl) {
+    return true;
   }
 
   // If there's user defined partitioner, check that first
@@ -213,9 +279,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   if (current_output_file_size_ >= compaction_->max_output_file_size()) {
     return true;
   }
-
-  const InternalKeyComparator* icmp =
-      &compaction_->column_family_data()->internal_comparator();
 
   // Check if it needs to split for RoundRobin
   // Invalid local_output_split_key indicates that we do not need to split
@@ -259,7 +322,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
         being_grandparent_gap_ ? 2 : 3;
     if (compaction_->immutable_options()->compaction_style ==
             kCompactionStyleLevel &&
-        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         num_grandparent_boundaries_crossed >=
             num_skippable_boundaries_crossed &&
         grandparent_overlapped_bytes_ - previous_overlapped_bytes >
@@ -281,47 +343,11 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // improvement.
     if (compaction_->immutable_options()->compaction_style ==
             kCompactionStyleLevel &&
-        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         current_output_file_size_ >=
             ((compaction_->target_output_file_size() + 99) / 100) *
                 (50 + std::min(grandparent_boundary_switched_num_ * 5,
                                size_t{40}))) {
       return true;
-    }
-  }
-
-  // check ttl file boundaries if there's any
-  if (!files_to_cut_for_ttl_.empty()) {
-    if (cur_files_to_cut_for_ttl_ != -1) {
-      // Previous key is inside the range of a file
-      if (icmp->Compare(internal_key,
-                        files_to_cut_for_ttl_[cur_files_to_cut_for_ttl_]
-                            ->largest.Encode()) > 0) {
-        next_files_to_cut_for_ttl_ = cur_files_to_cut_for_ttl_ + 1;
-        cur_files_to_cut_for_ttl_ = -1;
-        return true;
-      }
-    } else {
-      // Look for the key position
-      while (next_files_to_cut_for_ttl_ <
-             static_cast<int>(files_to_cut_for_ttl_.size())) {
-        if (icmp->Compare(internal_key,
-                          files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
-                              ->smallest.Encode()) >= 0) {
-          if (icmp->Compare(internal_key,
-                            files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
-                                ->largest.Encode()) <= 0) {
-            // With in the current file
-            cur_files_to_cut_for_ttl_ = next_files_to_cut_for_ttl_;
-            return true;
-          }
-          // Beyond the current file
-          next_files_to_cut_for_ttl_++;
-        } else {
-          // Still fall into the gap
-          break;
-        }
-      }
     }
   }
 
@@ -398,120 +424,193 @@ Status CompactionOutputs::AddToOutput(
   }
 
   const ParsedInternalKey& ikey = c_iter.ikey();
+  if (ikey.type == kTypeValuePreferredSeqno) {
+    SequenceNumber preferred_seqno = ParsePackedValueForSeqno(value);
+    smallest_preferred_seqno_ =
+        std::min(smallest_preferred_seqno_, preferred_seqno);
+  }
   s = current_output().meta.UpdateBoundaries(key, value, ikey.sequence,
                                              ikey.type);
 
   return s;
 }
 
+namespace {
+void SetMaxSeqAndTs(InternalKey& internal_key, const Slice& user_key,
+                    const size_t ts_sz) {
+  if (ts_sz) {
+    static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+    if (ts_sz <= strlen(kTsMax)) {
+      internal_key = InternalKey(user_key, kMaxSequenceNumber,
+                                 kTypeRangeDeletion, Slice(kTsMax, ts_sz));
+    } else {
+      internal_key =
+          InternalKey(user_key, kMaxSequenceNumber, kTypeRangeDeletion,
+                      std::string(ts_sz, '\xff'));
+    }
+  } else {
+    internal_key.Set(user_key, kMaxSequenceNumber, kTypeRangeDeletion);
+  }
+}
+}  // namespace
+
 Status CompactionOutputs::AddRangeDels(
     const Slice* comp_start_user_key, const Slice* comp_end_user_key,
     CompactionIterationStats& range_del_out_stats, bool bottommost_level,
     const InternalKeyComparator& icmp, SequenceNumber earliest_snapshot,
     const Slice& next_table_min_key, const std::string& full_history_ts_low) {
+  // The following example does not happen since
+  // CompactionOutput::ShouldStopBefore() always return false for the first
+  // point key. But we should consider removing this dependency. Suppose for the
+  // first compaction output file,
+  //  - next_table_min_key.user_key == comp_start_user_key
+  //  - no point key is in the output file
+  //  - there is a range tombstone @seqno to be added that covers
+  //  comp_start_user_key
+  // Then meta.smallest will be set to comp_start_user_key@seqno
+  // and meta.largest will be set to comp_start_user_key@kMaxSequenceNumber
+  // which violates the assumption that meta.smallest should be <= meta.largest.
   assert(HasRangeDel());
   FileMetaData& meta = current_output().meta;
   const Comparator* ucmp = icmp.user_comparator();
-
+  InternalKey lower_bound_buf, upper_bound_buf;
   Slice lower_bound_guard, upper_bound_guard;
   std::string smallest_user_key;
   const Slice *lower_bound, *upper_bound;
-  bool lower_bound_from_sub_compact = false;
-  bool lower_bound_from_range_tombstone = false;
+
+  // We first determine the internal key lower_bound and upper_bound for
+  // this output file. All and only range tombstones that overlap with
+  // [lower_bound, upper_bound] should be added to this file. File
+  // boundaries (meta.smallest/largest) should be updated accordingly when
+  // extended by range tombstones.
   size_t output_size = outputs_.size();
   if (output_size == 1) {
-    // For the first output table, include range tombstones before the min
-    // key but after the subcompaction boundary.
-    lower_bound = comp_start_user_key;
-    lower_bound_from_sub_compact = true;
-  } else if (range_tombstone_lower_bound_.size() > 0) {
-    assert(meta.smallest.size() == 0 ||
-           icmp.Compare(range_tombstone_lower_bound_, meta.smallest) <= 0);
-    lower_bound_guard = range_tombstone_lower_bound_.user_key();
-    lower_bound = &lower_bound_guard;
-    lower_bound_from_range_tombstone = true;
-  } else if (meta.smallest.size() > 0) {
+    // This is the first file in the subcompaction.
+    //
+    // When outputting a range tombstone that spans a subcompaction boundary,
+    // the files on either side of that boundary need to include that
+    // boundary's user key. Otherwise, the spanning range tombstone would lose
+    // coverage.
+    //
+    // To achieve this while preventing files from overlapping in internal key
+    // (an LSM invariant violation), we allow the earlier file to include the
+    // boundary user key up to `kMaxSequenceNumber,kTypeRangeDeletion`. The
+    // later file can begin at the boundary user key at the newest key version
+    // it contains. At this point that version number is unknown since we have
+    // not processed the range tombstones yet, so permit any version. Same story
+    // applies to timestamp, and a non-nullptr `comp_start_user_key` should have
+    // `kMaxTs` here, which similarly permits any timestamp.
+    if (comp_start_user_key) {
+      lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber,
+                          kTypeRangeDeletion);
+      lower_bound_guard = lower_bound_buf.Encode();
+      lower_bound = &lower_bound_guard;
+    } else {
+      lower_bound = nullptr;
+    }
+  } else {
     // For subsequent output tables, only include range tombstones from min
     // key onwards since the previous file was extended to contain range
     // tombstones falling before min key.
-    smallest_user_key = meta.smallest.user_key().ToString(false /*hex*/);
-    lower_bound_guard = Slice(smallest_user_key);
-    lower_bound = &lower_bound_guard;
-  } else {
-    lower_bound = nullptr;
-  }
-  if (!next_table_min_key.empty()) {
-    // This may be the last file in the subcompaction in some cases, so we
-    // need to compare the end key of subcompaction with the next file start
-    // key. When the end key is chosen by the subcompaction, we know that
-    // it must be the biggest key in output file. Therefore, it is safe to
-    // use the smaller key as the upper bound of the output file, to ensure
-    // that there is no overlapping between different output files.
-    upper_bound_guard = ExtractUserKey(next_table_min_key);
-    if (comp_end_user_key != nullptr &&
-        ucmp->CompareWithoutTimestamp(upper_bound_guard, *comp_end_user_key) >=
-            0) {
-      upper_bound = comp_end_user_key;
+    if (range_tombstone_lower_bound_.size() > 0) {
+      assert(meta.smallest.size() == 0 ||
+             icmp.Compare(range_tombstone_lower_bound_, meta.smallest) < 0);
+      lower_bound_guard = range_tombstone_lower_bound_.Encode();
     } else {
-      upper_bound = &upper_bound_guard;
+      assert(meta.smallest.size() > 0);
+      lower_bound_guard = meta.smallest.Encode();
     }
-  } else {
-    // This is the last file in the subcompaction, so extend until the
-    // subcompaction ends.
-    upper_bound = comp_end_user_key;
-  }
-  bool has_overlapping_endpoints;
-  if (upper_bound != nullptr && meta.largest.size() > 0) {
-    has_overlapping_endpoints = ucmp->CompareWithoutTimestamp(
-                                    meta.largest.user_key(), *upper_bound) == 0;
-  } else {
-    has_overlapping_endpoints = false;
+    lower_bound = &lower_bound_guard;
   }
 
+  const size_t ts_sz = ucmp->timestamp_size();
+  if (next_table_min_key.empty()) {
+    // Last file of the subcompaction.
+    if (comp_end_user_key) {
+      upper_bound_buf.Set(*comp_end_user_key, kMaxSequenceNumber,
+                          kTypeRangeDeletion);
+      upper_bound_guard = upper_bound_buf.Encode();
+      upper_bound = &upper_bound_guard;
+    } else {
+      upper_bound = nullptr;
+    }
+  } else {
+    // There is another file coming whose coverage will begin at
+    // `next_table_min_key`. The current file needs to extend range tombstone
+    // coverage through its own keys (through `meta.largest`) and through user
+    // keys preceding `next_table_min_key`'s user key.
+    ParsedInternalKey next_table_min_key_parsed;
+    ParseInternalKey(next_table_min_key, &next_table_min_key_parsed,
+                     false /* log_err_key */)
+        .PermitUncheckedError();
+    assert(next_table_min_key_parsed.sequence < kMaxSequenceNumber);
+    assert(meta.largest.size() == 0 ||
+           icmp.Compare(meta.largest.Encode(), next_table_min_key) < 0);
+    assert(!lower_bound || icmp.Compare(*lower_bound, next_table_min_key) <= 0);
+    if (meta.largest.size() > 0 &&
+        ucmp->EqualWithoutTimestamp(meta.largest.user_key(),
+                                    next_table_min_key_parsed.user_key)) {
+      // Caution: this assumes meta.largest.Encode() lives longer than
+      // upper_bound, which is only true if meta.largest is never updated.
+      // This just happens to be the case here since meta.largest serves
+      // as the upper_bound.
+      upper_bound_guard = meta.largest.Encode();
+    } else {
+      SetMaxSeqAndTs(upper_bound_buf, next_table_min_key_parsed.user_key,
+                     ts_sz);
+      upper_bound_guard = upper_bound_buf.Encode();
+    }
+    upper_bound = &upper_bound_guard;
+  }
+  if (lower_bound && upper_bound &&
+      icmp.Compare(*lower_bound, *upper_bound) > 0) {
+    assert(meta.smallest.size() == 0 &&
+           ucmp->EqualWithoutTimestamp(ExtractUserKey(*lower_bound),
+                                       ExtractUserKey(*upper_bound)));
+    // This can only happen when lower_bound have the same user key as
+    // next_table_min_key and that there is no point key in the current
+    // compaction output file.
+    return Status::OK();
+  }
   // The end key of the subcompaction must be bigger or equal to the upper
   // bound. If the end of subcompaction is null or the upper bound is null,
   // it means that this file is the last file in the compaction. So there
   // will be no overlapping between this file and others.
   assert(comp_end_user_key == nullptr || upper_bound == nullptr ||
-         ucmp->CompareWithoutTimestamp(*upper_bound, *comp_end_user_key) <= 0);
-  auto it = range_del_agg_->NewIterator(lower_bound, upper_bound,
-                                        has_overlapping_endpoints);
-  // Position the range tombstone output iterator. There may be tombstone
-  // fragments that are entirely out of range, so make sure that we do not
-  // include those.
-  if (lower_bound != nullptr) {
-    it->Seek(*lower_bound);
-  } else {
-    it->SeekToFirst();
-  }
-  for (; it->Valid(); it->Next()) {
+         ucmp->CompareWithoutTimestamp(ExtractUserKey(*upper_bound),
+                                       *comp_end_user_key) <= 0);
+  auto it = range_del_agg_->NewIterator(lower_bound, upper_bound);
+  Slice last_tombstone_start_user_key{};
+  bool reached_lower_bound = false;
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
-    if (upper_bound != nullptr) {
-      int cmp =
-          ucmp->CompareWithoutTimestamp(*upper_bound, tombstone.start_key_);
-      if ((has_overlapping_endpoints && cmp < 0) ||
-          (!has_overlapping_endpoints && cmp <= 0)) {
-        // Tombstones starting after upper_bound only need to be included in
-        // the next table. If the current SST ends before upper_bound, i.e.,
-        // `has_overlapping_endpoints == false`, we can also skip over range
-        // tombstones that start exactly at upper_bound. Such range
-        // tombstones will be included in the next file and are not relevant
-        // to the point keys or endpoints of the current file.
-        break;
-      }
+    auto kv = tombstone.Serialize();
+    InternalKey tombstone_end = tombstone.SerializeEndKey();
+    // TODO: the underlying iterator should support clamping the bounds.
+    // tombstone_end.Encode is of form user_key@kMaxSeqno
+    // if it is equal to lower_bound, there is no need to include
+    // such range tombstone.
+    if (!reached_lower_bound && lower_bound &&
+        icmp.Compare(tombstone_end.Encode(), *lower_bound) <= 0) {
+      continue;
     }
+    assert(!lower_bound ||
+           icmp.Compare(*lower_bound, tombstone_end.Encode()) <= 0);
+    reached_lower_bound = true;
 
-    const size_t ts_sz = ucmp->timestamp_size();
     // Garbage collection for range tombstones.
     // If user-defined timestamp is enabled, range tombstones are dropped if
     // they are at bottommost_level, below full_history_ts_low and not visible
     // in any snapshot. trim_ts_ is passed to the constructor for
     // range_del_agg_, and range_del_agg_ internally drops tombstones above
     // trim_ts_.
-    if (bottommost_level && tombstone.seq_ <= earliest_snapshot &&
+    bool consider_drop =
+        tombstone.seq_ <= earliest_snapshot &&
         (ts_sz == 0 ||
          (!full_history_ts_low.empty() &&
-          ucmp->CompareTimestamp(tombstone.ts_, full_history_ts_low) < 0))) {
+          ucmp->CompareTimestamp(tombstone.ts_, full_history_ts_low) < 0));
+    if (consider_drop && bottommost_level) {
       // TODO(andrewkr): tombstones that span multiple output files are
       // counted for each compaction output file, so lots of double
       // counting.
@@ -520,149 +619,126 @@ Status CompactionOutputs::AddRangeDels(
       continue;
     }
 
-    auto kv = tombstone.Serialize();
     assert(lower_bound == nullptr ||
-           ucmp->CompareWithoutTimestamp(*lower_bound, kv.second) < 0);
+           ucmp->CompareWithoutTimestamp(ExtractUserKey(*lower_bound),
+                                         kv.second) < 0);
+    InternalKey tombstone_start = kv.first;
+    if (lower_bound &&
+        ucmp->CompareWithoutTimestamp(tombstone_start.user_key(),
+                                      ExtractUserKey(*lower_bound)) < 0) {
+      // This just updates the non-timestamp portion of `tombstone_start`'s user
+      // key. Ideally there would be a simpler API usage
+      ParsedInternalKey tombstone_start_parsed;
+      ParseInternalKey(tombstone_start.Encode(), &tombstone_start_parsed,
+                       false /* log_err_key */)
+          .PermitUncheckedError();
+      // timestamp should be from where sequence number is from, which is from
+      // tombstone in this case
+      std::string ts =
+          tombstone_start_parsed.GetTimestamp(ucmp->timestamp_size())
+              .ToString();
+      tombstone_start_parsed.user_key = ExtractUserKey(*lower_bound);
+      tombstone_start.SetFrom(tombstone_start_parsed, ts);
+    }
+    if (upper_bound != nullptr &&
+        icmp.Compare(*upper_bound, tombstone_start.Encode()) < 0) {
+      break;
+    }
+    if (lower_bound &&
+        icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
+      tombstone_start.DecodeFrom(*lower_bound);
+    }
+    if (upper_bound && icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
+      tombstone_end.DecodeFrom(*upper_bound);
+    }
+    if (consider_drop && compaction_->KeyRangeNotExistsBeyondOutputLevel(
+                             tombstone_start.user_key(),
+                             tombstone_end.user_key(), &level_ptrs_)) {
+      range_del_out_stats.num_range_del_drop_obsolete++;
+      range_del_out_stats.num_record_drop_obsolete++;
+      continue;
+    }
+    // Here we show that *only* range tombstones that overlap with
+    // [lower_bound, upper_bound] are added to the current file, and
+    // sanity checking invariants that should hold:
+    // - [tombstone_start, tombstone_end] overlaps with [lower_bound,
+    // upper_bound]
+    // - meta.smallest <= meta.largest
+    // Corresponding assertions are made, the proof is broken is any of them
+    // fails.
+    // TODO: show that *all* range tombstones that overlap with
+    //  [lower_bound, upper_bound] are added.
+    // TODO: some invariant about boundaries are correctly updated.
+    //
+    // Note that `tombstone_start` is updated in the if condition above, we use
+    // tombstone_start to refer to its initial value, i.e.,
+    // it->Tombstone().first, and use tombstone_start* to refer to its value
+    // after the update.
+    //
+    // To show [lower_bound, upper_bound] overlaps with [tombstone_start,
+    // tombstone_end]:
+    // lower_bound <= upper_bound from the if condition right after all
+    // bounds are initialized. We assume each tombstone fragment has
+    // start_key.user_key < end_key.user_key, so
+    // tombstone_start < tombstone_end by
+    // FragmentedTombstoneIterator::Tombstone(). So these two ranges are both
+    // non-emtpy. The flag `reached_lower_bound` and the if logic before it
+    // ensures lower_bound <= tombstone_end. tombstone_start is only updated
+    // if it has a smaller user_key than lower_bound user_key, so
+    // tombstone_start <= tombstone_start*. The above if condition implies
+    // tombstone_start* <= upper_bound. So we have
+    // tombstone_start <= upper_bound and lower_bound <= tombstone_end
+    // and the two ranges overlap.
+    //
+    // To show meta.smallest <= meta.largest:
+    // From the implementation of UpdateBoundariesForRange(), it suffices to
+    // prove that when it is first called in this function, its parameters
+    // satisfy `start <= end`, where start = max(tombstone_start*, lower_bound)
+    // and end = min(tombstone_end, upper_bound). From the above proof we have
+    // lower_bound <= tombstone_end and lower_bound <= upper_bound. We only need
+    // to show that tombstone_start* <= min(tombstone_end, upper_bound).
+    // Note that tombstone_start*.user_key = max(tombstone_start.user_key,
+    // lower_bound.user_key). Assuming tombstone_end always has
+    // kMaxSequenceNumber and lower_bound.seqno < kMaxSequenceNumber.
+    // Since lower_bound <= tombstone_end and lower_bound.seqno <
+    // tombstone_end.seqno (in absolute number order, not internal key order),
+    // lower_bound.user_key < tombstone_end.user_key.
+    // Since lower_bound.user_key < tombstone_end.user_key and
+    // tombstone_start.user_key < tombstone_end.user_key, tombstone_start* <
+    // tombstone_end. Since tombstone_start* <= upper_bound from the above proof
+    // and tombstone_start* < tombstone_end, tombstone_start* <=
+    // min(tombstone_end, upper_bound), so the two ranges overlap.
+
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
-    InternalKey tombstone_start = std::move(kv.first);
-    InternalKey smallest_candidate{tombstone_start};
-    if (lower_bound != nullptr &&
-        ucmp->CompareWithoutTimestamp(smallest_candidate.user_key(),
-                                      *lower_bound) <= 0) {
-      // Pretend the smallest key has the same user key as lower_bound
-      // (the max key in the previous table or subcompaction) in order for
-      // files to appear key-space partitioned.
-      if (lower_bound_from_sub_compact) {
-        // When lower_bound is chosen by a subcompaction
-        // (lower_bound_from_sub_compact), we know that subcompactions over
-        // smaller keys cannot contain any keys at lower_bound. We also know
-        // that smaller subcompactions exist, because otherwise the
-        // subcompaction woud be unbounded on the left. As a result, we know
-        // that no other files on the output level will contain actual keys at
-        // lower_bound (an output file may have a largest key of
-        // lower_bound@kMaxSequenceNumber, but this only indicates a large range
-        // tombstone was truncated). Therefore, it is safe to use the
-        // tombstone's sequence number, to ensure that keys at lower_bound at
-        // lower levels are covered by truncated tombstones.
-        if (ts_sz) {
-          assert(tombstone.ts_.size() == ts_sz);
-          smallest_candidate = InternalKey(*lower_bound, tombstone.seq_,
-                                           kTypeRangeDeletion, tombstone.ts_);
-        } else {
-          smallest_candidate =
-              InternalKey(*lower_bound, tombstone.seq_, kTypeRangeDeletion);
-        }
-      } else if (lower_bound_from_range_tombstone) {
-        // When lower_bound is chosen from a range tombtone start key:
-        // Range tombstone keys can be truncated at file boundaries of the files
-        // that contain them.
-        //
-        // If this lower bound is from a range tombstone key that is not
-        // truncated, i.e., it was not truncated when reading from the input
-        // files, then its sequence number and `op_type` will be
-        // kMaxSequenceNumber and kTypeRangeDeletion (see
-        // TruncatedRangeDelIterator::start_key()). In this case, when this key
-        // was used as the upper bound to cut the previous compaction output
-        // file, the previous file's largest key could have the same value as
-        // this key (see the upperbound logic below). To guarantee
-        // non-overlapping ranges between output files, we use the range
-        // tombstone's actual sequence number (tombstone.seq_) for the lower
-        // bound of this file. If this range tombstone key is truncated, then
-        // the previous file's largest key will be smaller than this range
-        // tombstone key, so we can use it as the lower bound directly.
-        if (ExtractInternalKeyFooter(range_tombstone_lower_bound_.Encode()) ==
-            kRangeTombstoneSentinel) {
-          if (ts_sz) {
-            smallest_candidate =
-                InternalKey(range_tombstone_lower_bound_.user_key(),
-                            tombstone.seq_, kTypeRangeDeletion, tombstone.ts_);
-          } else {
-            smallest_candidate =
-                InternalKey(range_tombstone_lower_bound_.user_key(),
-                            tombstone.seq_, kTypeRangeDeletion);
-          }
-        } else {
-          assert(GetInternalKeySeqno(range_tombstone_lower_bound_.Encode()) <
-                 kMaxSequenceNumber);
-          smallest_candidate = range_tombstone_lower_bound_;
-        }
-      } else {
-        // If lower_bound was chosen by the smallest data key in the file,
-        // choose lowest seqnum so this file's smallest internal key comes
-        // after the previous file's largest. The fake seqnum is OK because
-        // the read path's file-picking code only considers user key.
-        smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
-      }
-    }
-    InternalKey tombstone_end = tombstone.SerializeEndKey();
-    InternalKey largest_candidate{tombstone_end};
-    if (upper_bound != nullptr &&
-        ucmp->CompareWithoutTimestamp(*upper_bound,
-                                      largest_candidate.user_key()) <= 0) {
-      // Pretend the largest key has the same user key as upper_bound (the
-      // min key in the following table or subcompaction) in order for files
-      // to appear key-space partitioned.
-      //
-      // Choose highest seqnum so this file's largest internal key comes
-      // before the next file's/subcompaction's smallest. The fake seqnum is
-      // OK because the read path's file-picking code only considers the
-      // user key portion.
-      //
-      // Note Seek() also creates InternalKey with (user_key,
-      // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
-      // kTypeRangeDeletion (0xF), so the range tombstone comes before the
-      // Seek() key in InternalKey's ordering. So Seek() will look in the
-      // next file for the user key
-      if (ts_sz) {
-        static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
-        if (ts_sz <= strlen(kTsMax)) {
-          largest_candidate =
-              InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion,
-                          Slice(kTsMax, ts_sz));
-        } else {
-          largest_candidate =
-              InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion,
-                          std::string(ts_sz, '\xff'));
-        }
-      } else {
-        largest_candidate =
-            InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion);
-      }
-    }
-#ifndef NDEBUG
-    SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;
-    if (meta.smallest.size() > 0) {
-      smallest_ikey_seqnum = GetInternalKeySeqno(meta.smallest.Encode());
-    }
-#endif
-    meta.UpdateBoundariesForRange(smallest_candidate, largest_candidate,
+    assert(icmp.Compare(tombstone_start, tombstone_end) <= 0);
+    meta.UpdateBoundariesForRange(tombstone_start, tombstone_end,
                                   tombstone.seq_, icmp);
     if (!bottommost_level) {
-      // Range tombstones are truncated at file boundaries
-      if (icmp.Compare(tombstone_start, meta.smallest) < 0) {
-        tombstone_start = meta.smallest;
+      bool start_user_key_changed =
+          last_tombstone_start_user_key.empty() ||
+          ucmp->CompareWithoutTimestamp(last_tombstone_start_user_key,
+                                        it->start_key()) < 0;
+      last_tombstone_start_user_key = it->start_key();
+      if (start_user_key_changed) {
+        // If tombstone_start >= tombstone_end, then either no key range is
+        // covered, or that they have the same user key. If they have the same
+        // user key, then the internal key range should only be within this
+        // level, and no keys from older levels is covered.
+        if (ucmp->CompareWithoutTimestamp(tombstone_start.user_key(),
+                                          tombstone_end.user_key()) < 0) {
+          SizeApproximationOptions approx_opts;
+          approx_opts.files_size_error_margin = 0.1;
+          auto approximate_covered_size =
+              compaction_->input_version()->version_set()->ApproximateSize(
+                  approx_opts, read_options, compaction_->input_version(),
+                  tombstone_start.Encode(), tombstone_end.Encode(),
+                  compaction_->output_level() + 1 /* start_level */,
+                  -1 /* end_level */, kCompaction);
+          meta.compensated_range_deletion_size += approximate_covered_size;
+        }
       }
-      if (icmp.Compare(tombstone_end, meta.largest) > 0) {
-        tombstone_end = meta.largest;
-      }
-      SizeApproximationOptions approx_opts;
-      approx_opts.files_size_error_margin = 0.1;
-      auto approximate_covered_size =
-          compaction_->input_version()->version_set()->ApproximateSize(
-              approx_opts, compaction_->input_version(),
-              tombstone_start.Encode(), tombstone_end.Encode(),
-              compaction_->output_level() + 1 /* start_level */,
-              -1 /* end_level */, kCompaction);
-      meta.compensated_range_deletion_size += approximate_covered_size;
     }
-    // The smallest key in a file is used for range tombstone truncation, so
-    // it cannot have a seqnum of 0 (unless the smallest data key in a file
-    // has a seqnum of 0). Otherwise, the truncated tombstone may expose
-    // deleted keys at lower levels.
-    assert(smallest_ikey_seqnum == 0 || lower_bound_from_range_tombstone ||
-           ExtractInternalKeyFooter(meta.smallest.Encode()) !=
-               PackSequenceAndType(0, kTypeRangeDeletion));
   }
   return Status::OK();
 }
@@ -719,6 +795,8 @@ CompactionOutputs::CompactionOutputs(const Compaction* compaction,
   if (compaction->output_level() != 0) {
     FillFilesToCutForTtl();
   }
+
+  level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

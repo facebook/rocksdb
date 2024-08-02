@@ -3,11 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "table/plain/plain_table_builder.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <limits>
 #include <map>
 #include <string>
@@ -41,7 +39,7 @@ IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
                     uint64_t* offset, BlockHandle* block_handle) {
   block_handle->set_offset(*offset);
   block_handle->set_size(block_contents.size());
-  IOStatus io_s = file->Append(block_contents);
+  IOStatus io_s = file->Append(IOOptions(), block_contents);
 
   if (io_s.ok()) {
     *offset += block_contents.size();
@@ -54,12 +52,12 @@ IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
 // kPlainTableMagicNumber was picked by running
 //    echo rocksdb.table.plain | sha1sum
 // and taking the leading 64 bits.
-extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
-extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
+const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
+const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
     const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
-    const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
+    const InternalTblPropCollFactories* internal_tbl_prop_coll_factories,
     uint32_t column_family_id, int level_at_creation, WritableFileWriter* file,
     uint32_t user_key_len, EncodingType encoding_type, size_t index_sparseness,
     uint32_t bloom_bits_per_key, const std::string& column_family_name,
@@ -116,13 +114,16 @@ PlainTableBuilder::PlainTableBuilder(
   properties_
       .user_collected_properties[PlainTablePropertyNames::kEncodingType] = val;
 
-  assert(int_tbl_prop_collector_factories);
-  for (auto& factory : *int_tbl_prop_collector_factories) {
+  assert(internal_tbl_prop_coll_factories);
+  for (auto& factory : *internal_tbl_prop_coll_factories) {
     assert(factory);
 
-    table_properties_collectors_.emplace_back(
-        factory->CreateIntTblPropCollector(column_family_id,
-                                           level_at_creation));
+    std::unique_ptr<InternalTblPropColl> collector{
+        factory->CreateInternalTblPropColl(column_family_id, level_at_creation,
+                                           ioptions.num_levels)};
+    if (collector) {
+      table_properties_collectors_.emplace_back(std::move(collector));
+    }
   }
 }
 
@@ -137,6 +138,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   // temp buffer for metadata bytes between key and value.
   char meta_bytes_buf[6];
   size_t meta_bytes_buf_size = 0;
+  const IOOptions opts;
 
   ParsedInternalKey internal_key;
   if (!ParseInternalKey(key, &internal_key, false /* log_err_key */)
@@ -177,12 +179,13 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
         EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
     assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
     meta_bytes_buf_size = end_ptr - meta_bytes_buf;
-    io_status_ = file_->Append(Slice(meta_bytes_buf, meta_bytes_buf_size));
+    io_status_ =
+        file_->Append(opts, Slice(meta_bytes_buf, meta_bytes_buf_size));
   }
 
   // Write value
   if (io_status_.ok()) {
-    io_status_ = file_->Append(value);
+    io_status_ = file_->Append(opts, value);
     offset_ += value_size + meta_bytes_buf_size;
   }
 
@@ -266,19 +269,24 @@ Status PlainTableBuilder::Finish() {
   PropertyBlockBuilder property_block_builder;
   // -- Add basic properties
   property_block_builder.AddTableProperty(properties_);
-
+  // -- Add eixsting user collected properties
   property_block_builder.Add(properties_.user_collected_properties);
-
-  // -- Add user collected properties
+  // -- Add more user collected properties
+  UserCollectedProperties more_user_collected_properties;
   NotifyCollectTableCollectorsOnFinish(
-      table_properties_collectors_, ioptions_.logger, &property_block_builder);
+      table_properties_collectors_, ioptions_.logger, &property_block_builder,
+      more_user_collected_properties, properties_.readable_properties);
+  properties_.user_collected_properties.insert(
+      more_user_collected_properties.begin(),
+      more_user_collected_properties.end());
 
   // -- Write property block
   BlockHandle property_block_handle;
-  IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
+  io_status_ = WriteBlock(property_block_builder.Finish(), file_, &offset_,
                           &property_block_handle);
-  if (!s.ok()) {
-    return static_cast<Status>(s);
+  if (!io_status_.ok()) {
+    status_ = io_status_;
+    return status_;
   }
   meta_index_builer.Add(kPropertiesBlockName, property_block_handle);
 
@@ -294,9 +302,13 @@ Status PlainTableBuilder::Finish() {
   // Write Footer
   // no need to write out new footer if we're using default checksum
   FooterBuilder footer;
-  footer.Build(kPlainTableMagicNumber, /* format_version */ 0, offset_,
-               kNoChecksum, metaindex_block_handle);
-  io_status_ = file_->Append(footer.GetSlice());
+  Status s = footer.Build(kPlainTableMagicNumber, /* format_version */ 0,
+                          offset_, kNoChecksum, metaindex_block_handle);
+  if (!s.ok()) {
+    status_ = s;
+    return status_;
+  }
+  io_status_ = file_->Append(IOOptions(), footer.GetSlice());
   if (io_status_.ok()) {
     offset_ += footer.GetSlice().size();
   }
@@ -327,11 +339,10 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
     return kUnknownFileChecksumFuncName;
   }
 }
-void PlainTableBuilder::SetSeqnoTimeTableProperties(const std::string& string,
-                                                    uint64_t uint_64) {
+void PlainTableBuilder::SetSeqnoTimeTableProperties(
+    const SeqnoToTimeMapping& relevant_mapping, uint64_t uint_64) {
   // TODO: storing seqno to time mapping is not yet support for plain table.
-  TableBuilder::SetSeqnoTimeTableProperties(string, uint_64);
+  TableBuilder::SetSeqnoTimeTableProperties(relevant_mapping, uint_64);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -16,11 +16,13 @@
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/seqno_to_time_mapping.h"
 #include "file/filename.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_cache.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/filter_block.h"
@@ -31,6 +33,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/atomic.h"
 #include "util/coro_utils.h"
 #include "util/hash_containers.h"
 
@@ -97,7 +100,8 @@ class BlockBasedTable : public TableReader {
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      std::unique_ptr<TableReader>* table_reader,
+      uint8_t block_protection_bytes_per_key,
+      std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
@@ -109,13 +113,15 @@ class BlockBasedTable : public TableReader {
       BlockCacheTracer* const block_cache_tracer = nullptr,
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
-      UniqueId64x2 expected_unique_id = {});
+      UniqueId64x2 expected_unique_id = {},
+      const bool user_defined_timestamps_persisted = true);
 
   bool PrefixRangeMayMatch(const Slice& internal_key,
                            const ReadOptions& read_options,
                            const SliceTransform* options_prefix_extractor,
                            const bool need_upper_bound_check,
-                           BlockCacheLookupContext* lookup_context) const;
+                           BlockCacheLookupContext* lookup_context,
+                           bool* filter_checked) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -133,6 +139,9 @@ class BlockBasedTable : public TableReader {
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
+
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      SequenceNumber read_seqno, const Slice* timestamp) override;
 
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
@@ -152,7 +161,8 @@ class BlockBasedTable : public TableReader {
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
   // IO or iteration error.
-  Status Prefetch(const Slice* begin, const Slice* end) override;
+  Status Prefetch(const ReadOptions& read_options, const Slice* begin,
+                  const Slice* end) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -160,18 +170,21 @@ class BlockBasedTable : public TableReader {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
-  uint64_t ApproximateOffsetOf(const Slice& key,
+  uint64_t ApproximateOffsetOf(const ReadOptions& read_options,
+                               const Slice& key,
                                TableReaderCaller caller) override;
 
   // Given start and end keys, return the approximate data size in the file
   // between the keys. The returned value is in terms of file bytes, and so
   // includes effects like compression of the underlying data.
   // The start key must not be greater than the end key.
-  uint64_t ApproximateSize(const Slice& start, const Slice& end,
-                           TableReaderCaller caller) override;
+  uint64_t ApproximateSize(const ReadOptions& read_options, const Slice& start,
+                           const Slice& end, TableReaderCaller caller) override;
 
   Status ApproximateKeyAnchors(const ReadOptions& read_options,
                                std::vector<Anchor>& anchors) override;
+
+  bool EraseFromCache(const BlockHandle& handle) const;
 
   bool TEST_BlockInCache(const BlockHandle& handle) const;
 
@@ -179,11 +192,16 @@ class BlockBasedTable : public TableReader {
   // REQUIRES: key is in this table && block cache enabled
   bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
+  void TEST_GetDataBlockHandle(const ReadOptions& options, const Slice& key,
+                               BlockHandle& handle);
+
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   void SetupForCompaction() override;
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
+
+  const SeqnoToTimeMapping& GetSeqnoToTimeMapping() const;
 
   size_t ApproximateMemoryUsage() const override;
 
@@ -192,6 +210,8 @@ class BlockBasedTable : public TableReader {
 
   Status VerifyChecksum(const ReadOptions& readOptions,
                         TableReaderCaller caller) override;
+
+  void MarkObsolete(uint32_t uncache_aggressiveness) override;
 
   ~BlockBasedTable();
 
@@ -221,10 +241,13 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
     // Cache the dependencies of the index reader (e.g. the partitions
     // of a partitioned index).
-    virtual Status CacheDependencies(const ReadOptions& /*ro*/,
-                                     bool /* pin */) {
+    virtual Status CacheDependencies(
+        const ReadOptions& /*ro*/, bool /* pin */,
+        FilePrefetchBuffer* /* tail_prefetch_buffer */) {
       return Status::OK();
     }
+    virtual void EraseFromCacheBeforeDestruction(
+        uint32_t /*uncache_aggressiveness*/) {}
   };
 
   class IndexReaderCommon;
@@ -242,6 +265,9 @@ class BlockBasedTable : public TableReader {
                                           GetContext* get_context, size_t usage,
                                           bool redundant,
                                           Statistics* const statistics);
+
+  Statistics* GetStatistics() const;
+  bool IsLastLevel() const;
 
   // Get the size to read from storage for a BlockHandle. size_t because we
   // are about to load into memory.
@@ -264,7 +290,13 @@ class BlockBasedTable : public TableReader {
 
   // Retrieve all key value pairs from data blocks in the table.
   // The key retrieved are internal keys.
-  Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
+  Status GetKVPairsFromDataBlocks(const ReadOptions& read_options,
+                                  std::vector<KVPairBlock>* kv_pair_blocks);
+
+  template <typename TBlocklike>
+  Status LookupAndPinBlocksInCache(
+      const ReadOptions& ro, const BlockHandle& handle,
+      CachableEntry<TBlocklike>* out_parsed_block) const;
 
   struct Rep;
 
@@ -273,14 +305,12 @@ class BlockBasedTable : public TableReader {
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
-  TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
-                                   const BlockHandle& block_handle,
-                                   TBlockIter* input_iter, BlockType block_type,
-                                   GetContext* get_context,
-                                   BlockCacheLookupContext* lookup_context,
-                                   FilePrefetchBuffer* prefetch_buffer,
-                                   bool for_compaction, bool async_read,
-                                   Status& s) const;
+  TBlockIter* NewDataBlockIterator(
+      const ReadOptions& ro, const BlockHandle& block_handle,
+      TBlockIter* input_iter, BlockType block_type, GetContext* get_context,
+      BlockCacheLookupContext* lookup_context,
+      FilePrefetchBuffer* prefetch_buffer, bool for_compaction, bool async_read,
+      Status& s, bool use_block_cache_for_lookup) const;
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
@@ -315,22 +345,6 @@ class BlockBasedTable : public TableReader {
   void UpdateCacheMissMetrics(BlockType block_type,
                               GetContext* get_context) const;
 
-  Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
-                                   Cache* block_cache, const Slice& key,
-                                   BlockType block_type, const bool wait,
-                                   GetContext* get_context,
-                                   const Cache::CacheItemHelper* cache_helper,
-                                   const Cache::CreateCallback& create_cb,
-                                   Cache::Priority priority) const;
-
-  template <typename TBlocklike>
-  Status InsertEntryToCache(const CacheTier& cache_tier, Cache* block_cache,
-                            const Slice& key,
-                            const Cache::CacheItemHelper* cache_helper,
-                            std::unique_ptr<TBlocklike>&& block_holder,
-                            size_t charge, Cache::Handle** cache_handle,
-                            Cache::Priority priority) const;
-
   // Either Block::NewDataIterator() or Block::NewIndexIterator().
   template <typename TBlockIter>
   static TBlockIter* InitBlockIterator(const Rep* rep, Block* block,
@@ -348,35 +362,42 @@ class BlockBasedTable : public TableReader {
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
   template <typename TBlocklike>
-  Status MaybeReadBlockAndLoadToCache(
+  WithBlocklikeCheck<Status, TBlocklike> MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      const bool wait, const bool for_compaction,
-      CachableEntry<TBlocklike>* block_entry, BlockType block_type,
+      bool for_compaction, CachableEntry<TBlocklike>* block_entry,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      BlockContents* contents, bool async_read) const;
+      BlockContents* contents, bool async_read,
+      bool use_block_cache_for_lookup) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
   // read options allow I/O).
   template <typename TBlocklike>
-  Status RetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
-                       const ReadOptions& ro, const BlockHandle& handle,
-                       const UncompressionDict& uncompression_dict,
-                       CachableEntry<TBlocklike>* block_entry,
-                       BlockType block_type, GetContext* get_context,
-                       BlockCacheLookupContext* lookup_context,
-                       bool for_compaction, bool use_cache, bool wait_for_cache,
-                       bool async_read) const;
+  WithBlocklikeCheck<Status, TBlocklike> RetrieveBlock(
+      FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+      CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
+      BlockCacheLookupContext* lookup_context, bool for_compaction,
+      bool use_cache, bool async_read, bool use_block_cache_for_lookup) const;
+
+  template <typename TBlocklike>
+  WithBlocklikeCheck<void, TBlocklike> SaveLookupContextOrTraceRecord(
+      const Slice& block_key, bool is_cache_hit, const ReadOptions& ro,
+      const TBlocklike* parsed_block_value,
+      BlockCacheLookupContext* lookup_context) const;
+
+  void FinishTraceRecord(const BlockCacheLookupContext& lookup_context,
+                         const Slice& block_key, const Slice& referenced_key,
+                         bool does_referenced_key_exist,
+                         uint64_t referenced_data_size) const;
 
   DECLARE_SYNC_AND_ASYNC_CONST(
       void, RetrieveMultipleBlocks, const ReadOptions& options,
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
-      autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-      autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
-          results,
-      char* scratch, const UncompressionDict& uncompression_dict);
+      Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
+      const UncompressionDict& uncompression_dict, bool use_fs_scratch);
 
   // Get the iterator from the index reader.
   //
@@ -396,20 +417,19 @@ class BlockBasedTable : public TableReader {
       IndexBlockIter* input_iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) const;
 
-  // Read block cache from block caches (if set): block_cache and
-  // block_cache_compressed.
+  template <typename TBlocklike>
+  Cache::Priority GetCachePriority() const;
+
+  // Read block cache from block caches (if set): block_cache.
   // On success, Status::OK with be returned and @block will be populated with
   // pointer to the block as well as its block handle.
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
   template <typename TBlocklike>
-  Status GetDataBlockFromCache(const Slice& cache_key, Cache* block_cache,
-                               Cache* block_cache_compressed,
-                               const ReadOptions& read_options,
-                               CachableEntry<TBlocklike>* block,
-                               const UncompressionDict& uncompression_dict,
-                               BlockType block_type, const bool wait,
-                               GetContext* get_context) const;
+  WithBlocklikeCheck<Status, TBlocklike> GetDataBlockFromCache(
+      const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
+      CachableEntry<TBlocklike>* block, GetContext* get_context,
+      const UncompressionDict* dict) const;
 
   // Put a maybe compressed block to the corresponding block caches.
   // This method will perform decompression against block_contents if needed
@@ -422,15 +442,14 @@ class BlockBasedTable : public TableReader {
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
   template <typename TBlocklike>
-  Status PutDataBlockToCache(const Slice& cache_key, Cache* block_cache,
-                             Cache* block_cache_compressed,
-                             CachableEntry<TBlocklike>* cached_block,
-                             BlockContents&& block_contents,
-                             CompressionType block_comp_type,
-                             const UncompressionDict& uncompression_dict,
-                             MemoryAllocator* memory_allocator,
-                             BlockType block_type,
-                             GetContext* get_context) const;
+  WithBlocklikeCheck<Status, TBlocklike> PutDataBlockToCache(
+      const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
+      CachableEntry<TBlocklike>* cached_block,
+      BlockContents&& uncompressed_block_contents,
+      BlockContents&& compressed_block_contents,
+      CompressionType block_comp_type,
+      const UncompressionDict& uncompression_dict,
+      MemoryAllocator* memory_allocator, GetContext* get_context) const;
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -450,17 +469,15 @@ class BlockBasedTable : public TableReader {
                            std::unique_ptr<IndexReader>* index_reader);
 
   bool FullFilterKeyMayMatch(FilterBlockReader* filter, const Slice& user_key,
-                             const bool no_io,
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             Env::IOPriority rate_limiter_priority) const;
+                             const ReadOptions& read_options) const;
 
   void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
-                              const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context,
-                              Env::IOPriority rate_limiter_priority) const;
+                              const ReadOptions& read_options) const;
 
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
@@ -468,7 +485,8 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
-      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
+      uint64_t tail_size, Logger* const logger);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
                             FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,
@@ -491,7 +509,8 @@ class BlockBasedTable : public TableReader {
 
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
 
-  Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
+  Status VerifyChecksumInMetaBlocks(const ReadOptions& read_options,
+                                    InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(const ReadOptions& read_options,
                                 InternalIteratorBase<IndexValue>* index_iter);
 
@@ -518,6 +537,8 @@ class BlockBasedTable : public TableReader {
   // Returns false if prefix_extractor exists and is compatible with that used
   // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
+
+  bool TimestampMayMatch(const ReadOptions& read_options) const;
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
@@ -550,7 +571,8 @@ struct BlockBasedTable::Rep {
   Rep(const ImmutableOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
-      uint64_t _file_size, int _level, const bool _immortal_table)
+      uint64_t _file_size, int _level, const bool _immortal_table,
+      const bool _user_defined_timestamps_persisted = true)
       : ioptions(_ioptions),
         env_options(_env_options),
         table_options(_table_opt),
@@ -563,7 +585,8 @@ struct BlockBasedTable::Rep {
         global_seqno(kDisableGlobalSequenceNumber),
         file_size(_file_size),
         level(_level),
-        immortal_table(_immortal_table) {}
+        immortal_table(_immortal_table),
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -592,12 +615,17 @@ struct BlockBasedTable::Rep {
   BlockHandle compression_dict_handle;
 
   std::shared_ptr<const TableProperties> table_properties;
+  SeqnoToTimeMapping seqno_to_time_mapping;
+  BlockHandle index_handle;
   BlockBasedTableOptions::IndexType index_type;
   bool whole_key_filtering;
   bool prefix_filtering;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
   std::shared_ptr<FragmentedRangeTombstoneList> fragmented_range_dels;
+
+  // Context for block cache CreateCallback
+  BlockCreateContext create_context;
 
   // If global_seqno is used, all Keys in this file will have the same
   // seqno with value `global_seqno`.
@@ -613,22 +641,44 @@ struct BlockBasedTable::Rep {
   // move is involved
   int level;
 
+  // the timestamp range of table
+  // Points into memory owned by TableProperties. This would need to change if
+  // TableProperties become subject to cache eviction.
+  Slice min_timestamp;
+  Slice max_timestamp;
+
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
   bool blocks_maybe_compressed = true;
-
-  // If true, data blocks in this file are definitely ZSTD compressed. If false
-  // they might not be. When false we skip creating a ZSTD digested
-  // uncompression dictionary. Even if we get a false negative, things should
-  // still work, just not as quickly.
-  bool blocks_definitely_zstd_compressed = false;
 
   // These describe how index is encoded.
   bool index_has_first_key = false;
   bool index_key_includes_seq = true;
   bool index_value_is_full = true;
 
+  // Whether block checksums in metadata blocks were verified on open.
+  // This is only to mostly maintain current dubious behavior of VerifyChecksum
+  // with respect to index blocks, but only when the checksum was previously
+  // verified.
+  bool verify_checksum_set_on_open = false;
+
   const bool immortal_table;
+  // Whether the user key contains user-defined timestamps. If this is false and
+  // the running user comparator has a non-zero timestamp size, a min timestamp
+  // of this size will be padded to each user key while parsing blocks whenever
+  // it applies.  This includes the keys in data block, index block for data
+  // block, top-level index for index partitions (if index type is
+  // `kTwoLevelIndexSearch`), top-level index for filter partitions (if using
+  // partitioned filters), the `first_internal_key` in `IndexValue`, the
+  // `end_key` for range deletion entries.
+  const bool user_defined_timestamps_persisted;
+
+  // Set to >0 when the file is known to be obsolete and should have its block
+  // cache entries evicted on close. NOTE: when the file becomes obsolete,
+  // there could be multiple table cache references that all mark this file as
+  // obsolete. An atomic resolves the race quite reasonably. Even in the rare
+  // case of such a race, they will most likely be storing the same value.
+  RelaxedAtomic<uint32_t> uncache_aggressiveness{0};
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;
@@ -658,27 +708,23 @@ struct BlockBasedTable::Rep {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
   void CreateFilePrefetchBuffer(
-      size_t readahead_size, size_t max_readahead_size,
-      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      uint64_t num_file_reads,
-      uint64_t num_file_reads_for_auto_readahead) const {
+      const ReadaheadParams& readahead_params,
+      std::unique_ptr<FilePrefetchBuffer>* fpb,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
+      FilePrefetchBufferUsage usage) const {
     fpb->reset(new FilePrefetchBuffer(
-        readahead_size, max_readahead_size,
-        !ioptions.allow_mmap_reads /* enable */, false /* track_min_offset */,
-        implicit_auto_readahead, num_file_reads,
-        num_file_reads_for_auto_readahead, ioptions.fs.get(), ioptions.clock,
-        ioptions.stats));
+        readahead_params, !ioptions.allow_mmap_reads /* enable */,
+        false /* track_min_offset */, ioptions.fs.get(), ioptions.clock,
+        ioptions.stats, readaheadsize_cb, usage));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
-      size_t readahead_size, size_t max_readahead_size,
-      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      uint64_t num_file_reads,
-      uint64_t num_file_reads_for_auto_readahead) const {
+      const ReadaheadParams& readahead_params,
+      std::unique_ptr<FilePrefetchBuffer>* fpb,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
+      FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown) const {
     if (!(*fpb)) {
-      CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
-                               implicit_auto_readahead, num_file_reads,
-                               num_file_reads_for_auto_readahead);
+      CreateFilePrefetchBuffer(readahead_params, fpb, readaheadsize_cb, usage);
     }
   }
 

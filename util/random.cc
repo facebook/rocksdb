@@ -6,13 +6,14 @@
 
 #include "util/random.h"
 
-#include <stdint.h>
-#include <string.h>
-
+#include <climits>
+#include <cstdint>
+#include <cstring>
 #include <thread>
 #include <utility>
 
 #include "port/likely.h"
+#include "util/aligned_storage.h"
 #include "util/thread_local.h"
 
 #define STORAGE_DECL static thread_local
@@ -21,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 
 Random* Random::GetTLSInstance() {
   STORAGE_DECL Random* tls_instance;
-  STORAGE_DECL std::aligned_storage<sizeof(Random)>::type tls_instance_bytes;
+  STORAGE_DECL aligned_storage<Random>::type tls_instance_bytes;
 
   auto rv = tls_instance;
   if (UNLIKELY(rv == nullptr)) {

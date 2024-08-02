@@ -101,7 +101,7 @@ class ThreadPoolImpl : public ThreadPool {
   struct Impl;
 
  private:
-  // Current public virtual interface does not provide usable
+  // Current public interface does not provide usable
   // functionality and thus can not be used internally to
   // facade different implementations.
   //

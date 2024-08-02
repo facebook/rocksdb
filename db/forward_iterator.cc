@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "db/forward_iterator.h"
 
 #include <limits>
@@ -37,7 +36,7 @@ class ForwardLevelIterator : public InternalIterator {
       const ColumnFamilyData* const cfd, const ReadOptions& read_options,
       const std::vector<FileMetaData*>& files,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      bool allow_unprepared_value)
+      bool allow_unprepared_value, uint8_t block_protection_bytes_per_key)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
@@ -46,7 +45,8 @@ class ForwardLevelIterator : public InternalIterator {
         file_iter_(nullptr),
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
-        allow_unprepared_value_(allow_unprepared_value) {
+        allow_unprepared_value_(allow_unprepared_value),
+        block_protection_bytes_per_key_(block_protection_bytes_per_key) {
     status_.PermitUncheckedError();  // Allow uninitialized status through
   }
 
@@ -88,7 +88,8 @@ class ForwardLevelIterator : public InternalIterator {
         /*arena=*/nullptr, /*skip_filters=*/false, /*level=*/-1,
         /*max_file_size_for_l0_meta_pin=*/0,
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_);
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        block_protection_bytes_per_key_);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
     valid_ = false;
     if (!range_del_agg.IsEmpty()) {
@@ -212,6 +213,7 @@ class ForwardLevelIterator : public InternalIterator {
   // Kept alive by ForwardIterator::sv_->mutable_cf_options
   const std::shared_ptr<const SliceTransform>& prefix_extractor_;
   const bool allow_unprepared_value_;
+  const uint8_t block_protection_bytes_per_key_;
 };
 
 ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
@@ -239,7 +241,10 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
-
+  if (!CheckFSFeatureSupport(cfd_->ioptions()->env->GetFileSystem().get(),
+                             FSSupportedOps::kAsyncIO)) {
+    read_options_.async_io = false;
+  }
   // immutable_status_ is a local aggregation of the
   // status of the immutable Iterators.
   // We have to PermitUncheckedError in case it is never
@@ -284,7 +289,7 @@ struct SVCleanupParams {
 
 // Used in PinnedIteratorsManager to release pinned SuperVersion
 void ForwardIterator::DeferredSVCleanup(void* arg) {
-  auto d = reinterpret_cast<SVCleanupParams*>(arg);
+  auto d = static_cast<SVCleanupParams*>(arg);
   ForwardIterator::SVCleanup(d->db, d->sv,
                              d->background_purge_on_iterator_cleanup);
   delete d;
@@ -606,6 +611,11 @@ Slice ForwardIterator::key() const {
   return current_->key();
 }
 
+uint64_t ForwardIterator::write_unix_time() const {
+  assert(valid_);
+  return current_->write_unix_time();
+}
+
 Slice ForwardIterator::value() const {
   assert(valid_);
   return current_->value();
@@ -643,7 +653,7 @@ Status ForwardIterator::GetProperty(std::string prop_name, std::string* prop) {
     *prop = std::to_string(sv_->version_number);
     return Status::OK();
   }
-  return Status::InvalidArgument();
+  return Status::InvalidArgument("Unrecognized property: " + prop_name);
 }
 
 void ForwardIterator::SetPinnedItersMgr(
@@ -699,8 +709,12 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
                                        kMaxSequenceNumber /* upper_bound */);
-  mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
-  sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping =
+      sv_->GetSeqnoToTimeMapping();
+  mutable_iter_ =
+      sv_->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_);
+  sv_->imm->AddIterators(read_options_, seqno_to_time_mapping, &imm_iters_,
+                         &arena_);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         sv_->mem->NewRangeTombstoneIterator(
@@ -736,7 +750,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(sv_->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_));
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        sv_->mutable_cf_options.block_protection_bytes_per_key));
   }
   BuildLevelIterators(vstorage, sv_);
   current_ = nullptr;
@@ -763,8 +778,12 @@ void ForwardIterator::RenewIterators() {
   }
   imm_iters_.clear();
 
-  mutable_iter_ = svnew->mem->NewIterator(read_options_, &arena_);
-  svnew->imm->AddIterators(read_options_, &imm_iters_, &arena_);
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping =
+      svnew->GetSeqnoToTimeMapping();
+  mutable_iter_ =
+      svnew->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_);
+  svnew->imm->AddIterators(read_options_, seqno_to_time_mapping, &imm_iters_,
+                           &arena_);
   ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
                                        kMaxSequenceNumber /* upper_bound */);
   if (!read_options_.ignore_range_deletions) {
@@ -817,7 +836,8 @@ void ForwardIterator::RenewIterators() {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(svnew->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_));
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        svnew->mutable_cf_options.block_protection_bytes_per_key));
   }
 
   for (auto* f : l0_iters_) {
@@ -861,7 +881,8 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage,
     } else {
       level_iters_.push_back(new ForwardLevelIterator(
           cfd_, read_options_, level_files,
-          sv->mutable_cf_options.prefix_extractor, allow_unprepared_value_));
+          sv->mutable_cf_options.prefix_extractor, allow_unprepared_value_,
+          sv->mutable_cf_options.block_protection_bytes_per_key));
     }
   }
 }
@@ -883,7 +904,8 @@ void ForwardIterator::ResetIncompleteIterators() {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(sv_->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_);
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        sv_->mutable_cf_options.block_protection_bytes_per_key);
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }
 
@@ -1058,5 +1080,3 @@ void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

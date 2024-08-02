@@ -5,10 +5,9 @@
 
 #include "db/db_info_dumper.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -34,6 +33,12 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
   std::string file_info, wal_info;
 
   Header(options.info_log, "DB SUMMARY\n");
+  {
+    std::string hostname;
+    if (env->GetHostNameString(&hostname).ok()) {
+      Header(options.info_log, "Host name (Env):  %s\n", hostname.c_str());
+    }
+  }
   Header(options.info_log, "DB Session ID:  %s\n", session_id.c_str());
 
   Status s;
@@ -93,7 +98,12 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
   for (auto& db_path : options.db_paths) {
     if (dbname.compare(db_path.path) != 0) {
       s = env->GetChildren(db_path.path, &files);
-      if (!s.ok()) {
+      if (s.IsNotFound() || s.IsPathNotFound()) {
+        Header(options.info_log,
+               "Directory from db_paths/cf_paths does not yet exist: %s\n",
+               db_path.path.c_str());
+        continue;
+      } else if (!s.ok()) {
         Error(options.info_log, "Error when reading %s dir %s\n",
               db_path.path.c_str(), s.ToString().c_str());
         continue;
@@ -116,12 +126,18 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
 
   // Get wal file in wal_dir
   const auto& wal_dir = options.GetWalDir(dbname);
+  bool log_wal_info = true;
   if (!options.IsWalDirSameAsDBPath(dbname)) {
     s = env->GetChildren(wal_dir, &files);
-    if (!s.ok()) {
-      Error(options.info_log, "Error when reading %s dir %s\n", wal_dir.c_str(),
-            s.ToString().c_str());
-      return;
+    if (s.IsNotFound() || s.IsPathNotFound()) {
+      Header(options.info_log,
+             "Write Ahead Log directory does not yet exist: %s\n",
+             wal_dir.c_str());
+      log_wal_info = false;
+    } else if (!s.ok()) {
+      Error(options.info_log, "Error when reading wal dir %s: %s\n",
+            wal_dir.c_str(), s.ToString().c_str());
+      log_wal_info = false;
     }
     wal_info.clear();
     for (const std::string& file : files) {
@@ -141,7 +157,9 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
       }
     }
   }
-  Header(options.info_log, "Write Ahead Log file in %s: %s\n", wal_dir.c_str(),
-         wal_info.c_str());
+  if (log_wal_info) {
+    Header(options.info_log, "Write Ahead Log file in %s: %s\n",
+           wal_dir.c_str(), wal_info.c_str());
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE

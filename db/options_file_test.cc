@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include <string>
 
 #include "db/db_impl/db_impl.h"
@@ -29,7 +28,7 @@ void UpdateOptionsFiles(DB* db,
   uint64_t number;
   FileType type;
   *options_files_count = 0;
-  for (auto filename : filenames) {
+  for (const auto& filename : filenames) {
     if (ParseFileName(filename, &number, &type) && type == kOptionsFile) {
       filename_history->insert(filename);
       (*options_files_count)++;
@@ -45,16 +44,16 @@ void VerifyOptionsFileName(
   EXPECT_OK(db->GetEnv()->GetChildren(db->GetName(), &filenames));
   uint64_t number;
   FileType type;
-  for (auto filename : filenames) {
+  for (const auto& filename : filenames) {
     if (ParseFileName(filename, &number, &type) && type == kOptionsFile) {
       current_filenames.insert(filename);
     }
   }
-  for (auto past_filename : past_filenames) {
+  for (const auto& past_filename : past_filenames) {
     if (current_filenames.find(past_filename) != current_filenames.end()) {
       continue;
     }
-    for (auto filename : current_filenames) {
+    for (const auto& filename : current_filenames) {
       ASSERT_GT(filename, past_filename);
     }
   }
@@ -109,12 +108,3 @@ int main(int argc, char** argv) {
   return 0;
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 }
-#else
-
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  printf("Skipped as Options file is not supported in RocksDBLite.\n");
-  return 0;
-}
-#endif  // !ROCKSDB_LITE

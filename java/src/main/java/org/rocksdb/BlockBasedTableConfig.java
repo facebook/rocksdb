@@ -5,13 +5,13 @@
 package org.rocksdb;
 
 /**
- * The config for plain table sst format.
- *
+ * The config for block based table sst format.
+ * <p>
  * BlockBasedTable is a RocksDB's default SST file format.
  */
-//TODO(AR) should be renamed BlockBasedTableOptions
+// TODO(AR) should be renamed BlockBasedTableOptions
 public class BlockBasedTableConfig extends TableFormatConfig {
-
+  @SuppressWarnings("PMD.NullAssignment")
   public BlockBasedTableConfig() {
     //TODO(AR) flushBlockPolicyFactory
     cacheIndexAndFilterBlocks = false;
@@ -21,24 +21,23 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     indexType = IndexType.kBinarySearch;
     dataBlockIndexType = DataBlockIndexType.kDataBlockBinarySearch;
     dataBlockHashTableUtilRatio = 0.75;
-    checksumType = ChecksumType.kCRC32c;
+    checksumType = ChecksumType.kXXH3;
     noBlockCache = false;
     blockCache = null;
     persistentCache = null;
-    blockCacheCompressed = null;
     blockSize = 4 * 1024;
     blockSizeDeviation = 10;
     blockRestartInterval = 16;
     indexBlockRestartInterval = 1;
     metadataBlockSize = 4096;
     partitionFilters = false;
-    optimizeFiltersForMemory = false;
+    optimizeFiltersForMemory = true;
     useDeltaEncoding = true;
     filterPolicy = null;
     wholeKeyFiltering = true;
     verifyCompression = false;
     readAmpBytesPerBit = 0;
-    formatVersion = 5;
+    formatVersion = 6;
     enableIndexCompression = true;
     blockAlign = false;
     indexShortening = IndexShorteningMode.kShortenSeparators;
@@ -46,10 +45,55 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
     blockCacheNumShardBits = 0;
+  }
 
-    // NOTE: ONLY used if blockCacheCompressed == null
-    blockCacheCompressedSize = 0;
-    blockCacheCompressedNumShardBits = 0;
+  /**
+   * Constructor for use by C++ via JNI
+   */
+  private BlockBasedTableConfig(final boolean cacheIndexAndFilterBlocks,
+      final boolean cacheIndexAndFilterBlocksWithHighPriority,
+      final boolean pinL0FilterAndIndexBlocksInCache, final boolean pinTopLevelIndexAndFilter,
+      final byte indexType, final byte dataBlockIndexType, final double dataBlockHashTableUtilRatio,
+      final byte checksumType, final boolean noBlockCache, final long blockSize,
+      final int blockSizeDeviation, final int blockRestartInterval,
+      final int indexBlockRestartInterval, final long metadataBlockSize,
+      final boolean partitionFilters, final boolean optimizeFiltersForMemory,
+      final boolean useDeltaEncoding, final boolean wholeKeyFiltering,
+      final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
+      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
+      final byte filterPolicyType, final long filterPolicyHandle,
+      final double filterPolicyConfigValue) {
+    this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
+    this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
+    this.pinL0FilterAndIndexBlocksInCache = pinL0FilterAndIndexBlocksInCache;
+    this.pinTopLevelIndexAndFilter = pinTopLevelIndexAndFilter;
+    this.indexType = IndexType.values()[indexType];
+    this.dataBlockIndexType = DataBlockIndexType.values()[dataBlockIndexType];
+    this.dataBlockHashTableUtilRatio = dataBlockHashTableUtilRatio;
+    this.checksumType = ChecksumType.values()[checksumType];
+    this.noBlockCache = noBlockCache;
+    this.blockSize = blockSize;
+    this.blockSizeDeviation = blockSizeDeviation;
+    this.blockRestartInterval = blockRestartInterval;
+    this.indexBlockRestartInterval = indexBlockRestartInterval;
+    this.metadataBlockSize = metadataBlockSize;
+    this.partitionFilters = partitionFilters;
+    this.optimizeFiltersForMemory = optimizeFiltersForMemory;
+    this.useDeltaEncoding = useDeltaEncoding;
+    this.wholeKeyFiltering = wholeKeyFiltering;
+    this.verifyCompression = verifyCompression;
+    this.readAmpBytesPerBit = readAmpBytesPerBit;
+    this.formatVersion = formatVersion;
+    this.enableIndexCompression = enableIndexCompression;
+    this.blockAlign = blockAlign;
+    this.indexShortening = IndexShorteningMode.values()[indexShortening];
+    try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
+             filterPolicyHandle, filterPolicyConfigValue)) {
+      if (filterPolicy != null) {
+        filterPolicy.disOwnNativeHandle();
+        this.setFilterPolicy(filterPolicy);
+      }
+    }
   }
 
   /**
@@ -248,7 +292,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * Disable block cache. If this is set to true,
    * then no block cache should be used, and the {@link #setBlockCache(Cache)}
    * should point to a {@code null} object.
-   *
+   * <p>
    * Default: false
    *
    * @param noBlockCache if use block cache
@@ -262,10 +306,10 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   /**
    * Use the specified cache for blocks.
    * When not null this take precedence even if the user sets a block cache size.
-   *
+   * <p>
    * {@link org.rocksdb.Cache} should not be disposed before options instances
    * using this cache is disposed.
-   *
+   * <p>
    * {@link org.rocksdb.Cache} instance can be re-used in multiple options
    * instances.
    *
@@ -281,7 +325,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Use the specified persistent cache.
-   *
+   * <p>
    * If {@code !null} use the specified cache for pages read from device,
    * otherwise no page cache is used.
    *
@@ -292,31 +336,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   public BlockBasedTableConfig setPersistentCache(
       final PersistentCache persistentCache) {
     this.persistentCache = persistentCache;
-    return this;
-  }
-
-  /**
-   * Use the specified cache for compressed blocks.
-   *
-   * If {@code null}, RocksDB will not use a compressed block cache.
-   *
-   * Note: though it looks similar to {@link #setBlockCache(Cache)}, RocksDB
-   *     doesn't put the same type of object there.
-   *
-   * {@link org.rocksdb.Cache} should not be disposed before options instances
-   * using this cache is disposed.
-   *
-   * {@link org.rocksdb.Cache} instance can be re-used in multiple options
-   * instances.
-   *
-   * @param blockCacheCompressed {@link org.rocksdb.Cache} Cache java instance
-   *     (e.g. LRUCache).
-   *
-   * @return the reference to the current config.
-   */
-  public BlockBasedTableConfig setBlockCacheCompressed(
-      final Cache blockCacheCompressed) {
-    this.blockCacheCompressed = blockCacheCompressed;
     return this;
   }
 
@@ -357,7 +376,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * is less than this specified number and adding a new record to the block
    * will exceed the configured block size, then this block will be closed and
    * the new record will be written to the next block.
-   *
+   * <p>
    * Default is 10.
    *
    * @param blockSizeDeviation the deviation to block size allowed
@@ -444,7 +463,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   /**
    * Use partitioned full filters for each SST file. This option is incompatible
    * with block-based filters.
-   *
+   * <p>
    * Defaults to false.
    *
    * @param partitionFilters use partition filters.
@@ -458,7 +477,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   /***
    * Option to generate Bloom filters that minimize memory
    * internal fragmentation.
-   *
+   * <p>
    * See {@link #setOptimizeFiltersForMemory(boolean)}.
    *
    * @return true if bloom filters are used to minimize memory internal
@@ -472,7 +491,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   /**
    * Option to generate Bloom filters that minimize memory
    * internal fragmentation.
-   *
+   * <p>
    * When false, malloc_usable_size is not available, or format_version &lt; 5,
    * filters are generated without regard to internal fragmentation when
    * loaded into memory (historical behavior). When true (and
@@ -482,21 +501,21 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * the reading DB has the same memory allocation characteristics as the
    * generating DB. This option does not break forward or backward
    * compatibility.
-   *
+   * <p>
    * While individual filters will vary in bits/key and false positive rate
    * when setting is true, the implementation attempts to maintain a weighted
    * average FP rate for filters consistent with this option set to false.
-   *
+   * <p>
    * With Jemalloc for example, this setting is expected to save about 10% of
    * the memory footprint and block cache charge of filters, while increasing
    * disk usage of filters by about 1-2% due to encoding efficiency losses
    * with variance in bits/key.
-   *
+   * <p>
    * NOTE: Because some memory counted by block cache might be unmapped pages
    * within internal fragmentation, this option can increase observed RSS
    * memory usage. With {@link #cacheIndexAndFilterBlocks()} == true,
    * this option makes the block cache better at using space it is allowed.
-   *
+   * <p>
    * NOTE: Do not set to true if you do not trust malloc_usable_size. With
    * this option, RocksDB might access an allocated memory object beyond its
    * original size if malloc_usable_size says it is safe to do so. While this
@@ -525,9 +544,9 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Use delta encoding to compress keys in blocks.
-   *
+   * <p>
    * NOTE: {@link ReadOptions#pinData()} requires this option to be disabled.
-   *
+   * <p>
    * Default: true
    *
    * @param useDeltaEncoding true to enable delta encoding
@@ -551,10 +570,10 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Use the specified filter policy to reduce disk reads.
-   *
+   * <p>
    * {@link org.rocksdb.Filter} should not be closed before options instances
    * using this filter are closed.
-   *
+   * <p>
    * {@link org.rocksdb.Filter} instance can be re-used in multiple options
    * instances.
    *
@@ -606,7 +625,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Returns true when compression verification is enabled.
-   *
+   * <p>
    * See {@link #setVerifyCompression(boolean)}.
    *
    * @return true if compression verification is enabled.
@@ -632,7 +651,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Get the Read amplification bytes per-bit.
-   *
+   * <p>
    * See {@link #setReadAmpBytesPerBit(int)}.
    *
    * @return the bytes per-bit.
@@ -643,27 +662,27 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Set the Read amplification bytes per-bit.
-   *
+   * <p>
    * If used, For every data block we load into memory, we will create a bitmap
    * of size ((block_size / `read_amp_bytes_per_bit`) / 8) bytes. This bitmap
    * will be used to figure out the percentage we actually read of the blocks.
-   *
+   * <p>
    * When this feature is used Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES and
    * Tickers::READ_AMP_TOTAL_READ_BYTES can be used to calculate the
    * read amplification using this formula
    * (READ_AMP_TOTAL_READ_BYTES / READ_AMP_ESTIMATE_USEFUL_BYTES)
-   *
+   * <p>
    * value  =&gt;  memory usage (percentage of loaded blocks memory)
    * 1      =&gt;  12.50 %
    * 2      =&gt;  06.25 %
    * 4      =&gt;  03.12 %
    * 8      =&gt;  01.56 %
    * 16     =&gt;  00.78 %
-   *
+   * <p>
    * Note: This number must be a power of 2, if not it will be sanitized
    * to be the next lowest power of 2, for example a value of 7 will be
    * treated as 4, a value of 19 will be treated as 16.
-   *
+   * <p>
    * Default: 0 (disabled)
    *
    * @param readAmpBytesPerBit the bytes per-bit
@@ -729,7 +748,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Determine if index compression is enabled.
-   *
+   * <p>
    * See {@link #setEnableIndexCompression(boolean)}.
    *
    * @return true if index compression is enabled, false otherwise
@@ -740,7 +759,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Store index blocks on disk in compressed format.
-   *
+   * <p>
    * Changing this option to false  will avoid the overhead of decompression
    * if index blocks are evicted and read back.
    *
@@ -860,64 +879,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * Size of compressed block cache. If 0, then block_cache_compressed is set
-   * to null.
-   *
-   * @return size of compressed block cache.
-   */
-  @Deprecated
-  public long blockCacheCompressedSize() {
-    return blockCacheCompressedSize;
-  }
-
-  /**
-   * Size of compressed block cache. If 0, then block_cache_compressed is set
-   * to null.
-   *
-   * @param blockCacheCompressedSize of compressed block cache.
-   * @return the reference to the current config.
-   *
-   * @deprecated Use {@link #setBlockCacheCompressed(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setBlockCacheCompressedSize(
-      final long blockCacheCompressedSize) {
-    this.blockCacheCompressedSize = blockCacheCompressedSize;
-    return this;
-  }
-
-  /**
-   * Controls the number of shards for the block compressed cache.
-   * This is applied only if blockCompressedCacheSize is set to non-negative.
-   *
-   * @return numShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings.
-   */
-  @Deprecated
-  public int blockCacheCompressedNumShardBits() {
-    return blockCacheCompressedNumShardBits;
-  }
-
-  /**
-   * Controls the number of shards for the block compressed cache.
-   * This is applied only if blockCompressedCacheSize is set to non-negative.
-   *
-   * @param blockCacheCompressedNumShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings."
-   * @return the reference to the current option.
-   *
-   * @deprecated Use {@link #setBlockCacheCompressed(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setBlockCacheCompressedNumShardBits(
-      final int blockCacheCompressedNumShardBits) {
-    this.blockCacheCompressedNumShardBits = blockCacheCompressedNumShardBits;
-    return this;
-  }
-
-  /**
    * Influence the behavior when kHashSearch is used.
    *  if false, stores a precise prefix to block range mapping
    *  if true, does not store prefix and allows prefix hash collision
@@ -977,43 +938,32 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       persistentCacheHandle = 0;
     }
 
-    final long blockCacheCompressedHandle;
-    if (blockCacheCompressed != null) {
-      blockCacheCompressedHandle = blockCacheCompressed.nativeHandle_;
-    } else {
-      blockCacheCompressedHandle = 0;
-    }
-
     return newTableFactoryHandle(cacheIndexAndFilterBlocks,
         cacheIndexAndFilterBlocksWithHighPriority, pinL0FilterAndIndexBlocksInCache,
         pinTopLevelIndexAndFilter, indexType.getValue(), dataBlockIndexType.getValue(),
         dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache, blockCacheHandle,
-        persistentCacheHandle, blockCacheCompressedHandle, blockSize, blockSizeDeviation,
-        blockRestartInterval, indexBlockRestartInterval, metadataBlockSize, partitionFilters,
-        optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
-        verifyCompression, readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
-        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits,
-        blockCacheCompressedSize, blockCacheCompressedNumShardBits);
+        persistentCacheHandle, blockSize, blockSizeDeviation, blockRestartInterval,
+        indexBlockRestartInterval, metadataBlockSize, partitionFilters, optimizeFiltersForMemory,
+        useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
+        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
+        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits);
   }
 
-  private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
+  private static native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
       final boolean cacheIndexAndFilterBlocksWithHighPriority,
       final boolean pinL0FilterAndIndexBlocksInCache, final boolean pinTopLevelIndexAndFilter,
       final byte indexTypeValue, final byte dataBlockIndexTypeValue,
       final double dataBlockHashTableUtilRatio, final byte checksumTypeValue,
       final boolean noBlockCache, final long blockCacheHandle, final long persistentCacheHandle,
-      final long blockCacheCompressedHandle, final long blockSize, final int blockSizeDeviation,
-      final int blockRestartInterval, final int indexBlockRestartInterval,
-      final long metadataBlockSize, final boolean partitionFilters,
-      final boolean optimizeFiltersForMemory, final boolean useDeltaEncoding,
-      final long filterPolicyHandle, final boolean wholeKeyFiltering,
-      final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
-      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
+      final long blockSize, final int blockSizeDeviation, final int blockRestartInterval,
+      final int indexBlockRestartInterval, final long metadataBlockSize,
+      final boolean partitionFilters, final boolean optimizeFiltersForMemory,
+      final boolean useDeltaEncoding, final long filterPolicyHandle,
+      final boolean wholeKeyFiltering, final boolean verifyCompression,
+      final int readAmpBytesPerBit, final int formatVersion, final boolean enableIndexCompression,
+      final boolean blockAlign, final byte indexShortening,
 
-      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
-
-      @Deprecated final long blockCacheCompressedSize,
-      @Deprecated final int blockCacheCompressedNumShardBits);
+      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
 
   //TODO(AR) flushBlockPolicyFactory
   private boolean cacheIndexAndFilterBlocks;
@@ -1027,7 +977,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean noBlockCache;
   private Cache blockCache;
   private PersistentCache persistentCache;
-  private Cache blockCacheCompressed;
   private long blockSize;
   private int blockSizeDeviation;
   private int blockRestartInterval;
@@ -1048,8 +997,4 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;
   @Deprecated private int blockCacheNumShardBits;
-
-  // NOTE: ONLY used if blockCacheCompressed == null
-  @Deprecated private long blockCacheCompressedSize;
-  @Deprecated private int blockCacheCompressedNumShardBits;
 }

@@ -5,8 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <limits>
 #include <string>
 #include <vector>
@@ -166,7 +164,7 @@ class Transaction {
   virtual void SetSnapshot() = 0;
 
   // Similar to SetSnapshot(), but will not change the current snapshot
-  // until Put/Merge/Delete/GetForUpdate/MultigetForUpdate is called.
+  // until Put/PutEntity/Merge/Delete/GetForUpdate/MultigetForUpdate is called.
   // By calling this function, the transaction will essentially call
   // SetSnapshot() for you right before performing the next write/GetForUpdate.
   //
@@ -228,7 +226,8 @@ class Transaction {
   // Status::Busy() may be returned if the transaction could not guarantee
   // that there are no write conflicts.  Status::TryAgain() may be returned
   // if the memtable history size is not large enough
-  //  (See max_write_buffer_size_to_maintain).
+  // (see max_write_buffer_size_to_maintain). In either case, a Rollback()
+  // or new transaction is required to expect a different result.
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
@@ -260,6 +259,7 @@ class Transaction {
       std::shared_ptr<const Snapshot>* snapshot = nullptr);
 
   // Discard all batched writes in this transaction.
+  // FIXME: what happens if this isn't called before destruction?
   virtual Status Rollback() = 0;
 
   // Records the state of the transaction for future calls to
@@ -267,10 +267,10 @@ class Transaction {
   // points.
   virtual void SetSavePoint() = 0;
 
-  // Undo all operations in this transaction (Put, Merge, Delete, PutLogData)
-  // since the most recent call to SetSavePoint() and removes the most recent
-  // SetSavePoint().
-  // If there is no previous call to SetSavePoint(), returns Status::NotFound()
+  // Undo all operations in this transaction (Put, PutEntity, Merge, Delete,
+  // PutLogData) since the most recent call to SetSavePoint() and removes the
+  // most recent SetSavePoint(). If there is no previous call to SetSavePoint(),
+  // returns Status::NotFound()
   virtual Status RollbackToSavePoint() = 0;
 
   // Pop the most recent save point.
@@ -317,6 +317,10 @@ class Transaction {
     return s;
   }
 
+  virtual Status GetEntity(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableWideColumns* columns) = 0;
+
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -334,10 +338,30 @@ class Transaction {
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
                         const bool /*sorted_input*/ = false) {
+    if (options.io_activity != Env::IOActivity::kUnknown &&
+        options.io_activity != Env::IOActivity::kMultiGet) {
+      Status s = Status::InvalidArgument(
+          "Can only call MultiGet with `ReadOptions::io_activity` is "
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+      for (size_t i = 0; i < num_keys; ++i) {
+        if (statuses[i].ok()) {
+          statuses[i] = s;
+        }
+      }
+      return;
+    }
+
     for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Get(options, column_family, keys[i], &values[i]);
+      statuses[i] = GetImpl(options, column_family, keys[i], &values[i]);
     }
   }
+
+  virtual void MultiGetEntity(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              size_t num_keys, const Slice* keys,
+                              PinnableWideColumns* results, Status* statuses,
+                              bool sorted_input = false) = 0;
 
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
@@ -402,6 +426,30 @@ class Transaction {
                               std::string* value, bool exclusive = true,
                               const bool do_validate = true) = 0;
 
+  // An overload of the above method that receives a PinnableSlice
+  // For backward compatibility a default implementation is provided
+  virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
+                              PinnableSlice* pinnable_val,
+                              bool exclusive = true,
+                              const bool do_validate = true) {
+    if (pinnable_val == nullptr) {
+      std::string* null_str = nullptr;
+      return GetForUpdate(options, key, null_str, exclusive, do_validate);
+    } else {
+      auto s = GetForUpdate(options, key, pinnable_val->GetSelf(), exclusive,
+                            do_validate);
+      pinnable_val->PinSelf();
+      return s;
+    }
+  }
+
+  virtual Status GetEntityForUpdate(const ReadOptions& read_options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice& key,
+                                    PinnableWideColumns* columns,
+                                    bool exclusive = true,
+                                    bool do_validate = true) = 0;
+
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
@@ -429,9 +477,9 @@ class Transaction {
   virtual Iterator* GetIterator(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family) = 0;
 
-  // Put, Merge, Delete, and SingleDelete behave similarly to the corresponding
-  // functions in WriteBatch, but will also do conflict checking on the
-  // keys being written.
+  // Put, PutEntity, Merge, Delete, and SingleDelete behave similarly to the
+  // corresponding functions in WriteBatch, but will also do conflict checking
+  // on the keys being written.
   //
   // assume_tracked=true expects the key be already tracked. More
   // specifically, it means the the key was previous tracked in the same
@@ -456,6 +504,10 @@ class Transaction {
                      const SliceParts& value,
                      const bool assume_tracked = false) = 0;
   virtual Status Put(const SliceParts& key, const SliceParts& value) = 0;
+
+  virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns,
+                           bool assume_tracked = false) = 0;
 
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value,
@@ -496,6 +548,10 @@ class Transaction {
   virtual Status PutUntracked(const SliceParts& key,
                               const SliceParts& value) = 0;
 
+  virtual Status PutEntityUntracked(ColumnFamilyHandle* column_family,
+                                    const Slice& key,
+                                    const WideColumns& columns) = 0;
+
   virtual Status MergeUntracked(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) = 0;
   virtual Status MergeUntracked(const Slice& key, const Slice& value) = 0;
@@ -512,21 +568,30 @@ class Transaction {
 
   virtual Status SingleDeleteUntracked(const Slice& key) = 0;
 
+  // Collpase the merge chain for the given key. This is can be used by the
+  // application to trigger an on-demand collpase to a key that has a long
+  // merge chain to reduce read amplification, without waiting for compaction
+  // to kick in.
+  virtual Status CollapseKey(const ReadOptions&, const Slice&,
+                             ColumnFamilyHandle* = nullptr) {
+    return Status::NotSupported("collpase not supported");
+  }
+
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
 
-  // By default, all Put/Merge/Delete operations will be indexed in the
-  // transaction so that Get/GetForUpdate/GetIterator can search for these
+  // By default, all Put/PutEntity/Merge/Delete operations will be indexed in
+  // the transaction so that Get/GetForUpdate/GetIterator can search for these
   // keys.
   //
   // If the caller does not want to fetch the keys about to be written,
   // they may want to avoid indexing as a performance optimization.
   // Calling DisableIndexing() will turn off indexing for all future
-  // Put/Merge/Delete operations until EnableIndexing() is called.
+  // Put/PutEntity/Merge/Delete operations until EnableIndexing() is called.
   //
-  // If a key is Put/Merge/Deleted after DisableIndexing is called and then
-  // is fetched via Get/GetForUpdate/GetIterator, the result of the fetch is
-  // undefined.
+  // If a key is written (using Put/PutEntity/Merge/Delete) after
+  // DisableIndexing is called and then is fetched via
+  // Get/GetForUpdate/GetIterator, the result of the fetch is undefined.
   virtual void DisableIndexing() = 0;
   virtual void EnableIndexing() = 0;
 
@@ -537,9 +602,10 @@ class Transaction {
   // number of keys that need to be checked for conflicts at commit time.
   virtual uint64_t GetNumKeys() const = 0;
 
-  // Returns the number of Puts/Deletes/Merges that have been applied to this
-  // transaction so far.
+  // Returns the number of Put/PutEntity/Delete/Merge operations that have been
+  // applied to this transaction so far.
   virtual uint64_t GetNumPuts() const = 0;
+  virtual uint64_t GetNumPutEntities() const = 0;
   virtual uint64_t GetNumDeletes() const = 0;
   virtual uint64_t GetNumMerges() const = 0;
 
@@ -672,6 +738,21 @@ class Transaction {
     id_ = id;
   }
 
+  virtual Status GetImpl(const ReadOptions& /* options */,
+                         ColumnFamilyHandle* /* column_family */,
+                         const Slice& /* key */, std::string* /* value */) {
+    return Status::NotSupported("Not implemented");
+  }
+
+  virtual Status GetImpl(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = GetImpl(options, column_family, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
+  }
+
   virtual uint64_t GetLastLogNumber() const { return log_number_; }
 
  private:
@@ -682,5 +763,3 @@ class Transaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

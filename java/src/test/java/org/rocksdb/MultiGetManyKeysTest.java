@@ -7,11 +7,14 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.*;
+import org.junit.Assume;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.rocksdb.util.Environment;
 
 @RunWith(Parameterized.class)
 public class MultiGetManyKeysTest {
@@ -26,6 +29,12 @@ public class MultiGetManyKeysTest {
 
   public MultiGetManyKeysTest(final Integer numKeys) {
     this.numKeys = numKeys;
+  }
+
+  @BeforeClass
+  public static void beforeAllTest() {
+    Assume.assumeFalse("We are not running this test on 32bit systems dues to memory constraints",
+        !Environment.is64Bit());
   }
 
   /**
@@ -114,7 +123,7 @@ public class MultiGetManyKeysTest {
             transaction.multiGetAsList(new ReadOptions(), columnFamilyHandlesForMultiGet, keys);
         assertKeysAndValues(keys, keyValues, values);
       }
-      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
+      for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
         columnFamilyHandle.close();
       }
     }
@@ -148,7 +157,7 @@ public class MultiGetManyKeysTest {
             new ReadOptions(), columnFamilyHandlesForMultiGet, keys);
         assertKeysAndValues(keys, keyValues, values);
       }
-      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
+      for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
         columnFamilyHandle.close();
       }
     }
@@ -178,22 +187,22 @@ public class MultiGetManyKeysTest {
     return keyValues;
   }
 
-  private void putKeysAndValues(Map<Key, byte[]> keyValues) throws RocksDBException {
+  private void putKeysAndValues(final Map<Key, byte[]> keyValues) throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
-      for (Map.Entry<Key, byte[]> keyValue : keyValues.entrySet()) {
+      for (final Map.Entry<Key, byte[]> keyValue : keyValues.entrySet()) {
         db.put(keyValue.getKey().get(), keyValue.getValue());
       }
     }
   }
 
-  private void putKeysAndValues(ColumnFamilyDescriptor columnFamilyDescriptor,
-      Map<Key, byte[]> keyValues) throws RocksDBException {
+  private void putKeysAndValues(final ColumnFamilyDescriptor columnFamilyDescriptor,
+      final Map<Key, byte[]> keyValues) throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
          final ColumnFamilyHandle columnFamilyHandle =
              db.createColumnFamily(columnFamilyDescriptor)) {
-      for (Map.Entry<Key, byte[]> keyValue : keyValues.entrySet()) {
+      for (final Map.Entry<Key, byte[]> keyValue : keyValues.entrySet()) {
         db.put(columnFamilyHandle, keyValue.getKey().get(), keyValue.getValue());
       }
     }
@@ -213,9 +222,9 @@ public class MultiGetManyKeysTest {
     }
   }
 
-  static private class Key {
+  private static class Key {
     private final byte[] bytes;
-    public Key(byte[] bytes) {
+    public Key(final byte[] bytes) {
       this.bytes = bytes;
     }
 
@@ -224,12 +233,12 @@ public class MultiGetManyKeysTest {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
       if (this == o)
         return true;
       if (o == null || getClass() != o.getClass())
         return false;
-      Key key = (Key) o;
+      final Key key = (Key) o;
       return Arrays.equals(bytes, key.bytes);
     }
 

@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier.h"
 
@@ -79,7 +78,7 @@ bool IsCacheFile(const std::string& file) {
   // check if the file has .rc suffix
   // Unfortunately regex support across compilers is not even, so we use simple
   // string parsing
-  size_t pos = file.find(".");
+  size_t pos = file.find('.');
   if (pos == std::string::npos) {
     return false;
   }
@@ -98,7 +97,7 @@ Status BlockCacheTier::CleanupCacheFolder(const std::string& folder) {
   }
 
   // cleanup files with the patter :digi:.rc
-  for (auto file : files) {
+  for (const auto& file : files) {
     if (IsCacheFile(file)) {
       // cache file
       Info(opt_.log, "Removing file %s.", file.c_str());
@@ -419,4 +418,3 @@ Status NewPersistentCache(Env* const env, const std::string& path,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ifndef ROCKSDB_LITE

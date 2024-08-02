@@ -1,13 +1,13 @@
-/**
- * A MergeOperator for rocksdb that implements string append.
- * @author Deon Nicholas (dnicholas@fb.com)
- * Copyright 2013 Facebook
- */
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+//
+// A MergeOperator for rocksdb that implements string append.
 
 #include "stringappend.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <memory>
 
 #include "rocksdb/merge_operator.h"
@@ -19,11 +19,9 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo>
     stringappend_merge_type_info = {
-#ifndef ROCKSDB_LITE
         {"delimiter",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 }  // namespace
 // Constructor: also specify the delimiter character.

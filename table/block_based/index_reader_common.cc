@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/index_reader_common.h"
 
+#include "block_cache.h"
+
 namespace ROCKSDB_NAMESPACE {
 Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
@@ -24,18 +26,17 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
   assert(rep != nullptr);
 
   const Status s = table->RetrieveBlock(
-      prefetch_buffer, read_options, rep->footer.index_handle(),
-      UncompressionDict::GetEmptyDict(), index_block, BlockType::kIndex,
+      prefetch_buffer, read_options, rep->index_handle,
+      UncompressionDict::GetEmptyDict(), &index_block->As<Block_kIndex>(),
       get_context, lookup_context, /* for_compaction */ false, use_cache,
-      /* wait_for_cache */ true, /* async_read */ false);
+      /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
   return s;
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    bool no_io, Env::IOPriority rate_limiter_priority, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    CachableEntry<Block>* index_block) const {
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    CachableEntry<Block>* index_block, const ReadOptions& ro) const {
   assert(index_block != nullptr);
 
   if (!index_block_.IsEmpty()) {
@@ -43,14 +44,19 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
     return Status::OK();
   }
 
-  ReadOptions read_options;
-  read_options.rate_limiter_priority = rate_limiter_priority;
-  if (no_io) {
-    read_options.read_tier = kBlockCacheTier;
-  }
-
-  return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,
+  return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, ro,
                         cache_index_blocks(), get_context, lookup_context,
                         index_block);
+}
+
+void BlockBasedTable::IndexReaderCommon::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  if (uncache_aggressiveness > 0) {
+    if (index_block_.IsCached()) {
+      index_block_.ResetEraseIfLastRef();
+    } else {
+      table()->EraseFromCache(table()->get_rep()->index_handle);
+    }
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE

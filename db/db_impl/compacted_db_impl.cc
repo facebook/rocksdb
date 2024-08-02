@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "db/db_impl/compacted_db_impl.h"
 
 #include "db/db_impl/db_impl.h"
@@ -14,10 +13,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-extern void MarkKeyMayExist(void* arg);
-extern bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
-                      const Slice& v, bool hit_and_return);
-
 CompactedDBImpl::CompactedDBImpl(const DBOptions& options,
                                  const std::string& dbname)
     : DBImpl(options, dbname, /*seq_per_batch*/ false, +/*batch_per_txn*/ true,
@@ -26,7 +21,7 @@ CompactedDBImpl::CompactedDBImpl(const DBOptions& options,
       version_(nullptr),
       user_comparator_(nullptr) {}
 
-CompactedDBImpl::~CompactedDBImpl() {}
+CompactedDBImpl::~CompactedDBImpl() = default;
 
 size_t CompactedDBImpl::FindFile(const Slice& key) {
   size_t right = files_.num_files - 1;
@@ -38,21 +33,33 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
       files_.files);
 }
 
-Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
-                            const Slice& key, PinnableSlice* value) {
-  return Get(options, /*column_family*/ nullptr, key, value,
-             /*timestamp*/ nullptr);
-}
+Status CompactedDBImpl::Get(const ReadOptions& _read_options,
+                            ColumnFamilyHandle*, const Slice& key,
+                            PinnableSlice* value, std::string* timestamp) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
 
-Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
-                            const Slice& key, PinnableSlice* value,
-                            std::string* timestamp) {
   assert(user_comparator_);
-  if (options.timestamp) {
-    const Status s = FailIfTsMismatchCf(
-        DefaultColumnFamily(), *(options.timestamp), /*ts_for_read=*/true);
+  if (read_options.timestamp) {
+    Status s =
+        FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp));
     if (!s.ok()) {
       return s;
+    }
+    if (read_options.timestamp->size() > 0) {
+      s = FailIfReadCollapsedHistory(cfd_, cfd_->GetSuperVersion(),
+                                     *(read_options.timestamp));
+      if (!s.ok()) {
+        return s;
+      }
     }
   } else {
     const Status s = FailIfCfHasTs(DefaultColumnFamily());
@@ -70,7 +77,7 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
-  LookupKey lkey(key, kMaxSequenceNumber, options.timestamp);
+  LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, lkey.user_key(), value,
                          /*columns=*/nullptr, ts, nullptr, nullptr, true,
@@ -84,8 +91,8 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
           /*b_has_ts=*/false) < 0) {
     return Status::NotFound();
   }
-  Status s = f.fd.table_reader->Get(options, lkey.internal_key(), &get_context,
-                                    nullptr);
+  Status s = f.fd.table_reader->Get(read_options, lkey.internal_key(),
+                                    &get_context, nullptr);
   if (!s.ok() && !s.IsNotFound()) {
     return s;
   }
@@ -95,44 +102,60 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
   return Status::NotFound();
 }
 
-std::vector<Status> CompactedDBImpl::MultiGet(
-    const ReadOptions& options, const std::vector<ColumnFamilyHandle*>&,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  return MultiGet(options, keys, values, /*timestamps*/ nullptr);
-}
-
-std::vector<Status> CompactedDBImpl::MultiGet(
-    const ReadOptions& options, const std::vector<ColumnFamilyHandle*>&,
-    const std::vector<Slice>& keys, std::vector<std::string>* values,
-    std::vector<std::string>* timestamps) {
+void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
+                               size_t num_keys,
+                               ColumnFamilyHandle** /*column_families*/,
+                               const Slice* keys, PinnableSlice* values,
+                               std::string* timestamps, Status* statuses,
+                               const bool /*sorted_input*/) {
   assert(user_comparator_);
-  size_t num_keys = keys.size();
+  Status s;
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+  }
 
-  if (options.timestamp) {
-    Status s = FailIfTsMismatchCf(DefaultColumnFamily(), *(options.timestamp),
-                                  /*ts_for_read=*/true);
-    if (!s.ok()) {
-      return std::vector<Status>(num_keys, s);
+  ReadOptions read_options(_read_options);
+  if (s.ok()) {
+    if (read_options.io_activity == Env::IOActivity::kUnknown) {
+      read_options.io_activity = Env::IOActivity::kMultiGet;
     }
-  } else {
-    Status s = FailIfCfHasTs(DefaultColumnFamily());
-    if (!s.ok()) {
-      return std::vector<Status>(num_keys, s);
+
+    if (read_options.timestamp) {
+      s = FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp));
+      if (s.ok()) {
+        if (read_options.timestamp->size() > 0) {
+          s = FailIfReadCollapsedHistory(cfd_, cfd_->GetSuperVersion(),
+                                         *(read_options.timestamp));
+        }
+      }
+    } else {
+      s = FailIfCfHasTs(DefaultColumnFamily());
     }
+  }
+
+  if (!s.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
   }
 
   // Clear the timestamps for returning results so that we can distinguish
   // between tombstone or key that has never been written
   if (timestamps) {
-    for (auto& ts : *timestamps) {
-      ts.clear();
+    for (size_t i = 0; i < num_keys; ++i) {
+      timestamps[i].clear();
     }
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
   autovector<TableReader*, 16> reader_list;
-  for (const auto& key : keys) {
-    LookupKey lkey(key, kMaxSequenceNumber, options.timestamp);
+  for (size_t i = 0; i < num_keys; ++i) {
+    const Slice& key = keys[i];
+    LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
     const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
     if (user_comparator_->CompareWithoutTimestamp(
             key, /*a_has_ts=*/false,
@@ -145,29 +168,26 @@ std::vector<Status> CompactedDBImpl::MultiGet(
       reader_list.push_back(f.fd.table_reader);
     }
   }
-  std::vector<Status> statuses(num_keys, Status::NotFound());
-  values->resize(num_keys);
-  if (timestamps) {
-    timestamps->resize(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    statuses[i] = Status::NotFound();
   }
   int idx = 0;
   for (auto* r : reader_list) {
     if (r != nullptr) {
-      PinnableSlice pinnable_val;
-      std::string& value = (*values)[idx];
-      LookupKey lkey(keys[idx], kMaxSequenceNumber, options.timestamp);
-      std::string* timestamp = timestamps ? &(*timestamps)[idx] : nullptr;
+      PinnableSlice& pinnable_val = values[idx];
+      LookupKey lkey(keys[idx], kMaxSequenceNumber, read_options.timestamp);
+      std::string* timestamp = timestamps ? &timestamps[idx] : nullptr;
       GetContext get_context(
           user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
           lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
           user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
           nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb);
-      Status s = r->Get(options, lkey.internal_key(), &get_context, nullptr);
-      assert(static_cast<size_t>(idx) < statuses.size());
-      if (!s.ok() && !s.IsNotFound()) {
-        statuses[idx] = s;
+      Status status =
+          r->Get(read_options, lkey.internal_key(), &get_context, nullptr);
+      assert(static_cast<size_t>(idx) < num_keys);
+      if (!status.ok() && !status.IsNotFound()) {
+        statuses[idx] = status;
       } else {
-        value.assign(pinnable_val.data(), pinnable_val.size());
         if (get_context.State() == GetContext::kFound) {
           statuses[idx] = Status::OK();
         }
@@ -175,7 +195,6 @@ std::vector<Status> CompactedDBImpl::MultiGet(
     }
     ++idx;
   }
-  return statuses;
 }
 
 Status CompactedDBImpl::Init(const Options& options) {
@@ -254,4 +273,3 @@ Status CompactedDBImpl::Open(const Options& options, const std::string& dbname,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -14,7 +14,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifdef GFLAGS
-#ifndef ROCKSDB_LITE
 
 // TODO: consider using expected_values_dir instead, but this is more
 // convenient for now.
@@ -68,7 +67,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
       std::string id(24U, '\0');
       Slice result;
       for (;;) {
-        s = reader->Read(id.size(), opts, &result, &id[0], /*dbg*/ nullptr);
+        s = reader->Read(id.size(), opts, &result, id.data(), /*dbg*/ nullptr);
         if (!s.ok()) {
           fprintf(stderr, "Error reading unique id file: %s\n",
                   s.ToString().c_str());
@@ -117,9 +116,9 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
       new WritableFileWriter(std::move(file_writer), path_, FileOptions()));
 
   if (size > 0) {
-    st = CopyFile(fs.get(), tmp_path, data_file_writer_, size,
-                  /*use_fsync*/ true, /*io_tracer*/ nullptr,
-                  /*temparature*/ Temperature::kHot);
+    st = CopyFile(fs.get(), tmp_path, Temperature::kUnknown, data_file_writer_,
+                  size,
+                  /*use_fsync*/ true, /*io_tracer*/ nullptr);
     if (!st.ok()) {
       fprintf(stderr, "Error copying contents of old unique id file: %s\n",
               st.ToString().c_str());
@@ -131,8 +130,13 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
 }
 
 UniqueIdVerifier::~UniqueIdVerifier() {
-  IOStatus s = data_file_writer_->Close();
+  ThreadStatus::OperationType cur_op_type =
+      ThreadStatusUtil::GetThreadOperation();
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
+  IOStatus s;
+  s = data_file_writer_->Close(IOOptions());
   assert(s.ok());
+  ThreadStatusUtil::SetThreadOperation(cur_op_type);
 }
 
 void UniqueIdVerifier::VerifyNoWrite(const std::string& id) {
@@ -154,13 +158,14 @@ void UniqueIdVerifier::Verify(const std::string& id) {
   if (id_set_.size() >= 4294967) {
     return;
   }
-  IOStatus s = data_file_writer_->Append(Slice(id));
+  IOOptions opts;
+  IOStatus s = data_file_writer_->Append(opts, Slice(id));
   if (!s.ok()) {
     fprintf(stderr, "Error writing to unique id file: %s\n",
             s.ToString().c_str());
     assert(false);
   }
-  s = data_file_writer_->Flush();
+  s = data_file_writer_->Flush(opts);
   if (!s.ok()) {
     fprintf(stderr, "Error flushing unique id file: %s\n",
             s.ToString().c_str());
@@ -185,7 +190,6 @@ void DbStressListener::VerifyTableFileUniqueId(
   unique_ids_.Verify(id);
 }
 
-#endif  // !ROCKSDB_LITE
 #endif  // GFLAGS
 
 }  // namespace ROCKSDB_NAMESPACE

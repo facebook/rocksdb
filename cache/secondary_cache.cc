@@ -9,24 +9,4 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-size_t SliceSize(void* obj) { return static_cast<Slice*>(obj)->size(); }
-
-Status SliceSaveTo(void* from_obj, size_t from_offset, size_t length,
-                   void* out) {
-  const Slice& slice = *static_cast<Slice*>(from_obj);
-  std::memcpy(out, slice.data() + from_offset, length);
-  return Status::OK();
-}
-
-}  // namespace
-
-Status SecondaryCache::InsertSaved(const Slice& key, const Slice& saved) {
-  static Cache::CacheItemHelper helper{
-      &SliceSize, &SliceSaveTo, GetNoopDeleterForRole<CacheEntryRole::kMisc>()};
-  // NOTE: depends on Insert() being synchronous, not keeping pointer `&saved`
-  return Insert(key, const_cast<Slice*>(&saved), &helper);
-}
-
 }  // namespace ROCKSDB_NAMESPACE

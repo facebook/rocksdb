@@ -16,7 +16,8 @@ commands:
       - run:
           name: Install JDK 8 on macos
           command: |
-            brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+            HOMEBREW_NO_AUTO_UPDATE=1 brew tap bell-sw/liberica
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask liberica-jdk8
 
   increase-max-open-files-on-macos:
     steps:
@@ -53,6 +54,7 @@ commands:
           command: |
             echo "Installing CMake..."
             choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+            choco install liberica8jdk -y
             mkdir $Env:THIRDPARTY_HOME
             cd $Env:THIRDPARTY_HOME
             echo "Building Snappy dependency..."
@@ -66,9 +68,10 @@ commands:
       - run:
           name: "Build RocksDB"
           command: |
+            $env:Path = $env:JAVA_HOME + ";" + $env:Path
             mkdir build
             cd build
-            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DJNI=1 ..
             cd ..
             echo "Building with VS version: $Env:CMAKE_GENERATOR"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
@@ -77,6 +80,11 @@ commands:
           shell: powershell.exe
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
+      - run:
+          name: "Test RocksJava"
+          command: |
+            cd build\java
+            & $Env:CTEST_BIN -C Debug -j 16
   pre-steps-macos:
       steps:
         - pre-steps
@@ -104,6 +112,15 @@ commands:
           path: /tmp/core_dumps
           when: on_fail
 
+  post-pmd-steps:
+    steps:
+      - store_artifacts:
+          path: /home/circleci/project/java/target/pmd.xml
+          when: on_fail
+      - store_artifacts:
+          path: /home/circleci/project/java/target/site
+          when: on_fail
+
   upgrade-cmake:
     steps:
       - run:
@@ -125,6 +142,16 @@ commands:
           name: Install gflags on macos
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
+
+  install-maven:
+    steps:
+      - run:
+          name: Install Maven
+          command: |
+            wget --no-check-certificate https://dlcdn.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
+            tar zxf apache-maven-3.9.6-bin.tar.gz
+            echo "export M2_HOME=$(pwd)/apache-maven-3.9.6" >> $BASH_ENV
+            echo 'export PATH=$M2_HOME/bin:$PATH' >> $BASH_ENV
 
   setup-folly:
     steps:
@@ -152,15 +179,15 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 20000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             # How long to run parts of the test(s)
-            DURATION_RO: 400
-            DURATION_RW: 700
+            DURATION_RO: 300
+            DURATION_RW: 500
             # Keep threads within physical capacity of server (much lower than default)
             NUM_THREADS: 1
-            MAX_BACKGROUND_JOBS: 3
+            MAX_BACKGROUND_JOBS: 4
             # Don't run a couple of "optional" initial tests
             CI_TESTS_ONLY: "true"
             # Reduce configured size of levels to ensure more levels in the leveled compaction LSM tree
@@ -170,7 +197,11 @@ commands:
             # The benchmark host has 32GB memory
             # The following values are tailored to work with that
             # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
-
+            COMPRESSION_TYPE: "none"
+            CACHE_INDEX_AND_FILTER_BLOCKS: 1
+            MIN_LEVEL_TO_COMPRESS: 3
+            CACHE_SIZE_MB: 10240
+            MB_WRITE_PER_SEC: 2
 
   post-benchmarks:
     steps:
@@ -201,25 +232,29 @@ executors:
       #  $ docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -it zjay437/rocksdb:0.5 bash
       # option `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined` is used to enable gdb to attach an existing process
       - image: zjay437/rocksdb:0.6
+  linux-java-docker:
+    docker:
+      # This is the Docker Image used for building RocksJava releases, see: https://github.com/evolvedbinary/docker-rocksjava
+      - image: evolvedbinary/rocksjava:centos6_x64-be
 
 jobs:
   build-macos:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=32 -j32 all
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j16 all
       - post-steps
 
   build-macos-cmake:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     parameters:
       run_even_tests:
         description: run even or odd tests, used to split tests to 2 groups
@@ -235,20 +270,20 @@ jobs:
           command: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
       - run:
           name: "Build tests"
-          command: cd build && make V=1 -j32
+          command: cd build && make V=1 -j16
       - when:
           condition: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run even tests"
-                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 0,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 0,,2
       - when:
           condition:
             not: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run odd tests"
-                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 1,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,2
       - post-steps
 
   build-linux:
@@ -269,12 +304,12 @@ jobs:
           ./sst_dump --help | grep -E -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
       - post-steps
 
-  build-linux-shared_lib-alt_namespace-status_checked:
+  build-linux-static_lib-alt_namespace-status_checked:
     executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check
+      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
       - post-steps
 
   build-linux-release:
@@ -282,11 +317,21 @@ jobs:
     resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
+      - run: make V=1 -j32 LIB_MODE=shared release
+      - run: ls librocksdb.so # ensure shared lib built
+      - run: ./db_stress --version # ensure with gflags
+      - run: make clean
       - run: make V=1 -j32 release
+      - run: ls librocksdb.a # ensure static lib built
       - run: ./db_stress --version # ensure with gflags
       - run: make clean
       - run: apt-get remove -y libgflags-dev
+      - run: make V=1 -j32 LIB_MODE=shared release
+      - run: ls librocksdb.so # ensure shared lib built
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
+      - run: make clean
       - run: make V=1 -j32 release
+      - run: ls librocksdb.a # ensure static lib built
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
@@ -301,27 +346,6 @@ jobs:
       - run: apt-get remove -y libgflags-dev
       - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-
-  build-linux-lite:
-    executor: linux-docker
-    resource_class: large
-    steps:
-      - pre-steps
-      - run: LITE=1 make V=1 J=8 -j8 check
-      - post-steps
-
-  build-linux-lite-release:
-    executor: linux-docker
-    resource_class: large
-    steps:
-      - checkout # check out the code in the project directory
-      - run: LITE=1 make V=1 -j8 release
-      - run: ./db_stress --version # ensure with gflags
-      - run: make clean
-      - run: apt-get remove -y libgflags-dev
-      - run: LITE=1 make V=1 -j8 release
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - post-steps
 
   build-linux-clang-no_test_run:
     executor: linux-docker
@@ -427,7 +451,10 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
-      - run: make V=1 -j8 unity_test
+      - run:
+          name: "Unity build"
+          command: make V=1 -j8 unity_test
+          no_output_timeout: 20m
       - run: make V=1 -j8 -k check-headers # could be moved to a different build
       - post-steps
 
@@ -438,7 +465,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   build-linux-gcc-7-with-folly-lite-no-test:
@@ -484,7 +511,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
+      - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   build-linux-clang-13-no_test_run:
@@ -503,7 +530,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
+      - run: CC=clang-13 CXX=clang++-13 LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
@@ -530,7 +557,7 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 blackbox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800' blackbox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
 
@@ -541,9 +568,27 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 whitebox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800' whitebox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
+
+  build-windows-vs2022-avx2:
+    executor:
+      name: win/server-2022
+      size: 2xlarge
+    environment:
+      THIRDPARTY_HOME: C:/Users/circleci/thirdparty
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
+      JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: AVX2
+    steps:
+      - windows-build-steps
 
   build-windows-vs2022:
     executor:
@@ -553,10 +598,13 @@ jobs:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
+      JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
       CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: 1
     steps:
       - windows-build-steps
 
@@ -568,15 +616,18 @@ jobs:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
+      JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
       CMAKE_GENERATOR: Visual Studio 16 2019
+      CMAKE_PORTABLE: 1
     steps:
       - windows-build-steps
 
   build-linux-java:
-    executor: linux-docker
+    executor: linux-java-docker
     resource_class: large
     steps:
       - pre-steps
@@ -589,11 +640,29 @@ jobs:
             which javac && javac -version
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 jtest'
       - post-steps
 
+  build-linux-java-pmd:
+    executor: linux-java-docker
+    resource_class: large
+    steps:
+      - pre-steps
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - install-maven
+      - run:
+          name: "PMD RocksDBJava"
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 jpmd'
+      - post-pmd-steps
+
   build-linux-java-static:
-    executor: linux-docker
+    executor: linux-java-docker
     resource_class: large
     steps:
       - pre-steps
@@ -606,15 +675,15 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
       - post-steps
 
   build-macos-java:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
@@ -636,10 +705,10 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
@@ -661,10 +730,10 @@ jobs:
 
   build-macos-java-static-universal:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
@@ -809,68 +878,11 @@ jobs:
       - perform-benchmarks
       - post-benchmarks
 
-workflows:
+workflows: # Only jobs that haven't been successfully migrated to GitHub Actions
   version: 2
-  jobs-linux-run-tests:
-    jobs:
-      - build-linux
-      - build-linux-cmake-with-folly
-      - build-linux-cmake-with-folly-lite-no-test
-      - build-linux-gcc-7-with-folly
-      - build-linux-gcc-7-with-folly-lite-no-test
-      - build-linux-cmake-with-folly-coroutines
-      - build-linux-cmake-with-benchmark
-      - build-linux-encrypted_env-no_compression
-      - build-linux-lite
-  jobs-linux-run-tests-san:
-    jobs:
-      - build-linux-clang10-asan
-      - build-linux-clang10-ubsan
-      - build-linux-clang10-mini-tsan
-      - build-linux-shared_lib-alt_namespace-status_checked
-  jobs-linux-no-test-run:
-    jobs:
-      - build-linux-release
-      - build-linux-release-rtti
-      - build-linux-lite-release
-      - build-examples
-      - build-fuzzers
-      - build-linux-clang-no_test_run
-      - build-linux-clang-13-no_test_run
-      - build-linux-gcc-8-no_test_run
-      - build-linux-gcc-10-cxx20-no_test_run
-      - build-linux-gcc-11-no_test_run
-      - build-linux-arm-cmake-no_test_run
-  jobs-linux-other-checks:
-    jobs:
-      - build-linux-clang10-clang-analyze
-      - build-linux-unity-and-headers
-      - build-linux-mini-crashtest
-  jobs-windows:
-    jobs:
-      - build-windows-vs2022
-      - build-windows-vs2019
-      - build-cmake-mingw
-  jobs-java:
-    jobs:
-      - build-linux-java
-      - build-linux-java-static
-      - build-macos-java
-      - build-macos-java-static
-      - build-macos-java-static-universal
-  jobs-macos:
-    jobs:
-      - build-macos
-      - build-macos-cmake:
-          run_even_tests: true
-      - build-macos-cmake:
-          run_even_tests: false
   jobs-linux-arm:
     jobs:
       - build-linux-arm
-  build-fuzzers:
-    jobs:
-      - build-fuzzers
   benchmark-linux:
     triggers:
       - schedule:
@@ -890,9 +902,4 @@ workflows:
               only:
                 - main
     jobs:
-      - build-format-compatible
       - build-linux-arm-test-full
-      - build-linux-run-microbench
-      - build-linux-non-shm
-      - build-linux-clang-13-asan-ubsan-with-folly
-      - build-linux-valgrind

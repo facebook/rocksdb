@@ -77,7 +77,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
 
   for (int i = 0; i < num_writes; i++) {
     if (num_trigger_flush > 0 && i != 0 && i % num_trigger_flush == 0) {
-      db->Flush(FlushOptions());
+      ASSERT_OK(db->Flush(FlushOptions()));
     }
 
     int type = rnd->Uniform(2);
@@ -156,6 +156,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
         if (map.find(key) == map.end()) {
           ASSERT_TRUE(status.IsNotFound());
         } else {
+          ASSERT_OK(status);
           ASSERT_EQ(map[key], result);
         }
         break;
@@ -164,11 +165,12 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
     AssertItersEqual(iter.get(), result_iter.get());
     is_valid = iter->Valid();
   }
+  ASSERT_OK(iter->status());
 }
 
 class DoubleComparator : public Comparator {
  public:
-  DoubleComparator() {}
+  DoubleComparator() = default;
 
   const char* Name() const override { return "DoubleComparator"; }
 
@@ -196,7 +198,7 @@ class DoubleComparator : public Comparator {
 
 class HashComparator : public Comparator {
  public:
-  HashComparator() {}
+  HashComparator() = default;
 
   const char* Name() const override { return "HashComparator"; }
 
@@ -219,7 +221,7 @@ class HashComparator : public Comparator {
 
 class TwoStrComparator : public Comparator {
  public:
-  TwoStrComparator() {}
+  TwoStrComparator() = default;
 
   const char* Name() const override { return "TwoStrComparator"; }
 
@@ -370,7 +372,7 @@ TEST_P(ComparatorDBTest, Uint64Comparator) {
       uint64_t r = rnd64.Next();
       std::string str;
       str.resize(8);
-      memcpy(&str[0], static_cast<void*>(&r), 8);
+      memcpy(str.data(), static_cast<void*>(&r), 8);
       source_strings.push_back(str);
     }
 

@@ -45,10 +45,10 @@ class DBBlobIndexTest : public DBTestBase {
   DBBlobIndexTest() : DBTestBase("db_blob_index_test", /*env_do_fsync=*/true) {}
 
   ColumnFamilyHandle* cfh() { return dbfull()->DefaultColumnFamily(); }
-
-  ColumnFamilyData* cfd() {
-    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh())->cfd();
+  ColumnFamilyHandleImpl* cfh_impl() {
+    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh());
   }
+  ColumnFamilyData* cfd() { return cfh_impl()->cfd(); }
 
   Status PutBlobIndex(WriteBatch* batch, const Slice& key,
                       const Slice& blob_index) {
@@ -96,9 +96,11 @@ class DBBlobIndexTest : public DBTestBase {
   }
 
   ArenaWrappedDBIter* GetBlobIterator() {
-    return dbfull()->NewIteratorImpl(
-        ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
-        nullptr /*read_callback*/, true /*expose_blob_index*/);
+    DBImpl* db_impl = dbfull();
+    return db_impl->NewIteratorImpl(
+        ReadOptions(), cfh_impl(), cfd()->GetReferencedSuperVersion(db_impl),
+        db_impl->GetLatestSequenceNumber(), nullptr /*read_callback*/,
+        true /*expose_blob_index*/);
   }
 
   Options GetTestOptions() {
@@ -131,9 +133,7 @@ class DBBlobIndexTest : public DBTestBase {
         ASSERT_OK(Flush());
         ASSERT_OK(
             dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-#ifndef ROCKSDB_LITE
         ASSERT_EQ("0,1", FilesPerLevel());
-#endif  // !ROCKSDB_LITE
         break;
     }
   }
@@ -323,8 +323,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
   auto check_is_blob = [&](bool is_blob) {
     return [is_blob](Iterator* iterator) {
-      ASSERT_EQ(is_blob,
-                reinterpret_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
+      ASSERT_EQ(is_blob, static_cast<ArenaWrappedDBIter*>(iterator)->IsBlob());
     };
   };
 
@@ -459,7 +458,6 @@ TEST_F(DBBlobIndexTest, Iterate) {
     verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
            create_blob_iterator, check_is_blob(false));
 
-#ifndef ROCKSDB_LITE
     // Iterator with blob support and using seek.
     ASSERT_OK(dbfull()->SetOptions(
         cfh(), {{"max_sequential_skip_in_iterations", "0"}}));
@@ -484,7 +482,6 @@ TEST_F(DBBlobIndexTest, Iterate) {
            create_blob_iterator, check_is_blob(false));
     verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
            create_blob_iterator, check_is_blob(false));
-#endif  // !ROCKSDB_LITE
 
     for (auto* snapshot : snapshots) {
       dbfull()->ReleaseSnapshot(snapshot);
@@ -584,12 +581,10 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
   Status expected_status;
   verify(1, expected_status, expected_value);
 
-#ifndef ROCKSDB_LITE
   // Test DBIter::FindValueForCurrentKeyUsingSeek flow.
   ASSERT_OK(dbfull()->SetOptions(cfh(),
                                  {{"max_sequential_skip_in_iterations", "0"}}));
   verify(1, expected_status, expected_value);
-#endif  // !ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -10,6 +10,7 @@
 #include "rocksdb/filter_policy.h"
 
 #include <array>
+#include <atomic>
 #include <climits>
 #include <cstring>
 #include <deque>
@@ -24,6 +25,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -70,9 +72,9 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
         detect_filter_construct_corruption_(
             detect_filter_construct_corruption) {}
 
-  ~XXPH3FilterBitsBuilder() override {}
+  ~XXPH3FilterBitsBuilder() override = default;
 
-  virtual void AddKey(const Slice& key) override {
+  void AddKey(const Slice& key) override {
     uint64_t hash = GetSliceHash64(key);
     // Especially with prefixes, it is common to have repetition,
     // though only adjacent repetition, which we want to immediately
@@ -98,11 +100,11 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     }
   }
 
-  virtual size_t EstimateEntriesAdded() override {
+  size_t EstimateEntriesAdded() override {
     return hash_entries_info_.entries.size();
   }
 
-  virtual Status MaybePostVerify(const Slice& filter_content) override;
+  Status MaybePostVerify(const Slice& filter_content) override;
 
  protected:
   static constexpr uint32_t kMetadataLen = 5;
@@ -319,16 +321,15 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
   FastLocalBloomBitsBuilder(const FastLocalBloomBitsBuilder&) = delete;
   void operator=(const FastLocalBloomBitsBuilder&) = delete;
 
-  ~FastLocalBloomBitsBuilder() override {}
+  ~FastLocalBloomBitsBuilder() override = default;
 
   using FilterBitsBuilder::Finish;
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf) override {
     return Finish(buf, nullptr);
   }
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
-                       Status* status) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf, Status* status) override {
     size_t num_entries = hash_entries_info_.entries.size();
     size_t len_with_metadata = CalculateSpace(num_entries);
 
@@ -424,6 +425,9 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
   }
 
   double EstimatedFpRate(size_t keys, size_t len_with_metadata) override {
+    if (len_with_metadata <= kMetadataLen) {
+      return keys > 0 ? 1.0 : 0.0;
+    }
     int num_probes = GetNumProbes(keys, len_with_metadata);
     return FastLocalBloomImpl::EstimatedFpRate(
         keys, len_with_metadata - kMetadataLen, num_probes, /*hash bits*/ 64);
@@ -523,7 +527,7 @@ class FastLocalBloomBitsReader : public BuiltinFilterBitsReader {
   FastLocalBloomBitsReader(const FastLocalBloomBitsReader&) = delete;
   void operator=(const FastLocalBloomBitsReader&) = delete;
 
-  ~FastLocalBloomBitsReader() override {}
+  ~FastLocalBloomBitsReader() override = default;
 
   bool MayMatch(const Slice& key) override {
     uint64_t h = GetSliceHash64(key);
@@ -534,7 +538,7 @@ class FastLocalBloomBitsReader : public BuiltinFilterBitsReader {
                                                     data_ + byte_offset);
   }
 
-  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+  void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {
@@ -604,16 +608,15 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
   Standard128RibbonBitsBuilder(const Standard128RibbonBitsBuilder&) = delete;
   void operator=(const Standard128RibbonBitsBuilder&) = delete;
 
-  ~Standard128RibbonBitsBuilder() override {}
+  ~Standard128RibbonBitsBuilder() override = default;
 
   using FilterBitsBuilder::Finish;
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf) override {
     return Finish(buf, nullptr);
   }
 
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
-                       Status* status) override {
+  Slice Finish(std::unique_ptr<const char[]>* buf, Status* status) override {
     if (hash_entries_info_.entries.size() > kMaxRibbonEntries) {
       ROCKS_LOG_WARN(
           info_log_, "Too many keys for Ribbon filter: %llu",
@@ -891,6 +894,9 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 
   double EstimatedFpRate(size_t num_entries,
                          size_t len_with_metadata) override {
+    if (len_with_metadata <= kMetadataLen) {
+      return num_entries > 0 ? 1.0 : 0.0;
+    }
     if (num_entries > kMaxRibbonEntries) {
       // More entries than supported by this Ribbon
       return bloom_fallback_.EstimatedFpRate(num_entries, len_with_metadata);
@@ -965,14 +971,14 @@ class Standard128RibbonBitsReader : public BuiltinFilterBitsReader {
   Standard128RibbonBitsReader(const Standard128RibbonBitsReader&) = delete;
   void operator=(const Standard128RibbonBitsReader&) = delete;
 
-  ~Standard128RibbonBitsReader() override {}
+  ~Standard128RibbonBitsReader() override = default;
 
   bool MayMatch(const Slice& key) override {
     uint64_t h = GetSliceHash64(key);
     return soln_.FilterQuery(h, hasher_);
   }
 
-  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+  void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
     struct SavedData {
       uint64_t seeded_hash;
       uint32_t segment_num;
@@ -1018,9 +1024,7 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
   void AddKey(const Slice& key) override;
 
-  virtual size_t EstimateEntriesAdded() override {
-    return hash_entries_.size();
-  }
+  size_t EstimateEntriesAdded() override { return hash_entries_.size(); }
 
   using FilterBitsBuilder::Finish;
 
@@ -1032,9 +1036,12 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     return CalculateSpace(num_entries, &dont_care1, &dont_care2);
   }
 
-  double EstimatedFpRate(size_t keys, size_t bytes) override {
-    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - kMetadataLen,
-                                            num_probes_);
+  double EstimatedFpRate(size_t keys, size_t len_with_metadata) override {
+    if (len_with_metadata <= kMetadataLen) {
+      return keys > 0 ? 1.0 : 0.0;
+    }
+    return LegacyBloomImpl::EstimatedFpRate(
+        keys, len_with_metadata - kMetadataLen, num_probes_);
   }
 
   size_t ApproximateNumEntries(size_t bytes) override;
@@ -1068,7 +1075,7 @@ LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
   assert(bits_per_key_);
 }
 
-LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() {}
+LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() = default;
 
 void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
   uint32_t hash = BloomHash(key);
@@ -1218,7 +1225,7 @@ class LegacyBloomBitsReader : public BuiltinFilterBitsReader {
   LegacyBloomBitsReader(const LegacyBloomBitsReader&) = delete;
   void operator=(const LegacyBloomBitsReader&) = delete;
 
-  ~LegacyBloomBitsReader() override {}
+  ~LegacyBloomBitsReader() override = default;
 
   // "contents" contains the data built by a preceding call to
   // FilterBitsBuilder::Finish. MayMatch must return true if the key was
@@ -1234,7 +1241,7 @@ class LegacyBloomBitsReader : public BuiltinFilterBitsReader {
         hash, num_probes_, data_ + byte_offset, log2_cache_line_size_);
   }
 
-  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+  void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {
@@ -1357,7 +1364,7 @@ BloomLikeFilterPolicy::BloomLikeFilterPolicy(double bits_per_key)
   whole_bits_per_key_ = (millibits_per_key_ + 500) / 1000;
 }
 
-BloomLikeFilterPolicy::~BloomLikeFilterPolicy() {}
+BloomLikeFilterPolicy::~BloomLikeFilterPolicy() = default;
 const char* BloomLikeFilterPolicy::kClassName() {
   return "rocksdb.internal.BloomLikeFilter";
 }
@@ -1730,7 +1737,15 @@ const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
 RibbonFilterPolicy::RibbonFilterPolicy(double bloom_equivalent_bits_per_key,
                                        int bloom_before_level)
     : BloomLikeFilterPolicy(bloom_equivalent_bits_per_key),
-      bloom_before_level_(bloom_before_level) {}
+      bloom_before_level_(bloom_before_level) {
+  static const std::unordered_map<std::string, OptionTypeInfo> type_info = {
+      {"bloom_before_level",
+       {offsetof(class RibbonFilterPolicy, bloom_before_level_),
+        OptionType::kAtomicInt, OptionVerificationType::kNormal,
+        OptionTypeFlags::kMutable}},
+  };
+  RegisterOptions(this, &type_info);
+}
 
 FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
@@ -1738,31 +1753,38 @@ FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
     // "No filter" special case
     return nullptr;
   }
-  // Treat unknown same as bottommost
-  int levelish = INT_MAX;
+  // Treat unknown same as bottommost, INT_MAX - 1.
+  // INT_MAX is reserved for "always use Bloom".
+  int levelish = INT_MAX - 1;
 
-  switch (context.compaction_style) {
-    case kCompactionStyleLevel:
-    case kCompactionStyleUniversal: {
-      if (context.reason == TableFileCreationReason::kFlush) {
-        // Treat flush as level -1
-        assert(context.level_at_creation == 0);
-        levelish = -1;
-      } else if (context.level_at_creation == -1) {
-        // Unknown level
-        assert(levelish == INT_MAX);
-      } else {
-        levelish = context.level_at_creation;
+  int bloom_before_level = bloom_before_level_.load(std::memory_order_relaxed);
+  if (bloom_before_level < INT_MAX) {
+    switch (context.compaction_style) {
+      case kCompactionStyleLevel:
+      case kCompactionStyleUniversal: {
+        if (context.reason == TableFileCreationReason::kFlush) {
+          // Treat flush as level -1
+          assert(context.level_at_creation == 0);
+          levelish = -1;
+        } else if (context.level_at_creation == -1) {
+          // Unknown level
+          assert(levelish == INT_MAX - 1);
+        } else {
+          levelish = context.level_at_creation;
+        }
+        break;
       }
-      break;
+      case kCompactionStyleFIFO:
+      case kCompactionStyleNone:
+        // Treat as bottommost
+        assert(levelish == INT_MAX - 1);
+        break;
     }
-    case kCompactionStyleFIFO:
-    case kCompactionStyleNone:
-      // Treat as bottommost
-      assert(levelish == INT_MAX);
-      break;
+  } else {
+    // INT_MAX == always Bloom
+    assert(levelish < bloom_before_level);
   }
-  if (levelish < bloom_before_level_) {
+  if (levelish < bloom_before_level) {
     return GetFastLocalBloomBuilderWithContext(context);
   } else {
     return GetStandard128RibbonBuilderWithContext(context);
@@ -1771,14 +1793,15 @@ FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
 
 const char* RibbonFilterPolicy::kClassName() { return "ribbonfilter"; }
 const char* RibbonFilterPolicy::kNickName() { return "rocksdb.RibbonFilter"; }
+const char* RibbonFilterPolicy::kName() { return "RibbonFilterPolicy"; }
 
 std::string RibbonFilterPolicy::GetId() const {
   return BloomLikeFilterPolicy::GetId() + ":" +
-         std::to_string(bloom_before_level_);
+         std::to_string(bloom_before_level_.load(std::memory_order_acquire));
 }
 
-const FilterPolicy* NewRibbonFilterPolicy(double bloom_equivalent_bits_per_key,
-                                          int bloom_before_level) {
+FilterPolicy* NewRibbonFilterPolicy(double bloom_equivalent_bits_per_key,
+                                    int bloom_before_level) {
   return new RibbonFilterPolicy(bloom_equivalent_bits_per_key,
                                 bloom_before_level);
 }
@@ -1787,7 +1810,7 @@ FilterBuildingContext::FilterBuildingContext(
     const BlockBasedTableOptions& _table_options)
     : table_options(_table_options) {}
 
-FilterPolicy::~FilterPolicy() {}
+FilterPolicy::~FilterPolicy() = default;
 
 std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
     const std::string& name, double bits_per_key) {
@@ -1809,7 +1832,6 @@ std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
   }
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 static ObjectLibrary::PatternEntry FilterPatternEntryWithBits(
     const char* name) {
@@ -1918,7 +1940,6 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 }  // namespace
-#endif  // ROCKSDB_LITE
 
 Status FilterPolicy::CreateFromString(
     const ConfigOptions& options, const std::string& value,
@@ -1940,16 +1961,11 @@ Status FilterPolicy::CreateFromString(
   } else if (id.empty()) {  // We have no Id but have options.  Not good
     return Status::NotSupported("Cannot reset object ", id);
   } else {
-#ifndef ROCKSDB_LITE
     static std::once_flag loaded;
     std::call_once(loaded, [&]() {
       RegisterBuiltinFilterPolicies(*(ObjectLibrary::Default().get()), "");
     });
     status = options.registry->NewSharedObject(id, policy);
-#else
-    status =
-        Status::NotSupported("Cannot load filter policy in LITE mode ", value);
-#endif  // ROCKSDB_LITE
   }
   if (options.ignore_unsupported_options && status.IsNotSupported()) {
     return Status::OK();

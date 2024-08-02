@@ -3,10 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "utilities/agg_merge/agg_merge.h"
+#include "rocksdb/utilities/agg_merge.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <deque>
 #include <memory>
 #include <type_traits>
@@ -17,14 +16,14 @@
 #include "port/likely.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/utilities/agg_merge.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/coding.h"
+#include "utilities/agg_merge/agg_merge_impl.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 static std::unordered_map<std::string, std::unique_ptr<Aggregator>> func_map;
-const std::string kUnnamedFuncName = "";
+const std::string kUnnamedFuncName;
 const std::string kErrorFuncName = "kErrorFuncName";
 
 Status AddAggregator(const std::string& function_name,
@@ -37,7 +36,7 @@ Status AddAggregator(const std::string& function_name,
   return Status::OK();
 }
 
-AggMergeOperator::AggMergeOperator() {}
+AggMergeOperator::AggMergeOperator() = default;
 
 std::string EncodeAggFuncAndPayloadNoCheck(const Slice& function_name,
                                            const Slice& value) {
@@ -123,7 +122,7 @@ class AggMergeOperator::Accumulator {
       }
       std::swap(scratch_, aggregated_);
       values_.clear();
-      values_.push_back(aggregated_);
+      values_.emplace_back(aggregated_);
       func_ = my_func;
     }
     values_.push_back(my_value);

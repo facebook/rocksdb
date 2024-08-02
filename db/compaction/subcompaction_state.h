@@ -104,7 +104,6 @@ class SubcompactionState {
     penultimate_level_outputs_.RemoveLastEmptyOutput();
   }
 
-#ifndef ROCKSDB_LITE
   void BuildSubcompactionJobInfo(
       SubcompactionJobInfo& subcompaction_job_info) const {
     const Compaction* c = compaction;
@@ -118,7 +117,6 @@ class SubcompactionState {
     subcompaction_job_info.output_level = c->output_level();
     subcompaction_job_info.stats = compaction_job_stats;
   }
-#endif  // !ROCKSDB_LITE
 
   SubcompactionState() = delete;
   SubcompactionState(const SubcompactionState&) = delete;

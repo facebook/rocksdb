@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_dump_tool.h"
 
@@ -56,6 +55,8 @@ void print_help(bool to_stderr) {
 
     --command=check|scan|raw|verify|identify
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
+               When read_num, from and to are not set, it compares the number of keys read with num_entries in table
+               property and will report corruption if there is a mismatch.
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
         verify: Iterate all the blocks in files verifying checksum to detect possible corruption but don't print anything except if a corruption is encountered
@@ -401,7 +402,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     // that whether it is a valid sst or not
     // (A directory "file" is not a valid sst)
     filenames.clear();
-    filenames.push_back(dir_or_file);
+    filenames.emplace_back(dir_or_file);
     dir = false;
   }
 
@@ -418,6 +419,10 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 
     if (dir) {
       filename = std::string(dir_or_file) + "/" + filename;
+    }
+
+    if (command == "verify") {
+      verify_checksum = true;
     }
 
     ROCKSDB_NAMESPACE::SstFileDumper dumper(
@@ -465,7 +470,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
         exit(1);
       } else {
-        fprintf(stdout, "raw dump written to file %s\n", &out_filename[0]);
+        fprintf(stdout, "raw dump written to file %s\n", out_filename.data());
       }
       continue;
     }
@@ -581,4 +586,3 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

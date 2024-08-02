@@ -75,8 +75,8 @@ touch "$OUTPUT"
 echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
-GCC_BASE=`readlink -f $TP2_LATEST/gcc/11.x/centos7-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/12/platform010/*/`
+GCC_BASE=`readlink -f $TP2_LATEST/gcc/11.x/centos8-native/*/`
+CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/15/platform010/*/`
 
 log_header
 log_variable GCC_BASE
@@ -86,7 +86,7 @@ log_variable CLANG_BASE
 get_lib_base libgcc     11.x    platform010
 get_lib_base glibc      2.34    platform010
 get_lib_base snappy     LATEST  platform010
-get_lib_base zlib       LATEST  platform010
+get_lib_base zlib       1.2.8   platform010
 get_lib_base bzip2      LATEST  platform010
 get_lib_base lz4        LATEST  platform010
 get_lib_base zstd       LATEST  platform010
@@ -99,51 +99,8 @@ get_lib_base liburing   LATEST  platform010
 get_lib_base benchmark  LATEST  platform010
 
 get_lib_base kernel-headers fb platform010
-get_lib_base binutils   LATEST centos7-native
+get_lib_base binutils   LATEST centos8-native
 get_lib_base valgrind   LATEST platform010
 get_lib_base lua        5.3.4  platform010
-
-git diff $OUTPUT
-
-
-###########################################################
-#                platform009 dependencies                 #
-###########################################################
-
-OUTPUT="$BASEDIR/dependencies_platform009.sh"
-
-rm -f "$OUTPUT"
-touch "$OUTPUT"
-
-echo "Writing dependencies to $OUTPUT"
-
-# Compilers locations
-GCC_BASE=`readlink -f $TP2_LATEST/gcc/9.x/centos7-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/9.0.0/platform009/*/`
-
-log_header
-log_variable GCC_BASE
-log_variable CLANG_BASE
-
-# Libraries locations
-get_lib_base libgcc     9.x     platform009
-get_lib_base glibc      2.30    platform009
-get_lib_base snappy     LATEST  platform009
-get_lib_base zlib       LATEST  platform009
-get_lib_base bzip2      LATEST  platform009
-get_lib_base lz4        LATEST  platform009
-get_lib_base zstd       LATEST  platform009
-get_lib_base gflags     LATEST  platform009
-get_lib_base jemalloc   LATEST  platform009
-get_lib_base numa       LATEST  platform009
-get_lib_base libunwind  LATEST  platform009
-get_lib_base tbb        2018_U5 platform009
-get_lib_base liburing   LATEST  platform009
-get_lib_base benchmark  LATEST  platform009
-
-get_lib_base kernel-headers fb platform009
-get_lib_base binutils   LATEST centos7-native
-get_lib_base valgrind   LATEST platform009
-get_lib_base lua        5.3.4  platform009
 
 git diff $OUTPUT

@@ -5,8 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <algorithm>
 #include <atomic>
 #include <mutex>
@@ -116,9 +114,12 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
-  virtual Status GetRangeLock(ColumnFamilyHandle* column_family,
-                              const Endpoint& start_key,
-                              const Endpoint& end_key) override;
+  Status GetRangeLock(ColumnFamilyHandle* column_family,
+                      const Endpoint& start_key,
+                      const Endpoint& end_key) override;
+
+  Status CollapseKey(const ReadOptions& options, const Slice& key,
+                     ColumnFamilyHandle* column_family = nullptr) override;
 
  protected:
   // Refer to
@@ -233,6 +234,11 @@ class WriteCommittedTxn : public PessimisticTransaction {
                       PinnableSlice* pinnable_val, bool exclusive,
                       const bool do_validate) override;
 
+  Status GetEntityForUpdate(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableWideColumns* columns, bool exclusive,
+                            bool do_validate) override;
+
   using TransactionBaseImpl::Put;
   // `key` does NOT include timestamp even when it's enabled.
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
@@ -246,6 +252,25 @@ class WriteCommittedTxn : public PessimisticTransaction {
                       const Slice& value) override;
   Status PutUntracked(ColumnFamilyHandle* column_family, const SliceParts& key,
                       const SliceParts& value) override;
+
+  // `key` does NOT include timestamp even when it's enabled.
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns,
+                   bool assume_tracked = false) override {
+    const bool do_validate = !assume_tracked;
+
+    return PutEntityImpl(column_family, key, columns, do_validate,
+                         assume_tracked);
+  }
+
+  Status PutEntityUntracked(ColumnFamilyHandle* column_family, const Slice& key,
+                            const WideColumns& columns) override {
+    constexpr bool do_validate = false;
+    constexpr bool assume_tracked = false;
+
+    return PutEntityImpl(column_family, key, columns, do_validate,
+                         assume_tracked);
+  }
 
   using TransactionBaseImpl::Delete;
   // `key` does NOT include timestamp even when it's enabled.
@@ -286,6 +311,10 @@ class WriteCommittedTxn : public PessimisticTransaction {
                           TValue* value, bool exclusive,
                           const bool do_validate);
 
+  Status PutEntityImpl(ColumnFamilyHandle* column_family, const Slice& key,
+                       const WideColumns& columns, bool do_validate,
+                       bool assume_tracked);
+
   template <typename TKey, typename TOperation>
   Status Operate(ColumnFamilyHandle* column_family, const TKey& key,
                  const bool do_validate, const bool assume_tracked,
@@ -301,6 +330,11 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
   Status RollbackInternal() override;
 
+  // Checks if the combination of `do_validate`, the read timestamp set in
+  // `read_timestamp_` and the `enable_udt_validation` flag in
+  // TransactionDBOptions make sense together.
+  Status SanityCheckReadTimestamp(bool do_validate);
+
   // Column families that enable timestamps and whose data are written when
   // indexing_enabled_ is false. If a key is written when indexing_enabled_ is
   // true, then the corresponding column family is not added to cfs_with_ts
@@ -309,5 +343,3 @@ class WriteCommittedTxn : public PessimisticTransaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

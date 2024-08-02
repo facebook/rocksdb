@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/cuckoo/cuckoo_table_reader.h"
 
 #include <algorithm>
@@ -44,7 +43,7 @@ CuckooTableReader::CuckooTableReader(
       identity_as_first_hash_(false),
       use_module_hash_(false),
       num_hash_func_(0),
-      unused_key_(""),
+
       key_length_(0),
       user_key_length_(0),
       value_length_(0),
@@ -60,8 +59,11 @@ CuckooTableReader::CuckooTableReader(
   }
   {
     std::unique_ptr<TableProperties> props;
-    status_ = ReadTableProperties(file_.get(), file_size,
-                                  kCuckooTableMagicNumber, ioptions, &props);
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    const ReadOptions read_options;
+    status_ =
+        ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
+                            ioptions, read_options, &props);
     if (!status_.ok()) {
       return;
     }
@@ -142,9 +144,8 @@ CuckooTableReader::CuckooTableReader(
       *reinterpret_cast<const uint32_t*>(cuckoo_block_size->second.data());
   cuckoo_block_bytes_minus_one_ = cuckoo_block_size_ * bucket_length_ - 1;
   // TODO: rate limit reads of whole cuckoo tables.
-  status_ =
-      file_->Read(IOOptions(), 0, static_cast<size_t>(file_size), &file_data_,
-                  nullptr, nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+  status_ = file_->Read(IOOptions(), 0, static_cast<size_t>(file_size),
+                        &file_data_, nullptr, nullptr);
 }
 
 Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
@@ -181,9 +182,14 @@ Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
           ParsedInternalKey found_ikey;
           Status s = ParseInternalKey(full_key, &found_ikey,
                                       false /* log_err_key */);  // TODO
-          if (!s.ok()) return s;
+          if (!s.ok()) {
+            return s;
+          }
           bool dont_care __attribute__((__unused__));
-          get_context->SaveValue(found_ikey, value, &dont_care);
+          get_context->SaveValue(found_ikey, value, &dont_care, &s);
+          if (!s.ok()) {
+            return s;
+          }
         }
         // We don't support merge operations. So, we return here.
         return Status::OK();
@@ -212,7 +218,7 @@ class CuckooTableIterator : public InternalIterator {
   // No copying allowed
   CuckooTableIterator(const CuckooTableIterator&) = delete;
   void operator=(const Iterator&) = delete;
-  ~CuckooTableIterator() override {}
+  ~CuckooTableIterator() override = default;
   bool Valid() const override;
   void SeekToFirst() override;
   void SeekToLast() override;
@@ -408,4 +414,3 @@ InternalIterator* CuckooTableReader::NewIterator(
 size_t CuckooTableReader::ApproximateMemoryUsage() const { return 0; }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif

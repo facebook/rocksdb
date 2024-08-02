@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <atomic>
@@ -50,7 +49,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/math.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
@@ -385,7 +384,7 @@ class BackupEngineImpl {
     BackupMeta(const BackupMeta&) = delete;
     BackupMeta& operator=(const BackupMeta&) = delete;
 
-    ~BackupMeta() {}
+    ~BackupMeta() = default;
 
     void RecordTimestamp() {
       // Best effort
@@ -640,11 +639,9 @@ class BackupEngineImpl {
     std::string db_session_id;
 
     CopyOrCreateWorkItem()
-        : src_path(""),
-          dst_path(""),
-          src_temperature(Temperature::kUnknown),
+        : src_temperature(Temperature::kUnknown),
           dst_temperature(Temperature::kUnknown),
-          contents(""),
+
           src_env(nullptr),
           dst_env(nullptr),
           src_env_options(),
@@ -652,10 +649,7 @@ class BackupEngineImpl {
           rate_limiter(nullptr),
           size_limit(0),
           stats(nullptr),
-          src_checksum_func_name(kUnknownFileChecksumFuncName),
-          src_checksum_hex(""),
-          db_id(""),
-          db_session_id("") {}
+          src_checksum_func_name(kUnknownFileChecksumFuncName) {}
 
     CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
     CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
@@ -728,12 +722,7 @@ class BackupEngineImpl {
     std::string dst_path;
     std::string dst_relative;
     BackupAfterCopyOrCreateWorkItem()
-        : shared(false),
-          needed_to_copy(false),
-          backup_env(nullptr),
-          dst_path_tmp(""),
-          dst_path(""),
-          dst_relative("") {}
+        : shared(false), needed_to_copy(false), backup_env(nullptr) {}
 
     BackupAfterCopyOrCreateWorkItem(
         BackupAfterCopyOrCreateWorkItem&& o) noexcept {
@@ -774,7 +763,7 @@ class BackupEngineImpl {
     std::string from_file;
     std::string to_file;
     std::string checksum_hex;
-    RestoreAfterCopyOrCreateWorkItem() : checksum_hex("") {}
+    RestoreAfterCopyOrCreateWorkItem() {}
     RestoreAfterCopyOrCreateWorkItem(std::future<CopyOrCreateResult>&& _result,
                                      const std::string& _from_file,
                                      const std::string& _to_file,
@@ -875,7 +864,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   BackupEngineImplThreadSafe(const BackupEngineOptions& options, Env* db_env,
                              bool read_only = false)
       : impl_(options, db_env, read_only) {}
-  ~BackupEngineImplThreadSafe() override {}
+  ~BackupEngineImplThreadSafe() override = default;
 
   using BackupEngine::CreateNewBackupWithMetadata;
   IOStatus CreateNewBackupWithMetadata(const CreateBackupOptions& options,
@@ -1557,11 +1546,10 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
   }
   ROCKS_LOG_INFO(options_.info_log,
                  "dispatch files for backup done, wait for finish.");
-  IOStatus item_io_status;
   for (auto& item : backup_items_to_finish) {
     item.result.wait();
     auto result = item.result.get();
-    item_io_status = result.io_status;
+    IOStatus item_io_status = result.io_status;
     Temperature temp = result.expected_src_temperature;
     if (result.current_src_temperature != Temperature::kUnknown &&
         (temp == Temperature::kUnknown ||
@@ -1578,13 +1566,14 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           result.db_session_id, temp));
     }
     if (!item_io_status.ok()) {
-      io_s = item_io_status;
+      io_s = std::move(item_io_status);
+      io_s.MustCheck();
     }
   }
 
   // we copied all the files, enable file deletions
   if (disabled.ok()) {  // If we successfully disabled file deletions
-    db->EnableFileDeletions(false).PermitUncheckedError();
+    db->EnableFileDeletions().PermitUncheckedError();
   }
   auto backup_time = backup_env_->NowMicros() - start_backup;
 
@@ -2196,6 +2185,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
       rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
                    : kDefaultCopyFileBufferSize;
 
+  // TODO: pass in Histograms if the destination file is sst or blob
   std::unique_ptr<WritableFileWriter> dest_writer(
       new WritableFileWriter(std::move(dst_file), dst, dst_file_options));
   std::unique_ptr<SequentialFileReader> src_reader;
@@ -2210,6 +2200,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   }
 
   Slice data;
+  const IOOptions opts;
   do {
     if (stop_backup_.load(std::memory_order_acquire)) {
       return status_to_io_status(Status::Incomplete("Backup stopped"));
@@ -2239,7 +2230,8 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     if (checksum_hex != nullptr) {
       checksum_value = crc32c::Extend(checksum_value, data.data(), data.size());
     }
-    io_s = dest_writer->Append(data);
+
+    io_s = dest_writer->Append(opts, data);
 
     if (rate_limiter != nullptr) {
       if (!src.empty()) {
@@ -2276,10 +2268,10 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   }
 
   if (io_s.ok() && sync) {
-    io_s = dest_writer->Sync(false);
+    io_s = dest_writer->Sync(opts, false);
   }
   if (io_s.ok()) {
-    io_s = dest_writer->Close();
+    io_s = dest_writer->Close(opts);
   }
   return io_s;
 }
@@ -2330,11 +2322,20 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     if (GetNamingNoFlags() != BackupEngineOptions::kLegacyCrc32cAndFileSize &&
         file_type != kBlobFile) {
       // Prepare db_session_id to add to the file name
-      // Ignore the returned status
-      // In the failed cases, db_id and db_session_id will be empty
-      GetFileDbIdentities(db_env_, src_env_options, src_path, src_temperature,
-                          rate_limiter, &db_id, &db_session_id)
-          .PermitUncheckedError();
+      Status s = GetFileDbIdentities(db_env_, src_env_options, src_path,
+                                     src_temperature, rate_limiter, &db_id,
+                                     &db_session_id);
+      if (s.IsPathNotFound()) {
+        // Retry with any temperature
+        s = GetFileDbIdentities(db_env_, src_env_options, src_path,
+                                Temperature::kUnknown, rate_limiter, &db_id,
+                                &db_session_id);
+      }
+      if (s.IsNotFound()) {
+        // db_id and db_session_id will be empty, which is OK for old files
+      } else if (!s.ok()) {
+        return status_to_io_status(std::move(s));
+      }
     }
     // Calculate checksum if checksum and db session id are not available.
     // If db session id is available, we will not calculate the checksum
@@ -2592,7 +2593,7 @@ Status BackupEngineImpl::GetFileDbIdentities(
   SstFileDumper sst_reader(options, file_path, file_temp,
                            2 * 1024 * 1024
                            /* readahead_size */,
-                           false /* verify_checksum */, false /* output_hex */,
+                           true /* verify_checksum */, false /* output_hex */,
                            false /* decode_blob_index */, src_env_options,
                            true /* silent */);
 
@@ -2603,6 +2604,7 @@ Status BackupEngineImpl::GetFileDbIdentities(
   if (s.ok()) {
     // Try to get table properties from the table reader of sst_reader
     if (!sst_reader.ReadTableProperties(&tp).ok()) {
+      // FIXME (peterd): this logic is untested and seems obsolete.
       // Try to use table properites from the initialization of sst_reader
       table_properties = sst_reader.GetInitTableProperties();
     } else {
@@ -3353,5 +3355,3 @@ void TEST_SetDefaultRateLimitersClock(
                                          restore_rate_limiter_clock);
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

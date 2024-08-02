@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "block_cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -30,7 +31,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
       const bool use_value_delta_encoding,
       PartitionedIndexBuilder* const p_index_builder,
-      const uint32_t partition_size);
+      const uint32_t partition_size, size_t ts_sz,
+      const bool persist_user_defined_timestamps);
 
   virtual ~PartitionedFilterBlockBuilder();
 
@@ -38,11 +40,10 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   void Add(const Slice& key) override;
   size_t EstimateEntriesAdded() override;
 
-  virtual Slice Finish(
-      const BlockHandle& last_partition_block_handle, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  Slice Finish(const BlockHandle& last_partition_block_handle, Status* status,
+               std::unique_ptr<const char[]>* filter_data = nullptr) override;
 
-  virtual void ResetFilterBitsBuilder() override {
+  void ResetFilterBitsBuilder() override {
     // Previously constructed partitioned filters by
     // this to-be-reset FiterBitsBuilder can also be
     // cleared
@@ -54,8 +55,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // as part of PartitionFilterBlockBuilder::Finish
   // to avoid implementation complexity of doing it elsewhere.
   // Therefore we are skipping it in here.
-  virtual Status MaybePostVerifyFilter(
-      const Slice& /* filter_content */) override {
+  Status MaybePostVerifyFilter(const Slice& /* filter_content */) override {
     return Status::OK();
   }
 
@@ -99,75 +99,78 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   BlockHandle last_encoded_handle_;
 };
 
-class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
+class PartitionedFilterBlockReader
+    : public FilterBlockReaderCommon<Block_kFilterPartitionIndex> {
  public:
-  PartitionedFilterBlockReader(const BlockBasedTable* t,
-                               CachableEntry<Block>&& filter_block);
+  PartitionedFilterBlockReader(
+      const BlockBasedTable* t,
+      CachableEntry<Block_kFilterPartitionIndex>&& filter_block);
 
   static std::unique_ptr<FilterBlockReader> Create(
       const BlockBasedTable* table, const ReadOptions& ro,
       FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
       bool pin, BlockCacheLookupContext* lookup_context);
 
-  bool KeyMayMatch(const Slice& key, const bool no_io,
-                   const Slice* const const_ikey_ptr, GetContext* get_context,
+  bool KeyMayMatch(const Slice& key, const Slice* const const_ikey_ptr,
+                   GetContext* get_context,
                    BlockCacheLookupContext* lookup_context,
-                   Env::IOPriority rate_limiter_priority) override;
-  void KeysMayMatch(MultiGetRange* range, const bool no_io,
+                   const ReadOptions& read_options) override;
+  void KeysMayMatch(MultiGetRange* range,
                     BlockCacheLookupContext* lookup_context,
-                    Env::IOPriority rate_limiter_priority) override;
+                    const ReadOptions& read_options) override;
 
-  bool PrefixMayMatch(const Slice& prefix, const bool no_io,
-                      const Slice* const const_ikey_ptr,
+  bool PrefixMayMatch(const Slice& prefix, const Slice* const const_ikey_ptr,
                       GetContext* get_context,
                       BlockCacheLookupContext* lookup_context,
-                      Env::IOPriority rate_limiter_priority) override;
+                      const ReadOptions& read_options) override;
   void PrefixesMayMatch(MultiGetRange* range,
                         const SliceTransform* prefix_extractor,
-                        const bool no_io,
                         BlockCacheLookupContext* lookup_context,
-                        Env::IOPriority rate_limiter_priority) override;
+                        const ReadOptions& read_options) override;
 
   size_t ApproximateMemoryUsage() const override;
 
  private:
-  BlockHandle GetFilterPartitionHandle(const CachableEntry<Block>& filter_block,
-                                       const Slice& entry) const;
+  BlockHandle GetFilterPartitionHandle(
+      const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
+      const Slice& entry) const;
   Status GetFilterPartitionBlock(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& handle,
-      bool no_io, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context,
-      Env::IOPriority rate_limiter_priority,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      const ReadOptions& read_options,
       CachableEntry<ParsedFullFilterBlock>* filter_block) const;
 
   using FilterFunction = bool (FullFilterBlockReader::*)(
-      const Slice& slice, const bool no_io, const Slice* const const_ikey_ptr,
+      const Slice& slice, const Slice* const const_ikey_ptr,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      Env::IOPriority rate_limiter_priority);
-  bool MayMatch(const Slice& slice, bool no_io, const Slice* const_ikey_ptr,
+      const ReadOptions& read_options);
+  bool MayMatch(const Slice& slice, const Slice* const_ikey_ptr,
                 GetContext* get_context,
                 BlockCacheLookupContext* lookup_context,
-                Env::IOPriority rate_limiter_priority,
+                const ReadOptions& read_options,
                 FilterFunction filter_function) const;
   using FilterManyFunction = void (FullFilterBlockReader::*)(
       MultiGetRange* range, const SliceTransform* prefix_extractor,
-      const bool no_io, BlockCacheLookupContext* lookup_context,
-      Env::IOPriority rate_limiter_priority);
+      BlockCacheLookupContext* lookup_context, const ReadOptions& read_options);
   void MayMatch(MultiGetRange* range, const SliceTransform* prefix_extractor,
-                bool no_io, BlockCacheLookupContext* lookup_context,
-                Env::IOPriority rate_limiter_priority,
+                BlockCacheLookupContext* lookup_context,
+                const ReadOptions& read_options,
                 FilterManyFunction filter_function) const;
   void MayMatchPartition(MultiGetRange* range,
                          const SliceTransform* prefix_extractor,
-                         BlockHandle filter_handle, bool no_io,
+                         BlockHandle filter_handle,
                          BlockCacheLookupContext* lookup_context,
-                         Env::IOPriority rate_limiter_priority,
+                         const ReadOptions& read_options,
                          FilterManyFunction filter_function) const;
-  Status CacheDependencies(const ReadOptions& ro, bool pin) override;
+  Status CacheDependencies(const ReadOptions& ro, bool pin,
+                           FilePrefetchBuffer* tail_prefetch_buffer) override;
+  void EraseFromCacheBeforeDestruction(
+      uint32_t /*uncache_aggressiveness*/) override;
 
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;
   bool index_value_is_full() const;
+  bool user_defined_timestamps_persisted() const;
 
  protected:
   // For partition blocks pinned in cache. Can be a subset of blocks

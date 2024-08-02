@@ -87,6 +87,10 @@ class WriteBatchInternal {
   static Status Put(WriteBatch* batch, uint32_t column_family_id,
                     const SliceParts& key, const SliceParts& value);
 
+  static Status TimedPut(WriteBatch* batch, uint32_t column_family_id,
+                         const Slice& key, const Slice& value,
+                         uint64_t unix_write_time);
+
   static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
                           const Slice& key, const WideColumns& columns);
 
@@ -223,6 +227,9 @@ class WriteBatchInternal {
   // state meant to be used only during recovery.
   static void SetAsLatestPersistentState(WriteBatch* b);
   static bool IsLatestPersistentState(const WriteBatch* b);
+
+  static void SetDefaultColumnFamilyTimestampSize(WriteBatch* wb,
+                                                  size_t default_cf_ts_sz);
 
   static std::tuple<Status, uint32_t, size_t> GetColumnFamilyIdAndTimestampSize(
       WriteBatch* b, ColumnFamilyHandle* column_family);

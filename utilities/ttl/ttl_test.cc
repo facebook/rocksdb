@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include <map>
 #include <memory>
@@ -404,8 +403,10 @@ class TtlTest : public testing::Test {
   DBWithTTL* db_ttl_;
   std::unique_ptr<SpecialTimeEnv> env_;
 
- private:
+ protected:
   Options options_;
+
+ private:
   KVMap kvmap_;
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
@@ -612,6 +613,17 @@ TEST_F(TtlTest, CompactionFilter) {
   CloseTtl();
 }
 
+TEST_F(TtlTest, UnregisteredMergeOperator) {
+  class UnregisteredMergeOperator : public MergeOperator {
+   public:
+    const char* Name() const override { return "UnregisteredMergeOperator"; }
+  };
+  options_.fail_if_options_file_error = true;
+  options_.merge_operator = std::make_shared<UnregisteredMergeOperator>();
+  OpenTtl();
+  CloseTtl();
+}
+
 // Insert some key-values which KeyMayExist should be able to get and check that
 // values returned are fine
 TEST_F(TtlTest, KeyMayExist) {
@@ -636,13 +648,24 @@ TEST_F(TtlTest, MultiGetTest) {
   CloseTtl();
 }
 
+TEST_F(TtlTest, TtlFiftenYears) {
+  MakeKVMap(kSampleSize_);
+  // 15 year will lead int32_t overflow from now
+  const int kFifteenYearSeconds = 86400 * 365 * 15;
+  OpenTtl(kFifteenYearSeconds);
+  PutValues(0, kSampleSize_, true);
+  // trigger the compaction
+  SleepCompactCheck(1, 0, kSampleSize_);
+  CloseTtl();
+}
+
 TEST_F(TtlTest, ColumnFamiliesTest) {
   DB* db;
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
 
-  DB::Open(options, dbname_, &db);
+  ASSERT_OK(DB::Open(options, dbname_, &db));
   ColumnFamilyHandle* handle;
   ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(options),
                                    "ttl_column_family", &handle));
@@ -651,10 +674,10 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
   delete db;
 
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(ColumnFamilyDescriptor(
-      kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
-  column_families.push_back(ColumnFamilyDescriptor(
-      "ttl_column_family", ColumnFamilyOptions(options)));
+  column_families.emplace_back(kDefaultColumnFamilyName,
+                               ColumnFamilyOptions(options));
+  column_families.emplace_back("ttl_column_family",
+                               ColumnFamilyOptions(options));
 
   std::vector<ColumnFamilyHandle*> handles;
 
@@ -891,6 +914,14 @@ TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
   std::shared_ptr<MergeOperator> copy;
   ASSERT_OK(MergeOperator::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(mo->AreEquivalent(config_options_, copy.get(), &mismatch));
+
+  // An unregistered user_operator will be null, which is not supported by the
+  // `TtlMergeOperator` implementation.
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, "id=TtlMergeOperator; user_operator=unknown", &mo));
+  ASSERT_NE(mo.get(), nullptr);
+  ASSERT_STREQ(mo->Name(), TtlMergeOperator::kClassName());
+  ASSERT_NOK(mo->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
 }
 }  // namespace ROCKSDB_NAMESPACE
 
@@ -901,12 +932,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as DBWithTTL is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

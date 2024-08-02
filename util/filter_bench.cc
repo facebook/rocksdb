@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#if !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#if !defined(GFLAGS)
 #include <cstdio>
 int main() {
-  fprintf(stderr, "filter_bench requires gflags and !ROCKSDB_LITE\n");
+  fprintf(stderr, "filter_bench requires gflags\n");
   return 1;
 }
 #else
@@ -726,9 +726,9 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
           } else {
             may_match = info.full_block_reader_->KeyMayMatch(
                 batch_slices[i],
-                /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
-                /*lookup_context=*/nullptr, Env::IO_TOTAL);
+                /*lookup_context=*/nullptr, ROCKSDB_NAMESPACE::ReadOptions());
           }
         } else {
           if (dry_run) {
@@ -837,4 +837,4 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-#endif  // !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#endif  // !defined(GFLAGS)

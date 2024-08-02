@@ -18,7 +18,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
-#include "rocksdb/cache.h"
+#include "cache/typed_cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
@@ -197,10 +197,10 @@ class CacheReservationManagerImpl
 
   static constexpr std::size_t GetDummyEntrySize() { return kSizeDummyEntry; }
 
-  // For testing only - it is to help ensure the NoopDeleterForRole<R>
+  // For testing only - it is to help ensure the CacheItemHelperForRole<R>
   // accessed from CacheReservationManagerImpl and the one accessed from the
   // test are from the same translation units
-  static Cache::DeleterFn TEST_GetNoopDeleterForRole();
+  static const Cache::CacheItemHelper *TEST_GetCacheItemHelperForRole();
 
  private:
   static constexpr std::size_t kSizeDummyEntry = 256 * 1024;
@@ -211,7 +211,8 @@ class CacheReservationManagerImpl
   Status IncreaseCacheReservation(std::size_t new_mem_used);
   Status DecreaseCacheReservation(std::size_t new_mem_used);
 
-  std::shared_ptr<Cache> cache_;
+  using CacheInterface = PlaceholderSharedCacheInterface<R>;
+  CacheInterface cache_;
   bool delayed_decrease_;
   std::atomic<std::size_t> cache_allocated_size_;
   std::size_t memory_used_;
@@ -272,9 +273,10 @@ class ConcurrentCacheReservationManager
     std::size_t total_mem_used = cache_res_mgr_->GetTotalMemoryUsed();
     Status s;
     if (!increase) {
-      assert(total_mem_used >= memory_used_delta);
-      s = cache_res_mgr_->UpdateCacheReservation(total_mem_used -
-                                                 memory_used_delta);
+      s = cache_res_mgr_->UpdateCacheReservation(
+          (total_mem_used > memory_used_delta)
+              ? (total_mem_used - memory_used_delta)
+              : 0);
     } else {
       s = cache_res_mgr_->UpdateCacheReservation(total_mem_used +
                                                  memory_used_delta);

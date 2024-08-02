@@ -5,7 +5,6 @@
 #pragma once
 
 #include "rocksdb/comparator.h"
-#ifndef ROCKSDB_LITE
 
 #include <queue>
 #include <string>
@@ -71,19 +70,19 @@ class ForwardIterator : public InternalIterator {
     valid_ = false;
   }
 
-  virtual bool Valid() const override;
+  bool Valid() const override;
   void SeekToFirst() override;
-  virtual void Seek(const Slice& target) override;
-  virtual void Next() override;
-  virtual Slice key() const override;
-  virtual Slice value() const override;
-  virtual Status status() const override;
-  virtual bool PrepareValue() override;
-  virtual Status GetProperty(std::string prop_name, std::string* prop) override;
-  virtual void SetPinnedItersMgr(
-      PinnedIteratorsManager* pinned_iters_mgr) override;
-  virtual bool IsKeyPinned() const override;
-  virtual bool IsValuePinned() const override;
+  void Seek(const Slice& target) override;
+  void Next() override;
+  Slice key() const override;
+  Slice value() const override;
+  uint64_t write_unix_time() const override;
+  Status status() const override;
+  bool PrepareValue() override;
+  Status GetProperty(std::string prop_name, std::string* prop) override;
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override;
+  bool IsKeyPinned() const override;
+  bool IsValuePinned() const override;
 
   bool TEST_CheckDeletedIters(int* deleted_iters, int* num_iters);
 
@@ -123,7 +122,7 @@ class ForwardIterator : public InternalIterator {
   void DeleteIterator(InternalIterator* iter, bool is_arena = false);
 
   DBImpl* const db_;
-  const ReadOptions read_options_;
+  ReadOptions read_options_;
   ColumnFamilyData* const cfd_;
   const SliceTransform* const prefix_extractor_;
   const Comparator* user_comparator_;
@@ -165,4 +164,3 @@ class ForwardIterator : public InternalIterator {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

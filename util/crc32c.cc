@@ -11,14 +11,9 @@
 // four bytes at a time.
 #include "util/crc32c.h"
 
-#include <stdint.h>
-
 #include <array>
+#include <cstdint>
 #include <utility>
-#ifdef HAVE_SSE42
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-#endif
 
 #include "port/lang.h"
 #include "util/coding.h"
@@ -50,12 +45,18 @@
 
 #endif
 
+ASSERT_FEATURE_COMPAT_HEADER();
+
+#ifdef __SSE4_2__
+#include <nmmintrin.h>
+#include <wmmintrin.h>
+#endif
+
 #if defined(HAVE_ARM64_CRC)
 bool pmull_runtime_flag = false;
 #endif
 
-namespace ROCKSDB_NAMESPACE {
-namespace crc32c {
+namespace ROCKSDB_NAMESPACE::crc32c {
 
 #if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
 #ifdef __powerpc64__
@@ -107,6 +108,7 @@ static const uint32_t table0_[256] = {
     0xf36e6f75, 0x0105ec76, 0x12551f82, 0xe03e9c81, 0x34f4f86a, 0xc69f7b69,
     0xd5cf889d, 0x27a40b9e, 0x79b737ba, 0x8bdcb4b9, 0x988c474d, 0x6ae7c44e,
     0xbe2da0a5, 0x4c4623a6, 0x5f16d052, 0xad7d5351};
+#ifndef __SSE4_2__
 static const uint32_t table1_[256] = {
     0x00000000, 0x13a29877, 0x274530ee, 0x34e7a899, 0x4e8a61dc, 0x5d28f9ab,
     0x69cf5132, 0x7a6dc945, 0x9d14c3b8, 0x8eb65bcf, 0xba51f356, 0xa9f36b21,
@@ -244,14 +246,10 @@ static const uint32_t table3_[256] = {
 static inline uint32_t LE_LOAD32(const uint8_t* p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
+#endif  // !__SSE4_2__
 
-#if defined(HAVE_SSE42) && (defined(__LP64__) || defined(_WIN64))
-static inline uint64_t LE_LOAD64(const uint8_t* p) {
-  return DecodeFixed64(reinterpret_cast<const char*>(p));
-}
-#endif
-
-static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
+static inline void DefaultCRC32(uint64_t* l, uint8_t const** p) {
+#ifndef __SSE4_2__
   uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
   *l = table3_[c & 0xff] ^ table2_[(c >> 8) & 0xff] ^
@@ -261,16 +259,8 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
   *p += 4;
   *l = table3_[c & 0xff] ^ table2_[(c >> 8) & 0xff] ^
        table1_[(c >> 16) & 0xff] ^ table0_[c >> 24];
-}
-
-#if (!(defined(HAVE_POWER8) && defined(HAS_ALTIVEC))) && \
-        (!defined(HAVE_ARM64_CRC)) ||                    \
-    defined(NO_THREEWAY_CRC32C)
-static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
-#ifndef HAVE_SSE42
-  Slow_CRC32(l, p);
 #elif defined(__LP64__) || defined(_WIN64)
-  *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
+  *l = _mm_crc32_u64(*l, DecodeFixed64(reinterpret_cast<const char*>(*p)));
   *p += 8;
 #else
   *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
@@ -279,7 +269,6 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
   *p += 4;
 #endif
 }
-#endif
 
 template <void (*CRC32)(uint64_t*, uint8_t const**)>
 uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
@@ -323,48 +312,6 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 #undef ALIGN
   return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
-
-// Detect if ARM64 CRC or not.
-#ifndef HAVE_ARM64_CRC
-// Detect if SS42 or not.
-#ifndef HAVE_POWER8
-
-static bool isSSE42() {
-#ifndef HAVE_SSE42
-  return false;
-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
-  uint32_t c_;
-  __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
-  return c_ & (1U << 20);  // copied from CpuId.h in Folly. Test SSE42
-#elif defined(_WIN64)
-  int info[4];
-  __cpuidex(info, 0x00000001, 0);
-  return (info[2] & ((int)1 << 20)) != 0;
-#else
-  return false;
-#endif
-}
-
-static bool isPCLMULQDQ() {
-#ifndef HAVE_SSE42
-  // in build_detect_platform we set this macro when both SSE42 and PCLMULQDQ
-  // are supported by compiler
-  return false;
-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
-  uint32_t c_;
-  __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
-  return c_ & (1U << 1);  // PCLMULQDQ is in bit 1 (not bit 0)
-#elif defined(_WIN64)
-  int info[4];
-  __cpuidex(info, 0x00000001, 0);
-  return (info[2] & ((int)1 << 1)) != 0;
-#else
-  return false;
-#endif
-}
-
-#endif  // HAVE_POWER8
-#endif  // HAVE_ARM64_CRC
 
 using Function = uint32_t (*)(uint32_t, const char*, size_t);
 
@@ -436,7 +383,9 @@ std::string IsFastCrc32Supported() {
     arch = "Arm64";
   }
 #else
-  has_fast_crc = isSSE42();
+#ifdef __SSE4_2__
+  has_fast_crc = true;
+#endif  // __SSE4_2__
   arch = "x86";
 #endif
   if (has_fast_crc) {
@@ -477,7 +426,7 @@ std::string IsFastCrc32Supported() {
  * <davejwatson@fb.com>
  *
  */
-#if defined HAVE_SSE42 && defined HAVE_PCLMUL
+#if defined(__SSE4_2__) && defined(__PCLMUL__)
 
 #define CRCtriplet(crc, buf, offset)                  \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
@@ -1152,34 +1101,30 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   }
 }
 
-#endif //HAVE_SSE42 && HAVE_PCLMUL
+#endif //__SSE4_2__ && __PCLMUL__
 
 static inline Function Choose_Extend() {
 #ifdef HAVE_POWER8
-  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<DefaultCRC32>;
 #elif defined(HAVE_ARM64_CRC)
   if(crc32c_runtime_check()) {
     pmull_runtime_flag = crc32c_pmull_runtime_check();
     return ExtendARMImpl;
   } else {
-    return ExtendImpl<Slow_CRC32>;
+    return ExtendImpl<DefaultCRC32>;
   }
-#else
-  if (isSSE42()) {
-    if (isPCLMULQDQ()) {
-#if (defined HAVE_SSE42 && defined HAVE_PCLMUL) && !defined NO_THREEWAY_CRC32C
-      return crc32c_3way;
-#else
-    return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check HAVE_SSE42 itself
+#elif defined(__SSE4_2__) && defined(__PCLMUL__) && !defined NO_THREEWAY_CRC32C
+  // NOTE: runtime detection no longer supported on x86
+#ifdef _MSC_VER
+#pragma warning(disable: 4551)
 #endif
-    }
-    else {  // no runtime PCLMULQDQ support but has SSE42 support
-      return ExtendImpl<Fast_CRC32>;
-    }
-  } // end of isSSE42()
-  else {
-    return ExtendImpl<Slow_CRC32>;
-  }
+  (void)ExtendImpl<DefaultCRC32>; // suppress unused warning
+#ifdef _MSC_VER
+#pragma warning(default: 4551)
+#endif
+  return crc32c_3way;
+#else
+  return ExtendImpl<DefaultCRC32>;
 #endif
 }
 
@@ -1347,5 +1292,4 @@ uint32_t Crc32cCombine(uint32_t crc1, uint32_t crc2, size_t crc2len) {
       pure_crc2_with_init);
 }
 
-}  // namespace crc32c
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::crc32c

@@ -168,11 +168,11 @@ class StandardHasher {
 
   inline Hash GetHash(const Key& key) const {
     return TypesAndSettings::HashFn(key, raw_seed_);
-  };
+  }
   // For when AddInput == pair<Key, ResultRow> (kIsFilter == false)
   inline Hash GetHash(const std::pair<Key, ResultRow>& bi) const {
     return GetHash(bi.first);
-  };
+  }
   inline Index GetStart(Hash h, Index num_starts) const {
     // This is "critical path" code because it's required before memory
     // lookup.

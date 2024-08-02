@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/lock/point/point_lock_manager.h"
 
@@ -35,9 +34,8 @@ struct LockInfo {
     txn_ids.push_back(id);
   }
   LockInfo(const LockInfo& lock_info)
-      : exclusive(lock_info.exclusive),
-        txn_ids(lock_info.txn_ids),
-        expiration_time(lock_info.expiration_time) {}
+
+      = default;
   void operator=(const LockInfo& lock_info) {
     exclusive = lock_info.exclusive;
     txn_ids = lock_info.txn_ids;
@@ -718,4 +716,3 @@ void PointLockManager::UnLock(PessimisticTransaction* /* txn */,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 
 #include "utilities/transactions/lock/range/range_tree/range_tree_lock_manager.h"
@@ -150,7 +149,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 // the lock waits that are in progress.
 void wait_callback_for_locktree(void*, toku::lock_wait_infos* infos) {
   TEST_SYNC_POINT("RangeTreeLockManager::TryRangeLock:EnterWaitingTxn");
-  for (auto wait_info : *infos) {
+  for (const auto& wait_info : *infos) {
     // As long as we hold the lock on the locktree's pending request queue
     // this should be safe.
     auto txn = (PessimisticTransaction*)wait_info.waiter;
@@ -306,7 +305,7 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
       path.push_back(
           {it2->m_txn_id, it2->m_cf_id, it2->m_exclusive, it2->m_start.slice});
     }
-    res.push_back(DeadlockPath(path, it->deadlock_time));
+    res.emplace_back(path, it->deadlock_time);
   }
   return res;
 }
@@ -490,7 +489,7 @@ LockManager::RangeLockStatus RangeTreeLockManager::GetRangeLockStatus() {
   LockManager::RangeLockStatus data;
   {
     InstrumentedMutexLock l(&ltree_map_mutex_);
-    for (auto it : ltree_map_) {
+    for (const auto& it : ltree_map_) {
       LOCK_PRINT_CONTEXT ctx = {&data, it.first};
       it.second->dump_locks((void*)&ctx, push_into_lock_status_data);
     }
@@ -500,4 +499,3 @@ LockManager::RangeLockStatus RangeTreeLockManager::GetRangeLockStatus() {
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // OS_WIN
-#endif  // ROCKSDB_LITE

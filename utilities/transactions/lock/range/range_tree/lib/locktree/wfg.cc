@@ -1,6 +1,5 @@
 /* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 // vim: ft=cpp:expandtab:ts=8:sw=4:softtabstop=4:
-#ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 #ident "$Id$"
 /*======
@@ -92,7 +91,7 @@ void wfg::add_edge(TXNID a_txnid, TXNID b_txnid) {
 // Return false otherwise.
 bool wfg::node_exists(TXNID txnid) {
   node *n = find_node(txnid);
-  return n != NULL;
+  return n != nullptr;
 }
 
 bool wfg::cycle_exists_from_node(node *target, node *head,
@@ -210,4 +209,3 @@ void wfg::node::free(wfg::node *n) {
 
 } /* namespace toku */
 #endif  // OS_WIN
-#endif  // ROCKSDB_LITE

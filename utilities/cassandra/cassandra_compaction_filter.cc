@@ -13,11 +13,9 @@
 #include "utilities/cassandra/format.h"
 #include "utilities/cassandra/merge_operator.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace cassandra {
+namespace ROCKSDB_NAMESPACE::cassandra {
 static std::unordered_map<std::string, OptionTypeInfo>
     cassandra_filter_type_info = {
-#ifndef ROCKSDB_LITE
         {"purge_ttl_on_expiration",
          {offsetof(struct CassandraOptions, purge_ttl_on_expiration),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -26,7 +24,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CassandraOptions, gc_grace_period_in_seconds),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 
 CassandraCompactionFilter::CassandraCompactionFilter(
@@ -77,7 +74,6 @@ CassandraCompactionFilterFactory::CreateCompactionFilter(
   return result;
 }
 
-#ifndef ROCKSDB_LITE
 int RegisterCassandraObjects(ObjectLibrary& library,
                              const std::string& /*arg*/) {
   library.AddFactory<MergeOperator>(
@@ -105,6 +101,4 @@ int RegisterCassandraObjects(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
-}  // namespace cassandra
-}  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE::cassandra

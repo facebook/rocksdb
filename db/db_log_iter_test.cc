@@ -10,11 +10,11 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "port/stack_trace.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -145,6 +145,48 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
       }
     } while (ChangeCompactOptions());
   }
+}
+
+TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
+  RelaxedAtomic<bool> callback_hit{};
+  do {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    Options options = OptionsForLogIterTest();
+    DestroyAndReopen(options);
+    ColumnFamilyHandle* cf;
+    auto s = dbfull()->CreateColumnFamily(ColumnFamilyOptions(), "CF", &cf);
+    ASSERT_TRUE(s.ok());
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), cf, "key1", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key2", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key3", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key4", DummyString(1024)));
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    callback_hit.StoreRelaxed(false);
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "WalManager::PurgeObsoleteFiles:1", [&](void*) {
+          auto iter = OpenTransactionLogIter(0);
+          ExpectRecords(4, iter);
+          callback_hit.StoreRelaxed(true);
+        });
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_OK(dbfull()->Flush(FlushOptions(), cf));
+    delete cf;
+    // Normally hit several times; WART: perhaps more in parallel after flush
+    // FIXME: this test is flaky
+    // ASSERT_TRUE(callback_hit.LoadRelaxed());
+  } while (ChangeCompactOptions());
+  Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 #endif
 
@@ -290,16 +332,9 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void)argc;
-  (void)argv;
-  return 0;
-#endif
 }

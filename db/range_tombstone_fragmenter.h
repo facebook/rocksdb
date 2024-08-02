@@ -17,16 +17,6 @@
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
-struct FragmentedRangeTombstoneList;
-
-struct FragmentedRangeTombstoneListCache {
-  // ensure only the first reader needs to initialize l
-  std::mutex reader_mutex;
-  std::unique_ptr<FragmentedRangeTombstoneList> tombstones = nullptr;
-  // readers will first check this bool to avoid
-  std::atomic<bool> initialized = false;
-};
-
 struct FragmentedRangeTombstoneList {
  public:
   // A compact representation of a "stack" of range tombstone fragments, which
@@ -54,7 +44,8 @@ struct FragmentedRangeTombstoneList {
   FragmentedRangeTombstoneList(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       const InternalKeyComparator& icmp, bool for_compaction = false,
-      const std::vector<SequenceNumber>& snapshots = {});
+      const std::vector<SequenceNumber>& snapshots = {},
+      const bool tombstone_end_include_ts = true);
 
   std::vector<RangeTombstoneStack>::const_iterator begin() const {
     return tombstones_.begin();
@@ -123,6 +114,14 @@ struct FragmentedRangeTombstoneList {
   uint64_t total_tombstone_payload_bytes_;
 };
 
+struct FragmentedRangeTombstoneListCache {
+  // ensure only the first reader needs to initialize l
+  std::mutex reader_mutex;
+  std::unique_ptr<FragmentedRangeTombstoneList> tombstones = nullptr;
+  // readers will first check this bool to avoid
+  std::atomic<bool> initialized = false;
+};
+
 // FragmentedRangeTombstoneIterator converts an InternalIterator of a range-del
 // meta block into an iterator over non-overlapping tombstone fragments. The
 // tombstone fragmentation process should be more efficient than the range
@@ -147,6 +146,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
       const std::shared_ptr<FragmentedRangeTombstoneListCache>& tombstones,
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
       const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
+
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) override {
+    upper_bound_ = read_seqno;
+  }
 
   void SeekToFirst() override;
   void SeekToLast() override;
@@ -194,13 +197,15 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     pinned_seq_pos_ = tombstones_->seq_end();
   }
 
-  RangeTombstone Tombstone() const {
+  RangeTombstone Tombstone(bool logical_strip_timestamp = false) const {
     assert(Valid());
     if (icmp_->user_comparator()->timestamp_size()) {
-      return RangeTombstone(start_key(), end_key(), seq(), timestamp());
+      return RangeTombstone(start_key(), end_key(), seq(), timestamp(),
+                            logical_strip_timestamp);
     }
     return RangeTombstone(start_key(), end_key(), seq());
   }
+
   // Note that start_key() and end_key() are not guaranteed to have the
   // correct timestamp. User can call timestamp() to get the correct
   // timestamp().
@@ -218,8 +223,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   }
 
   ParsedInternalKey parsed_start_key() const {
-    return ParsedInternalKey(pos_->start_key, kMaxSequenceNumber,
-                             kTypeRangeDeletion);
+    return ParsedInternalKey(pos_->start_key, seq(), kTypeRangeDeletion);
   }
   ParsedInternalKey parsed_end_key() const {
     return ParsedInternalKey(pos_->end_key, kMaxSequenceNumber,

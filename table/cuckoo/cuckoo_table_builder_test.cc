@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "table/cuckoo/cuckoo_table_builder.h"
 
@@ -71,8 +70,10 @@ class CuckooBuilderTest : public testing::Test {
 
     // Assert Table Properties.
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     ASSERT_OK(ReadTableProperties(file_reader.get(), read_file_size,
-                                  kCuckooTableMagicNumber, ioptions, &props));
+                                  kCuckooTableMagicNumber, ioptions,
+                                  read_options, &props));
     // Check unused bucket.
     std::string unused_key =
         props->user_collected_properties[CuckooTablePropertyNames::kEmptyKey];
@@ -121,8 +122,7 @@ class CuckooBuilderTest : public testing::Test {
     for (uint32_t i = 0; i + 1 < table_size + cuckoo_block_size; ++i) {
       Slice read_slice;
       ASSERT_OK(file_reader->Read(IOOptions(), i * bucket_size, bucket_size,
-                                  &read_slice, nullptr, nullptr,
-                                  Env::IO_TOTAL /* rate_limiter_priority */));
+                                  &read_slice, nullptr, nullptr));
       size_t key_idx =
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();
@@ -182,7 +182,7 @@ TEST_F(CuckooBuilderTest, SuccessWithEmptyFile) {
   ASSERT_OK(builder.status());
   ASSERT_EQ(0UL, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   CheckFileContents({}, {}, {}, "", 2, 2, false);
 }
 
@@ -229,7 +229,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
     size_t bucket_size = keys[0].size() + values[0].size();
     ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
     ASSERT_OK(builder.Finish());
-    ASSERT_OK(file_writer->Close());
+    ASSERT_OK(file_writer->Close(IOOptions()));
     ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
     std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -277,7 +277,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -325,7 +325,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -374,7 +374,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKey) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -420,7 +420,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -463,7 +463,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
   size_t bucket_size = user_keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = "key00";
@@ -507,7 +507,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
   size_t bucket_size = user_keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = "key00";
@@ -550,7 +550,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathUserKey) {
   size_t bucket_size = user_keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = "key00";
@@ -589,7 +589,7 @@ TEST_F(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
     ASSERT_OK(builder.status());
   }
   ASSERT_TRUE(builder.Finish().IsNotSupported());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
 }
 
 TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
@@ -619,7 +619,7 @@ TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
   ASSERT_OK(builder.status());
 
   ASSERT_TRUE(builder.Finish().IsNotSupported());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
 }
 }  // namespace ROCKSDB_NAMESPACE
 
@@ -628,13 +628,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

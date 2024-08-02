@@ -46,7 +46,6 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 // - Updating IO stats.
 class RandomAccessFileReader {
  private:
-#ifndef ROCKSDB_LITE
   void NotifyOnFileReadFinish(
       uint64_t offset, size_t length,
       const FileOperationInfo::StartTimePoint& start_ts,
@@ -77,7 +76,6 @@ class RandomAccessFileReader {
     io_status.PermitUncheckedError();
   }
 
-#endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
@@ -93,8 +91,8 @@ class RandomAccessFileReader {
   const bool is_last_level_;
 
   struct ReadAsyncInfo {
-    ReadAsyncInfo(std::function<void(const FSReadRequest&, void*)> cb,
-                  void* cb_arg, uint64_t start_time)
+    ReadAsyncInfo(std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
+                  uint64_t start_time)
         : cb_(cb),
           cb_arg_(cb_arg),
           start_time_(start_time),
@@ -104,12 +102,10 @@ class RandomAccessFileReader {
           user_len_(0),
           is_aligned_(false) {}
 
-    std::function<void(const FSReadRequest&, void*)> cb_;
+    std::function<void(FSReadRequest&, void*)> cb_;
     void* cb_arg_;
     uint64_t start_time_;
-#ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint fs_start_ts_;
-#endif
     // Below fields stores the parameters passed by caller in case of direct_io.
     char* user_scratch_;
     AlignedBuf* user_aligned_buf_;
@@ -126,7 +122,8 @@ class RandomAccessFileReader {
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
       SystemClock* clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
-      Statistics* stats = nullptr, uint32_t hist_type = 0,
+      Statistics* stats = nullptr,
+      uint32_t hist_type = Histograms::HISTOGRAM_ENUM_MAX,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
@@ -142,16 +139,12 @@ class RandomAccessFileReader {
         listeners_(),
         file_temperature_(file_temperature),
         is_last_level_(is_last_level) {
-#ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
                     if (e->ShouldBeNotifiedOnFileIO()) {
                       listeners_.emplace_back(e);
                     }
                   });
-#else  // !ROCKSDB_LITE
-    (void)listeners;
-#endif
   }
 
   static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
@@ -171,31 +164,18 @@ class RandomAccessFileReader {
   // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
-  //
-  // `rate_limiter_priority` is used to charge the internal rate limiter when
-  // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
-  // rate limiter.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuf* aligned_buf,
-                Env::IOPriority rate_limiter_priority) const;
+                char* scratch, AlignedBuf* aligned_buf) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
   // In non-direct IO mode, aligned_buf should be null;
   // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
   // MultiRead, the result Slices in reqs refer to aligned_buf.
-  //
-  // `rate_limiter_priority` will be used to charge the internal rate limiter.
-  // It is not yet supported so the client must provide the special value
-  // `Env::IO_TOTAL` to bypass the rate limiter.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuf* aligned_buf,
-                     Env::IOPriority rate_limiter_priority) const;
+                     size_t num_reqs, AlignedBuf* aligned_buf) const;
 
-  IOStatus Prefetch(uint64_t offset, size_t n,
-                    const Env::IOPriority rate_limiter_priority) const {
-    IOOptions opts;
-    opts.rate_limiter_priority = rate_limiter_priority;
+  IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, opts, nullptr);
   }
 
@@ -205,13 +185,13 @@ class RandomAccessFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
-  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
+  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts) const;
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
+                     std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      AlignedBuf* aligned_buf);
 
-  void ReadAsyncCallback(const FSReadRequest& req, void* cb_arg);
+  void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
 };
 }  // namespace ROCKSDB_NAMESPACE

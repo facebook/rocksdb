@@ -6,9 +6,12 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "db/dbformat.h"
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/snapshot.h"
+#include "rocksdb/utilities/debug.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -81,7 +84,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
     size_t limit_ = 0;
   };
 
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   // Use only the latest two merge operands.
   options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
@@ -134,7 +137,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;
@@ -147,7 +150,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.max_successive_merges = 3;
@@ -163,7 +166,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;
@@ -202,6 +205,296 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 
+TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
+  // This is like a mini-stress test dedicated to `OpFailureScope::kMustMerge`.
+  // Some or most of it might be deleted upon adding that option to the actual
+  // stress test.
+  //
+  // "k0" and "k2" are stable (uncorrupted) keys before and after a corrupted
+  // key ("k1"). The outer loop (`i`) varies which write (`j`) to "k1" triggers
+  // the corruption. Inside that loop there are three cases:
+  //
+  // - Case 1: pure `Merge()`s
+  // - Case 2: `Merge()`s on top of a `Put()`
+  // - Case 3: `Merge()`s on top of a `Delete()`
+  //
+  // For each case we test query results before flush, after flush, and after
+  // compaction, as well as cleanup after deletion+compaction. The queries
+  // expect "k0" and "k2" to always be readable. "k1" is expected to be readable
+  // only by APIs that do not require merging, such as `GetMergeOperands()`.
+  const int kNumOperands = 3;
+  Options options = CurrentOptions();
+  options.merge_operator.reset(new TestPutOperator());
+  options.env = env_;
+  Reopen(options);
+
+  for (int i = 0; i < kNumOperands; ++i) {
+    auto check_query = [&]() {
+      {
+        std::string value;
+        ASSERT_OK(db_->Get(ReadOptions(), "k0", &value));
+        Status s = db_->Get(ReadOptions(), "k1", &value);
+        ASSERT_TRUE(s.IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed, s.subcode());
+        ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
+      }
+
+      {
+        std::unique_ptr<Iterator> iter;
+        iter.reset(db_->NewIterator(ReadOptions()));
+        iter->SeekToFirst();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("k0", iter->key());
+        iter->Next();
+        ASSERT_TRUE(iter->status().IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed,
+                  iter->status().subcode());
+
+        iter->SeekToLast();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("k2", iter->key());
+        iter->Prev();
+        ASSERT_TRUE(iter->status().IsCorruption());
+
+        iter->Seek("k2");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("k2", iter->key());
+      }
+
+      std::vector<PinnableSlice> values(kNumOperands);
+      GetMergeOperandsOptions merge_operands_info;
+      merge_operands_info.expected_max_number_of_operands = kNumOperands;
+      int num_operands_found = 0;
+      ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                      "k1", values.data(), &merge_operands_info,
+                                      &num_operands_found));
+      ASSERT_EQ(kNumOperands, num_operands_found);
+      for (int j = 0; j < num_operands_found; ++j) {
+        if (i == j) {
+          ASSERT_EQ(values[j], "corrupted_must_merge");
+        } else {
+          ASSERT_EQ(values[j], "ok");
+        }
+      }
+    };
+
+    ASSERT_OK(Put("k0", "val"));
+    ASSERT_OK(Put("k2", "val"));
+
+    // Case 1
+    for (int j = 0; j < kNumOperands; ++j) {
+      if (j == i) {
+        ASSERT_OK(Merge("k1", "corrupted_must_merge"));
+      } else {
+        ASSERT_OK(Merge("k1", "ok"));
+      }
+    }
+    check_query();
+    ASSERT_OK(Flush());
+    check_query();
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction =
+          BottommostLevelCompaction::kForceOptimized;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+    check_query();
+
+    // Case 2
+    for (int j = 0; j < kNumOperands; ++j) {
+      Slice val;
+      if (j == i) {
+        val = "corrupted_must_merge";
+      } else {
+        val = "ok";
+      }
+      if (j == 0) {
+        ASSERT_OK(Put("k1", val));
+      } else {
+        ASSERT_OK(Merge("k1", val));
+      }
+    }
+    check_query();
+    ASSERT_OK(Flush());
+    check_query();
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction =
+          BottommostLevelCompaction::kForceOptimized;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+    check_query();
+
+    // Case 3
+    ASSERT_OK(Delete("k1"));
+    for (int j = 0; j < kNumOperands; ++j) {
+      if (i == j) {
+        ASSERT_OK(Merge("k1", "corrupted_must_merge"));
+      } else {
+        ASSERT_OK(Merge("k1", "ok"));
+      }
+    }
+    check_query();
+    ASSERT_OK(Flush());
+    check_query();
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction =
+          BottommostLevelCompaction::kForceOptimized;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+    check_query();
+
+    // Verify obsolete data removal still happens
+    ASSERT_OK(Delete("k0"));
+    ASSERT_OK(Delete("k1"));
+    ASSERT_OK(Delete("k2"));
+    ASSERT_EQ("NOT_FOUND", Get("k0"));
+    ASSERT_EQ("NOT_FOUND", Get("k1"));
+    ASSERT_EQ("NOT_FOUND", Get("k2"));
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    ASSERT_EQ("", FilesPerLevel());
+  }
+}
+
+TEST_F(DBMergeOperatorTest, MergeOperandThresholdExceeded) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.env = env_;
+  Reopen(options);
+
+  std::vector<Slice> keys{"foo", "bar", "baz"};
+
+  // Write base values.
+  for (const auto& key : keys) {
+    ASSERT_OK(Put(key, key.ToString() + "0"));
+  }
+
+  // Write merge operands. Note that the first key has 1 merge operand, the
+  // second one has 2 merge operands, and the third one has 3 merge operands.
+  // Also, we'll take some snapshots to make sure the merge operands are
+  // preserved during flush.
+  std::vector<ManagedSnapshot> snapshots;
+  snapshots.reserve(3);
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    snapshots.emplace_back(db_);
+
+    const std::string suffix = std::to_string(i + 1);
+
+    for (size_t j = i; j < keys.size(); ++j) {
+      ASSERT_OK(Merge(keys[j], keys[j].ToString() + suffix));
+    }
+  }
+
+  // Verify the results and status codes of various types of point lookups.
+  auto verify = [&](const std::optional<size_t>& threshold) {
+    ReadOptions read_options;
+    read_options.merge_operand_count_threshold = threshold;
+
+    // Check Get()
+    {
+      for (size_t i = 0; i < keys.size(); ++i) {
+        PinnableSlice value;
+        const Status status =
+            db_->Get(read_options, db_->DefaultColumnFamily(), keys[i], &value);
+        ASSERT_OK(status);
+        ASSERT_EQ(status.IsOkMergeOperandThresholdExceeded(),
+                  threshold.has_value() && i + 1 > threshold.value());
+        ASSERT_EQ(value, keys[i].ToString() + std::to_string(i + 1));
+      }
+    }
+
+    // Check old-style MultiGet()
+    {
+      std::vector<std::string> values;
+      std::vector<Status> statuses = db_->MultiGet(read_options, keys, &values);
+
+      for (size_t i = 0; i < keys.size(); ++i) {
+        ASSERT_OK(statuses[i]);
+        ASSERT_EQ(statuses[i].IsOkMergeOperandThresholdExceeded(),
+                  threshold.has_value() && i + 1 > threshold.value());
+        ASSERT_EQ(values[i], keys[i].ToString() + std::to_string(i + 1));
+      }
+    }
+
+    // Check batched MultiGet()
+    {
+      std::vector<PinnableSlice> values(keys.size());
+      std::vector<Status> statuses(keys.size());
+      db_->MultiGet(read_options, db_->DefaultColumnFamily(), keys.size(),
+                    keys.data(), values.data(), statuses.data());
+
+      for (size_t i = 0; i < keys.size(); ++i) {
+        ASSERT_OK(statuses[i]);
+        ASSERT_EQ(statuses[i].IsOkMergeOperandThresholdExceeded(),
+                  threshold.has_value() && i + 1 > threshold.value());
+        ASSERT_EQ(values[i], keys[i].ToString() + std::to_string(i + 1));
+      }
+    }
+  };
+
+  // Test the case when the feature is disabled as well as various thresholds.
+  verify(std::nullopt);
+  for (size_t i = 0; i < 5; ++i) {
+    verify(i);
+  }
+
+  // Flush and try again to test the case when results are served from SSTs.
+  ASSERT_OK(Flush());
+  verify(std::nullopt);
+  for (size_t i = 0; i < 5; ++i) {
+    verify(i);
+  }
+}
+
+TEST_F(DBMergeOperatorTest, DataBlockBinaryAndHash) {
+  // Basic test to check that merge operator works with data block index type
+  // DataBlockBinaryAndHash.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.merge_operator.reset(new TestPutOperator());
+  options.env = env_;
+  BlockBasedTableOptions table_options;
+  table_options.block_restart_interval = 16;
+  table_options.data_block_index_type =
+      BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  const int kNumKeys = 100;
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Merge(WriteOptions(), Key(i), std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+  std::string value;
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(std::to_string(i), value);
+  }
+
+  std::vector<const Snapshot*> snapshots;
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Delete(WriteOptions(), Key(i)));
+    for (int j = 0; j < 3; ++j) {
+      ASSERT_OK(db_->Merge(WriteOptions(), Key(i), std::to_string(i * 3 + j)));
+      snapshots.push_back(db_->GetSnapshot());
+    }
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(std::to_string(i * 3 + 2), value);
+  }
+  for (auto snapshot : snapshots) {
+    db_->ReleaseSnapshot(snapshot);
+  }
+}
+
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {
  public:
@@ -213,7 +506,6 @@ class MergeOperatorPinningTest : public DBMergeOperatorTest,
 INSTANTIATE_TEST_CASE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
                         ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   Options options = CurrentOptions();
   BlockBasedTableOptions table_options;
@@ -484,7 +776,6 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   EXPECT_TRUE(pushed_first_operand);
   EXPECT_TRUE(stepped_to_next_operand);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   Options options = CurrentOptions();
@@ -658,6 +949,98 @@ TEST_P(PerConfigMergeOperatorPinningTest, Randomized) {
   }
 
   VerifyDBFromMap(true_data);
+}
+
+TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.max_successive_merges = 1;
+  options.env = env_;
+  Reopen(options);
+
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr char baz[] = "baz";
+  constexpr char qux[] = "qux";
+  constexpr char corge[] = "corge";
+
+  // No base value
+  {
+    constexpr char key[] = "key1";
+
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
+
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, bar);
+
+    // We expect the second Merge to be converted to a Put because of
+    // max_successive_merges.
+    constexpr size_t max_key_versions = 8;
+    std::vector<KeyVersion> key_versions;
+    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+                                max_key_versions, &key_versions));
+    ASSERT_EQ(key_versions.size(), 2);
+    ASSERT_EQ(key_versions[0].type, kTypeValue);
+    ASSERT_EQ(key_versions[1].type, kTypeMerge);
+  }
+
+  // Plain base value
+  {
+    constexpr char key[] = "key2";
+
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, baz));
+
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, baz);
+
+    // We expect the second Merge to be converted to a Put because of
+    // max_successive_merges.
+    constexpr size_t max_key_versions = 8;
+    std::vector<KeyVersion> key_versions;
+    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+                                max_key_versions, &key_versions));
+    ASSERT_EQ(key_versions.size(), 3);
+    ASSERT_EQ(key_versions[0].type, kTypeValue);
+    ASSERT_EQ(key_versions[1].type, kTypeMerge);
+    ASSERT_EQ(key_versions[2].type, kTypeValue);
+  }
+
+  // Wide-column base value
+  {
+    constexpr char key[] = "key3";
+    const WideColumns columns{{kDefaultWideColumnName, foo}, {bar, baz}};
+
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                             columns));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, qux));
+    ASSERT_OK(
+        db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, corge));
+
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    const WideColumns expected{{kDefaultWideColumnName, corge}, {bar, baz}};
+    ASSERT_EQ(result.columns(), expected);
+
+    // We expect the second Merge to be converted to a PutEntity because of
+    // max_successive_merges.
+    constexpr size_t max_key_versions = 8;
+    std::vector<KeyVersion> key_versions;
+    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+                                max_key_versions, &key_versions));
+    ASSERT_EQ(key_versions.size(), 3);
+    ASSERT_EQ(key_versions[0].type, kTypeWideColumnEntity);
+    ASSERT_EQ(key_versions[1].type, kTypeMerge);
+    ASSERT_EQ(key_versions[2].type, kTypeWideColumnEntity);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -161,7 +161,7 @@ class SkipListRep : public MemTableRep {
     }
   }
 
-  ~SkipListRep() override {}
+  ~SkipListRep() override = default;
 
   // Iteration over the contents of a skip list
   class Iterator : public MemTableRep::Iterator {
@@ -174,7 +174,7 @@ class SkipListRep : public MemTableRep {
         const InlineSkipList<const MemTableRep::KeyComparator&>* list)
         : iter_(list) {}
 
-    ~Iterator() override {}
+    ~Iterator() override = default;
 
     // Returns true iff the iterator is positioned at a valid node.
     bool Valid() const override { return iter_.Valid(); }
@@ -232,7 +232,7 @@ class SkipListRep : public MemTableRep {
     explicit LookaheadIterator(const SkipListRep& rep)
         : rep_(rep), iter_(&rep_.skip_list_), prev_(iter_) {}
 
-    ~LookaheadIterator() override {}
+    ~LookaheadIterator() override = default;
 
     bool Valid() const override { return iter_.Valid(); }
 
@@ -341,11 +341,9 @@ class SkipListRep : public MemTableRep {
 }  // namespace
 
 static std::unordered_map<std::string, OptionTypeInfo> skiplist_factory_info = {
-#ifndef ROCKSDB_LITE
     {"lookahead",
      {0, OptionType::kSizeT, OptionVerificationType::kNormal,
       OptionTypeFlags::kDontSerialize /*Since it is part of the ID*/}},
-#endif
 };
 
 SkipListFactory::SkipListFactory(size_t lookahead) : lookahead_(lookahead) {
