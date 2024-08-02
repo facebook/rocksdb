@@ -1,0 +1,1 @@
+* There may be less intra-L0 compaction triggered by total L0 size being too small. We now use compensated file size (tombstones are assigned some value size) when calculating L0 size and reduce the threshold for L0 size limit. This is to avoid accumulating too much data/tombstones in L0.
