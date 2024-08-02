@@ -16,6 +16,7 @@
 #include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -3185,6 +3186,10 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
         size_t* index = static_cast<size_t*>(arg);
         *index = random_index;
       });
+  Defer defer([]() {
+    SyncPoint::GetInstance()->ClearCallBack(
+        "CompactionPicker::PickFilesMarkedForCompaction");
+  });
   SyncPoint::GetInstance()->EnableProcessing();
   while (!input_level_overlap || !output_level_overlap) {
     // Ensure that the L0 file gets picked first
@@ -3702,6 +3707,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, OverlapWithNormalCompaction) {
         auto supports_per_key_placement = static_cast<bool*>(arg);
         *supports_per_key_placement = enable_per_key_placement_;
       });
+  Defer defer([]() {
+    SyncPoint::GetInstance()->ClearCallBack(
+        "Compaction::SupportsPerKeyPlacement:Enabled");
+  });
   SyncPoint::GetInstance()->EnableProcessing();
 
   int num_levels = ioptions_.num_levels;
@@ -3745,6 +3754,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, NormalCompactionOverlap) {
         auto supports_per_key_placement = static_cast<bool*>(arg);
         *supports_per_key_placement = enable_per_key_placement_;
       });
+  Defer defer([]() {
+    SyncPoint::GetInstance()->ClearCallBack(
+        "Compaction::SupportsPerKeyPlacement:Enabled");
+  });
   SyncPoint::GetInstance()->EnableProcessing();
 
   int num_levels = ioptions_.num_levels;
@@ -3789,6 +3802,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
         auto supports_per_key_placement = static_cast<bool*>(arg);
         *supports_per_key_placement = enable_per_key_placement_;
       });
+  Defer defer([]() {
+    SyncPoint::GetInstance()->ClearCallBack(
+        "Compaction::SupportsPerKeyPlacement:Enabled");
+  });
   SyncPoint::GetInstance()->EnableProcessing();
 
   int num_levels = ioptions_.num_levels;
@@ -3833,6 +3850,10 @@ TEST_P(PerKeyPlacementCompactionPickerTest, NormalCompactionOverlapUniversal) {
         auto supports_per_key_placement = static_cast<bool*>(arg);
         *supports_per_key_placement = enable_per_key_placement_;
       });
+  Defer defer([]() {
+    SyncPoint::GetInstance()->ClearCallBack(
+        "Compaction::SupportsPerKeyPlacement:Enabled");
+  });
   SyncPoint::GetInstance()->EnableProcessing();
 
   int num_levels = ioptions_.num_levels;
