@@ -423,6 +423,27 @@ rocksdb_create_column_families(rocksdb_t* db,
                                const char* const* column_family_names,
                                size_t* lencfs, char** errptr);
 
+/**
+ * @brief Creates multiple column families in the specified RocksDB database
+ * with the given options for each column family.
+ *
+ * @param db A pointer to the RocksDB database instance.
+ * @param num_column_families The number of column families to create.
+ * @param column_family_names An array of null-terminated strings, each
+ * representing the name of a column family to create.
+ * @param column_family_options An array of pointers to rocksdb_options_t
+ * structures, each specifying the options for the corresponding column family.
+ * @param lencfs A pointer to a size_t variable where the length of the created
+ * column families will be stored.
+ * @param errptr A pointer to a char pointer. If an error occurs, a descriptive
+ * error message will be stored in the memory pointed to by errptr. The caller
+ * must free this memory using rocksdb_free when it is no longer needed.
+ *
+ * @return An array of pointers to rocksdb_column_family_handle_t structures,
+ * each representing a handle to the created column families. The length of this
+ * array is stored in the variable pointed to by lencfs. If an error occurs,
+ * NULL is returned and errptr is set to a descriptive error message.
+ */
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t**
 rocksdb_create_column_families_with_options(
     rocksdb_t* db, int num_column_families,
