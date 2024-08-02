@@ -76,8 +76,9 @@ PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
 
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     const Slice* next_key) {
-  // Use == to send the request only once
-  if (keys_added_to_partition_ == keys_per_partition_) {
+  // (NOTE: Can't just use ==, because keys_added_to_partition_ might be
+  // incremented by more than one.)
+  if (keys_added_to_partition_ >= keys_per_partition_) {
     // Currently only index builder is in charge of cutting a partition. We keep
     // requesting until it is granted.
     p_index_builder_->RequestPartitionCut();
