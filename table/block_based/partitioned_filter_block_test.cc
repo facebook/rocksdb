@@ -170,7 +170,7 @@ class PartitionedFilterBlockTest
     Slice slice;
     std::unique_ptr<const char[]> filter_data;
     do {
-      slice = builder->Finish(bh, &status, &filter_data);
+      status = builder->Finish(bh, &slice, &filter_data);
       bh = Write(slice);
     } while (status.IsIncomplete());
 
