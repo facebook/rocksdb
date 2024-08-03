@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -5240,6 +5241,14 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   Env* env = soptions.env;
   std::vector<std::string> filenames;
   bool wal_in_db_path = soptions.IsWalDirSameAsDBPath();
+  auto sfm = static_cast_with_check<SstFileManagerImpl>(
+      options.sst_file_manager.get());
+  // Allocate a separate trash bucket to be used by all the to be deleted
+  // files, so we can later wait for this bucket to be empty before return.
+  std::optional<int32_t> bucket;
+  if (sfm) {
+    bucket = sfm->NewTrashBucket();
+  }
 
   // Reset the logger because it holds a handle to the
   // log file and prevents cleanup and directory removal
@@ -5251,6 +5260,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
                     /*IODebugContext*=*/nullptr)
       .PermitUncheckedError();
 
+  std::set<std::string> paths_to_delete;
   FileLock* lock;
   const std::string lockname = LockFileName(dbname);
   Status result = env->LockFile(lockname, &lock);
@@ -5267,10 +5277,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kWalFile ||
                    type == kBlobFile) {
-          del = DeleteDBFile(
-              &soptions, path_to_delete, dbname,
-              /*force_bg=*/false,
-              /*force_fg=*/(type == kWalFile) ? !wal_in_db_path : false);
+          del = DeleteUnaccountedDBFile(&soptions, path_to_delete, dbname,
+                                        /*force_bg=*/false,
+                                        /*force_fg=*/false, bucket);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -5279,6 +5288,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         }
       }
     }
+    paths_to_delete.insert(dbname);
 
     std::set<std::string> paths;
     for (const DbPath& db_path : options.db_paths) {
@@ -5300,17 +5310,18 @@ Status DestroyDB(const std::string& dbname, const Options& options,
               (type == kTableFile ||
                type == kBlobFile)) {  // Lock file will be deleted at end
             std::string file_path = path + "/" + fname;
-            Status del = DeleteDBFile(&soptions, file_path, dbname,
-                                      /*force_bg=*/false, /*force_fg=*/false);
+            Status del = DeleteUnaccountedDBFile(&soptions, file_path, dbname,
+                                                 /*force_bg=*/false,
+                                                 /*force_fg=*/false, bucket);
             if (!del.ok() && result.ok()) {
               result = del;
             }
           }
         }
-        // TODO: Should we return an error if we cannot delete the directory?
-        env->DeleteDir(path).PermitUncheckedError();
       }
     }
+
+    paths_to_delete.merge(paths);
 
     std::vector<std::string> walDirFiles;
     std::string archivedir = ArchivalDirectory(dbname);
@@ -5335,46 +5346,49 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       // Delete archival files.
       for (const auto& file : archiveFiles) {
         if (ParseFileName(file, &number, &type) && type == kWalFile) {
-          Status del =
-              DeleteDBFile(&soptions, archivedir + "/" + file, archivedir,
-                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          Status del = DeleteUnaccountedDBFile(
+              &soptions, archivedir + "/" + file, archivedir,
+              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path, bucket);
           if (!del.ok() && result.ok()) {
             result = del;
           }
         }
       }
-      // Ignore error in case dir contains other files
-      env->DeleteDir(archivedir).PermitUncheckedError();
+      paths_to_delete.insert(archivedir);
     }
 
     // Delete log files in the WAL dir
     if (wal_dir_exists) {
       for (const auto& file : walDirFiles) {
         if (ParseFileName(file, &number, &type) && type == kWalFile) {
-          Status del =
-              DeleteDBFile(&soptions, LogFileName(soptions.wal_dir, number),
-                           soptions.wal_dir, /*force_bg=*/false,
-                           /*force_fg=*/!wal_in_db_path);
+          Status del = DeleteUnaccountedDBFile(
+              &soptions, LogFileName(soptions.wal_dir, number),
+              soptions.wal_dir, /*force_bg=*/false,
+              /*force_fg=*/!wal_in_db_path, bucket);
           if (!del.ok() && result.ok()) {
             result = del;
           }
         }
       }
-      // Ignore error in case dir contains other files
-      env->DeleteDir(soptions.wal_dir).PermitUncheckedError();
+      paths_to_delete.insert(soptions.wal_dir);
     }
 
     // Ignore error since state is already gone
     env->UnlockFile(lock).PermitUncheckedError();
     env->DeleteFile(lockname).PermitUncheckedError();
 
+    // Make sure trash files are all cleared before return.
+    if (sfm && bucket.has_value()) {
+      sfm->WaitForEmptyTrashBucket(bucket.value());
+    }
     // sst_file_manager holds a ref to the logger. Make sure the logger is
     // gone before trying to remove the directory.
     soptions.sst_file_manager.reset();
 
     // Ignore error in case dir contains other files
-    env->DeleteDir(dbname).PermitUncheckedError();
-    ;
+    for (const auto& path_to_delete : paths_to_delete) {
+      env->DeleteDir(path_to_delete).PermitUncheckedError();
+    }
   }
   return result;
 }
