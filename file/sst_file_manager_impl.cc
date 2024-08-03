@@ -421,8 +421,26 @@ Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path,
   return delete_scheduler_.DeleteFile(file_path, path_to_sync, force_bg);
 }
 
+Status SstFileManagerImpl::ScheduleUnaccountedFileDeletion(
+    const std::string& file_path, const std::string& dir_to_sync,
+    const bool force_bg, std::optional<int32_t> bucket) {
+  TEST_SYNC_POINT_CALLBACK(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion",
+      const_cast<std::string*>(&file_path));
+  return delete_scheduler_.DeleteUnaccountedFile(file_path, dir_to_sync,
+                                                 force_bg, bucket);
+}
+
 void SstFileManagerImpl::WaitForEmptyTrash() {
   delete_scheduler_.WaitForEmptyTrash();
+}
+
+std::optional<int32_t> SstFileManagerImpl::NewTrashBucket() {
+  return delete_scheduler_.NewTrashBucket();
+}
+
+void SstFileManagerImpl::WaitForEmptyTrashBucket(int32_t bucket) {
+  delete_scheduler_.WaitForEmptyTrashBucket(bucket);
 }
 
 void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
