@@ -314,6 +314,11 @@ const autovector<uint64_t>& DBImpl::TEST_GetFilesToQuarantine() const {
   return error_handler_.GetFilesToQuarantine();
 }
 
+void DBImpl::TEST_DeleteObsoleteFiles() {
+  InstrumentedMutexLock l(&mutex_);
+  DeleteObsoleteFiles();
+}
+
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
   InstrumentedMutexLock l(&const_cast<DBImpl*>(this)->stats_history_mutex_);
   return EstimateInMemoryStatsHistorySize();

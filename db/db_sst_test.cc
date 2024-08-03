@@ -507,6 +507,23 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
   ASSERT_EQ(files_deleted, 0);
   ASSERT_EQ(files_scheduled_to_delete, 0);
   Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
   ASSERT_EQ(files_deleted, blob_files.size());
   ASSERT_EQ(files_scheduled_to_delete, blob_files.size());
@@ -649,6 +666,23 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   }
 
   Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(files_deleted, 5);
@@ -1902,6 +1936,24 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ASSERT_EQ(files_deleted, 1);
 
   Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
 
   ASSERT_EQ(files_scheduled_to_delete, 4);
