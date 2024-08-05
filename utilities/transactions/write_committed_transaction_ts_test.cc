@@ -130,6 +130,128 @@ void CheckKeyValueTsWithIterator(
   }
 }
 
+// This is an incorrect usage of this API, supporting this should be removed
+// after MyRocks remove this pattern in a refactor.
+TEST_P(WriteCommittedTxnWithTsTest, WritesBypassTransactionAPIs) {
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  ASSERT_OK(ReOpen());
+
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyOptions cf_options;
+  ColumnFamilyHandle* cfh = nullptr;
+  assert(db);
+  ASSERT_OK(db->CreateColumnFamily(cf_options, test_cf_name, &cfh));
+  delete cfh;
+  cfh = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, Options(DBOptions(), cf_options));
+  options.avoid_flush_during_shutdown = true;
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  // Write in each transaction a mixture of column families that enable
+  // timestamp and disable timestamps.
+
+  TransactionOptions txn_opts;
+  txn_opts.write_batch_track_timestamp_size = true;
+  std::unique_ptr<Transaction> txn0(NewTxn(WriteOptions(), txn_opts));
+  assert(txn0);
+  ASSERT_OK(txn0->Put(handles_[0], "key1", "key1_val"));
+  // Timestamp size info for writes like this can only be correctly tracked if
+  // TransactionOptions.write_batch_track_timestamp_size is true.
+  ASSERT_OK(txn0->GetWriteBatch()->GetWriteBatch()->Put(handles_[1], "foo",
+                                                        "foo_val"));
+  ASSERT_OK(txn0->SetName("txn0"));
+  ASSERT_OK(txn0->SetCommitTimestamp(2));
+  ASSERT_OK(txn0->Prepare());
+  ASSERT_OK(txn0->Commit());
+  txn0.reset();
+
+  // For keys written from transactions that disable
+  // `write_batch_track_timestamp_size`
+  // The keys has incorrect behavior like:
+  // *Cannot be found after commit: because transaction's UpdateTimestamp do not
+  // have correct timestamp size when this write bypass transaction write APIs.
+  // *Can be found again after DB restart recovers the write from WAL log:
+  // because recovered transaction's UpdateTimestamp get correct timestamp size
+  // info directly from VersionSet.
+  // If there is a flush that persisted this transaction into sst files after
+  // it's committed, the key will be forever corrupted.
+  std::unique_ptr<Transaction> txn1(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn1);
+  ASSERT_OK(txn1->Put(handles_[0], "key2", "key2_val"));
+  // Writing a key with more than 8 bytes so that we can manifest the error as
+  // a NotFound error instead of an issue during `WriteBatch::UpdateTimestamp`.
+  ASSERT_OK(txn1->GetWriteBatch()->GetWriteBatch()->Put(
+      handles_[1], "foobarbaz", "baz_val"));
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn1->SetCommitTimestamp(2));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  txn1.reset();
+
+  ASSERT_OK(db->Flush(FlushOptions(), handles_[1]));
+
+  std::unique_ptr<Transaction> txn2(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn2);
+  ASSERT_OK(txn2->Put(handles_[0], "key3", "key3_val"));
+  ASSERT_OK(txn2->GetWriteBatch()->GetWriteBatch()->Put(
+      handles_[1], "bazbazbaz", "bazbazbaz_val"));
+  ASSERT_OK(txn2->SetCommitTimestamp(2));
+  ASSERT_OK(txn2->SetName("txn2"));
+  ASSERT_OK(txn2->Prepare());
+  ASSERT_OK(txn2->Commit());
+  txn2.reset();
+
+  std::unique_ptr<Transaction> txn3(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn3);
+  std::string value;
+  ReadOptions ropts;
+  std::string read_ts;
+  Slice timestamp = EncodeU64Ts(2, &read_ts);
+  ropts.timestamp = &timestamp;
+  ASSERT_OK(txn3->Get(ropts, handles_[0], "key1", &value));
+  ASSERT_EQ("key1_val", value);
+  ASSERT_OK(txn3->Get(ropts, handles_[0], "key2", &value));
+  ASSERT_EQ("key2_val", value);
+  ASSERT_OK(txn3->Get(ropts, handles_[0], "key3", &value));
+  ASSERT_EQ("key3_val", value);
+  txn3.reset();
+
+  std::unique_ptr<Transaction> txn4(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn4);
+  ASSERT_OK(txn4->Get(ReadOptions(), handles_[1], "foo", &value));
+  ASSERT_EQ("foo_val", value);
+  // Incorrect behavior: committed keys cannot be found
+  ASSERT_TRUE(
+      txn4->Get(ReadOptions(), handles_[1], "foobarbaz", &value).IsNotFound());
+  ASSERT_TRUE(
+      txn4->Get(ReadOptions(), handles_[1], "bazbazbaz", &value).IsNotFound());
+  txn4.reset();
+
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+  std::unique_ptr<Transaction> txn5(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn5);
+  ASSERT_OK(txn5->Get(ReadOptions(), handles_[1], "foo", &value));
+  ASSERT_EQ("foo_val", value);
+  // Incorrect behavior:
+  // *unflushed key can be found after reopen replays the entries from WAL
+  // (this is not suggesting using flushing as a workaround but to show a
+  // possible misleading behavior)
+  // *flushed key is forever corrupted.
+  ASSERT_TRUE(
+      txn5->Get(ReadOptions(), handles_[1], "foobarbaz", &value).IsNotFound());
+  ASSERT_OK(txn5->Get(ReadOptions(), handles_[1], "bazbazbaz", &value));
+  ASSERT_EQ("bazbazbaz_val", value);
+  txn5.reset();
+}
+
 TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   options.merge_operator = MergeOperators::CreateUInt64AddOperator();
   ASSERT_OK(ReOpenNoDelete());
