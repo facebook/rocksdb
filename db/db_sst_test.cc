@@ -917,11 +917,12 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
     if (v == 'c') {
-      // Maximize the change that the last log file will be preserved in trash
-      // before restarting the DB.
+      // Maximize the chance that the last log file will be preserved in trash
+      // before restarting the DB. (Enable slow deletion but at a very slow
+      // deletion rate)
       // We have to set this on the 2nd to last file for it to delay deletion
       // on the last file. (Quirk of DeleteScheduler::BackgroundEmptyTrash())
-      options.sst_file_manager->SetDeleteRateBytesPerSecond(1024 * 1024);
+      options.sst_file_manager->SetDeleteRateBytesPerSecond(1);
     }
     ASSERT_OK(Put("Key2", DummyString(1024, v)));
     ASSERT_OK(Put("Key3", DummyString(1024, v)));
