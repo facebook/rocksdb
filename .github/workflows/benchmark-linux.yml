@@ -1,7 +1,7 @@
 name: facebook/rocksdb/benchmark-linux
 on:
   schedule:
-  - cron: 5 17 * * *  # Every day 5:17 UTC, 22:00 PST
+  - cron: 7 */2 * * *  # At minute 7 past every 2nd hour
 
 jobs:
   benchmark-linux:
