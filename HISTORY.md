@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.4.1 (08/02/2024)
+### Bug Fixes
+* *Make DestroyDB supports slow deletion when it's configured in `SstFileManager`. The slow deletion is subject to the configured `rate_bytes_per_sec`, but not subject to the `max_trash_db_ratio`.
+
 ## 9.4.0 (06/23/2024)
 ### New Features
 * Added a `CompactForTieringCollectorFactory` to auto trigger compaction for tiering use case.
