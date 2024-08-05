@@ -52,8 +52,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   void Add(const Slice& key_without_ts) override;
   bool IsEmpty() const override { return !any_added_; }
   size_t EstimateEntriesAdded() override;
-  Slice Finish(const BlockHandle& tmp, Status* status,
-               std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
+                std::unique_ptr<const char[]>* filter_owner = nullptr) override;
   using FilterBlockBuilder::Finish;
 
   void ResetFilterBitsBuilder() override { filter_bits_builder_.reset(); }

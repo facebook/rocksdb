@@ -30,6 +30,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     const bool persist_user_defined_timestamps)
     : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
+      p_index_builder_(p_index_builder),
       index_on_filter_block_builder_(
           index_block_restart_interval, true /*use_delta_encoding*/,
           use_value_delta_encoding,
@@ -41,10 +42,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
           use_value_delta_encoding,
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-          persist_user_defined_timestamps, true /* is_user_key */),
-      p_index_builder_(p_index_builder),
-      keys_added_to_partition_(0),
-      total_added_in_built_(0) {
+          persist_user_defined_timestamps, true /* is_user_key */) {
   // See FullFilterBlockBuilder::AddPrefix
   need_last_prefix_ = prefix_extractor() != nullptr;
   // Compute keys_per_partition_
@@ -78,8 +76,9 @@ PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
 
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     const Slice* next_key) {
-  // Use == to send the request only once
-  if (keys_added_to_partition_ == keys_per_partition_) {
+  // (NOTE: Can't just use ==, because keys_added_to_partition_ might be
+  // incremented by more than one.)
+  if (keys_added_to_partition_ >= keys_per_partition_) {
     // Currently only index builder is in charge of cutting a partition. We keep
     // requesting until it is granted.
     p_index_builder_->RequestPartitionCut();
@@ -108,19 +107,17 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   if (filter_construction_status.ok()) {
     filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
   }
-  filters.push_back(
+  filters_.push_back(
       {p_index_builder_->GetPartitionKey(), std::move(filter_data), filter});
-  if (!filter_construction_status.ok() &&
-      partitioned_filters_construction_status_.ok()) {
-    partitioned_filters_construction_status_ = filter_construction_status;
-  }
+  partitioned_filters_construction_status_.UpdateIfOk(
+      filter_construction_status);
   keys_added_to_partition_ = 0;
   Reset();
 }
 
-void PartitionedFilterBlockBuilder::Add(const Slice& key) {
-  MaybeCutAFilterBlock(&key);
-  FullFilterBlockBuilder::Add(key);
+void PartitionedFilterBlockBuilder::Add(const Slice& key_without_ts) {
+  MaybeCutAFilterBlock(&key_without_ts);
+  FullFilterBlockBuilder::Add(key_without_ts);
 }
 
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
@@ -132,10 +129,14 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
   return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
 }
 
-Slice PartitionedFilterBlockBuilder::Finish(
-    const BlockHandle& last_partition_block_handle, Status* status,
-    std::unique_ptr<const char[]>* filter_data) {
-  if (finishing_filters == true) {
+Status PartitionedFilterBlockBuilder::Finish(
+    const BlockHandle& last_partition_block_handle, Slice* filter,
+    std::unique_ptr<const char[]>* filter_owner) {
+  if (finishing_front_filter_) {
+    assert(!filters_.empty());
+    auto& e = filters_.front();
+
+    assert(last_partition_block_handle != BlockHandle{});
     // Record the handle of the last written filter block in the index
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
@@ -145,54 +146,53 @@ Slice PartitionedFilterBlockBuilder::Finish(
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    index_on_filter_block_builder_.Add(last_filter_entry_key, handle_encoding,
+
+    index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
                                        &handle_delta_encoding_slice);
     if (!p_index_builder_->seperator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
-          ExtractUserKey(last_filter_entry_key), handle_encoding,
+          ExtractUserKey(e.ikey), handle_encoding,
           &handle_delta_encoding_slice);
     }
+
+    filters_.pop_front();
   } else {
+    assert(last_partition_block_handle == BlockHandle{});
     MaybeCutAFilterBlock(nullptr);
   }
 
-  if (!partitioned_filters_construction_status_.ok()) {
-    *status = partitioned_filters_construction_status_;
-    return Slice();
-  }
+  Status s = partitioned_filters_construction_status_;
+  assert(!s.IsIncomplete());
 
-  // If there is no filter partition left, then return the index on filter
-  // partitions
-  if (UNLIKELY(filters.empty())) {
-    *status = Status::OK();
-    last_filter_data.reset();
-    if (finishing_filters) {
-      // Simplest to just add them all at the end
-      total_added_in_built_ = 0;
-      if (p_index_builder_->seperator_is_key_plus_seq()) {
-        return index_on_filter_block_builder_.Finish();
+  if (s.ok()) {
+    // If there is no filter partition left, then return the index on filter
+    // partitions
+    if (UNLIKELY(filters_.empty())) {
+      if (!index_on_filter_block_builder_.empty()) {
+        // Simplest to just add them all at the end
+        if (p_index_builder_->seperator_is_key_plus_seq()) {
+          *filter = index_on_filter_block_builder_.Finish();
+        } else {
+          *filter = index_on_filter_block_builder_without_seq_.Finish();
+        }
       } else {
-        return index_on_filter_block_builder_without_seq_.Finish();
+        // This is the rare case where no key was added to the filter
+        *filter = Slice{};
       }
     } else {
-      // This is the rare case where no key was added to the filter
-      return Slice();
-    }
-  } else {
-    // Return the next filter partition in line and set Incomplete() status to
-    // indicate we expect more calls to Finish
-    *status = Status::Incomplete();
-    finishing_filters = true;
+      // Return the next filter partition in line and set Incomplete() status to
+      // indicate we expect more calls to Finish
+      s = Status::Incomplete();
+      finishing_front_filter_ = true;
 
-    last_filter_entry_key = filters.front().key;
-    Slice filter = filters.front().filter;
-    last_filter_data = std::move(filters.front().filter_data);
-    if (filter_data != nullptr) {
-      *filter_data = std::move(last_filter_data);
+      auto& e = filters_.front();
+      if (filter_owner != nullptr) {
+        *filter_owner = std::move(e.filter_owner);
+      }
+      *filter = e.filter;
     }
-    filters.pop_front();
-    return filter;
   }
+  return s;
 }
 
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(

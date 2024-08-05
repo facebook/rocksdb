@@ -1226,6 +1226,8 @@ class DBImpl : public DB {
     return logs_.back().number;
   }
 
+  void TEST_DeleteObsoleteFiles();
+
   const std::unordered_set<uint64_t>& TEST_GetFilesGrabbedForPurge() const {
     return files_grabbed_for_purge_;
   }

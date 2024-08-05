@@ -57,22 +57,22 @@ class FilterBlockBuilder {
   virtual bool IsEmpty() const = 0;      // Empty == none added
   // For reporting stats on how many entries the builder considered unique
   virtual size_t EstimateEntriesAdded() = 0;
-  Slice Finish() {  // Generate Filter
-    const BlockHandle empty_handle;
-    Status dont_care_status;
-    auto ret = Finish(empty_handle, &dont_care_status);
-    assert(dont_care_status.ok());
-    return ret;
-  }
-  // If filter_data is not nullptr, Finish() may transfer ownership of
+
+  // Generate a filter block. Returns OK if finished, or Incomplete if more
+  // filters are needed (partitioned filter). In the latter case, subsequent
+  // calls require the BlockHandle of the most recently generated and written
+  // filter, in last_partition_block_handle.
+  //
+  // If filter_owner is not nullptr, Finish() may transfer ownership of
   // underlying filter data to the caller,  so that it can be freed as soon as
   // possible. BlockBasedFilterBlock will ignore this parameter.
   //
-  virtual Slice Finish(
-      const BlockHandle& tmp /* only used in PartitionedFilterBlock as
-                                last_partition_block_handle */
-      ,
-      Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
+  // For either OK or Incomplete, *filter is set to point to the next filter
+  // bytes, which survive until either this is destroyed, *filter_owner is
+  // destroyed, or next call to Finish.
+  virtual Status Finish(
+      const BlockHandle& last_partition_block_handle, Slice* filter,
+      std::unique_ptr<const char[]>* filter_owner = nullptr) = 0;
 
   // This is called when finishes using the FilterBitsBuilder
   // in order to release memory usage and cache charge
@@ -85,6 +85,16 @@ class FilterBlockBuilder {
   virtual Status MaybePostVerifyFilter(const Slice& /* filter_content */) {
     return Status::OK();
   }
+
+#ifndef NDEBUG
+  Slice TEST_Finish() {  // Generate Filter
+    const BlockHandle empty_handle;
+    Slice filter;
+    Status status = Finish(empty_handle, &filter);
+    assert(status.ok());
+    return filter;
+  }
+#endif  // NDEBUG
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

@@ -112,19 +112,19 @@ void FullFilterBlockBuilder::Reset() {
   last_prefix_recorded_ = false;
 }
 
-Slice FullFilterBlockBuilder::Finish(
-    const BlockHandle& /*tmp*/, Status* status,
-    std::unique_ptr<const char[]>* filter_data) {
+Status FullFilterBlockBuilder::Finish(
+    const BlockHandle& /*last_partition_block_handle*/, Slice* filter,
+    std::unique_ptr<const char[]>* filter_owner) {
   Reset();
-  // In this impl we ignore BlockHandle
-  *status = Status::OK();
+  Status s = Status::OK();
   if (any_added_) {
     any_added_ = false;
-    Slice filter_content = filter_bits_builder_->Finish(
-        filter_data ? filter_data : &filter_data_, status);
-    return filter_content;
+    *filter = filter_bits_builder_->Finish(
+        filter_owner ? filter_owner : &filter_data_, &s);
+  } else {
+    *filter = Slice{};
   }
-  return Slice();
+  return s;
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
