@@ -4,6 +4,7 @@
 ## 9.3.2 (08/02/2024)
 ### Bug Fixes
 * *Make DestroyDB supports slow deletion when it's configured in `SstFileManager`. The slow deletion is subject to the configured `rate_bytes_per_sec`, but not subject to the `max_trash_db_ratio`.
+* Fix a race condition in pessimistic transactions that could allow multiple transactions with the same name to be registered simultaneously, resulting in a crash or other unpredictable behavior.
 
 ## 9.3.1 (05/25/2024)
 ### Bug Fixes
