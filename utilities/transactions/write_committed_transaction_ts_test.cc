@@ -241,8 +241,9 @@ TEST_P(WriteCommittedTxnWithTsTest, WritesBypassTransactionAPIs) {
   ASSERT_OK(txn5->Get(ReadOptions(), handles_[1], "foo", &value));
   ASSERT_EQ("foo_val", value);
   // Incorrect behavior:
-  // *unflushed key can be found after reopen (this is not suggesting using
-  // flushing as a workaround but to show a possible misleading behavior)
+  // *unflushed key can be found after reopen replays the entries from WAL
+  // (this is not suggesting using flushing as a workaround but to show a
+  // possible misleading behavior)
   // *flushed key is forever corrupted.
   ASSERT_TRUE(
       txn5->Get(ReadOptions(), handles_[1], "foobarbaz", &value).IsNotFound());
