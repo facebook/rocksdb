@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.3.2 (08/02/2024)
+### Bug Fixes
+* *Make DestroyDB supports slow deletion when it's configured in `SstFileManager`. The slow deletion is subject to the configured `rate_bytes_per_sec`, but not subject to the `max_trash_db_ratio`.
+
 ## 9.3.1 (05/25/2024)
 ### Bug Fixes
 * [internal only] Build script improvement
