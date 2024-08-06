@@ -80,13 +80,13 @@ void Compaction::GetBoundaryKeys(
     Slice* largest_user_key, int exclude_level) {
   bool initialized = false;
   const Comparator* ucmp = vstorage->InternalComparator()->user_comparator();
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    if (inputs[i].files.empty() || inputs[i].level == exclude_level) {
+  for (const auto& input : inputs) {
+    if (input.files.empty() || input.level == exclude_level) {
       continue;
     }
-    if (inputs[i].level == 0) {
+    if (input.level == 0) {
       // we need to consider all files on level 0
-      for (const auto* f : inputs[i].files) {
+      for (const auto* f : input.files) {
         const Slice& start_user_key = f->smallest.user_key();
         if (!initialized ||
             ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
@@ -101,12 +101,12 @@ void Compaction::GetBoundaryKeys(
       }
     } else {
       // we only need to consider the first and last file
-      const Slice& start_user_key = inputs[i].files[0]->smallest.user_key();
+      const Slice& start_user_key = input.files[0]->smallest.user_key();
       if (!initialized ||
           ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
         *smallest_user_key = start_user_key;
       }
-      const Slice& end_user_key = inputs[i].files.back()->largest.user_key();
+      const Slice& end_user_key = input.files.back()->largest.user_key();
       if (!initialized || ucmp->Compare(end_user_key, *largest_user_key) > 0) {
         *largest_user_key = end_user_key;
       }
@@ -121,13 +121,13 @@ void Compaction::GetBoundaryInternalKeys(
     InternalKey* largest_key, int exclude_level) {
   bool initialized = false;
   const InternalKeyComparator* icmp = vstorage->InternalComparator();
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    if (inputs[i].files.empty() || inputs[i].level == exclude_level) {
+  for (const auto& input : inputs) {
+    if (input.files.empty() || input.level == exclude_level) {
       continue;
     }
-    if (inputs[i].level == 0) {
+    if (input.level == 0) {
       // we need to consider all files on level 0
-      for (const auto* f : inputs[i].files) {
+      for (const auto* f : input.files) {
         if (!initialized || icmp->Compare(f->smallest, *smallest_key) < 0) {
           *smallest_key = f->smallest;
         }
@@ -139,12 +139,12 @@ void Compaction::GetBoundaryInternalKeys(
     } else {
       // we only need to consider the first and last file
       if (!initialized ||
-          icmp->Compare(inputs[i].files[0]->smallest, *smallest_key) < 0) {
-        *smallest_key = inputs[i].files[0]->smallest;
+          icmp->Compare(input.files[0]->smallest, *smallest_key) < 0) {
+        *smallest_key = input.files[0]->smallest;
       }
       if (!initialized ||
-          icmp->Compare(inputs[i].files.back()->largest, *largest_key) > 0) {
-        *largest_key = inputs[i].files.back()->largest;
+          icmp->Compare(input.files.back()->largest, *largest_key) > 0) {
+        *largest_key = input.files.back()->largest;
       }
       initialized = true;
     }
@@ -154,11 +154,11 @@ void Compaction::GetBoundaryInternalKeys(
 std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
     VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs) {
   const Comparator* ucmp = vstorage->InternalComparator()->user_comparator();
-  for (size_t i = 0; i < inputs.size(); i++) {
-    if (inputs[i].level == 0 || inputs[i].files.empty()) {
+  for (auto& input : inputs) {
+    if (input.level == 0 || input.files.empty()) {
       continue;
     }
-    inputs[i].atomic_compaction_unit_boundaries.reserve(inputs[i].files.size());
+    input.atomic_compaction_unit_boundaries.reserve(input.files.size());
     AtomicCompactionUnitBoundary cur_boundary;
     size_t first_atomic_idx = 0;
     auto add_unit_boundary = [&](size_t to) {
@@ -166,12 +166,12 @@ std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
         return;
       }
       for (size_t k = first_atomic_idx; k < to; k++) {
-        inputs[i].atomic_compaction_unit_boundaries.push_back(cur_boundary);
+        input.atomic_compaction_unit_boundaries.push_back(cur_boundary);
       }
       first_atomic_idx = to;
     };
-    for (size_t j = 0; j < inputs[i].files.size(); j++) {
-      const auto* f = inputs[i].files[j];
+    for (size_t j = 0; j < input.files.size(); j++) {
+      const auto* f = input.files[j];
       if (j == 0) {
         // First file in a level.
         cur_boundary.smallest = &f->smallest;
@@ -189,9 +189,9 @@ std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
         cur_boundary.largest = &f->largest;
       }
     }
-    add_unit_boundary(inputs[i].files.size());
-    assert(inputs[i].files.size() ==
-           inputs[i].atomic_compaction_unit_boundaries.size());
+    add_unit_boundary(input.files.size());
+    assert(input.files.size() ==
+           input.atomic_compaction_unit_boundaries.size());
   }
   return inputs;
 }
@@ -236,8 +236,8 @@ bool Compaction::IsFullCompaction(
   for (int l = 0; l < vstorage->num_levels(); l++) {
     total_num_files += vstorage->NumLevelFiles(l);
   }
-  for (size_t i = 0; i < inputs.size(); i++) {
-    num_files_in_compaction += inputs[i].size();
+  for (const auto& input : inputs) {
+    num_files_in_compaction += input.size();
   }
   return num_files_in_compaction == total_num_files;
 }
@@ -313,10 +313,9 @@ Compaction::Compaction(
           // with
           // `CompactionReason::kExternalSstIngestion` and
           // `CompactionReason::kRefitLevel`
-          (_compaction_reason == CompactionReason::kExternalSstIngestion ||
-           _compaction_reason == CompactionReason::kRefitLevel)
-              ? false
-              : IsBottommostLevel(output_level_, vstorage, inputs_)),
+          !(_compaction_reason == CompactionReason::kExternalSstIngestion ||
+            _compaction_reason == CompactionReason::kRefitLevel) &&
+          IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       trim_ts_(_trim_ts),
@@ -324,12 +323,11 @@ Compaction::Compaction(
       compaction_reason_(_compaction_reason),
       notify_on_compaction_completion_(false),
       enable_blob_garbage_collection_(
-          _blob_garbage_collection_policy == BlobGarbageCollectionPolicy::kForce
-              ? true
-              : (_blob_garbage_collection_policy ==
-                         BlobGarbageCollectionPolicy::kDisable
-                     ? false
-                     : mutable_cf_options()->enable_blob_garbage_collection)),
+          _blob_garbage_collection_policy ==
+              BlobGarbageCollectionPolicy::kForce ||
+          (_blob_garbage_collection_policy !=
+               BlobGarbageCollectionPolicy::kDisable &&
+           mutable_cf_options()->enable_blob_garbage_collection)),
       blob_garbage_collection_age_cutoff_(
           _blob_garbage_collection_age_cutoff < 0 ||
                   _blob_garbage_collection_age_cutoff > 1
@@ -579,7 +577,7 @@ bool Compaction::IsTrivialMove() const {
         return false;
       }
 
-      if (partitioner.get() != nullptr) {
+      if (partitioner != nullptr) {
         if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
                                            file->largest.user_key())) {
           return false;
@@ -683,7 +681,7 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
     return true /* does not overlap */;
   }
   return false /* overlaps */;
-};
+}
 
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
@@ -750,13 +748,13 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
                  int len) {
   *output = '\0';
   int write = 0;
-  for (size_t i = 0; i < files.size(); i++) {
+  for (auto file : files) {
     int sz = len - write;
     int ret;
     char sztxt[16];
-    AppendHumanBytes(files.at(i)->fd.GetFileSize(), sztxt, 16);
-    ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
-                   files.at(i)->fd.GetNumber(), sztxt);
+    AppendHumanBytes(file->fd.GetFileSize(), sztxt, 16);
+    ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ", file->fd.GetNumber(),
+                   sztxt);
     if (ret < 0 || ret >= sz) {
       break;
     }
@@ -901,8 +899,8 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
     return false;
   }
 
-  for (size_t i = 0; i < inputs_.size(); ++i) {
-    for (const FileMetaData* meta : inputs_[i].files) {
+  for (const auto& input : inputs_) {
+    for (const FileMetaData* meta : input.files) {
       assert(meta);
 
       if (meta->oldest_blob_file_number != kInvalidBlobFileNumber) {
