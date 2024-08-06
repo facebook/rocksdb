@@ -1472,6 +1472,126 @@ TEST_F(DBWALTest, SyncMultipleLogs) {
   ASSERT_OK(dbfull()->SyncWAL());
 }
 
+TEST_F(DBWALTest, DISABLED_RecycleMultipleWalsCrash) {
+  Options options = CurrentOptions();
+  options.max_write_buffer_number = 5;
+  options.track_and_verify_wals_in_manifest = true;
+  options.max_bgerror_resume_count = 0;  // manual resume
+  options.recycle_log_file_num = 3;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  // Disable truncating recycled WALs to new size in posix env
+  // (approximating a crash)
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixWritableFile::Close",
+      [](void* arg) { *(static_cast<size_t*>(arg)) = 0; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Re-open with desired options
+  DestroyAndReopen(options);
+  Defer closer([this]() { Close(); });
+
+  // Ensure WAL recycling wasn't sanitized away
+  ASSERT_EQ(db_->GetOptions().recycle_log_file_num,
+            options.recycle_log_file_num);
+
+  // Prepare external files for later ingestion
+  std::string sst_files_dir = dbname_ + "/sst_files/";
+  ASSERT_OK(DestroyDir(env_, sst_files_dir));
+  ASSERT_OK(env_->CreateDir(sst_files_dir));
+  std::string external_file1 = sst_files_dir + "file1.sst";
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(external_file1));
+    ASSERT_OK(sst_file_writer.Put("external1", "ex1"));
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+  }
+  std::string external_file2 = sst_files_dir + "file2.sst";
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(external_file2));
+    ASSERT_OK(sst_file_writer.Put("external2", "ex2"));
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+  }
+
+  // Populate some WALs to be recycled such that there will be extra data
+  // from an old incarnation of the WAL on recovery
+  ASSERT_OK(db_->PauseBackgroundWork());
+  ASSERT_OK(Put("ignore1", Random::GetTLSInstance()->RandomString(500)));
+  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(Put("ignore2", Random::GetTLSInstance()->RandomString(500)));
+  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(db_->ContinueBackgroundWork());
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ignore3", Random::GetTLSInstance()->RandomString(500)));
+  ASSERT_OK(Flush());
+
+  // Verify expected log files (still there for recycling)
+  std::vector<FileAttributes> files;
+  int log_count = 0;
+  ASSERT_OK(options.env->GetChildrenFileAttributes(dbname_, &files));
+  for (const auto& f : files) {
+    if (EndsWith(f.name, ".log")) {
+      EXPECT_GT(f.size_bytes, 500);
+      ++log_count;
+    }
+  }
+  EXPECT_EQ(log_count, 3);
+
+  // (Re-used recipe) Generate two inactive WALs and one active WAL, with a
+  // gap in sequence numbers to interfere with recovery
+  ASSERT_OK(db_->PauseBackgroundWork());
+  ASSERT_OK(Put("key1", "val1"));
+  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  // Need a gap in sequence numbers, so e.g. ingest external file
+  // with an open snapshot
+  {
+    ManagedSnapshot snapshot(db_);
+    ASSERT_OK(
+        db_->IngestExternalFile({external_file1}, IngestExternalFileOptions()));
+  }
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(db_->SyncWAL());
+  // Need an SST file that is logically after that WAL, so that dropping WAL
+  // data is not a valid point in time.
+  {
+    ManagedSnapshot snapshot(db_);
+    ASSERT_OK(
+        db_->IngestExternalFile({external_file2}, IngestExternalFileOptions()));
+  }
+
+  // Approximate a crash, with respect to recycled WAL data extending past
+  // the end of the current WAL data (see SyncPoint callback above)
+  Close();
+
+  // Verify recycled log files haven't been truncated
+  files.clear();
+  log_count = 0;
+  ASSERT_OK(options.env->GetChildrenFileAttributes(dbname_, &files));
+  for (const auto& f : files) {
+    if (EndsWith(f.name, ".log")) {
+      EXPECT_GT(f.size_bytes, 500);
+      ++log_count;
+    }
+  }
+  EXPECT_EQ(log_count, 3);
+
+  // Verify no data loss after reopen.
+  Reopen(options);
+  EXPECT_EQ("val1", Get("key1"));
+  EXPECT_EQ("val2", Get("key2"));  // Passes because of adjacent seqnos
+  EXPECT_EQ("ex1", Get("external1"));
+  EXPECT_EQ("val3", Get("key3"));  // <- ONLY FAILURE! (Not a point in time)
+  EXPECT_EQ("ex2", Get("external2"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(DBWALTest, SyncWalPartialFailure) {
   class MyTestFileSystem : public FileSystemWrapper {
    public:
@@ -1532,7 +1652,7 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
   // * one inactive WAL, not synced, and
   // * one active WAL, not synced
   // with a single thread, to exercise as much logic as we reasonably can.
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->PauseBackgroundWork());
+  ASSERT_OK(db_->PauseBackgroundWork());
   ASSERT_OK(Put("key1", "val1"));
   ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
   ASSERT_OK(db_->SyncWAL());
