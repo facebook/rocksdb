@@ -130,7 +130,8 @@ default_params = {
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
-    "recycle_log_file_num": lambda: random.randint(0, 1),
+    # See disabled DBWALTest.RecycleMultipleWalsCrash
+    "recycle_log_file_num": 0,
     "snapshot_hold_ops": 100000,
     "sqfc_name": lambda: random.choice(["foo", "bar"]),
     # 0 = disable writing SstQueryFilters
