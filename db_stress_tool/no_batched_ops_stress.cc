@@ -1637,10 +1637,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
           initial_wal_write_may_succeed) {
-        lock.reset();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
-        lock.reset(new MutexLock(
-            shared->GetMutexForKey(rand_column_family, rand_key)));
       }
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
@@ -1770,11 +1767,8 @@ class NonBatchedOpsStressTest : public StressTest {
         // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
             initial_wal_write_may_succeed) {
-          lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
-          lock.reset(new MutexLock(
-              shared->GetMutexForKey(rand_column_family, rand_key)));
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
@@ -1834,11 +1828,8 @@ class NonBatchedOpsStressTest : public StressTest {
         // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
             initial_wal_write_may_succeed) {
-          lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
-          lock.reset(new MutexLock(
-              shared->GetMutexForKey(rand_column_family, rand_key)));
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
@@ -1942,10 +1933,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
           initial_wal_write_may_succeed) {
-        range_locks.clear();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
-        GetDeleteRangeKeyLocks(thread, rand_column_family, rand_key,
-                               &range_locks);
       }
       if (FLAGS_user_timestamp_size) {
         write_ts_str = GetNowNanos();

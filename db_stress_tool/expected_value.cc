@@ -11,10 +11,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 bool ExpectedValue::Put(bool pending) {
-  if (pending && (PendingWrite() || PendingDelete())) {
-    return false;
-  }
-
   if (pending) {
     SetPendingWrite();
   } else {
@@ -26,10 +22,6 @@ bool ExpectedValue::Put(bool pending) {
 }
 
 bool ExpectedValue::Delete(bool pending) {
-  if (pending && (PendingWrite() || PendingDelete())) {
-    return false;
-  }
-
   if (!Exists()) {
     return false;
   }
