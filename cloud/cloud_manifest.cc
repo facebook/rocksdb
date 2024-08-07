@@ -134,7 +134,7 @@ std::unique_ptr<CloudManifest> CloudManifest::clone() const {
 // We store number_of_records just for sanity checks
 //
 // Record:
-// * (kPastEpoch tag: 1 byte) (epochId: lenght-prefixed-string) (file_number:
+// * (kPastEpoch tag: 1 byte) (epochId: length-prefixed-string) (file_number:
 // varint)
 //
 // Header comes first, and is followed with number_of_records Records.
