@@ -1443,4 +1443,8 @@ DEFINE_uint32(uncache_aggressiveness,
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
 
+DEFINE_bool(read_option_integrity_checks,
+            ROCKSDB_NAMESPACE::ReadOptions().integrity_checks,
+            "Sets ReadOptions::integrity_checks.");
+
 #endif  // GFLAGS

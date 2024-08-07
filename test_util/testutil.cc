@@ -643,9 +643,12 @@ class SpecialMemTableRep : public MemTableRep {
     return (num_entries_ < num_entries_flush_) ? 0 : 1024 * 1024 * 1024;
   }
 
-  void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry)) override {
-    memtable_->Get(k, callback_args, callback_func);
+  Status Get(const LookupKey& k, void* callback_args,
+             bool (*callback_func)(void* arg, const char* entry),
+             bool integrity_checks = false,
+             bool allow_data_in_errors = false) override {
+    return memtable_->Get(k, callback_args, callback_func, integrity_checks,
+                          allow_data_in_errors);
   }
 
   uint64_t ApproximateNumEntries(const Slice& start_ikey,
@@ -653,8 +656,11 @@ class SpecialMemTableRep : public MemTableRep {
     return memtable_->ApproximateNumEntries(start_ikey, end_ikey);
   }
 
-  MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
-    return memtable_->GetIterator(arena);
+  MemTableRep::Iterator* GetIterator(
+      Arena* arena = nullptr, bool integrity_checks = false,
+      bool allow_data_in_errors = false) override {
+    return memtable_->GetIterator(arena, integrity_checks,
+                                  allow_data_in_errors);
   }
 
   ~SpecialMemTableRep() override = default;
