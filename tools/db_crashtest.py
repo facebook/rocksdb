@@ -1050,7 +1050,7 @@ def execute_cmd(cmd, timeout=None):
         print("KILLED %d\n" % child.pid)
         outs, errs = child.communicate()
 
-    return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
+    return hit_timeout, child.returncode, outs.decode("utf-8", "backslashreplace"), errs.decode("utf-8", "backslashreplace")
 
 
 def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):

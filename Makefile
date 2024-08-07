@@ -1414,7 +1414,7 @@ option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/optio
 agg_merge_test: $(OBJ_DIR)/utilities/agg_merge/agg_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-stringappend_test: $(OBJ_DIR)/utilities/merge_operators/string_append/stringappend_test.o $(TEST_LIBRARY) $(LIBRARY)
+merge_operators_test: $(OBJ_DIR)/utilities/merge_operators/test/merge_operators_test.o $(OBJ_DIR)/utilities/merge_operators/test/stringappend_test.o $(OBJ_DIR)/utilities/merge_operators/test/int64add_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 cassandra_format_test: $(OBJ_DIR)/utilities/cassandra/cassandra_format_test.o $(OBJ_DIR)/utilities/cassandra/test_utils.o $(TEST_LIBRARY) $(LIBRARY)

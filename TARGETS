@@ -301,6 +301,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/memory/memory_util.cc",
         "utilities/merge_operators.cc",
         "utilities/merge_operators/bytesxor.cc",
+        "utilities/merge_operators/int64add/int64_add.cc",
         "utilities/merge_operators/max.cc",
         "utilities/merge_operators/put.cc",
         "utilities/merge_operators/sortlist.cc",
@@ -5230,6 +5231,12 @@ cpp_unittest_wrapper(name="merge_helper_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="merge_operators_test",
+            srcs=["utilities/merge_operators/test/merge_operators_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="merge_test",
             srcs=["db/merge_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5460,12 +5467,6 @@ cpp_unittest_wrapper(name="statistics_test",
 
 cpp_unittest_wrapper(name="stats_history_test",
             srcs=["monitoring/stats_history_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
-cpp_unittest_wrapper(name="stringappend_test",
-            srcs=["utilities/merge_operators/string_append/stringappend_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
