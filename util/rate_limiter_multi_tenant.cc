@@ -154,6 +154,7 @@ void MultiTenantRateLimiter::SetBytesPerSecond(std::vector<int64_t> bytes_per_se
 }
 
 void MultiTenantRateLimiter::SetBytesPerSecondLocked(std::vector<int64_t> bytes_per_second) {
+  // TODO(tgriggs): Make this assert a debug statement.
   // assert(bytes_per_second > 0);
   for (size_t i = 0; i < bytes_per_second.size(); ++i) {
     rate_bytes_per_sec_[i].store(bytes_per_second[i], std::memory_order_relaxed);
@@ -190,13 +191,15 @@ int64_t MultiTenantRateLimiter::GetSingleBurstBytes(OpType op_type) const {
 }
 
 int64_t MultiTenantRateLimiter::GetSingleBurstBytes(int client_id) const {
-  int client_idx = ClientId2ClientIdx(client_id);
-  int64_t raw_single_burst_bytes =
-      raw_single_burst_bytes_.load(std::memory_order_relaxed);
-  if (raw_single_burst_bytes == 0) {
-    return refill_bytes_per_period_[client_idx].load(std::memory_order_relaxed);
-  }
-  return raw_single_burst_bytes;
+  return 2 * 1024 * 1024;  // 2 MB
+
+  // int client_idx = ClientId2ClientIdx(client_id);
+  // int64_t raw_single_burst_bytes =
+  //     raw_single_burst_bytes_.load(std::memory_order_relaxed);
+  // if (raw_single_burst_bytes == 0) {
+  //   return refill_bytes_per_period_[client_idx].load(std::memory_order_relaxed);
+  // }
+  // return raw_single_burst_bytes;
 }
 
 Status MultiTenantRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
@@ -255,6 +258,8 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   }
 }
 
+// TODO(tgriggs): the common case only hits a single client's rate limiter without any
+//                queuing. So, let's not take any locks on this common case.
 void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   // Extract client ID from thread-local metadata.
@@ -295,6 +300,16 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
   MutexLock g_lock(&request_mutex_);
+
+  // auto now_us = std::chrono::time_point_cast<std::chrono::microseconds>( std::chrono::high_resolution_clock::now());
+  // long now = now_us.time_since_epoch().count();
+  // std::cout << "compaction_test," << now << ",";
+  // if (read_rate_limiter_ == nullptr) {
+  //   std::cout << "read,";
+  // } else {
+  //   std::cout << "write,";
+  // }
+  // std::cout << bytes << "," << GetSingleBurstBytes(cid) << std::endl;
 
   if (stop_) {
     // It is now in the clean-up of ~MultiTenantRateLimiter().

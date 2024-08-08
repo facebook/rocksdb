@@ -1267,7 +1267,11 @@ Status DBImpl::SetOptions(
   Status s;
   Status persist_options_status;
   SuperVersionContext sv_context(/* create_superversion */ true);
+
+  // TODO(tgriggs): this is the code block taking a long time
   {
+
+    // This code block takes about 3ms
     auto db_options = GetDBOptions();
     InstrumentedMutexLock l(&mutex_);
     s = cfd->SetOptions(db_options, options_map);
