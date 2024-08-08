@@ -36,8 +36,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   virtual ~PartitionedFilterBlockBuilder();
 
-  void AddKey(const Slice& key) override;
   void Add(const Slice& key_without_ts) override;
+  bool IsEmpty() const override {
+    return filter_bits_builder_->EstimateEntriesAdded() == 0 &&
+           filters_.empty();
+  }
   size_t EstimateEntriesAdded() override;
 
   Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
@@ -60,8 +63,9 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   }
 
  private:  // fns
-  // The policy of when cut a filter block and Finish it
-  void MaybeCutAFilterBlock(const Slice* next_key);
+  // Whether to cut a filter block before the next key
+  bool DecideCutAFilterBlock();
+  void CutAFilterBlock(const Slice* next_key, const Slice* next_prefix);
 
  private:  // data
   // Currently we keep the same number of partitions for filters and indexes.
@@ -80,11 +84,14 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
                                      // used in building the index
   // The desired number of keys per partition
   uint32_t keys_per_partition_;
-  // The number of keys added to the last partition so far
-  uint32_t keys_added_to_partition_ = 0;
   // According to the bits builders, how many keys/prefixes added
   // in all the filters we have fully built
   uint64_t total_added_in_built_ = 0;
+
+  // Tracking state about previous prefix, to solve issue with prefix Seeks
+  // at partition boundaries.
+  bool last_key_in_domain_ = false;
+  std::string last_prefix_str_;
 
   // Set to the first non-okay status if any of the filter
   // partitions experiences construction error.

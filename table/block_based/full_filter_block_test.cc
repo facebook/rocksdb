@@ -29,6 +29,10 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
   void AddKey(const Slice& key) override {
     hash_entries_.push_back(Hash(key.data(), key.size(), 1));
   }
+  void AddKeyAndAlt(const Slice& key, const Slice& alt) override {
+    AddKey(key);
+    AddKey(alt);
+  }
 
   using FilterBitsBuilder::Finish;
 
@@ -202,6 +206,11 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
   void AddKey(const Slice& key) override {
     b_->AddKey(key);
     uniq_.insert(key.ToString());
+  }
+  void AddKeyAndAlt(const Slice& key, const Slice& alt) override {
+    b_->AddKeyAndAlt(key, alt);
+    uniq_.insert(key.ToString());
+    uniq_.insert(alt.ToString());
   }
 
   using FilterBitsBuilder::Finish;

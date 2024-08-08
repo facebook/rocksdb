@@ -692,15 +692,20 @@ namespace {
 
 class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
  public:
-  void AddKey(const Slice&) override {}
-  size_t EstimateEntriesAdded() override { return 0U; }
+  void AddKey(const Slice&) override { ++count_; }
+  void AddKeyAndAlt(const Slice&, const Slice&) override { count_ += 2; }
+  size_t EstimateEntriesAdded() override { return count_; }
   Slice Finish(std::unique_ptr<const char[]>* /* buf */) override {
+    count_ = 0;
     // Interpreted as "always true" filter (0 probes over 1 byte of
     // payload, 5 bytes metadata)
     return Slice("\0\0\0\0\0\0", 6);
   }
   using FilterBitsBuilder::Finish;
   size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
+
+ private:
+  size_t count_ = 0;
 };
 
 class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {

@@ -31,10 +31,18 @@ class FilterBitsBuilder {
   // added.
   virtual void AddKey(const Slice& key) = 0;
 
+  // Add two entries to the filter, typically a key and, as the alternate,
+  // its prefix. This differs from AddKey(key); AddKey(alt); in that there
+  // is extra state for de-duplicating successive `alt` entries, as well
+  // as successive `key` entries. And there is usually de-duplication between
+  // `key` and `alt` entries, such that it's typically OK for an `alt` without
+  // a corresponding `key` to use AddKey().
+  virtual void AddKeyAndAlt(const Slice& key, const Slice& alt) = 0;
+
   // Called by RocksDB before Finish to populate
   // TableProperties::num_filter_entries, so should represent the
-  // number of unique keys (and/or prefixes) added, but does not have
-  // to be exact. `return 0;` may be used to conspicuously indicate "unknown".
+  // number of unique keys (and/or prefixes) added. MUST return 0
+  // if and only if none have been added, but otherwise can be estimated.
   virtual size_t EstimateEntriesAdded() = 0;
 
   // Generate the filter using the keys that are added
