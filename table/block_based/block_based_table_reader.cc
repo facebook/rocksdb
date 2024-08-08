@@ -693,6 +693,10 @@ Status BlockBasedTable::Open(
       s = ReadFooterFromFile(retry_opts, file.get(), *ioptions.fs,
                              prefetch_buffer.get(), file_size, &footer,
                              kBlockBasedTableMagicNumber);
+      RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
+      if (s.ok()) {
+        RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+      }
     }
   }
   if (!s.ok()) {
