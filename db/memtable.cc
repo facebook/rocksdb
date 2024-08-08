@@ -1314,8 +1314,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
 
   // No change to value, since we have not yet found a Put/Delete
   // Propagate corruption error
-  if (!found_final_value && merge_in_progress && s->ok()) {
-    *s = Status::MergeInProgress();
+  if (!found_final_value && merge_in_progress) {
+    if (s->ok()) {
+      *s = Status::MergeInProgress();
+    } else {
+      assert(s->IsMergeInProgress());
+    }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
   return found_final_value;
@@ -1425,8 +1429,12 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                  iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
                  &found_final_value, &merge_in_progress);
 
-    if (!found_final_value && merge_in_progress && iter->s->ok()) {
-      *(iter->s) = Status::MergeInProgress();
+    if (!found_final_value && merge_in_progress) {
+      if (iter->s->ok()) {
+        *(iter->s) = Status::MergeInProgress();
+      } else {
+        assert(iter->s->IsMergeInProgress());
+      }
     }
 
     if (found_final_value ||
