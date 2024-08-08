@@ -249,12 +249,14 @@ class MemTable {
   // If do_merge = true the default behavior which is Get value for key is
   // executed. Expected behavior is described right below.
   // If memtable contains a value for key, store it in *value and return true.
-  // If memtable contains a deletion for key, store a NotFound() error
-  // in *status and return true.
+  // If memtable contains a deletion for key, store NotFound() in *status and
+  // return true.
   // If memtable contains Merge operation as the most recent entry for a key,
   //   and the merge process does not stop (not reaching a value or delete),
   //   prepend the current merge operand to *operands.
   //   store MergeInProgress in s, and return false.
+  // If an unexpected error or corruption occurs, store Corruption() or other
+  // error in *status and return true.
   // Else, return false.
   // If any operation was found, its most recent sequence number
   // will be stored in *seq on success (regardless of whether true/false is

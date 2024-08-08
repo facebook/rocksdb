@@ -933,6 +933,8 @@ static bool SaveValue(void* arg, const char* entry) {
   Saver* s = static_cast<Saver*>(arg);
   assert(s != nullptr);
   assert(!s->value || !s->columns);
+  assert(!*(s->found_final_value));
+  assert(s->status->ok() || s->status->IsMergeInProgress());
 
   MergeContext* merge_context = s->merge_context;
   SequenceNumber max_covering_tombstone_seq = s->max_covering_tombstone_seq;
@@ -966,6 +968,7 @@ static bool SaveValue(void* arg, const char* entry) {
       *(s->status) = MemTable::VerifyEntryChecksum(
           entry, s->protection_bytes_per_key, s->allow_data_in_errors);
       if (!s->status->ok()) {
+        *(s->found_final_value) = true;
         ROCKS_LOG_ERROR(s->logger, "In SaveValue: %s", s->status->getState());
         // Memtable entry corrupted
         return false;
@@ -1231,6 +1234,7 @@ static bool SaveValue(void* arg, const char* entry) {
                      ". ");
           msg.append("seq: " + std::to_string(seq) + ".");
         }
+        *(s->found_final_value) = true;
         *(s->status) = Status::Corruption(msg.c_str());
         return false;
       }
@@ -1310,8 +1314,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
 
   // No change to value, since we have not yet found a Put/Delete
   // Propagate corruption error
-  if (!found_final_value && merge_in_progress && !s->IsCorruption()) {
-    *s = Status::MergeInProgress();
+  if (!found_final_value && merge_in_progress) {
+    if (s->ok()) {
+      *s = Status::MergeInProgress();
+    } else {
+      assert(s->IsMergeInProgress());
+    }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
   return found_final_value;
@@ -1348,6 +1356,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
   table_->Get(key, &saver, SaveValue);
+  assert(s->ok() || s->IsMergeInProgress() || *found_final_value);
   *seq = saver.seq;
 }
 
@@ -1421,10 +1430,19 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                  &found_final_value, &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
-      *(iter->s) = Status::MergeInProgress();
+      if (iter->s->ok()) {
+        *(iter->s) = Status::MergeInProgress();
+      } else {
+        assert(iter->s->IsMergeInProgress());
+      }
     }
 
-    if (found_final_value) {
+    if (found_final_value ||
+        (!iter->s->ok() && !iter->s->IsMergeInProgress())) {
+      // `found_final_value` should be set if an error/corruption occurs.
+      // The check on iter->s is just there in case GetFromTable() did not
+      // set `found_final_value` properly.
+      assert(found_final_value);
       if (iter->value) {
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
