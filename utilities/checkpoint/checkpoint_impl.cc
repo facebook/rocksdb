@@ -53,7 +53,10 @@ Status CheckpointImpl::CleanStagingDirectory(
   if (s.IsNotFound()) {
     // Nothing to clean
     return Status::OK();
+  } else if (!s.ok()) {
+    return s;
   }
+  assert(s.ok());
   ROCKS_LOG_INFO(info_log, "File exists %s -- %s", full_private_path.c_str(),
                  s.ToString().c_str());
 
