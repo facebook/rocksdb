@@ -32,41 +32,29 @@ void ExpectedState::Precommit(int cf, int64_t key, const ExpectedValue& value) {
   std::atomic_thread_fence(std::memory_order_release);
 }
 
-PendingExpectedValue ExpectedState::PreparePut(int cf, int64_t key,
-                                               bool* prepared) {
-  assert(prepared);
+PendingExpectedValue ExpectedState::PreparePut(int cf, int64_t key) {
   ExpectedValue expected_value = Load(cf, key);
 
   // Calculate the original expected value
   const ExpectedValue orig_expected_value = expected_value;
 
   // Calculate the pending expected value
-  bool res = expected_value.Put(true /* pending */);
-  if (!res) {
-    PendingExpectedValue ret = PendingExpectedValue(
-        &Value(cf, key), orig_expected_value, orig_expected_value);
-    *prepared = false;
-    return ret;
-  }
+  expected_value.Put(true /* pending */);
   const ExpectedValue pending_expected_value = expected_value;
 
   // Calculate the final expected value
-  res = expected_value.Put(false /* pending */);
-  assert(res);
+  expected_value.Put(false /* pending */);
   const ExpectedValue final_expected_value = expected_value;
 
   // Precommit
   Precommit(cf, key, pending_expected_value);
-  *prepared = true;
   return PendingExpectedValue(&Value(cf, key), orig_expected_value,
                               final_expected_value);
 }
 
 ExpectedValue ExpectedState::Get(int cf, int64_t key) { return Load(cf, key); }
 
-PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key,
-                                                  bool* prepared) {
-  assert(prepared);
+PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key) {
   ExpectedValue expected_value = Load(cf, key);
 
   // Calculate the original expected value
@@ -77,47 +65,32 @@ PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key,
   if (!res) {
     PendingExpectedValue ret = PendingExpectedValue(
         &Value(cf, key), orig_expected_value, orig_expected_value);
-    *prepared = false;
     return ret;
   }
   const ExpectedValue pending_expected_value = expected_value;
 
   // Calculate the final expected value
-  res = expected_value.Delete(false /* pending */);
-  assert(res);
+  expected_value.Delete(false /* pending */);
   const ExpectedValue final_expected_value = expected_value;
 
   // Precommit
   Precommit(cf, key, pending_expected_value);
-  *prepared = true;
   return PendingExpectedValue(&Value(cf, key), orig_expected_value,
                               final_expected_value);
 }
 
-PendingExpectedValue ExpectedState::PrepareSingleDelete(int cf, int64_t key,
-                                                        bool* prepared) {
-  return PrepareDelete(cf, key, prepared);
+PendingExpectedValue ExpectedState::PrepareSingleDelete(int cf, int64_t key) {
+  return PrepareDelete(cf, key);
 }
 
 std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
-    int cf, int64_t begin_key, int64_t end_key, bool* prepared) {
+    int cf, int64_t begin_key, int64_t end_key) {
   std::vector<PendingExpectedValue> pending_expected_values;
-  bool has_prepared_failed = false;
 
   for (int64_t key = begin_key; key < end_key; ++key) {
-    bool each_prepared = false;
-    PendingExpectedValue pending_expected_value =
-        PrepareDelete(cf, key, &each_prepared);
-    if (each_prepared) {
-      pending_expected_values.push_back(pending_expected_value);
-    } else {
-      has_prepared_failed = true;
-      pending_expected_value.PermitUnclosedPendingState();
-      break;
-    }
+    pending_expected_values.push_back(PrepareDelete(cf, key));
   }
 
-  *prepared = !has_prepared_failed;
   return pending_expected_values;
 }
 
