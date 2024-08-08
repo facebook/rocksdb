@@ -632,10 +632,8 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   for (auto cfh : column_families_) {
     for (int64_t k = 0; k != number_of_keys; ++k) {
       const std::string key = Key(k);
-      bool prepare = false;
       PendingExpectedValue pending_expected_value =
-          shared->PreparePut(cf_idx, k, &prepare);
-      assert(prepare);
+          shared->PreparePut(cf_idx, k);
       const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
