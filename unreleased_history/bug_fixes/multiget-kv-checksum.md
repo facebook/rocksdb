@@ -1,0 +1,1 @@
+* Fix a bug where per kv checksum corruption may be ignored in MultiGet().
