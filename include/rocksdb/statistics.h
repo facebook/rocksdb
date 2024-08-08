@@ -529,6 +529,9 @@ enum Tickers : uint32_t {
   // Footer corruption detected when opening an SST file for reading
   SST_FOOTER_CORRUPTION_COUNT,
 
+  FILE_READ_CORRUPTION_RETRY_COUNT,
+  FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
+
   TICKER_ENUM_MAX
 };
 
