@@ -10,7 +10,7 @@
 #include <atomic>
 
 namespace ROCKSDB_NAMESPACE {
-bool ExpectedValue::Put(bool pending) {
+void ExpectedValue::Put(bool pending) {
   if (pending) {
     SetPendingWrite();
   } else {
@@ -18,13 +18,16 @@ bool ExpectedValue::Put(bool pending) {
     ClearDeleted();
     ClearPendingWrite();
   }
-  return true;
 }
 
-bool ExpectedValue::Delete(bool pending) {
+void ExpectedValue::Delete(bool pending, bool* existed) {
+  assert(existed);
+
   if (!Exists()) {
-    return false;
+    *existed = false;
+    return;
   }
+  *existed = true;
   if (pending) {
     SetPendingDel();
   } else {
@@ -32,7 +35,6 @@ bool ExpectedValue::Delete(bool pending) {
     SetDeleted();
     ClearPendingDel();
   }
-  return true;
 }
 
 void ExpectedValue::SyncPut(uint32_t value_base) {
@@ -50,7 +52,8 @@ void ExpectedValue::SyncPut(uint32_t value_base) {
 void ExpectedValue::SyncPendingPut() { Put(true /* pending */); }
 
 void ExpectedValue::SyncDelete() {
-  Delete(false /* pending */);
+  bool ignore;
+  Delete(false /* pending */, &ignore);
   // This is needed in case crash happens during a pending write of the key
   // assocated with this expected value
   ClearPendingWrite();
