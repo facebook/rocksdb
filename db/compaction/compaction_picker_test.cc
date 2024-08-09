@@ -214,7 +214,10 @@ class CompactionPickerTest : public CompactionPickerTestBase {
   explicit CompactionPickerTest()
       : CompactionPickerTestBase(BytewiseComparator()) {}
 
-  ~CompactionPickerTest() override = default;
+  ~CompactionPickerTest() override {
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
 };
 
 class CompactionPickerU64TsTest : public CompactionPickerTestBase {
