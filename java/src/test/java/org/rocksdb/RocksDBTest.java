@@ -691,8 +691,9 @@ public class RocksDBTest {
         ByteBuffer value = ByteBuffer.allocateDirect(16);
 
         int result = db.get(db.getDefaultColumnFamily(), readOptions, key, value);
+        assertThat(key.position()).isEqualTo(4);
         assertThat(result).isEqualTo(5);
-        assertThat(value.limit()).isEqualTo(5);
+        assertThat(value.position()).isEqualTo(5);
       }
       {
         ByteBuffer key = ByteBuffer.allocateDirect(16);
@@ -714,7 +715,7 @@ public class RocksDBTest {
 
         int result = db.get(db.getDefaultColumnFamily(), readOptions, key, value);
         assertThat(result).isEqualTo(5);
-        assertThat(value.limit()).isEqualTo(5);
+        assertThat(value.position()).isEqualTo(5);
       }
       {
         byte[] keyBuffer = new byte[16];
