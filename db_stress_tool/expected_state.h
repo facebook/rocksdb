@@ -44,7 +44,7 @@ class ExpectedState {
   //
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  PendingExpectedValue PreparePut(int cf, int64_t key, bool* prepared);
+  PendingExpectedValue PreparePut(int cf, int64_t key);
 
   // Does not requires external locking.
   ExpectedValue Get(int cf, int64_t key);
@@ -55,18 +55,17 @@ class ExpectedState {
   //
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  PendingExpectedValue PrepareDelete(int cf, int64_t key, bool* prepared);
+  PendingExpectedValue PrepareDelete(int cf, int64_t key);
 
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key, bool* prepared);
+  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key);
 
   // Requires external locking covering keys in `[begin_key, end_key)` in `cf`
   // to prevent concurrent write or delete to the same `key`.
   std::vector<PendingExpectedValue> PrepareDeleteRange(int cf,
                                                        int64_t begin_key,
-                                                       int64_t end_key,
-                                                       bool* prepared);
+                                                       int64_t end_key);
 
   // Update the expected value for start of an incomplete write or delete
   // operation on the key assoicated with this expected value
@@ -197,30 +196,28 @@ class ExpectedStateManager {
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
 
   // See ExpectedState::PreparePut()
-  PendingExpectedValue PreparePut(int cf, int64_t key, bool* prepared) {
-    return latest_->PreparePut(cf, key, prepared);
+  PendingExpectedValue PreparePut(int cf, int64_t key) {
+    return latest_->PreparePut(cf, key);
   }
 
   // See ExpectedState::Get()
   ExpectedValue Get(int cf, int64_t key) { return latest_->Get(cf, key); }
 
   // See ExpectedState::PrepareDelete()
-  PendingExpectedValue PrepareDelete(int cf, int64_t key, bool* prepared) {
-    return latest_->PrepareDelete(cf, key, prepared);
+  PendingExpectedValue PrepareDelete(int cf, int64_t key) {
+    return latest_->PrepareDelete(cf, key);
   }
 
   // See ExpectedState::PrepareSingleDelete()
-  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key,
-                                           bool* prepared) {
-    return latest_->PrepareSingleDelete(cf, key, prepared);
+  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key) {
+    return latest_->PrepareSingleDelete(cf, key);
   }
 
   // See ExpectedState::PrepareDeleteRange()
   std::vector<PendingExpectedValue> PrepareDeleteRange(int cf,
                                                        int64_t begin_key,
-                                                       int64_t end_key,
-                                                       bool* prepared) {
-    return latest_->PrepareDeleteRange(cf, begin_key, end_key, prepared);
+                                                       int64_t end_key) {
+    return latest_->PrepareDeleteRange(cf, begin_key, end_key);
   }
 
   // See ExpectedState::Exists()
