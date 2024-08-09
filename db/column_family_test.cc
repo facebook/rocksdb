@@ -3067,12 +3067,20 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForMarkedFiles) {
   WaitForCompaction();
   AssertFilesPerLevel("0,1", 0 /* cf */);
 
+  // We should calculate the limit by obtaining the number of env background
+  // threads, because the current test case will share the same env
+  // with another case that may have already increased the number of
+  // background threads which is larger than kParallelismLimit
+  const auto limit = env_->GetBackgroundThreads(Env::Priority::LOW);
+
   // Block the compaction thread pool so marked files accumulate in L0.
-  test::SleepingBackgroundTask sleeping_tasks[kParallelismLimit];
-  for (int i = 0; i < kParallelismLimit; i++) {
+  std::vector<std::shared_ptr<test::SleepingBackgroundTask>> sleeping_tasks;
+  for (int i = 0; i < limit; i++) {
+    sleeping_tasks.emplace_back(
+        std::make_shared<test::SleepingBackgroundTask>());
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                   &sleeping_tasks[i], Env::Priority::LOW);
-    sleeping_tasks[i].WaitUntilSleeping();
+                   sleeping_tasks[i].get(), Env::Priority::LOW);
+    sleeping_tasks[i]->WaitUntilSleeping();
   }
 
   // Zero marked upper-level files. No speedup.
@@ -3091,9 +3099,9 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForMarkedFiles) {
   ASSERT_EQ(kParallelismLimit, dbfull()->TEST_BGCompactionsAllowed());
   AssertFilesPerLevel("2,1", 0 /* cf */);
 
-  for (int i = 0; i < kParallelismLimit; i++) {
-    sleeping_tasks[i].WakeUp();
-    sleeping_tasks[i].WaitUntilDone();
+  for (int i = 0; i < limit; i++) {
+    sleeping_tasks[i]->WakeUp();
+    sleeping_tasks[i]->WaitUntilDone();
   }
 }
 
