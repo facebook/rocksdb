@@ -3488,8 +3488,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db,
                                     cf_descriptors, &column_families_, &db_);
           } else {
-            s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
-                         &column_families_, &db_);
+            Options options_local_stat = options_;
+            options_local_stat.statistics = nullptr;
+            options_local_stat.statistics =
+                ROCKSDB_NAMESPACE::CreateDBStatistics();
+            options_local_stat.statistics->set_stats_level(StatsLevel::kAll);
+            s = DB::Open(DBOptions(options_local_stat), FLAGS_db,
+                         cf_descriptors, &column_families_, &db_);
           }
         }
 
