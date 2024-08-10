@@ -21,6 +21,7 @@ public class KeyExistsTest {
       new RocksNativeLibraryResource();
 
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder dbFolder2 = new TemporaryFolder();
 
   @Rule public ExpectedException exceptionRule = ExpectedException.none();
 
@@ -44,6 +45,32 @@ public class KeyExistsTest {
       columnFamilyHandle.close();
     }
     db.close();
+  }
+
+  @Test
+  public void keyExistBug() throws RocksDBException{
+    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+      db2.put("key".getBytes(UTF_8), "value".getBytes(UTF_8));
+      assertThat(db2.keyExists("key".getBytes(UTF_8))).isTrue();
+      assertThat(db2.keyExists("key2".getBytes(UTF_8))).isFalse();
+      assertThat(db2.keyMayExist("key".getBytes(UTF_8), null)).isTrue();
+//      db2.flushWal(true);
+//      db2.compactRange();
+    }
+    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+      assertThat(db2.keyMayExist("key".getBytes(UTF_8), null)).isTrue();
+      assertThat(db2.keyExists("key".getBytes(UTF_8))).isTrue();
+      assertThat(db2.keyExists("key2".getBytes(UTF_8))).isFalse();
+    }
+    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+      assertThat(db2.keyMayExist("key".getBytes(UTF_8), null)).isTrue();
+    }
+    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+      assertThat(db2.keyExists("key".getBytes(UTF_8))).isTrue();
+    }
+    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+      assertThat(db2.keyExists("key2".getBytes(UTF_8))).isFalse();
+    }
   }
 
   @Test
