@@ -38,7 +38,7 @@ class ExpectedValue {
       : expected_value_(expected_value) {}
 
   bool Exists() const {
-    assert(!PendingWrite() && !PendingDelete());
+    assert(!PendingWrite());
     return !IsDeleted();
   }
 
