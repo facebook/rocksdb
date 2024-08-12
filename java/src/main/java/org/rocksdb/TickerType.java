@@ -878,6 +878,10 @@ public enum TickerType {
 
     SST_FOOTER_CORRUPTION_COUNT((byte) -0x55),
 
+    FILE_READ_CORRUPTION_RETRY_COUNT((byte) -0x56),
+
+    FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT((byte) -0x57),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

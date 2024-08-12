@@ -530,6 +530,12 @@ Status DBImpl::Recover(
                            /*no_error_if_files_missing=*/false, is_retry,
                            &desc_status);
     desc_status.PermitUncheckedError();
+    if (is_retry) {
+      RecordTick(stats_, FILE_READ_CORRUPTION_RETRY_COUNT);
+      if (desc_status.ok()) {
+        RecordTick(stats_, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+      }
+    }
     if (can_retry) {
       // If we're opening for the first time and the failure is likely due to
       // a corrupt MANIFEST file (could result in either the log::Reader

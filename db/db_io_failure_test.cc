@@ -705,6 +705,7 @@ class DBIOCorruptionTest
   DBIOCorruptionTest() : DBIOFailureTest() {
     BlockBasedTableOptions bbto;
     options_ = CurrentOptions();
+    options_.statistics = CreateDBStatistics();
 
     base_env_ = env_;
     EXPECT_NE(base_env_, nullptr);
@@ -726,6 +727,8 @@ class DBIOCorruptionTest
   }
 
   Status ReopenDB() { return TryReopen(options_); }
+
+  Statistics* stats() { return options_.statistics.get(); }
 
  protected:
   std::unique_ptr<Env> env_guard_;
@@ -749,8 +752,12 @@ TEST_P(DBIOCorruptionTest, GetReadCorruptionRetry) {
   if (std::get<2>(GetParam())) {
     ASSERT_OK(s);
     ASSERT_EQ(val, "val1");
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_TRUE(s.IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -773,8 +780,12 @@ TEST_P(DBIOCorruptionTest, IterReadCorruptionRetry) {
   }
   if (std::get<2>(GetParam())) {
     ASSERT_OK(iter->status());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_TRUE(iter->status().IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
   delete iter;
 }
@@ -799,9 +810,13 @@ TEST_P(DBIOCorruptionTest, MultiGetReadCorruptionRetry) {
   if (std::get<2>(GetParam())) {
     ASSERT_EQ(values[0].ToString(), "val1");
     ASSERT_EQ(values[1].ToString(), "val2");
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_TRUE(statuses[0].IsCorruption());
     ASSERT_TRUE(statuses[1].IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -818,6 +833,9 @@ TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
   Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   if (std::get<2>(GetParam())) {
     ASSERT_OK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
 
     std::string val;
     ReadOptions ro;
@@ -826,6 +844,7 @@ TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
     ASSERT_EQ(val, "val1");
   } else {
     ASSERT_TRUE(s.IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -838,6 +857,9 @@ TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
   Status s = Flush();
   if (std::get<2>(GetParam())) {
     ASSERT_OK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
 
     std::string val;
     ReadOptions ro;
@@ -846,6 +868,7 @@ TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
     ASSERT_EQ(val, "val1");
   } else {
     ASSERT_NOK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -862,8 +885,12 @@ TEST_P(DBIOCorruptionTest, ManifestCorruptionRetry) {
 
   if (std::get<2>(GetParam())) {
     ASSERT_OK(ReopenDB());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_EQ(ReopenDB(), Status::Corruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
   SyncPoint::GetInstance()->DisableProcessing();
 }
