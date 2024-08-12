@@ -5,6 +5,8 @@
 
 #include "utilities/ttl/db_ttl_impl.h"
 
+#include <iostream>
+
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "logging/logging.h"
@@ -541,9 +543,22 @@ bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, std::string* value,
                                 bool* value_found) {
+  std::cout << "DBWithTTLImpl::KeyMayExist" << std::endl <<std::flush ;
+
   bool ret = db_->KeyMayExist(options, column_family, key, value, value_found);
+  std::cout << "  DBWithTTLImpl::KeyMayExist ret value : " << ret << std::endl <<std::flush ;
+  if(value_found != nullptr) {
+    std::cout << "  DBWithTTLImpl::KeyMayExist value_found : " << *value_found << std::endl <<std::flush ;
+  }
+  if(value_found != nullptr && *value_found && value != nullptr) {
+    std::cout << "  DBWithTTLImpl::KeyMayExist value.size : " << value->size() << std::endl <<std::flush ;
+  }
+
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
+    // std::cout << "  DBWithTTLImpl::KeyMayExist SanityCheckTimestamp : " << SanityCheckTimestamp(*value).ToString() << std::endl <<std::flush ;
+    // std::cout << "  DBWithTTLImpl::KeyMayExist StripTS(value) : " << StripTS(value).ToString() << std::endl <<std::flush ;
     if (!SanityCheckTimestamp(*value).ok() || !StripTS(value).ok()) {
+
       return false;
     }
   }
