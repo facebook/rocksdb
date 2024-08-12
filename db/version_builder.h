@@ -42,7 +42,8 @@ class VersionBuilder {
                      file_metadata_cache_res_mgr = nullptr,
                  ColumnFamilyData* cfd = nullptr,
                  VersionEditHandler* version_edit_handler = nullptr,
-                 bool track_found_and_missing_files = false);
+                 bool track_found_and_missing_files = false,
+                 bool allow_incomplete_valid_version = false);
   ~VersionBuilder();
 
   bool CheckConsistencyForNumLevels();
@@ -66,12 +67,20 @@ class VersionBuilder {
   // VersionEdits applied to the builder will not affect the Version in this
   // save point. VersionBuilder currently only supports creating one save point,
   // so when `CreateOrReplaceSavePoint` is called again, the previous save point
-  // is cleared. `CreateOrReplaceSavePoint` can be called explicitly to clear
+  // is cleared. `ClearSavePoint` can be called explicitly to clear
   // the save point too.
   void CreateOrReplaceSavePoint();
 
-  // The builder can find all the files to build a `Version`.
-  bool ContainsCompletePIT() const;
+  // The builder can find all the files to build a `Version`. Or if
+  // `allow_incomplete_valid_version_` is true and the version history is never
+  // edited in an atomic group, and only a suffix of L0 SST files and their
+  // associated blob files are missing.
+  // From the users' perspective, missing a suffix of L0 files means missing the
+  // user's most recently written data. So the remaining available files still
+  // presents a valid point in time view, although for some previous time.
+  // This validity check result will be cached and reused if the Version is not
+  // updated between two validity checks.
+  bool ValidVersionAvailable();
 
   bool HasMissingFiles() const;
 
@@ -114,11 +123,13 @@ class BaseReferencedVersionBuilder {
  public:
   explicit BaseReferencedVersionBuilder(
       ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler = nullptr,
-      bool track_found_and_missing_files = false);
+      bool track_found_and_missing_files = false,
+      bool allow_incomplete_valid_version = false);
   BaseReferencedVersionBuilder(
       ColumnFamilyData* cfd, Version* v,
       VersionEditHandler* version_edit_handler = nullptr,
-      bool track_found_and_missing_files = false);
+      bool track_found_and_missing_files = false,
+      bool allow_incomplete_valid_version = false);
   ~BaseReferencedVersionBuilder();
   VersionBuilder* version_builder() const { return version_builder_.get(); }
 

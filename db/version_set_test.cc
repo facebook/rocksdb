@@ -11,6 +11,7 @@
 
 #include <algorithm>
 
+#include "db/blob/blob_log_writer.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/log_writer.h"
@@ -1345,18 +1346,27 @@ class VersionSetTestBase {
     std::string key;  // the only key
     int level = 0;
     uint64_t epoch_number;
+    bool file_missing = false;
+    uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
     SstInfo(uint64_t file_num, const std::string& cf_name,
             const std::string& _key,
-            uint64_t _epoch_number = kUnknownEpochNumber)
-        : SstInfo(file_num, cf_name, _key, 0, _epoch_number) {}
+            uint64_t _epoch_number = kUnknownEpochNumber,
+            bool _file_missing = false,
+            uint64_t _oldest_blob_file_number = kInvalidBlobFileNumber)
+        : SstInfo(file_num, cf_name, _key, 0, _epoch_number, _file_missing,
+                  _oldest_blob_file_number) {}
     SstInfo(uint64_t file_num, const std::string& cf_name,
             const std::string& _key, int lvl,
-            uint64_t _epoch_number = kUnknownEpochNumber)
+            uint64_t _epoch_number = kUnknownEpochNumber,
+            bool _file_missing = false,
+            uint64_t _oldest_blob_file_number = kInvalidBlobFileNumber)
         : file_number(file_num),
           column_family(cf_name),
           key(_key),
           level(lvl),
-          epoch_number(_epoch_number) {}
+          epoch_number(_epoch_number),
+          file_missing(_file_missing),
+          oldest_blob_file_number(_oldest_blob_file_number) {}
   };
 
   // Create dummy sst, return their metadata. Note that only file name and size
@@ -1395,9 +1405,13 @@ class VersionSetTestBase {
       ASSERT_NE(0, file_size);
       file_metas->emplace_back(
           file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
-          Temperature::kUnknown, 0, 0, 0, info.epoch_number,
-          kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-          0, 0, /* user_defined_timestamps_persisted */ true);
+          Temperature::kUnknown, info.oldest_blob_file_number, 0, 0,
+          info.epoch_number, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+          kNullUniqueId64x2, 0, 0,
+          /* user_defined_timestamps_persisted */ true);
+      if (info.file_missing) {
+        ASSERT_OK(fs_->DeleteFile(fname, IOOptions(), nullptr));
+      }
     }
   }
 
@@ -3869,8 +3883,9 @@ INSTANTIATE_TEST_CASE_P(
 class VersionSetTestMissingFiles : public VersionSetTestBase,
                                    public testing::Test {
  public:
-  VersionSetTestMissingFiles()
-      : VersionSetTestBase("version_set_test_missing_files"),
+  explicit VersionSetTestMissingFiles(
+      const std::string& test_name = "version_set_test_missing_files")
+      : VersionSetTestBase(test_name),
         internal_comparator_(
             std::make_shared<InternalKeyComparator>(options_.comparator)) {}
 
@@ -3947,7 +3962,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
   // This method updates last_sequence_.
   void WriteFileAdditionAndDeletionToManifest(
       uint32_t cf, const std::vector<std::pair<int, FileMetaData>>& added_files,
-      const std::vector<std::pair<int, uint64_t>>& deleted_files) {
+      const std::vector<std::pair<int, uint64_t>>& deleted_files,
+      const std::vector<BlobFileAddition>& blob_files = {}) {
     VersionEdit edit;
     edit.SetColumnFamily(cf);
     for (const auto& elem : added_files) {
@@ -3957,6 +3973,9 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     for (const auto& elem : deleted_files) {
       int level = elem.first;
       edit.DeleteFile(level, elem.second);
+    }
+    for (const auto& elem : blob_files) {
+      edit.AddBlobFile(elem);
     }
     edit.SetLastSequence(last_seqno_);
     ++last_seqno_;
@@ -4169,6 +4188,251 @@ TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
     ReopenDB();
     ASSERT_EQ(versions_->min_log_number_to_keep(), kMinWalNumberToKeep2PC);
   }
+}
+
+class BestEffortsRecoverIncompleteVersionTest
+    : public VersionSetTestMissingFiles {
+ public:
+  BestEffortsRecoverIncompleteVersionTest()
+      : VersionSetTestMissingFiles("best_efforts_recover_incomplete_version") {}
+
+  struct BlobInfo {
+    uint64_t file_number;
+    bool file_missing;
+    std::string key;
+    std::string blob;
+    BlobInfo(uint64_t _file_number, bool _file_missing, std::string _key,
+             std::string _blob)
+        : file_number(_file_number),
+          file_missing(_file_missing),
+          key(_key),
+          blob(_blob) {}
+  };
+
+  void CreateDummyBlobFiles(const std::vector<BlobInfo>& infos,
+                            std::vector<BlobFileAddition>* blob_metas) {
+    for (const auto& info : infos) {
+      if (!info.file_missing) {
+        WriteDummyBlobFile(info.file_number, info.key, info.blob);
+      }
+      blob_metas->emplace_back(
+          info.file_number, 1 /*total_blob_count*/,
+          info.key.size() + info.blob.size() /*total_blob_bytes*/,
+          "" /*checksum_method*/, "" /*check_sum_value*/);
+    }
+  }
+  // Creates a test blob file that is valid so it can pass the
+  // `VersionEditHandlerPointInTime::VerifyBlobFile` check.
+  void WriteDummyBlobFile(uint64_t blob_file_number, const Slice& key,
+                          const Slice& blob) {
+    ImmutableOptions options;
+    std::string blob_file_path = BlobFileName(dbname_, blob_file_number);
+
+    std::unique_ptr<FSWritableFile> file;
+    ASSERT_OK(
+        fs_->NewWritableFile(blob_file_path, FileOptions(), &file, nullptr));
+
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(file), blob_file_path, FileOptions(), options.clock));
+
+    BlobLogWriter blob_log_writer(std::move(file_writer), options.clock,
+                                  /*statistics*/ nullptr, blob_file_number,
+                                  /*use_fsync*/ true,
+                                  /*do_flush*/ false);
+
+    constexpr ExpirationRange expiration_range;
+    BlobLogHeader header(/*column_family_id*/ 0, kNoCompression,
+                         /*has_ttl*/ false, expiration_range);
+    ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
+    std::string compressed_blob;
+    uint64_t key_offset = 0;
+    uint64_t blob_offset = 0;
+    ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), key, blob, &key_offset,
+                                        &blob_offset));
+    BlobLogFooter footer;
+    footer.blob_count = 1;
+    footer.expiration_range = expiration_range;
+    std::string checksum_method;
+    std::string checksum_value;
+    ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
+                                           &checksum_method, &checksum_value));
+  }
+
+  void RecoverFromManifestWithMissingFiles(
+      const std::vector<std::pair<int, FileMetaData>>& added_files,
+      const std::vector<BlobFileAddition>& blob_files) {
+    PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
+    WriteFileAdditionAndDeletionToManifest(
+        /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>(),
+        blob_files);
+    log_writer_.reset();
+    Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
+    ASSERT_OK(s);
+    std::string manifest_path;
+    VerifyManifest(&manifest_path);
+    std::string db_id;
+    bool has_missing_table_file = false;
+    s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
+                                             /*read_only=*/false, &db_id,
+                                             &has_missing_table_file);
+    ASSERT_OK(s);
+    ASSERT_TRUE(has_missing_table_file);
+  }
+};
+
+TEST_F(BestEffortsRecoverIncompleteVersionTest, NonL0MissingFiles) {
+  std::vector<SstInfo> sst_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a", 1 /* level */,
+              100 /* epoch_number */, true /* file_missing */),
+      SstInfo(101, kDefaultColumnFamilyName, "a", 0 /* level */,
+              101 /* epoch_number */, false /* file_missing */),
+      SstInfo(102, kDefaultColumnFamilyName, "a", 0 /* level */,
+              102 /* epoch_number */, false /* file_missing */),
+  };
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(sst_files, &file_metas);
+
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (size_t i = 0; i < sst_files.size(); i++) {
+    const auto& info = sst_files[i];
+    const auto& meta = file_metas[i];
+    added_files.emplace_back(info.level, meta);
+  }
+  RecoverFromManifestWithMissingFiles(added_files,
+                                      std::vector<BlobFileAddition>());
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
+}
+
+TEST_F(BestEffortsRecoverIncompleteVersionTest, MissingNonSuffixL0Files) {
+  std::vector<SstInfo> sst_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a", 1 /* level */,
+              100 /* epoch_number */, false /* file_missing */),
+      SstInfo(101, kDefaultColumnFamilyName, "a", 0 /* level */,
+              101 /* epoch_number */, true /* file_missing */),
+      SstInfo(102, kDefaultColumnFamilyName, "a", 0 /* level */,
+              102 /* epoch_number */, false /* file_missing */),
+  };
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(sst_files, &file_metas);
+
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (size_t i = 0; i < sst_files.size(); i++) {
+    const auto& info = sst_files[i];
+    const auto& meta = file_metas[i];
+    added_files.emplace_back(info.level, meta);
+  }
+  RecoverFromManifestWithMissingFiles(added_files,
+                                      std::vector<BlobFileAddition>());
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
+}
+
+TEST_F(BestEffortsRecoverIncompleteVersionTest, MissingBlobFiles) {
+  std::vector<SstInfo> sst_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a", 0 /* level */,
+              100 /* epoch_number */, false /* file_missing */,
+              102 /*oldest_blob_file_number*/),
+      SstInfo(101, kDefaultColumnFamilyName, "a", 0 /* level */,
+              101 /* epoch_number */, false /* file_missing */,
+              103 /*oldest_blob_file_number*/),
+  };
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(sst_files, &file_metas);
+
+  std::vector<BlobInfo> blob_files = {
+      BlobInfo(102, true /*file_missing*/, "a", "blob1"),
+      BlobInfo(103, true /*file_missing*/, "a", "blob2"),
+  };
+  std::vector<BlobFileAddition> blob_meta;
+  CreateDummyBlobFiles(blob_files, &blob_meta);
+
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (size_t i = 0; i < sst_files.size(); i++) {
+    const auto& info = sst_files[i];
+    const auto& meta = file_metas[i];
+    added_files.emplace_back(info.level, meta);
+  }
+  RecoverFromManifestWithMissingFiles(added_files, blob_meta);
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_TRUE(all_table_files.empty());
+}
+
+TEST_F(BestEffortsRecoverIncompleteVersionTest, MissingL0SuffixOnly) {
+  std::vector<SstInfo> sst_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a", 1 /* level */,
+              100 /* epoch_number */, false /* file_missing */),
+      SstInfo(101, kDefaultColumnFamilyName, "a", 0 /* level */,
+              101 /* epoch_number */, false /* file_missing */),
+      SstInfo(102, kDefaultColumnFamilyName, "a", 0 /* level */,
+              102 /* epoch_number */, true /* file_missing */),
+  };
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(sst_files, &file_metas);
+
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (size_t i = 0; i < sst_files.size(); i++) {
+    const auto& info = sst_files[i];
+    const auto& meta = file_metas[i];
+    added_files.emplace_back(info.level, meta);
+  }
+  RecoverFromManifestWithMissingFiles(added_files,
+                                      std::vector<BlobFileAddition>());
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(2, all_table_files.size());
+  ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
+  VersionStorageInfo* vstorage = cfd->current()->storage_info();
+  ASSERT_EQ(1, vstorage->LevelFiles(0).size());
+  ASSERT_EQ(1, vstorage->LevelFiles(1).size());
+}
+
+TEST_F(BestEffortsRecoverIncompleteVersionTest,
+       MissingL0SuffixAndTheirBlobFiles) {
+  std::vector<SstInfo> sst_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a", 1 /* level */,
+              100 /* epoch_number */, false /* file_missing */),
+      SstInfo(101, kDefaultColumnFamilyName, "a", 0 /* level */,
+              101 /* epoch_number */, false /* file_missing */,
+              103 /*oldest_blob_file_number*/),
+      SstInfo(102, kDefaultColumnFamilyName, "a", 0 /* level */,
+              102 /* epoch_number */, true /* file_missing */,
+              104 /*oldest_blob_file_number*/),
+  };
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(sst_files, &file_metas);
+
+  std::vector<BlobInfo> blob_files = {
+      BlobInfo(103, false /*file_missing*/, "a", "blob1"),
+      BlobInfo(104, true /*file_missing*/, "a", "blob2"),
+  };
+  std::vector<BlobFileAddition> blob_meta;
+  CreateDummyBlobFiles(blob_files, &blob_meta);
+
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (size_t i = 0; i < sst_files.size(); i++) {
+    const auto& info = sst_files[i];
+    const auto& meta = file_metas[i];
+    added_files.emplace_back(info.level, meta);
+  }
+  RecoverFromManifestWithMissingFiles(added_files, blob_meta);
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(2, all_table_files.size());
+  ASSERT_EQ(1, all_blob_files.size());
+  ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
+  VersionStorageInfo* vstorage = cfd->current()->storage_info();
+  ASSERT_EQ(1, vstorage->LevelFiles(0).size());
+  ASSERT_EQ(1, vstorage->LevelFiles(1).size());
+  ASSERT_EQ(1, vstorage->GetBlobFiles().size());
 }
 
 class ChargeFileMetadataTest : public DBTestBase {

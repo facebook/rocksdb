@@ -155,7 +155,8 @@ VersionEditHandler::VersionEditHandler(
     VersionSet* version_set, bool track_found_and_missing_files,
     bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
     const ReadOptions& read_options, bool skip_load_table_files,
-    EpochNumberRequirement epoch_number_requirement)
+    EpochNumberRequirement epoch_number_requirement,
+    bool allow_incomplete_valid_version)
     : VersionEditHandlerBase(read_options),
       read_only_(read_only),
       column_families_(std::move(column_families)),
@@ -165,7 +166,8 @@ VersionEditHandler::VersionEditHandler(
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
       initialized_(false),
-      epoch_number_requirement_(epoch_number_requirement) {
+      epoch_number_requirement_(epoch_number_requirement),
+      allow_incomplete_valid_version_(allow_incomplete_valid_version) {
   assert(version_set_ != nullptr);
 }
 
@@ -475,7 +477,8 @@ ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
   cfd->set_initialized();
   assert(builders_.find(cf_id) == builders_.end());
   builders_.emplace(cf_id, VersionBuilderUPtr(new BaseReferencedVersionBuilder(
-                               cfd, this, track_found_and_missing_files_)));
+                               cfd, this, track_found_and_missing_files_,
+                               allow_incomplete_valid_version_)));
   return cfd;
 }
 
@@ -688,11 +691,13 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
     const ReadOptions& read_options,
-    EpochNumberRequirement epoch_number_requirement)
+    EpochNumberRequirement epoch_number_requirement,
+    bool allow_incomplete_valid_version)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_found_and_missing_files=*/true,
                          /*no_error_if_files_missing=*/true, io_tracer,
-                         read_options, epoch_number_requirement) {}
+                         read_options, epoch_number_requirement,
+                         allow_incomplete_valid_version) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& cfid_and_version : atomic_update_versions_) {
@@ -841,19 +846,19 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
   auto builder_iter = builders_.find(cfd->GetID());
   assert(builder_iter != builders_.end());
   VersionBuilder* builder = builder_iter->second->version_builder();
-  const bool valid_pit_before_edit = builder->ContainsCompletePIT();
+  const bool valid_pit_before_edit = builder->ValidVersionAvailable();
   builder->CreateOrReplaceSavePoint();
   s = builder->Apply(&edit);
-  const bool valid_pit_after_edit = builder->ContainsCompletePIT();
+  const bool valid_pit_after_edit = builder->ValidVersionAvailable();
 
   // A new version will be created if:
   // 1) no error has occurred so far, and
   // 2) log_number_, next_file_number_ and last_sequence_ are known, and
   // 3) not in an AtomicGroup
   // 4) any of the following:
-  //   a) a complete point in time view is available before applying the edit
-  //      and a complete point in time view is not available after the edit.
-  //   b) a complete point in time view is available after the edit and the
+  //   a) a valid Version is available before applying the edit
+  //      and a valid Version is not available after the edit.
+  //   b) a valid Version is available after the edit and the
   //      caller explicitly request that a new version be created.
   if (s.ok() && !missing_info && !in_atomic_group_ &&
       ((!valid_pit_after_edit && valid_pit_before_edit) ||
@@ -1017,7 +1022,8 @@ Status ManifestTailer::Initialize() {
     assert(base_version);
     base_version->Ref();
     VersionBuilderUPtr new_builder(new BaseReferencedVersionBuilder(
-        default_cfd, base_version, this, track_found_and_missing_files_));
+        default_cfd, base_version, this, track_found_and_missing_files_,
+        allow_incomplete_valid_version_));
     builder_iter->second = std::move(new_builder);
 
     initialized_ = true;
