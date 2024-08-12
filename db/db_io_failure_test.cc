@@ -714,7 +714,6 @@ class DBIOCorruptionTest
                                std::get<2>(GetParam())));
     env_guard_ = NewCompositeEnv(fs_);
     options_.env = env_guard_.get();
-    // bbto.max_auto_readahead_size = 0;
     bbto.num_file_reads_for_auto_readahead = 0;
     options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
     options_.disable_auto_compactions = true;
