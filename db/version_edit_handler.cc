@@ -842,7 +842,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
   assert(builder_iter != builders_.end());
   VersionBuilder* builder = builder_iter->second->version_builder();
   const bool valid_pit_before_edit = builder->ContainsCompletePIT();
-  builder->CreateSavePoint();
+  builder->CreateOrReplaceSavePoint();
   s = builder->Apply(&edit);
   const bool valid_pit_after_edit = builder->ContainsCompletePIT();
 
@@ -1084,11 +1084,11 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
   }
 }
 
-std::vector<std::string> ManifestTailer::GetIntermediateFiles() {
+std::vector<std::string> ManifestTailer::GetAndClearIntermediateFiles() {
   std::vector<std::string> res;
   for (const auto& builder : builders_) {
     auto files =
-        builder.second->version_builder()->GetIntermediateFilesForClear();
+        builder.second->version_builder()->GetAndClearIntermediateFiles();
     res.insert(res.end(), std::make_move_iterator(files.begin()),
                std::make_move_iterator(files.end()));
     files.erase(files.begin(), files.end());

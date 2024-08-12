@@ -65,10 +65,10 @@ class VersionBuilder {
   // Creates a save point for the Version that has been built so far. Subsequent
   // VersionEdits applied to the builder will not affect the Version in this
   // save point. VersionBuilder currently only supports creating one save point,
-  // so when `CreateSavePoint` is called again, the previous save point is
-  // cleared. `ClearSavePoint` can be called explicitly to clear the save point
-  // too.
-  void CreateSavePoint();
+  // so when `CreateOrReplaceSavePoint` is called again, the previous save point
+  // is cleared. `CreateOrReplaceSavePoint` can be called explicitly to clear
+  // the save point too.
+  void CreateOrReplaceSavePoint();
 
   // The builder can find all the files to build a `Version`.
   bool ContainsCompletePIT() const;
@@ -79,7 +79,7 @@ class VersionBuilder {
   // that are added and then deleted. The caller should clear this intermediate
   // files tracking after calling this API. So that the tracking for subsequent
   // VersionEdits can start over with a clean state.
-  std::vector<std::string>& GetIntermediateFilesForClear();
+  std::vector<std::string>& GetAndClearIntermediateFiles();
 
   // Clearing all the found files in this Version.
   void ClearFoundFiles();

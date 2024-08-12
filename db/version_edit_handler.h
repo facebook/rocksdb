@@ -326,7 +326,7 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
     return cfds_changed_;
   }
 
-  std::vector<std::string> GetIntermediateFiles();
+  std::vector<std::string> GetAndClearIntermediateFiles();
 
  protected:
   Status Initialize() override;

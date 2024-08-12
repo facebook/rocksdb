@@ -1288,18 +1288,20 @@ class VersionBuilder::Rep {
     }
   }
 
+  bool ContainsCompletePIT() {
+    assert(track_found_and_missing_files_);
+    return missing_files_.empty() &&
+           (missing_blob_files_high_ == kInvalidBlobFileNumber ||
+            missing_blob_files_high_ < GetMinOldestBlobFileNumber());
+  }
+
   bool HasMissingFiles() const {
     assert(track_found_and_missing_files_);
     return !missing_files_.empty() ||
            missing_blob_files_high_ != kInvalidBlobFileNumber;
   }
 
-  uint64_t MissingBlobFileHigh() const {
-    assert(track_found_and_missing_files_);
-    return missing_blob_files_high_;
-  }
-
-  std::vector<std::string>& GetIntermediateFilesForClear() {
+  std::vector<std::string>& GetAndClearIntermediateFiles() {
     assert(track_found_and_missing_files_);
     return intermediate_files_;
   }
@@ -1563,23 +1565,20 @@ Status VersionBuilder::LoadTableHandlers(
       read_options, block_protection_bytes_per_key);
 }
 
-void VersionBuilder::CreateSavePoint() {
+void VersionBuilder::CreateOrReplaceSavePoint() {
   assert(rep_);
   savepoint_ = std::move(rep_);
   rep_ = std::make_unique<Rep>(*savepoint_);
 }
 
 bool VersionBuilder::ContainsCompletePIT() const {
-  uint64_t missing_blob_file_high = rep_->MissingBlobFileHigh();
-  return !rep_->HasMissingFiles() &&
-         (missing_blob_file_high == kInvalidBlobFileNumber ||
-          missing_blob_file_high < rep_->GetMinOldestBlobFileNumber());
+  return rep_->ContainsCompletePIT();
 }
 
 bool VersionBuilder::HasMissingFiles() const { return rep_->HasMissingFiles(); }
 
-std::vector<std::string>& VersionBuilder::GetIntermediateFilesForClear() {
-  return rep_->GetIntermediateFilesForClear();
+std::vector<std::string>& VersionBuilder::GetAndClearIntermediateFiles() {
+  return rep_->GetAndClearIntermediateFiles();
 }
 
 void VersionBuilder::ClearFoundFiles() { return rep_->ClearFoundFiles(); }
