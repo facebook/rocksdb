@@ -1,9 +1,12 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## Unreleased
+## 9.5.2 (08/13/2024)
 ### Bug Fixes
 * Fix a race condition in pessimistic transactions that could allow multiple transactions with the same name to be registered simultaneously, resulting in a crash or other unpredictable behavior.
+
+### Public API Changes
+* Add ticker stats to count file read retries due to checksum mismatch
 
 ## 9.5.1 (08/02/2024)
 ### Bug Fixes
