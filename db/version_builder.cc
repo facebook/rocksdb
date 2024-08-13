@@ -29,6 +29,7 @@
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "db/version_edit_handler.h"
 #include "db/version_set.h"
 #include "port/port.h"
 #include "table/table_reader.h"
@@ -37,6 +38,25 @@
 namespace ROCKSDB_NAMESPACE {
 
 class VersionBuilder::Rep {
+  class NewestFirstBySeqNo {
+   public:
+    bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+      assert(lhs);
+      assert(rhs);
+
+      if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+        return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+      }
+
+      if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+        return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+      }
+
+      // Break ties by file number
+      return lhs->fd.GetNumber() > rhs->fd.GetNumber();
+    }
+  };
+
   class NewestFirstByEpochNumber {
    private:
     inline static const NewestFirstBySeqNo seqno_cmp;
@@ -249,9 +269,9 @@ class VersionBuilder::Rep {
   std::unordered_map<uint64_t, int> table_file_levels_;
   // Current compact cursors that should be changed after the last compaction
   std::unordered_map<int, InternalKey> updated_compact_cursors_;
-  NewestFirstByEpochNumber level_zero_cmp_by_epochno_;
-  NewestFirstBySeqNo level_zero_cmp_by_seqno_;
-  BySmallestKey level_nonzero_cmp_;
+  std::shared_ptr<NewestFirstByEpochNumber> level_zero_cmp_by_epochno_;
+  std::shared_ptr<NewestFirstBySeqNo> level_zero_cmp_by_seqno_;
+  std::shared_ptr<BySmallestKey> level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
   // version edits.
@@ -259,11 +279,23 @@ class VersionBuilder::Rep {
 
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
 
+  ColumnFamilyData* cfd_;
+  VersionEditHandler* version_edit_handler_;
+  bool track_found_and_missing_files_;
+
+  // These are only tracked if `track_found_and_missing_files_` are enabled.
+  std::unordered_set<uint64_t> found_files_;
+  std::unordered_set<uint64_t> missing_files_;
+  std::vector<std::string> intermediate_files_;
+  uint64_t missing_blob_files_high_ = kInvalidBlobFileNumber;
+
  public:
   Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
       TableCache* table_cache, VersionStorageInfo* base_vstorage,
       VersionSet* version_set,
-      std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr)
+      std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr,
+      ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler,
+      bool track_found_and_missing_files)
       : file_options_(file_options),
         ioptions_(ioptions),
         table_cache_(table_cache),
@@ -271,11 +303,60 @@ class VersionBuilder::Rep {
         version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
         has_invalid_levels_(false),
-        level_nonzero_cmp_(base_vstorage_->InternalComparator()),
-        file_metadata_cache_res_mgr_(file_metadata_cache_res_mgr) {
+        level_zero_cmp_by_epochno_(
+            std::make_shared<NewestFirstByEpochNumber>()),
+        level_zero_cmp_by_seqno_(std::make_shared<NewestFirstBySeqNo>()),
+        level_nonzero_cmp_(std::make_shared<BySmallestKey>(
+            base_vstorage_->InternalComparator())),
+        file_metadata_cache_res_mgr_(file_metadata_cache_res_mgr),
+        cfd_(cfd),
+        version_edit_handler_(version_edit_handler),
+        track_found_and_missing_files_(track_found_and_missing_files) {
     assert(ioptions_);
 
     levels_ = new LevelState[num_levels_];
+    if (track_found_and_missing_files_) {
+      assert(cfd_);
+      assert(version_edit_handler_);
+    }
+  }
+
+  Rep(const Rep& other)
+      : file_options_(other.file_options_),
+        ioptions_(other.ioptions_),
+        table_cache_(other.table_cache_),
+        base_vstorage_(other.base_vstorage_),
+        version_set_(other.version_set_),
+        num_levels_(other.num_levels_),
+        invalid_level_sizes_(other.invalid_level_sizes_),
+        has_invalid_levels_(other.has_invalid_levels_),
+        table_file_levels_(other.table_file_levels_),
+        updated_compact_cursors_(other.updated_compact_cursors_),
+        level_zero_cmp_by_epochno_(other.level_zero_cmp_by_epochno_),
+        level_zero_cmp_by_seqno_(other.level_zero_cmp_by_seqno_),
+        level_nonzero_cmp_(other.level_nonzero_cmp_),
+        mutable_blob_file_metas_(other.mutable_blob_file_metas_),
+        file_metadata_cache_res_mgr_(other.file_metadata_cache_res_mgr_),
+        cfd_(other.cfd_),
+        version_edit_handler_(other.version_edit_handler_),
+        track_found_and_missing_files_(other.track_found_and_missing_files_),
+        found_files_(other.found_files_),
+        missing_files_(other.missing_files_),
+        intermediate_files_(other.intermediate_files_),
+        missing_blob_files_high_(other.missing_blob_files_high_) {
+    assert(ioptions_);
+    levels_ = new LevelState[num_levels_];
+    for (int level = 0; level < num_levels_; level++) {
+      levels_[level] = other.levels_[level];
+      const auto& added = levels_[level].added_files;
+      for (auto& pair : added) {
+        RefFile(pair.second);
+      }
+    }
+    if (track_found_and_missing_files_) {
+      assert(cfd_);
+      assert(version_edit_handler_);
+    }
   }
 
   ~Rep() {
@@ -287,6 +368,12 @@ class VersionBuilder::Rep {
     }
 
     delete[] levels_;
+  }
+
+  void RefFile(FileMetaData* f) {
+    assert(f);
+    assert(f->refs > 0);
+    f->refs++;
   }
 
   void UnrefFile(FileMetaData* f) {
@@ -397,7 +484,7 @@ class VersionBuilder::Rep {
 
           if (epoch_number_requirement ==
               EpochNumberRequirement::kMightMissing) {
-            if (!level_zero_cmp_by_seqno_(lhs, rhs)) {
+            if (!level_zero_cmp_by_seqno_->operator()(lhs, rhs)) {
               std::ostringstream oss;
               oss << "L0 files are not sorted properly: files #"
                   << lhs->fd.GetNumber() << " with seqnos (largest, smallest) "
@@ -429,7 +516,7 @@ class VersionBuilder::Rep {
               }
             }
 
-            if (!level_zero_cmp_by_epochno_(lhs, rhs)) {
+            if (!level_zero_cmp_by_epochno_->operator()(lhs, rhs)) {
               std::ostringstream oss;
               oss << "L0 files are not sorted properly: files #"
                   << lhs->fd.GetNumber() << " with epoch number "
@@ -458,7 +545,7 @@ class VersionBuilder::Rep {
           assert(lhs);
           assert(rhs);
 
-          if (!level_nonzero_cmp_(lhs, rhs)) {
+          if (!level_nonzero_cmp_->operator()(lhs, rhs)) {
             std::ostringstream oss;
             oss << 'L' << level << " files are not sorted properly: files #"
                 << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
@@ -634,7 +721,21 @@ class VersionBuilder::Rep {
     mutable_blob_file_metas_.emplace(
         blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));
 
-    return Status::OK();
+    Status s;
+    if (track_found_and_missing_files_) {
+      assert(version_edit_handler_);
+      s = version_edit_handler_->VerifyBlobFile(cfd_, blob_file_number,
+                                                blob_file_addition);
+      if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
+        missing_blob_files_high_ =
+            std::max(missing_blob_files_high_, blob_file_number);
+        s = Status::OK();
+      } else if (!s.ok()) {
+        return s;
+      }
+    }
+
+    return s;
   }
 
   Status ApplyBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
@@ -752,6 +853,27 @@ class VersionBuilder::Rep {
     table_file_levels_[file_number] =
         VersionStorageInfo::FileLocation::Invalid().GetLevel();
 
+    if (track_found_and_missing_files_) {
+      assert(version_edit_handler_);
+      auto fiter = missing_files_.find(file_number);
+      if (fiter != missing_files_.end()) {
+        missing_files_.erase(fiter);
+      } else {
+        fiter = found_files_.find(file_number);
+        // Only mark new files added during this catchup attempt for deletion.
+        // These files were never installed in VersionStorageInfo.
+        // Already referenced files that are deleted by a VersionEdit will
+        // be added to the VersionStorageInfo's obsolete files when the old
+        // version is dereferenced.
+        if (fiter != found_files_.end()) {
+          assert(!ioptions_->cf_paths.empty());
+          intermediate_files_.emplace_back(
+              MakeTableFileName(ioptions_->cf_paths[0].path, file_number));
+          found_files_.erase(fiter);
+        }
+      }
+    }
+
     return Status::OK();
   }
 
@@ -824,7 +946,27 @@ class VersionBuilder::Rep {
 
     table_file_levels_[file_number] = level;
 
-    return Status::OK();
+    Status s;
+    if (track_found_and_missing_files_) {
+      assert(version_edit_handler_);
+      assert(!ioptions_->cf_paths.empty());
+      const std::string fpath =
+          MakeTableFileName(ioptions_->cf_paths[0].path, file_number);
+      s = version_edit_handler_->VerifyFile(cfd_, fpath, level, meta);
+      if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
+        missing_files_.insert(file_number);
+        if (s.IsCorruption()) {
+          found_files_.insert(file_number);
+        }
+        s = Status::OK();
+      } else if (!s.ok()) {
+        return s;
+      } else {
+        found_files_.insert(file_number);
+      }
+    }
+
+    return s;
   }
 
   Status ApplyCompactCursors(int level,
@@ -1148,6 +1290,29 @@ class VersionBuilder::Rep {
     }
   }
 
+  bool ContainsCompletePIT() {
+    assert(track_found_and_missing_files_);
+    return missing_files_.empty() &&
+           (missing_blob_files_high_ == kInvalidBlobFileNumber ||
+            missing_blob_files_high_ < GetMinOldestBlobFileNumber());
+  }
+
+  bool HasMissingFiles() const {
+    assert(track_found_and_missing_files_);
+    return !missing_files_.empty() ||
+           missing_blob_files_high_ != kInvalidBlobFileNumber;
+  }
+
+  std::vector<std::string>& GetAndClearIntermediateFiles() {
+    assert(track_found_and_missing_files_);
+    return intermediate_files_;
+  }
+
+  void ClearFoundFiles() {
+    assert(track_found_and_missing_files_);
+    found_files_.clear();
+  }
+
   template <typename Cmp>
   void SaveSSTFilesTo(VersionStorageInfo* vstorage, int level, Cmp cmp) const {
     // Merge the set of added files with the set of pre-existing files.
@@ -1215,13 +1380,13 @@ class VersionBuilder::Rep {
     }
 
     if (epoch_number_requirement == EpochNumberRequirement::kMightMissing) {
-      SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_by_seqno_);
+      SaveSSTFilesTo(vstorage, /* level */ 0, *level_zero_cmp_by_seqno_);
     } else {
-      SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_by_epochno_);
+      SaveSSTFilesTo(vstorage, /* level */ 0, *level_zero_cmp_by_epochno_);
     }
 
     for (int level = 1; level < num_levels_; ++level) {
-      SaveSSTFilesTo(vstorage, level, level_nonzero_cmp_);
+      SaveSSTFilesTo(vstorage, level, *level_nonzero_cmp_);
     }
   }
 
@@ -1369,9 +1534,12 @@ VersionBuilder::VersionBuilder(
     const FileOptions& file_options, const ImmutableCFOptions* ioptions,
     TableCache* table_cache, VersionStorageInfo* base_vstorage,
     VersionSet* version_set,
-    std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr)
+    std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr,
+    ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler,
+    bool track_found_and_missing_files)
     : rep_(new Rep(file_options, ioptions, table_cache, base_vstorage,
-                   version_set, file_metadata_cache_res_mgr)) {}
+                   version_set, file_metadata_cache_res_mgr, cfd,
+                   version_edit_handler, track_found_and_missing_files)) {}
 
 VersionBuilder::~VersionBuilder() = default;
 
@@ -1399,27 +1567,69 @@ Status VersionBuilder::LoadTableHandlers(
       read_options, block_protection_bytes_per_key);
 }
 
-uint64_t VersionBuilder::GetMinOldestBlobFileNumber() const {
-  return rep_->GetMinOldestBlobFileNumber();
+void VersionBuilder::CreateOrReplaceSavePoint() {
+  assert(rep_);
+  savepoint_ = std::move(rep_);
+  rep_ = std::make_unique<Rep>(*savepoint_);
 }
 
+bool VersionBuilder::ContainsCompletePIT() const {
+  return rep_->ContainsCompletePIT();
+}
+
+bool VersionBuilder::HasMissingFiles() const { return rep_->HasMissingFiles(); }
+
+std::vector<std::string>& VersionBuilder::GetAndClearIntermediateFiles() {
+  return rep_->GetAndClearIntermediateFiles();
+}
+
+void VersionBuilder::ClearFoundFiles() { return rep_->ClearFoundFiles(); }
+
+Status VersionBuilder::SaveSavePointTo(VersionStorageInfo* vstorage) const {
+  if (!savepoint_) {
+    return Status::InvalidArgument();
+  }
+  return savepoint_->SaveTo(vstorage);
+}
+
+Status VersionBuilder::LoadSavePointTableHandlers(
+    InternalStats* internal_stats, int max_threads,
+    bool prefetch_index_and_filter_in_cache, bool is_initial_load,
+    const std::shared_ptr<const SliceTransform>& prefix_extractor,
+    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
+    uint8_t block_protection_bytes_per_key) {
+  if (!savepoint_) {
+    return Status::InvalidArgument();
+  }
+  return savepoint_->LoadTableHandlers(
+      internal_stats, max_threads, prefetch_index_and_filter_in_cache,
+      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin,
+      read_options, block_protection_bytes_per_key);
+}
+
+void VersionBuilder::ClearSavePoint() { savepoint_.reset(nullptr); }
+
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
-    ColumnFamilyData* cfd)
+    ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler,
+    bool track_found_and_missing_files)
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->ioptions(),
           cfd->table_cache(), cfd->current()->storage_info(),
           cfd->current()->version_set(),
-          cfd->GetFileMetadataCacheReservationManager())),
+          cfd->GetFileMetadataCacheReservationManager(), cfd,
+          version_edit_handler, track_found_and_missing_files)),
       version_(cfd->current()) {
   version_->Ref();
 }
 
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
-    ColumnFamilyData* cfd, Version* v)
+    ColumnFamilyData* cfd, Version* v, VersionEditHandler* version_edit_handler,
+    bool track_found_and_missing_files)
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->ioptions(),
           cfd->table_cache(), v->storage_info(), v->version_set(),
-          cfd->GetFileMetadataCacheReservationManager())),
+          cfd->GetFileMetadataCacheReservationManager(), cfd,
+          version_edit_handler, track_found_and_missing_files)),
       version_(v) {
   assert(version_ != cfd->current());
 }
