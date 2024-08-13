@@ -112,7 +112,7 @@ class VersionBuilder {
 // Both of the constructor and destructor need to be called inside DB Mutex.
 class BaseReferencedVersionBuilder {
  public:
-  BaseReferencedVersionBuilder(
+  explicit BaseReferencedVersionBuilder(
       ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler = nullptr,
       bool track_found_and_missing_files = false);
   BaseReferencedVersionBuilder(

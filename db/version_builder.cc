@@ -866,6 +866,7 @@ class VersionBuilder::Rep {
         // be added to the VersionStorageInfo's obsolete files when the old
         // version is dereferenced.
         if (fiter != found_files_.end()) {
+          assert(!ioptions_->cf_paths.empty());
           intermediate_files_.emplace_back(
               MakeTableFileName(ioptions_->cf_paths[0].path, file_number));
           found_files_.erase(fiter);
@@ -948,6 +949,7 @@ class VersionBuilder::Rep {
     Status s;
     if (track_found_and_missing_files_) {
       assert(version_edit_handler_);
+      assert(!ioptions_->cf_paths.empty());
       const std::string fpath =
           MakeTableFileName(ioptions_->cf_paths[0].path, file_number);
       s = version_edit_handler_->VerifyFile(cfd_, fpath, level, meta);

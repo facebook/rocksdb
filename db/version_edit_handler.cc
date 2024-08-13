@@ -317,7 +317,7 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
         return s;
       }
       s = MaybeCreateVersionBeforeApplyEdit(edit, tmp_cfd,
-                                            /*force_create_veersion=*/false);
+                                            /*force_create_version=*/false);
     }
     *cfd = tmp_cfd;
   }
