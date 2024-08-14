@@ -1925,11 +1925,6 @@ jboolean key_exists_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
 
   const bool may_exist =
       db->KeyMayExist(read_opts, cf_handle, key_slice, &value, &value_found);
-
-    std::cout << "Key may exist : " << may_exist << std::endl;
-    std::cout << "Value found  : " << value_found << std::endl << std::flush;
-
-
   if (may_exist) {
     ROCKSDB_NAMESPACE::Status s;
     {
