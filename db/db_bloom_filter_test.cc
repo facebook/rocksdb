@@ -832,6 +832,43 @@ TEST_P(DBBloomFilterTestWithFormatParams, SkipFilterOnEssentiallyZeroBpk) {
   EXPECT_EQ(props["filter_size"], "0");
 }
 
+TEST_P(DBBloomFilterTestWithFormatParams, FilterBitsBuilderDedup) {
+  BlockBasedTableOptions table_options;
+  SetInTableOptions(&table_options);
+  FilterBuildingContext context{table_options};
+  std::unique_ptr<FilterBitsBuilder> builder{
+      table_options.filter_policy->GetBuilderWithContext(context)};
+
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 0U);
+  // Check for sufficient de-duplication between regular keys and alt keys
+  // (prefixes), keeping in mind that the key might equal its prefix.
+
+  builder->AddKey("abc");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 1U);
+  builder->AddKeyAndAlt("abc1", "abc");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 2U);
+  builder->AddKeyAndAlt("bcd", "bcd");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 3U);
+  builder->AddKeyAndAlt("cde-1", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
+  builder->AddKeyAndAlt("cde", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
+  builder->AddKeyAndAlt("cde1", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 6U);
+  builder->AddKeyAndAlt("def-1", "def");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
+  builder->AddKeyAndAlt("def", "def");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
+  builder->AddKey("def$$");  // Like not in extractor domain
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
+  builder->AddKey("def$$");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
+  builder->AddKeyAndAlt("efg42", "efg");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
+  builder->AddKeyAndAlt("efg", "efg");  // Like extra "alt" on a partition
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
@@ -3933,42 +3970,6 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400", MakeFactory("blah", 43)),
             Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
-}
-
-TEST_F(DBBloomFilterTest, FilterBitsBuilderDedup) {
-  std::shared_ptr<const FilterPolicy> policy{NewBloomFilterPolicy(10)};
-  FilterBuildingContext context{{}};
-  std::unique_ptr<FilterBitsBuilder> builder{
-      policy->GetBuilderWithContext(context)};
-
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 0U);
-  // Check for sufficient de-duplication between regular keys and alt keys
-  // (prefixes), keeping in mind that the key might equal its prefix.
-
-  builder->AddKey("abc");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 1U);
-  builder->AddKeyAndAlt("abc1", "abc");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 2U);
-  builder->AddKeyAndAlt("bcd", "bcd");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 3U);
-  builder->AddKeyAndAlt("cde-1", "cde");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
-  builder->AddKeyAndAlt("cde", "cde");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
-  builder->AddKeyAndAlt("cde1", "cde");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 6U);
-  builder->AddKeyAndAlt("def-1", "def");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
-  builder->AddKeyAndAlt("def", "def");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
-  builder->AddKey("def$$");  // Like not in extractor domain
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
-  builder->AddKey("def$$");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
-  builder->AddKeyAndAlt("efg42", "efg");
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
-  builder->AddKeyAndAlt("efg", "efg");  // Like extra "alt" on a partition
-  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
