@@ -134,12 +134,22 @@ class VersionEditHandler : public VersionEditHandlerBase {
     return version_edit_params_;
   }
 
-  bool HasMissingFiles() const;
-
   void GetDbId(std::string* db_id) const {
     if (db_id && version_edit_params_.HasDbId()) {
       *db_id = version_edit_params_.GetDbId();
     }
+  }
+
+  virtual Status VerifyFile(ColumnFamilyData* /*cfd*/,
+                            const std::string& /*fpath*/, int /*level*/,
+                            const FileMetaData& /*fmeta*/) {
+    return Status::OK();
+  }
+
+  virtual Status VerifyBlobFile(ColumnFamilyData* /*cfd*/,
+                                uint64_t /*blob_file_num*/,
+                                const BlobFileAddition& /*blob_addition*/) {
+    return Status::OK();
   }
 
  protected:
@@ -166,7 +176,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
   Status Initialize() override;
 
-  void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
+  void CheckColumnFamilyId(const VersionEdit& edit, bool* do_not_open_cf,
                            bool* cf_in_builders) const;
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
@@ -176,9 +186,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
   virtual ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit);
 
-  virtual Status MaybeCreateVersion(const VersionEdit& edit,
-                                    ColumnFamilyData* cfd,
-                                    bool force_create_version);
+  virtual Status MaybeCreateVersionBeforeApplyEdit(const VersionEdit& edit,
+                                                   ColumnFamilyData* cfd,
+                                                   bool force_create_version);
 
   virtual Status LoadTables(ColumnFamilyData* cfd,
                             bool prefetch_index_and_filter_in_cache,
@@ -191,16 +201,13 @@ class VersionEditHandler : public VersionEditHandlerBase {
   VersionSet* version_set_;
   std::unordered_map<uint32_t, VersionBuilderUPtr> builders_;
   std::unordered_map<std::string, ColumnFamilyOptions> name_to_options_;
-  // Keeps track of column families in manifest that were not found in
-  // column families parameters. if those column families are not dropped
-  // by subsequent manifest records, Recover() will return failure status.
-  std::unordered_map<uint32_t, std::string> column_families_not_found_;
-  VersionEditParams version_edit_params_;
   const bool track_found_and_missing_files_;
-  std::unordered_map<uint32_t, std::unordered_set<uint64_t>> cf_to_found_files_;
-  std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
-      cf_to_missing_files_;
-  std::unordered_map<uint32_t, uint64_t> cf_to_missing_blob_files_high_;
+  // Keeps track of column families in manifest that were not found in
+  // column families parameters. Namely, the user asks to not open these column
+  // families. In non read only mode, if those column families are not dropped
+  // by subsequent manifest records, Recover() will return failure status.
+  std::unordered_map<uint32_t, std::string> do_not_open_column_families_;
+  VersionEditParams version_edit_params_;
   bool no_error_if_files_missing_;
   std::shared_ptr<IOTracer> io_tracer_;
   bool skip_load_table_files_;
@@ -241,23 +248,27 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
           EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
 
+  bool HasMissingFiles() const;
+
+  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
+                            int level, const FileMetaData& fmeta) override;
+  virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
+                                const BlobFileAddition& blob_addition) override;
+
  protected:
   Status OnAtomicGroupReplayBegin() override;
   Status OnAtomicGroupReplayEnd() override;
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
-  // `MaybeCreateVersion(..., false)` creates a version upon a negative edge
-  // trigger (transition from valid to invalid).
+  // `MaybeCreateVersionBeforeApplyEdit(..., false)` creates a version upon a
+  // negative edge trigger (transition from valid to invalid).
   //
-  // `MaybeCreateVersion(..., true)` creates a version on a positive level
-  // trigger (state is valid).
-  Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
-                            bool force_create_version) override;
-  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
-                            int level, const FileMetaData& fmeta);
-  virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
-                                const BlobFileAddition& blob_addition);
+  // `MaybeCreateVersionBeforeApplyEdit(..., true)` creates a version on a
+  // positive level trigger (state is valid).
+  Status MaybeCreateVersionBeforeApplyEdit(const VersionEdit& edit,
+                                           ColumnFamilyData* cfd,
+                                           bool force_create_version) override;
 
   Status LoadTables(ColumnFamilyData* cfd,
                     bool prefetch_index_and_filter_in_cache,
@@ -274,8 +285,6 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   size_t atomic_update_versions_missing_;
 
   bool in_atomic_group_ = false;
-
-  std::vector<std::string> intermediate_files_;
 
  private:
   bool AtomicUpdateVersionsCompleted();
@@ -305,6 +314,9 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
                                       epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
+  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
+                    const FileMetaData& fmeta) override;
+
   void PrepareToReadNewManifest() {
     initialized_ = false;
     ClearReadBuffer();
@@ -314,9 +326,7 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
     return cfds_changed_;
   }
 
-  std::vector<std::string>& GetIntermediateFiles() {
-    return intermediate_files_;
-  }
+  std::vector<std::string> GetAndClearIntermediateFiles();
 
  protected:
   Status Initialize() override;
@@ -328,9 +338,6 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
-
-  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
-                    const FileMetaData& fmeta) override;
 
   enum Mode : uint8_t {
     kRecovery = 0,
