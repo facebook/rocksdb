@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-
 import org.junit.*;
 import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
@@ -52,54 +51,44 @@ public class KeyExistsTest {
   }
 
   @Test
-  public void keyExistBug() throws RocksDBException{
-    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+  public void keyExistAfterDbOpen() throws RocksDBException {
+    try (RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
       db2.put("key".getBytes(UTF_8), "value".getBytes(UTF_8));
       assertThat(db2.keyExists("key".getBytes(UTF_8))).isTrue();
       assertThat(db2.keyExists("key2".getBytes(UTF_8))).isFalse();
       assertThat(db2.keyMayExist("key".getBytes(UTF_8), null)).isTrue();
     }
-    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+    try (RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
       assertThat(db2.keyMayExist("key".getBytes(UTF_8), null)).isTrue();
       assertThat(db2.keyExists("key".getBytes(UTF_8))).isTrue();
       assertThat(db2.keyExists("key2".getBytes(UTF_8))).isFalse();
     }
-    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+    try (RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
       assertThat(db2.keyMayExist("key".getBytes(UTF_8), null)).isTrue();
     }
-    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+    try (RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
       assertThat(db2.keyExists("key".getBytes(UTF_8))).isTrue();
     }
-    try(RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
+    try (RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
       assertThat(db2.keyExists("key2".getBytes(UTF_8))).isFalse();
     }
   }
 
   @Test
-  public void keyExistGenerator() throws RocksDBException, IOException {
-
-    final byte[] KNOWN_KEY = "random_key_value".getBytes(UTF_8);
+  public void keyExistInTtlDb() throws RocksDBException, IOException {
+    final byte[] KNOWN_KEY = "random_key".getBytes(UTF_8);
     final long PSEUDO_RANDOM_SEED = 15875551233124l;
 
-    Path rocksDbPath = Paths.get("/tmp/rocks-test");
-    if (Files.exists(rocksDbPath)) {
-      Files.walk(rocksDbPath)
-              .sorted(Comparator.reverseOrder())
-              .map(Path::toFile)
-              .forEach(x -> x.delete());
-    }
-
-    try(Options options = new Options().setCreateIfMissing(true);
-            TtlDB db2 = TtlDB.open(options, "/tmp/rocks-test", 86400, false);
-    WriteOptions writeOptions = new WriteOptions()
-    ) {
+    try (Options options = new Options().setCreateIfMissing(true);
+         TtlDB db2 = TtlDB.open(options, dbFolder2.getRoot().getAbsolutePath(), 86400, false);
+         WriteOptions writeOptions = new WriteOptions()) {
       writeOptions.setDisableWAL(true);
       db2.put(KNOWN_KEY, "value".getBytes(UTF_8));
 
       ByteBuffer key = ByteBuffer.allocateDirect(16);
       ByteBuffer value = ByteBuffer.allocateDirect(16);
       Random r = new Random(PSEUDO_RANDOM_SEED);
-      for(int i = 0 ; i < 1_000_000 ; i++){
+      for (int i = 0; i < 1000; i++) {
         key.clear();
         key.putLong(r.nextLong());
         key.putLong(r.nextLong());
@@ -109,67 +98,15 @@ public class KeyExistsTest {
         value.putLong(r.nextLong());
         value.putLong(r.nextLong());
         value.flip();
-
         db2.put(writeOptions, key, value);
-        if (i % 50000 == 0) {
-          System.out.println(i);
-        }
       }
-//      System.out.print("Compacting ...");
-//      db.compactRange();
-//      System.out.println(" [OK]");
+      db2.compactRange();
     }
-    try(Options options = new Options().setCreateIfMissing(true);
-
-        //RocksDB db2 = RocksDB.open(options, "/tmp/rocks-test")
-        //RocksDB db2 = RocksDB.openReadOnly(options, "/tmp/rocks-test")
-        TtlDB db2 = TtlDB.open(options, "/tmp/rocks-test", 86400, true);
-
-    ) {
-
-//      assertThat(db2.get("key".getBytes())).isEqualTo("value".getBytes(UTF_8));
-      Random r = new Random(PSEUDO_RANDOM_SEED);
-      ByteBuffer key = ByteBuffer.allocateDirect(16);
-//      for (int i = 0; i < 100; i++) {
-//        key.clear();
-//        key.putLong(r.nextLong());
-//        key.putLong(r.nextLong());
-//        key.flip();
-//
-//        r.nextLong();
-//        r.nextLong();
-//
-//        System.out.println(" key : " + i + " exist : " + db2.keyExists(key));
-//
-//      }
-      System.out.println("Key exist 1 : ");
-      System.out.flush();
-      db2.keyExists(KNOWN_KEY);
-      db2.get(KNOWN_KEY);
-      System.out.println("Key exists 2 : ");
-      System.out.flush();
-      db2.keyExists(KNOWN_KEY);
-    }
-
-  }
-
-  @Test
-  public void verify() throws RocksDBException {
-    try(Options options = new Options().setCreateIfMissing(true);
-
-            //RocksDB db2 = RocksDB.open(options, "/tmp/rocks-test")
-            //RocksDB db2 = RocksDB.openReadOnly(options, "/tmp/rocks-test")
-            TtlDB db2 = TtlDB.open(options, "/tmp/rocks-test", 86400, true);
-
-    ) {
-
-//      assertThat(db2.get("key".getBytes())).isEqualTo("value".getBytes(UTF_8));
-
-      assertThat(db2.keyExists("key".getBytes(UTF_8))).isTrue();
+    try (Options options = new Options();
+         TtlDB db2 = TtlDB.open(options, dbFolder2.getRoot().getAbsolutePath(), 86400, true);) {
+      assertThat(db2.keyExists(KNOWN_KEY)).isTrue();
     }
   }
-
-
 
   @Test
   public void keyExists() throws RocksDBException {

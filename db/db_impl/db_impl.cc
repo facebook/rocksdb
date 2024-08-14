@@ -78,7 +78,6 @@
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
 #endif
-#include <iostream>
 
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -3833,11 +3832,11 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
     value->assign(pinnable_val.data(), pinnable_val.size());
   }
 
-  std::cout << "DBImpl::KeyMayExist s : " << s.ToString() << std::endl <<std::flush ;
   // If block_cache is enabled and the index block of the table didn't
   // not present in block_cache, the return value will be Status::Incomplete.
   // In this case, key may still exist in the table.
-  if(value_found != nullptr && s.IsIncomplete()) {
+  if (value_found != nullptr && s.IsIncomplete()) {
+    // falsify later if key-may-exist but can't fetch value
     *value_found = false;
   }
   return s.ok() || s.IsIncomplete();
