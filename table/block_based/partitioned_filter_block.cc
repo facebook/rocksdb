@@ -96,7 +96,14 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
   // the partition before it. (This fixes a bug in the original implementation
   // of format_version=3.)
   if (next_prefix) {
-    filter_bits_builder_->AddKey(*next_prefix);
+    if (whole_key_filtering()) {
+      // NOTE: At the end of building filter bits, we need a special case for
+      // treating prefix as an "alt" entry. See AddKeyAndAlt() comment. This is
+      // a reasonable hack for that.
+      filter_bits_builder_->AddKeyAndAlt(*next_prefix, *next_prefix);
+    } else {
+      filter_bits_builder_->AddKey(*next_prefix);
+    }
   }
 
   // Cut the partition
@@ -117,6 +124,9 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
   // previous partition should be added to support prefix SeekForPrev.
   // (Analogous to above fix for prefix Seek.)
   if (next_key && last_key_in_domain_) {
+    // NOTE: At the beginning of building filter bits, we don't need a special
+    // case for treating prefix as an "alt" entry.
+    // See DBBloomFilterTest.FilterBitsBuilderDedup
     filter_bits_builder_->AddKey(last_prefix_str_);
   }
 }
