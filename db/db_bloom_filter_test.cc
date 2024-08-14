@@ -692,15 +692,20 @@ namespace {
 
 class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
  public:
-  void AddKey(const Slice&) override {}
-  size_t EstimateEntriesAdded() override { return 0U; }
+  void AddKey(const Slice&) override { ++count_; }
+  void AddKeyAndAlt(const Slice&, const Slice&) override { count_ += 2; }
+  size_t EstimateEntriesAdded() override { return count_; }
   Slice Finish(std::unique_ptr<const char[]>* /* buf */) override {
+    count_ = 0;
     // Interpreted as "always true" filter (0 probes over 1 byte of
     // payload, 5 bytes metadata)
     return Slice("\0\0\0\0\0\0", 6);
   }
   using FilterBitsBuilder::Finish;
   size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
+
+ private:
+  size_t count_ = 0;
 };
 
 class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {
@@ -825,6 +830,43 @@ TEST_P(DBBloomFilterTestWithFormatParams, SkipFilterOnEssentiallyZeroBpk) {
   props.clear();
   ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
   EXPECT_EQ(props["filter_size"], "0");
+}
+
+TEST_P(DBBloomFilterTestWithFormatParams, FilterBitsBuilderDedup) {
+  BlockBasedTableOptions table_options;
+  SetInTableOptions(&table_options);
+  FilterBuildingContext context{table_options};
+  std::unique_ptr<FilterBitsBuilder> builder{
+      table_options.filter_policy->GetBuilderWithContext(context)};
+
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 0U);
+  // Check for sufficient de-duplication between regular keys and alt keys
+  // (prefixes), keeping in mind that the key might equal its prefix.
+
+  builder->AddKey("abc");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 1U);
+  builder->AddKeyAndAlt("abc1", "abc");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 2U);
+  builder->AddKeyAndAlt("bcd", "bcd");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 3U);
+  builder->AddKeyAndAlt("cde-1", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
+  builder->AddKeyAndAlt("cde", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
+  builder->AddKeyAndAlt("cde1", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 6U);
+  builder->AddKeyAndAlt("def-1", "def");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
+  builder->AddKeyAndAlt("def", "def");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
+  builder->AddKey("def$$");  // Like not in extractor domain
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
+  builder->AddKey("def$$");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
+  builder->AddKeyAndAlt("efg42", "efg");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
+  builder->AddKeyAndAlt("efg", "efg");  // Like extra "alt" on a partition
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
 }
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)

@@ -43,8 +43,6 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, true /* is_user_key */) {
-  // See FullFilterBlockBuilder::AddPrefix
-  need_last_prefix_ = prefix_extractor() != nullptr;
   // Compute keys_per_partition_
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
@@ -74,31 +72,41 @@ PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
   partitioned_filters_construction_status_.PermitUncheckedError();
 }
 
-void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
-    const Slice* next_key) {
-  // (NOTE: Can't just use ==, because keys_added_to_partition_ might be
-  // incremented by more than one.)
-  if (keys_added_to_partition_ >= keys_per_partition_) {
+bool PartitionedFilterBlockBuilder::DecideCutAFilterBlock() {
+  // NOTE: Can't just use ==, because estimated might be incremented by more
+  // than one. +1 is for adding next_prefix below.
+  if (filter_bits_builder_->EstimateEntriesAdded() + 1 >= keys_per_partition_) {
     // Currently only index builder is in charge of cutting a partition. We keep
     // requesting until it is granted.
     p_index_builder_->RequestPartitionCut();
   }
-  if (!p_index_builder_->ShouldCutFilterBlock()) {
-    return;
-  }
+  return p_index_builder_->ShouldCutFilterBlock();
+}
 
-  // Add the prefix of the next key before finishing the partition without
-  // updating last_prefix_str_. This hack fixes a bug with format_verison=3
-  // where seeking for the prefix would lead us to the previous partition.
-  const bool maybe_add_prefix =
-      next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
-  if (maybe_add_prefix) {
-    const Slice next_key_prefix = prefix_extractor()->Transform(*next_key);
-    if (next_key_prefix.compare(last_prefix_str()) != 0) {
-      AddKey(next_key_prefix);
+void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
+                                                    const Slice* next_prefix) {
+  // When there is a next partition, add the prefix of the first key in the
+  // next partition before closing this one out. This is needed to support
+  // prefix Seek, because there could exist a key k where
+  // * last_key < k < next_key
+  // * prefix(last_key) != prefix(k)
+  // * prefix(k) == prefix(next_key)
+  // * seeking to k lands in this partition, not the next
+  // in which case the iterator needs to find next_key despite starting in
+  // the partition before it. (This fixes a bug in the original implementation
+  // of format_version=3.)
+  if (next_prefix) {
+    if (whole_key_filtering()) {
+      // NOTE: At the end of building filter bits, we need a special case for
+      // treating prefix as an "alt" entry. See AddKeyAndAlt() comment. This is
+      // a reasonable hack for that.
+      filter_bits_builder_->AddKeyAndAlt(*next_prefix, *next_prefix);
+    } else {
+      filter_bits_builder_->AddKey(*next_prefix);
     }
   }
 
+  // Cut the partition
   total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
   std::unique_ptr<const char[]> filter_data;
   Status filter_construction_status = Status::OK();
@@ -111,18 +119,43 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
       {p_index_builder_->GetPartitionKey(), std::move(filter_data), filter});
   partitioned_filters_construction_status_.UpdateIfOk(
       filter_construction_status);
-  keys_added_to_partition_ = 0;
-  Reset();
+
+  // If we are building another filter partition, the last prefix in the
+  // previous partition should be added to support prefix SeekForPrev.
+  // (Analogous to above fix for prefix Seek.)
+  if (next_key && last_key_in_domain_) {
+    // NOTE: At the beginning of building filter bits, we don't need a special
+    // case for treating prefix as an "alt" entry.
+    // See DBBloomFilterTest.FilterBitsBuilderDedup
+    filter_bits_builder_->AddKey(last_prefix_str_);
+  }
 }
 
 void PartitionedFilterBlockBuilder::Add(const Slice& key_without_ts) {
-  MaybeCutAFilterBlock(&key_without_ts);
-  FullFilterBlockBuilder::Add(key_without_ts);
-}
-
-void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
-  FullFilterBlockBuilder::AddKey(key);
-  keys_added_to_partition_++;
+  // When filter partitioning is coupled to index partitioning, we need to
+  // check for cutting a block even if we aren't adding anything this time.
+  bool cut = DecideCutAFilterBlock();
+  if (prefix_extractor() && prefix_extractor()->InDomain(key_without_ts)) {
+    Slice prefix = prefix_extractor()->Transform(key_without_ts);
+    if (cut) {
+      CutAFilterBlock(&key_without_ts, &prefix);
+    }
+    if (whole_key_filtering()) {
+      filter_bits_builder_->AddKeyAndAlt(key_without_ts, prefix);
+    } else {
+      filter_bits_builder_->AddKey(prefix);
+    }
+    last_key_in_domain_ = true;
+    last_prefix_str_.assign(prefix.data(), prefix.size());
+  } else {
+    if (cut) {
+      CutAFilterBlock(&key_without_ts, nullptr);
+    }
+    if (whole_key_filtering()) {
+      filter_bits_builder_->AddKey(key_without_ts);
+    }
+    last_key_in_domain_ = false;
+  }
 }
 
 size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
@@ -158,7 +191,10 @@ Status PartitionedFilterBlockBuilder::Finish(
     filters_.pop_front();
   } else {
     assert(last_partition_block_handle == BlockHandle{});
-    MaybeCutAFilterBlock(nullptr);
+    if (filter_bits_builder_->EstimateEntriesAdded() > 0) {
+      CutAFilterBlock(nullptr, nullptr);
+    }
+    assert(filter_bits_builder_->EstimateEntriesAdded() == 0);
   }
 
   Status s = partitioned_filters_construction_status_;

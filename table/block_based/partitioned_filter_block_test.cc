@@ -164,7 +164,8 @@ class PartitionedFilterBlockTest
   }
 
   PartitionedFilterBlockReader* NewReader(
-      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib) {
+      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib,
+      bool expect_empty = false) {
     BlockHandle bh;
     Status status;
     Slice slice;
@@ -172,6 +173,11 @@ class PartitionedFilterBlockTest
     do {
       status = builder->Finish(bh, &slice, &filter_data);
       bh = Write(slice);
+      if (expect_empty) {
+        // Ensure most efficient "empty" filter is used
+        EXPECT_OK(status);
+        EXPECT_EQ(0, slice.size());
+      }
     } while (status.IsIncomplete());
 
     constexpr bool skip_filters = false;
@@ -196,7 +202,7 @@ class PartitionedFilterBlockTest
   void VerifyReader(PartitionedFilterBlockBuilder* builder,
                     PartitionedIndexBuilder* pib, bool empty = false) {
     std::unique_ptr<PartitionedFilterBlockReader> reader(
-        NewReader(builder, pib));
+        NewReader(builder, pib, empty));
     // Querying added keys
     std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
     for (const auto& key : keys) {
@@ -312,10 +318,9 @@ class PartitionedFilterBlockTest
   void CutABlock(PartitionedIndexBuilder* builder, const std::string& user_key,
                  const std::string& next_user_key) {
     // Assuming a block is cut, add an entry to the index
-    std::string key =
-        std::string(*InternalKey(user_key, 0, ValueType::kTypeValue).rep());
-    std::string next_key = std::string(
-        *InternalKey(next_user_key, 0, ValueType::kTypeValue).rep());
+    std::string key = *InternalKey(user_key, 0, ValueType::kTypeValue).rep();
+    std::string next_key =
+        *InternalKey(next_user_key, 0, ValueType::kTypeValue).rep();
     BlockHandle dont_care_block_handle(1, 1);
     Slice slice = Slice(next_key.data(), next_key.size());
     std::string scratch;
@@ -339,7 +344,7 @@ class PartitionedFilterBlockTest
 INSTANTIATE_TEST_CASE_P(
     FormatVersions, PartitionedFilterBlockTest,
     testing::Combine(testing::ValuesIn(std::set<uint32_t>{
-                         2, 3, 4, test::kDefaultFormatVersion,
+                         2, 3, 4, 5, test::kDefaultFormatVersion,
                          kLatestFormatVersion}),
                      testing::ValuesIn(test::GetUDTTestModes())));
 
