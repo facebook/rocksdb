@@ -48,7 +48,11 @@ class StressTest {
     return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
            FLAGS_manual_wal_flush_one_in > 0;
   }
-
+  Status EnableAutoCompaction() {
+    assert(options_.disable_auto_compactions);
+    Status s = db_->EnableAutoCompaction(column_families_);
+    return s;
+  }
   void CleanUp();
 
  protected:
@@ -447,5 +451,6 @@ void InitializeOptionsGeneral(
 // user-defined timestamp.
 void CheckAndSetOptionsForUserTimestamp(Options& options);
 
+bool ShouldDisableAutoCompactionsBeforeVerifyDb();
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

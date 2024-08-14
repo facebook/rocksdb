@@ -3832,6 +3832,10 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
       FLAGS_persist_user_defined_timestamps;
 }
 
+bool ShouldDisableAutoCompactionsBeforeVerifyDb() {
+  return !FLAGS_disable_auto_compactions && FLAGS_enable_compaction_filter;
+}
+
 bool InitializeOptionsFromFile(Options& options) {
   DBOptions db_options;
   ConfigOptions config_options;
@@ -3945,7 +3949,11 @@ void InitializeOptionsFromFlags(
         new WriteBufferManager(FLAGS_db_write_buffer_size, block_cache));
   }
   options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
-  options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+  if (ShouldDisableAutoCompactionsBeforeVerifyDb()) {
+    options.disable_auto_compactions = true;
+  } else {
+    options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+  }
   options.max_background_compactions = FLAGS_max_background_compactions;
   options.max_background_flushes = FLAGS_max_background_flushes;
   options.compaction_style =

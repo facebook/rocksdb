@@ -2587,6 +2587,8 @@ class NonBatchedOpsStressTest : public StressTest {
         // Value doesn't exist in db, update state to reflect that
         shared->SyncDelete(cf, key);
         return true;
+      } else {
+        assert(false);
       }
     }
     char expected_value_data[kValueMaxLen];
@@ -2685,7 +2687,11 @@ class NonBatchedOpsStressTest : public StressTest {
     SharedState* const shared = thread->shared;
     assert(shared);
 
-    if (!shared->AllowsOverwrite(key) && shared->Exists(column_family, key)) {
+    const ExpectedValue expected_value =
+        thread->shared->Get(column_family, key);
+    bool may_exist = !ExpectedValueHelper::MustHaveNotExisted(expected_value,
+                                                              expected_value);
+    if (!shared->AllowsOverwrite(key) && may_exist) {
       // Just do read your write checks for keys that allow overwrites.
       return;
     }
