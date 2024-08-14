@@ -1,1 +1,0 @@
-* MemtableRep::Get(), MemtableRep::GetIterator() and MemtableRep::GetDynamicPrefixIterator() take additional parameters integrity_checks and allow_data_in_errors to support ReadOptions::integrity_checks.

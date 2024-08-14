@@ -1745,12 +1745,6 @@ struct ReadOptions {
   // comes at the expense of slightly higher CPU overhead.
   bool optimize_multiget_for_io = true;
 
-  // Enables additional integrity checks for this read/iterator.
-  // Specifically, for skiplist-based memtables, verifies that keys visited in
-  // order. Enabling this feature incurs a performance overhead due to an
-  // additional key comparison during memtable lookup.
-  bool integrity_checks = false;
-
   // *** END options relevant to point lookups (as well as scans) ***
   // *** BEGIN options only relevant to iterators or scans ***
 

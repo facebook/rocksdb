@@ -41,20 +41,17 @@ class MockMemTableRep : public MemTableRep {
 
   bool Contains(const char* key) const override { return rep_->Contains(key); }
 
-  Status Get(const LookupKey& k, void* callback_args,
-             bool (*callback_func)(void* arg, const char* entry),
-             bool integrity_checks, bool allow_data_in_errors) override {
-    return rep_->Get(k, callback_args, callback_func, integrity_checks,
-                     allow_data_in_errors);
+  void Get(const LookupKey& k, void* callback_args,
+           bool (*callback_func)(void* arg, const char* entry)) override {
+    rep_->Get(k, callback_args, callback_func);
   }
 
   size_t ApproximateMemoryUsage() override {
     return rep_->ApproximateMemoryUsage();
   }
 
-  Iterator* GetIterator(Arena* arena, bool integrity_checks = false,
-                        bool allow_data_in_errors = false) override {
-    return rep_->GetIterator(arena, integrity_checks, allow_data_in_errors);
+  Iterator* GetIterator(Arena* arena) override {
+    return rep_->GetIterator(arena);
   }
 
   void* last_hint_in() { return last_hint_in_; }
@@ -345,13 +342,14 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
 TEST_F(DBMemTableTest, IntegrityChecks) {
   // We insert keys key000000, key000001 and key000002 into skiplist at fixed
   // height 1 (smallest height). Then we corrupt the second key to aey000001 to
-  // make it smaller. With ReadOptions::integrity_checks set to true, if the
+  // make it smaller. With `integrity_checks` set to true, if the
   // skip list sees key000000 and then aey000001, then it will report out of
-  // order keys with corruption status. With ReadOptions::integrity_checks set
+  // order keys with corruption status. With `integrity_checks` set
   // to false, read/scan may return wrong results.
   for (bool allow_data_in_error : {false, true}) {
     Options options = CurrentOptions();
     options.allow_data_in_errors = allow_data_in_error;
+    options.integrity_checks = true;
     DestroyAndReopen(options);
     SyncPoint::GetInstance()->SetCallBack(
         "InlineSkipList::RandomHeight::height", [](void* h) {
@@ -376,14 +374,13 @@ TEST_F(DBMemTableTest, IntegrityChecks) {
     p[1] = 'a';
 
     ReadOptions rops;
-    rops.integrity_checks = true;
     std::string val;
     Status s = db_->Get(rops, Key(1), &val);
     ASSERT_TRUE(s.IsCorruption());
     std::string key0 = Slice(Key(0)).ToString(true);
     ASSERT_EQ(s.ToString().find(key0) != std::string::npos,
               allow_data_in_error);
-    // Without integrity_checks, NotFound will be returned.
+    // Without `integrity_checks`, NotFound will be returned.
     // This would fail an assertion in InlineSkipList::FindGreaterOrEqual().
     // If we remove the assertion, this passes.
     // ASSERT_TRUE(db_->Get(ReadOptions(), Key(1), &val).IsNotFound());

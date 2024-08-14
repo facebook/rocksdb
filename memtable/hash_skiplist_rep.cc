@@ -32,19 +32,15 @@ class HashSkipListRep : public MemTableRep {
 
   size_t ApproximateMemoryUsage() override;
 
-  Status Get(const LookupKey& k, void* callback_args,
-             bool (*callback_func)(void* arg, const char* entry),
-             bool integrity_checks, bool allow_data_in_errors) override;
+  void Get(const LookupKey& k, void* callback_args,
+           bool (*callback_func)(void* arg, const char* entry)) override;
 
   ~HashSkipListRep() override;
 
-  MemTableRep::Iterator* GetIterator(
-      Arena* arena = nullptr, bool integrity_checks = false,
-      bool allow_data_in_errors = false) override;
+  MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override;
 
   MemTableRep::Iterator* GetDynamicPrefixIterator(
-      Arena* arena = nullptr, bool integrity_checks = false,
-      bool allow_data_in_errors = false) override;
+      Arena* arena = nullptr) override;
 
  private:
   friend class DynamicIterator;
@@ -286,10 +282,8 @@ bool HashSkipListRep::Contains(const char* key) const {
 
 size_t HashSkipListRep::ApproximateMemoryUsage() { return 0; }
 
-Status HashSkipListRep::Get(const LookupKey& k, void* callback_args,
-                            bool (*callback_func)(void* arg, const char* entry),
-                            bool /*integrity_checks*/,
-                            bool /*allow_data_in_errors*/) {
+void HashSkipListRep::Get(const LookupKey& k, void* callback_args,
+                          bool (*callback_func)(void* arg, const char* entry)) {
   auto transformed = transform_->Transform(k.user_key());
   auto bucket = GetBucket(transformed);
   if (bucket != nullptr) {
@@ -299,11 +293,9 @@ Status HashSkipListRep::Get(const LookupKey& k, void* callback_args,
          iter.Next()) {
     }
   }
-  return Status::OK();
 }
 
-MemTableRep::Iterator* HashSkipListRep::GetIterator(
-    Arena* arena, bool /*integrity_checks*/, bool /*allow_data_in_errors*/) {
+MemTableRep::Iterator* HashSkipListRep::GetIterator(Arena* arena) {
   // allocate a new arena of similar size to the one currently in use
   Arena* new_arena = new Arena(allocator_->BlockSize());
   auto list = new Bucket(compare_, new_arena);
@@ -324,8 +316,7 @@ MemTableRep::Iterator* HashSkipListRep::GetIterator(
   }
 }
 
-MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(
-    Arena* arena, bool /*integrity_checks*/, bool /*allow_data_in_errors*/) {
+MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena) {
   if (arena == nullptr) {
     return new DynamicIterator(*this);
   } else {

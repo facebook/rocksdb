@@ -174,20 +174,15 @@ class HashLinkListRep : public MemTableRep {
 
   size_t ApproximateMemoryUsage() override;
 
-  Status Get(const LookupKey& k, void* callback_args,
-             bool (*callback_func)(void* arg, const char* entry),
-             bool integrity_checks = false,
-             bool allow_data_in_errors = false) override;
+  void Get(const LookupKey& k, void* callback_args,
+           bool (*callback_func)(void* arg, const char* entry)) override;
 
   ~HashLinkListRep() override;
 
-  MemTableRep::Iterator* GetIterator(
-      Arena* arena = nullptr, bool integrity_checks = false,
-      bool allow_data_in_errors = false) override;
+  MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override;
 
   MemTableRep::Iterator* GetDynamicPrefixIterator(
-      Arena* arena = nullptr, bool integrity_checks = false,
-      bool allow_data_in_errors = false) override;
+      Arena* arena = nullptr) override;
 
  private:
   friend class DynamicIterator;
@@ -733,15 +728,13 @@ size_t HashLinkListRep::ApproximateMemoryUsage() {
   return 0;
 }
 
-Status HashLinkListRep::Get(const LookupKey& k, void* callback_args,
-                            bool (*callback_func)(void* arg, const char* entry),
-                            bool /*integrity_checks*/,
-                            bool /*allow_data_in_errors*/) {
+void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
+                          bool (*callback_func)(void* arg, const char* entry)) {
   auto transformed = transform_->Transform(k.user_key());
   Pointer& bucket = GetBucket(transformed);
 
   if (IsEmptyBucket(bucket)) {
-    return Status::OK();
+    return;
   }
 
   auto* link_list_head = GetLinkListFirstNode(bucket);
@@ -762,12 +755,9 @@ Status HashLinkListRep::Get(const LookupKey& k, void* callback_args,
       }
     }
   }
-  return Status::OK();
 }
 
-MemTableRep::Iterator* HashLinkListRep::GetIterator(
-    Arena* alloc_arena, bool /*integrity_checks*/,
-    bool /*allow_data_in_errors*/) {
+MemTableRep::Iterator* HashLinkListRep::GetIterator(Arena* alloc_arena) {
   // allocate a new arena of similar size to the one currently in use
   Arena* new_arena = new Arena(allocator_->BlockSize());
   auto list = new MemtableSkipList(compare_, new_arena);
@@ -813,8 +803,7 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator(
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator(
-    Arena* alloc_arena, bool /*integrity_checks*/,
-    bool /*allow_data_in_errors*/) {
+    Arena* alloc_arena) {
   if (alloc_arena == nullptr) {
     return new DynamicIterator(*this);
   } else {

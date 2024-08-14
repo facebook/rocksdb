@@ -170,25 +170,17 @@ class InlineSkipList {
     // REQUIRES: Valid()
     void Next();
 
-    // Advances to the next position and performs integrity validations on the
-    // skip list. Iterator becomes invalid if a corruption is found.
-    // REQUIRES: Valid()
     [[nodiscard]] Status NextAndValidate(bool allow_data_in_errors);
 
     // Advances to the previous position.
     // REQUIRES: Valid()
     void Prev();
 
-    // Advances to the previous position and performs integrity validations on
-    // the skip list. Iterator becomes invalid if a corruption is found.
-    // REQUIRES: Valid()
     [[nodiscard]] Status PrevAndValidate(bool allow_data_in_errors);
 
     // Advance to the first entry with a key >= target
     void Seek(const char* target);
 
-    // Seek and perform integrity validations on the skip list.
-    // Iterator becomes invalid if a corruption is found.
     [[nodiscard]] Status SeekAndValidate(const char* target,
                                          bool allow_data_in_errors);
 
@@ -253,23 +245,20 @@ class InlineSkipList {
   bool KeyIsAfterNode(const DecodedKey& key, Node* n) const;
 
   // Returns the earliest node with a key >= key.
-  // Returns nullptr if there is no such node or skip list validation fails.
-  // @param validation_status If not null, will perform integrity
-  // validations on the skip list. If any inconsistency is found,
-  // *validation_status will be set to Corruption(), and nullptr is returned.
-  Node* FindGreaterOrEqual(const char* key, Status* validation_status = nullptr,
-                           bool allow_data_in_errors = false) const;
+  // Returns nullptr if there is no such node.
+  // @param out_of_order_node If not null, will validate the order of visited
+  // nodes. If a pair of out-of-order nodes n1 and n2 are found, n1 will be
+  // returned and *out_of_order_node will be set to n2.
+  Node* FindGreaterOrEqual(const char* key, Node** out_of_order_node) const;
 
   // Returns the latest node with a key < key.
   // Returns head_ if there is no such node.
-  // Returns nullptr if skip list validation fails.
   // Fills prev[level] with pointer to previous node at "level" for every
   // level in [0..max_height_-1], if prev is non-null.
-  // @param validation_status If not null, will perform integrity
-  // validations on the skip list. If any inconsistency is found,
-  // *validation_status will be set to Corruption(), and nullptr is returned.
-  Node* FindLessThan(const char* key, Status* validation_status = nullptr,
-                     bool allow_data_in_errors = false) const;
+  // @param out_of_order_node If not null, will validate the order of visited
+  // nodes. If a pair of out-of-order nodes n1 and n2 are found, n1 will be
+  // returned and *out_of_order_node will be set to n2.
+  Node* FindLessThan(const char* key, Node** out_of_order_node) const;
 
   // Return the last node in the list.
   // Return head_ if list is empty.
@@ -293,17 +282,7 @@ class InlineSkipList {
   void RecomputeSpliceLevels(const DecodedKey& key, Splice* splice,
                              int recompute_level);
 
-  // Verifies that the keys of two nodes in the skip list are in order.
-  //
-  // @param prev A node in the skip list.
-  // @param next A node that is after `prev` in the skip list.
-  // @param status Will be set to Corruption if validation fails.
-  // @param allow_data_in_errors controls whether key content is included in
-  // Corruption status.
-  //
-  // @return True if the nodes are in order, false otherwise.
-  bool ValidateKeyOrder(Node* prev, Node* next, Status* error,
-                        bool allow_data_in_errors) const;
+  static Status Corruption(Node* prev, Node* next, bool allow_data_in_errors);
 };
 
 // Implementation details follow
@@ -429,12 +408,14 @@ inline Status InlineSkipList<Comparator>::Iterator::NextAndValidate(
   Node* prev_node = node_;
   node_ = node_->Next(0);
   // Verify that keys are increasing.
-  Status s;
-  if (!list_->ValidateKeyOrder(prev_node, node_, &s, allow_data_in_errors)) {
+  if (prev_node != list_->head_ && node_ != nullptr &&
+      list_->compare_(prev_node->Key(), node_->Key()) >= 0) {
+    Node* node = node_;
     // invalidates the iterator
     node_ = nullptr;
+    return Corruption(prev_node, node, allow_data_in_errors);
   }
-  return s;
+  return Status::OK();
 }
 
 template <class Comparator>
@@ -442,7 +423,7 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
-  node_ = list_->FindLessThan(node_->Key());
+  node_ = list_->FindLessThan(node_->Key(), nullptr);
   if (node_ == list_->head_) {
     node_ = nullptr;
   }
@@ -450,30 +431,38 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
 
 template <class Comparator>
 inline Status InlineSkipList<Comparator>::Iterator::PrevAndValidate(
-    bool allow_data_in_errors) {
+    const bool allow_data_in_errors) {
   assert(Valid());
   // Skip list validation is done in FindLessThan().
-  Status s;
-  node_ = list_->FindLessThan(node_->Key(), &s, allow_data_in_errors);
-  assert(s.ok() || node_ == nullptr);
+  Node* out_of_order_node = nullptr;
+  node_ = list_->FindLessThan(node_->Key(), &out_of_order_node);
+  if (out_of_order_node) {
+    Node* node = node_;
+    node_ = nullptr;
+    return Corruption(node, out_of_order_node, allow_data_in_errors);
+  }
   if (node_ == list_->head_) {
     node_ = nullptr;
   }
-  return s;
+  return Status::OK();
 }
 
 template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::Seek(const char* target) {
-  node_ = list_->FindGreaterOrEqual(target);
+  node_ = list_->FindGreaterOrEqual(target, nullptr);
 }
 
 template <class Comparator>
 inline Status InlineSkipList<Comparator>::Iterator::SeekAndValidate(
-    const char* target, bool allow_data_in_errors) {
-  Status s;
-  node_ = list_->FindGreaterOrEqual(target, &s, allow_data_in_errors);
-  assert(s.ok() || node_ == nullptr);
-  return s;
+    const char* target, const bool allow_data_in_errors) {
+  Node* out_of_order_node = nullptr;
+  node_ = list_->FindGreaterOrEqual(target, &out_of_order_node);
+  if (out_of_order_node) {
+    Node* node = node_;
+    node_ = nullptr;
+    return Corruption(node, out_of_order_node, allow_data_in_errors);
+  }
+  return Status::OK();
 }
 
 template <class Comparator>
@@ -542,8 +531,7 @@ bool InlineSkipList<Comparator>::KeyIsAfterNode(const DecodedKey& key,
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::FindGreaterOrEqual(
-    const char* key, Status* validation_status,
-    bool allow_data_in_errors) const {
+    const char* key, Node** const out_of_order_node) const {
   // Note: It looks like we could reduce duplication by implementing
   // this function as FindLessThan(key)->Next(0), but we wouldn't be able
   // to exit early on equality and the result wouldn't even be correct.
@@ -557,12 +545,10 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(
     Node* next = x->Next(level);
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
-    }
-    if (validation_status) {
-      // Verify that keys are increasing.
-      if (!ValidateKeyOrder(x, next, validation_status, allow_data_in_errors)) {
-        assert(validation_status->IsCorruption());
-        return nullptr;
+      if (out_of_order_node && x != head_ &&
+          compare_(x->Key(), next->Key()) >= 0) {
+        *out_of_order_node = next;
+        return x;
       }
     }
     // Make sure the lists are sorted
@@ -588,8 +574,7 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::FindLessThan(const char* key,
-                                         Status* validation_status,
-                                         bool allow_data_in_errors) const {
+                                         Node** const out_of_order_node) const {
   int level = GetMaxHeight() - 1;
   assert(level >= 0);
   Node* x = head_;
@@ -601,11 +586,10 @@ InlineSkipList<Comparator>::FindLessThan(const char* key,
     Node* next = x->Next(level);
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
-    }
-    if (validation_status) {
-      if (!ValidateKeyOrder(x, next, validation_status, allow_data_in_errors)) {
-        assert(validation_status->IsCorruption());
-        return nullptr;
+      if (out_of_order_node && x != head_ &&
+          compare_(x->Key(), next->Key()) >= 0) {
+        *out_of_order_node = next;
+        return x;
       }
     }
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
@@ -1074,7 +1058,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
 
 template <class Comparator>
 bool InlineSkipList<Comparator>::Contains(const char* key) const {
-  Node* x = FindGreaterOrEqual(key);
+  Node* x = FindGreaterOrEqual(key, nullptr);
   if (x != nullptr && Equal(key, x->Key())) {
     return true;
   } else {
@@ -1124,17 +1108,13 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
 }
 
 template <class Comparator>
-inline bool InlineSkipList<Comparator>::ValidateKeyOrder(
-    Node* prev, Node* next, Status* error, bool allow_data_in_errors) const {
-  if (prev != head_ && next && !KeyIsAfterNode(next->Key(), prev)) {
-    std::string msg = "Out-of-order keys found in skiplist.";
-    if (allow_data_in_errors) {
-      msg.append(" prev key: " + Slice(prev->Key()).ToString(true));
-      msg.append(" next key: " + Slice(next->Key()).ToString(true));
-    }
-    *error = Status::Corruption(msg);
-    return false;
-  };
-  return true;
+Status InlineSkipList<Comparator>::Corruption(Node* prev, Node* next,
+                                              bool allow_data_in_errors) {
+  std::string msg = "Out-of-order keys found in skiplist.";
+  if (allow_data_in_errors) {
+    msg.append(" prev key: " + Slice(prev->Key()).ToString(true));
+    msg.append(" next key: " + Slice(next->Key()).ToString(true));
+  }
+  return Status::Corruption(msg);
 }
 }  // namespace ROCKSDB_NAMESPACE

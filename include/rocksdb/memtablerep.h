@@ -191,10 +191,17 @@ class MemTableRep {
   // Default:
   // Get() function with a default value of dynamically construct an iterator,
   // seek and call the call back function.
-  virtual Status Get(const LookupKey& k, void* callback_args,
-                     bool (*callback_func)(void* arg, const char* entry),
-                     bool integrity_checks = false,
-                     bool allow_data_in_error = false);
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg, const char* entry));
+
+  // Same as Get() but performs data integrity validation.
+  virtual Status GetAndValidate(const LookupKey& /* k */,
+                                void* /* callback_args */,
+                                bool (* /* callback_func */)(void* arg,
+                                                             const char* entry),
+                                bool /*allow_data_in_error*/) {
+    return Status::NotSupported("GetAndValidate() not implemented.");
+  }
 
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {
@@ -229,8 +236,6 @@ class MemTableRep {
     // Returns true iff the iterator is positioned at a valid node.
     virtual bool Valid() const = 0;
 
-    virtual Status status() const { return Status::OK(); }
-
     // Returns the key at the current position.
     // REQUIRES: Valid()
     virtual const char* key() const = 0;
@@ -239,12 +244,37 @@ class MemTableRep {
     // REQUIRES: Valid()
     virtual void Next() = 0;
 
+    // Advances to the next position and performs integrity validations on the
+    // skip list. Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    // REQUIRES: Valid()
+    virtual Status NextAndValidate(bool /* allow_data_in_errors */) {
+      return Status::NotSupported("NextAndValidate() not implemented.");
+    }
+
     // Advances to the previous position.
     // REQUIRES: Valid()
     virtual void Prev() = 0;
 
+    // Advances to the previous position and performs integrity validations on
+    // the skip list. Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    // REQUIRES: Valid()
+    virtual Status PrevAndValidate(bool /* allow_data_in_errors */) {
+      return Status::NotSupported("PrevAndValidate() not implemented.");
+    }
+
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& internal_key, const char* memtable_key) = 0;
+
+    // Seek and perform integrity validations on the skip list.
+    // Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    virtual Status SeekAndValidate(const Slice& /* internal_key */,
+                                   const char* /* memtable_key */,
+                                   bool /* allow_data_in_errors */) {
+      return Status::NotSupported("SeekAndValidate() not implemented.");
+    }
 
     // retreat to the first entry with a key <= target
     virtual void SeekForPrev(const Slice& internal_key,
@@ -266,12 +296,7 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  // integrity_checks: If true, the returned iterator will perform extra checks
-  // to ensure data integrity, but this may come at a performance cost.
-  // Currently, only SkipListRep supports this feature.
-  virtual Iterator* GetIterator(Arena* arena = nullptr,
-                                bool integrity_checks = false,
-                                bool allow_data_in_error = false) = 0;
+  virtual Iterator* GetIterator(Arena* arena = nullptr) = 0;
 
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
@@ -279,13 +304,8 @@ class MemTableRep {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  // integrity_checks: If true, the returned iterator will perform extra checks
-  // to ensure data integrity, but this may come at a performance cost.
-  // Currently, only SkipListRep supports this feature.
-  virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr,
-                                             bool integrity_checks = false,
-                                             bool allow_data_in_error = false) {
-    return GetIterator(arena, integrity_checks, allow_data_in_error);
+  virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr) {
+    return GetIterator(arena);
   }
 
   // Return true if the current MemTableRep supports merge operator.

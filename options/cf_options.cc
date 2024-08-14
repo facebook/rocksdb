@@ -531,6 +531,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, block_protection_bytes_per_key),
           OptionType::kUInt8T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"integrity_checks",
+         {offsetof(struct MutableCFOptions, integrity_checks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {kOptNameCompOpts,
          OptionTypeInfo::Struct(
              kOptNameCompOpts, &compression_options_type_info,
