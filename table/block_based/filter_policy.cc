@@ -295,6 +295,15 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   bool detect_filter_construct_corruption_;
 
   struct HashEntriesInfo {
+#ifdef ROCKSDB_VALGRIND_RUN
+    HashEntriesInfo() {
+      // Valgrind can report uninitialized FPs on std::optional usage. See e.g.
+      // https://stackoverflow.com/q/51616179
+      std::memset((void*)&prev_alt_hash, 0, sizeof(prev_alt_hash));
+      prev_alt_hash = {};
+    }
+#endif
+
     // A deque avoids unnecessary copying of already-saved values
     // and has near-minimal peak memory use.
     std::deque<uint64_t> entries;
