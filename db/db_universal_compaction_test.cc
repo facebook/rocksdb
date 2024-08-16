@@ -213,8 +213,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   options.num_levels = num_levels_;
   options.write_buffer_size = 105 << 10;  // 105KB
   options.arena_block_size = 4 << 10;
-  // 32KB + some to accommodate apparent test sensitivity
-  options.target_file_size_base = 34 << 10;
   // trigger compaction if there are >= 4 files
   options.level0_file_num_compaction_trigger = 4;
   KeepFilterFactory* filter = new KeepFilterFactory(true);
