@@ -188,6 +188,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "block_size_deviation=8;block_restart_interval=4; "
       "metadata_block_size=1024;"
       "partition_filters=false;"
+      "decouple_partitioned_filters=true;"
       "optimize_filters_for_memory=true;"
       "use_delta_encoding=true;"
       "index_block_restart_interval=4;"

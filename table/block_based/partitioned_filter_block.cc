@@ -27,10 +27,13 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     const bool use_value_delta_encoding,
     PartitionedIndexBuilder* const p_index_builder,
     const uint32_t partition_size, size_t ts_sz,
-    const bool persist_user_defined_timestamps)
+    const bool persist_user_defined_timestamps,
+    bool decouple_from_index_partitions)
     : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       p_index_builder_(p_index_builder),
+      ts_sz_(ts_sz),
+      decouple_from_index_partitions_(decouple_from_index_partitions),
       index_on_filter_block_builder_(
           index_block_restart_interval, true /*use_delta_encoding*/,
           use_value_delta_encoding,
@@ -66,6 +69,11 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
       }
     }
   }
+  if (keys_per_partition_ > 1 && prefix_extractor()) {
+    // Correct for adding next prefix in CutAFilterBlock *after* checking
+    // against this threshold
+    keys_per_partition_--;
+  }
 }
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
@@ -73,18 +81,26 @@ PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
 }
 
 bool PartitionedFilterBlockBuilder::DecideCutAFilterBlock() {
-  // NOTE: Can't just use ==, because estimated might be incremented by more
-  // than one. +1 is for adding next_prefix below.
-  if (filter_bits_builder_->EstimateEntriesAdded() + 1 >= keys_per_partition_) {
-    // Currently only index builder is in charge of cutting a partition. We keep
-    // requesting until it is granted.
-    p_index_builder_->RequestPartitionCut();
+  size_t added = filter_bits_builder_->EstimateEntriesAdded();
+  if (decouple_from_index_partitions_) {
+    // NOTE: Can't just use ==, because estimated might be incremented by more
+    // than one.
+    return added >= keys_per_partition_;
+  } else {
+    // NOTE: Can't just use ==, because estimated might be incremented by more
+    // than one.
+    if (added >= keys_per_partition_) {
+      // Currently only index builder is in charge of cutting a partition. We
+      // keep requesting until it is granted.
+      p_index_builder_->RequestPartitionCut();
+    }
+    return p_index_builder_->ShouldCutFilterBlock();
   }
-  return p_index_builder_->ShouldCutFilterBlock();
 }
 
 void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
-                                                    const Slice* next_prefix) {
+                                                    const Slice* next_prefix,
+                                                    const Slice& prev_key) {
   // When there is a next partition, add the prefix of the first key in the
   // next partition before closing this one out. This is needed to support
   // prefix Seek, because there could exist a key k where
@@ -115,51 +131,93 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
   if (filter_construction_status.ok()) {
     filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
   }
-  filters_.push_back(
-      {p_index_builder_->GetPartitionKey(), std::move(filter_data), filter});
+  std::string ikey;
+  if (decouple_from_index_partitions_) {
+    if (ts_sz_ > 0) {
+      AppendKeyWithMinTimestamp(&ikey, prev_key, ts_sz_);
+    } else {
+      ikey = prev_key.ToString();
+    }
+    AppendInternalKeyFooter(&ikey, /*seqno*/ 0, ValueType::kTypeDeletion);
+  } else {
+    ikey = p_index_builder_->GetPartitionKey();
+  }
+  filters_.push_back({std::move(ikey), std::move(filter_data), filter});
   partitioned_filters_construction_status_.UpdateIfOk(
       filter_construction_status);
 
   // If we are building another filter partition, the last prefix in the
   // previous partition should be added to support prefix SeekForPrev.
   // (Analogous to above fix for prefix Seek.)
-  if (next_key && last_key_in_domain_) {
+  if (next_key && prefix_extractor() &&
+      prefix_extractor()->InDomain(prev_key)) {
     // NOTE: At the beginning of building filter bits, we don't need a special
     // case for treating prefix as an "alt" entry.
     // See DBBloomFilterTest.FilterBitsBuilderDedup
-    filter_bits_builder_->AddKey(last_prefix_str_);
+    filter_bits_builder_->AddKey(prefix_extractor()->Transform(prev_key));
   }
 }
 
 void PartitionedFilterBlockBuilder::Add(const Slice& key_without_ts) {
+  assert(!DEBUG_add_with_prev_key_called_);
+  AddImpl(key_without_ts, prev_key_without_ts_);
+  prev_key_without_ts_.assign(key_without_ts.data(), key_without_ts.size());
+}
+
+void PartitionedFilterBlockBuilder::AddWithPrevKey(
+    const Slice& key_without_ts, const Slice& prev_key_without_ts) {
+#ifndef NDEBUG
+  if (!DEBUG_add_with_prev_key_called_) {
+    assert(prev_key_without_ts.compare(prev_key_without_ts_) == 0);
+    DEBUG_add_with_prev_key_called_ = true;
+  } else {
+    assert(prev_key_without_ts.compare(DEBUG_prev_key_without_ts_) == 0);
+  }
+  DEBUG_prev_key_without_ts_.assign(key_without_ts.data(),
+                                    key_without_ts.size());
+#endif
+  AddImpl(key_without_ts, prev_key_without_ts);
+}
+
+void PartitionedFilterBlockBuilder::AddImpl(const Slice& key_without_ts,
+                                            const Slice& prev_key_without_ts) {
   // When filter partitioning is coupled to index partitioning, we need to
   // check for cutting a block even if we aren't adding anything this time.
   bool cut = DecideCutAFilterBlock();
   if (prefix_extractor() && prefix_extractor()->InDomain(key_without_ts)) {
     Slice prefix = prefix_extractor()->Transform(key_without_ts);
     if (cut) {
-      CutAFilterBlock(&key_without_ts, &prefix);
+      CutAFilterBlock(&key_without_ts, &prefix, prev_key_without_ts);
     }
     if (whole_key_filtering()) {
       filter_bits_builder_->AddKeyAndAlt(key_without_ts, prefix);
     } else {
       filter_bits_builder_->AddKey(prefix);
     }
-    last_key_in_domain_ = true;
-    last_prefix_str_.assign(prefix.data(), prefix.size());
   } else {
     if (cut) {
-      CutAFilterBlock(&key_without_ts, nullptr);
+      CutAFilterBlock(&key_without_ts, nullptr /*no prefix*/,
+                      prev_key_without_ts);
     }
     if (whole_key_filtering()) {
       filter_bits_builder_->AddKey(key_without_ts);
     }
-    last_key_in_domain_ = false;
   }
 }
 
 size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
   return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
+}
+
+void PartitionedFilterBlockBuilder::PrevKeyBeforeFinish(
+    const Slice& prev_key_without_ts) {
+  assert(prev_key_without_ts.compare(DEBUG_add_with_prev_key_called_
+                                         ? DEBUG_prev_key_without_ts_
+                                         : prev_key_without_ts_) == 0);
+  if (filter_bits_builder_->EstimateEntriesAdded() > 0) {
+    CutAFilterBlock(nullptr /*no next key*/, nullptr /*no next prefix*/,
+                    prev_key_without_ts);
+  }
 }
 
 Status PartitionedFilterBlockBuilder::Finish(
@@ -192,8 +250,11 @@ Status PartitionedFilterBlockBuilder::Finish(
   } else {
     assert(last_partition_block_handle == BlockHandle{});
     if (filter_bits_builder_->EstimateEntriesAdded() > 0) {
-      CutAFilterBlock(nullptr, nullptr);
+      // PrevKeyBeforeFinish was not called
+      assert(!DEBUG_add_with_prev_key_called_);
+      CutAFilterBlock(nullptr, nullptr, prev_key_without_ts_);
     }
+    // Nothing uncommitted
     assert(filter_bits_builder_->EstimateEntriesAdded() == 0);
   }
 

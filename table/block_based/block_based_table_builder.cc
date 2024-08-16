@@ -96,7 +96,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
           use_delta_encoding_for_index_values, p_index_builder, partition_size,
-          ts_sz, persist_user_defined_timestamps);
+          ts_sz, persist_user_defined_timestamps,
+          table_opt.decouple_partitioned_filters);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
@@ -213,10 +214,11 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
  public:
   explicit BlockBasedTablePropertiesCollector(
       BlockBasedTableOptions::IndexType index_type, bool whole_key_filtering,
-      bool prefix_filtering)
+      bool prefix_filtering, bool decoupled_partitioned_filters)
       : index_type_(index_type),
         whole_key_filtering_(whole_key_filtering),
-        prefix_filtering_(prefix_filtering) {}
+        prefix_filtering_(prefix_filtering),
+        decoupled_partitioned_filters_(decoupled_partitioned_filters) {}
 
   Status InternalAdd(const Slice& /*key*/, const Slice& /*value*/,
                      uint64_t /*file_size*/) override {
@@ -240,6 +242,11 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
                         whole_key_filtering_ ? kPropTrue : kPropFalse});
     properties->insert({BlockBasedTablePropertyNames::kPrefixFiltering,
                         prefix_filtering_ ? kPropTrue : kPropFalse});
+    if (decoupled_partitioned_filters_) {
+      properties->insert(
+          {BlockBasedTablePropertyNames::kDecoupledPartitionedFilters,
+           kPropTrue});
+    }
     return Status::OK();
   }
 
@@ -257,6 +264,7 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
   BlockBasedTableOptions::IndexType index_type_;
   bool whole_key_filtering_;
   bool prefix_filtering_;
+  bool decoupled_partitioned_filters_;
 };
 
 struct BlockBasedTableBuilder::Rep {
@@ -594,7 +602,8 @@ struct BlockBasedTableBuilder::Rep {
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
-            prefix_extractor != nullptr));
+            prefix_extractor != nullptr,
+            table_options.decouple_partitioned_filters));
     if (ts_sz > 0 && persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
           new TimestampTablePropertiesCollector(
@@ -654,6 +663,7 @@ struct BlockBasedTableBuilder::Rep {
 };
 
 struct BlockBasedTableBuilder::ParallelCompressionRep {
+  // TODO: consider replacing with autovector or similar
   // Keys is a wrapper of vector of strings avoiding
   // releasing string memories during vector clear()
   // in order to save memory allocation overhead
@@ -1064,8 +1074,11 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
         r->pc_rep->curr_block_keys->PushBack(ikey);
       } else {
         if (r->filter_builder != nullptr) {
-          r->filter_builder->Add(
-              ExtractUserKeyAndStripTimestamp(ikey, r->ts_sz));
+          r->filter_builder->AddWithPrevKey(
+              ExtractUserKeyAndStripTimestamp(ikey, r->ts_sz),
+              r->last_ikey.empty()
+                  ? Slice{}
+                  : ExtractUserKeyAndStripTimestamp(r->last_ikey, r->ts_sz));
         }
       }
     }
@@ -1454,6 +1467,8 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
   Rep* r = rep_;
   ParallelCompressionRep::BlockRepSlot* slot = nullptr;
   ParallelCompressionRep::BlockRep* block_rep = nullptr;
+  // Starts empty; see FilterBlockBuilder::AddWithPrevKey
+  std::string prev_block_last_key_no_ts;
   while (r->pc_rep->write_queue.pop(slot)) {
     assert(slot != nullptr);
     slot->Take(block_rep);
@@ -1467,12 +1482,19 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
       continue;
     }
 
+    Slice prev_key_no_ts = prev_block_last_key_no_ts;
     for (size_t i = 0; i < block_rep->keys->Size(); i++) {
       auto& key = (*block_rep->keys)[i];
       if (r->filter_builder != nullptr) {
-        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
+        Slice key_no_ts = ExtractUserKeyAndStripTimestamp(key, r->ts_sz);
+        r->filter_builder->AddWithPrevKey(key_no_ts, prev_key_no_ts);
+        prev_key_no_ts = key_no_ts;
       }
       r->index_builder->OnKeyAdded(key);
+    }
+    if (r->filter_builder != nullptr) {
+      prev_block_last_key_no_ts.assign(prev_key_no_ts.data(),
+                                       prev_key_no_ts.size());
     }
 
     r->pc_rep->file_size_estimator.SetCurrBlockUncompSize(
@@ -1564,6 +1586,13 @@ void BlockBasedTableBuilder::WriteFilterBlock(
   if (rep_->filter_builder == nullptr || rep_->filter_builder->IsEmpty()) {
     // No filter block needed
     return;
+  }
+  if (!rep_->last_ikey.empty()) {
+    // We might have been using AddWithPrevKey, so need PrevKeyBeforeFinish
+    // to be safe. And because we are re-synchronized after buffered/parallel
+    // operation, rep_->last_ikey is accurate.
+    rep_->filter_builder->PrevKeyBeforeFinish(
+        ExtractUserKeyAndStripTimestamp(rep_->last_ikey, rep_->ts_sz));
   }
   BlockHandle filter_block_handle;
   bool is_partitioned_filter = rep_->table_options.partition_filters;
@@ -1979,6 +2008,10 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       for (; iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (r->filter_builder != nullptr) {
+          // NOTE: AddWithPrevKey here would only save key copying if prev is
+          // pinned (iter->IsKeyPinned()), which is probably rare with delta
+          // encoding. OK to go from Add() here to AddWithPrevKey() in
+          // unbuffered operation.
           r->filter_builder->Add(
               ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
@@ -1992,6 +2025,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
         Slice* first_key_in_next_block_ptr = &first_key_in_next_block;
 
         iter->SeekToLast();
+        assert(iter->Valid());
         r->index_builder->AddIndexEntry(
             iter->key(), first_key_in_next_block_ptr, r->pending_handle,
             &r->index_separator_scratch);

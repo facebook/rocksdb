@@ -58,7 +58,7 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
 class PartitionedFilterBlockTest
     : public testing::Test,
       virtual public ::testing::WithParamInterface<
-          std::tuple<uint32_t, test::UserDefinedTimestampTestMode>> {
+          std::tuple<uint32_t, test::UserDefinedTimestampTestMode, bool>> {
  public:
   Options options_;
   ImmutableOptions ioptions_;
@@ -70,6 +70,7 @@ class PartitionedFilterBlockTest
   int bits_per_key_;
   size_t ts_sz_;
   bool user_defined_timestamps_persisted_;
+  bool decouple_partitioned_filters;
 
   PartitionedFilterBlockTest() : bits_per_key_(10) {
     auto udt_test_mode = std::get<1>(GetParam());
@@ -85,6 +86,8 @@ class PartitionedFilterBlockTest
         NewBloomFilterPolicy(bits_per_key_, false));
     table_options_.format_version = std::get<0>(GetParam());
     table_options_.index_block_restart_interval = 3;
+    table_options_.decouple_partitioned_filters = decouple_partitioned_filters =
+        std::get<2>(GetParam());
   }
 
   ~PartitionedFilterBlockTest() override = default;
@@ -160,7 +163,7 @@ class PartitionedFilterBlockTest
             FilterBuildingContext(table_options_)),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
         p_index_builder, partition_size, ts_sz_,
-        user_defined_timestamps_persisted_);
+        user_defined_timestamps_persisted_, decouple_partitioned_filters);
   }
 
   PartitionedFilterBlockReader* NewReader(
@@ -343,10 +346,10 @@ class PartitionedFilterBlockTest
 // Format versions potentially intersting to partitioning
 INSTANTIATE_TEST_CASE_P(
     FormatVersions, PartitionedFilterBlockTest,
-    testing::Combine(testing::ValuesIn(std::set<uint32_t>{
-                         2, 3, 4, 5, test::kDefaultFormatVersion,
-                         kLatestFormatVersion}),
-                     testing::ValuesIn(test::GetUDTTestModes())));
+    testing::Combine(
+        testing::ValuesIn(std::set<uint32_t>{
+            2, 3, 4, 5, test::kDefaultFormatVersion, kLatestFormatVersion}),
+        testing::ValuesIn(test::GetUDTTestModes()), testing::Bool()));
 
 TEST_P(PartitionedFilterBlockTest, EmptyBuilder) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());

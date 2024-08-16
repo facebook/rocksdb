@@ -50,6 +50,9 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   ~FullFilterBlockBuilder() {}
 
   void Add(const Slice& key_without_ts) override;
+  void AddWithPrevKey(const Slice& key_without_ts,
+                      const Slice& prev_key_without_ts) override;
+
   bool IsEmpty() const override {
     return filter_bits_builder_->EstimateEntriesAdded() == 0;
   }

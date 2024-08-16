@@ -48,6 +48,7 @@ const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
 enum class FilterPartitioning {
   kUnpartitionedFilter,
   kCoupledPartitionedFilter,
+  kDecoupledPartitionedFilter,
 };
 
 template <typename T>
@@ -597,7 +598,8 @@ INSTANTIATE_TEST_CASE_P(
     DBBloomFilterTestWithPartitioningParam,
     DBBloomFilterTestWithPartitioningParam,
     ::testing::Values(FilterPartitioning::kUnpartitionedFilter,
-                      FilterPartitioning::kCoupledPartitionedFilter));
+                      FilterPartitioning::kCoupledPartitionedFilter,
+                      FilterPartitioning::kDecoupledPartitionedFilter));
 
 TEST_P(DBBloomFilterTestWithFormatParams, BloomFilter) {
   do {
@@ -607,6 +609,10 @@ TEST_P(DBBloomFilterTestWithFormatParams, BloomFilter) {
     // ChangeCompactOptions() only changes compaction style, which does not
     // trigger reset of table_factory
     BlockBasedTableOptions table_options;
+    // When partitioned filters are coupled to index blocks, they tend to get
+    // extra fractional bits per key when rounding up to the next cache line
+    // size. Here we correct for that to get similar effective bits per key.
+    bits_per_key_ = table_options.decouple_partitioned_filters ? 10.5 : 10;
     SetInTableOptions(&table_options);
     table_options.no_block_cache = true;
     table_options.optimize_filters_for_memory = false;
@@ -614,7 +620,12 @@ TEST_P(DBBloomFilterTestWithFormatParams, BloomFilter) {
       // value delta encoding challenged more with index interval > 1
       table_options.index_block_restart_interval = 8;
     }
-    table_options.metadata_block_size = 32;
+    // This test is rather sensitive to the actual filter partition block size,
+    // and keeping that consistent between coupled and uncoupled requires a
+    // different metadata block size for this example (where it controls index
+    // block size).
+    table_options.metadata_block_size =
+        table_options.decouple_partitioned_filters ? 320 : 32;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -876,6 +887,9 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kCoupledPartitionedFilter,
                         test::kDefaultFormatVersion),
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter,
+                        test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
                         test::kDefaultFormatVersion),
         std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
@@ -887,6 +901,9 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kCoupledPartitionedFilter,
                         test::kDefaultFormatVersion),
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter,
+                        test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
                         test::kDefaultFormatVersion),
         std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
@@ -897,6 +914,9 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(kAutoBloom,
                         FilterPartitioning::kCoupledPartitionedFilter,
+                        kLatestFormatVersion),
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter,
                         kLatestFormatVersion),
         std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
                         kLatestFormatVersion),
@@ -1149,6 +1169,9 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
                         kFastLocalBloom,
                         FilterPartitioning::kCoupledPartitionedFilter, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kFastLocalBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter, true),
 
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
                         kStandard128Ribbon,
@@ -1162,6 +1185,9 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
                         kStandard128Ribbon,
                         FilterPartitioning::kCoupledPartitionedFilter, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kStandard128Ribbon,
+                        FilterPartitioning::kDecoupledPartitionedFilter, true),
 
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled, kLegacyBloom,
                         FilterPartitioning::kUnpartitionedFilter, false)));
@@ -1540,10 +1566,14 @@ INSTANTIATE_TEST_CASE_P(
                         FilterPartitioning::kUnpartitionedFilter),
         std::make_tuple(true, kFastLocalBloom,
                         FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(true, kFastLocalBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter),
         std::make_tuple(true, kStandard128Ribbon,
                         FilterPartitioning::kUnpartitionedFilter),
         std::make_tuple(true, kStandard128Ribbon,
-                        FilterPartitioning::kCoupledPartitionedFilter)));
+                        FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(true, kStandard128Ribbon,
+                        FilterPartitioning::kDecoupledPartitionedFilter)));
 
 TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
   Options options = CurrentOptions();
@@ -2531,10 +2561,14 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(kLegacyBloom, FilterPartitioning::kUnpartitionedFilter),
         std::make_tuple(kLegacyBloom,
                         FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(kLegacyBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter),
         std::make_tuple(kFastLocalBloom,
                         FilterPartitioning::kUnpartitionedFilter),
         std::make_tuple(kFastLocalBloom,
                         FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(kFastLocalBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter),
         std::make_tuple(kPlainTable,
                         FilterPartitioning::kUnpartitionedFilter)));
 
