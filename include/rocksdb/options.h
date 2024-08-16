@@ -512,6 +512,10 @@ class CompactionService : public Customizable {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
+  // Optional callback function upon Installation.
+  virtual void OnInstallation(const std::string& /*scheduled_job_id*/,
+                              CompactionServiceJobStatus /*status*/) {}
+
   // Deprecated. Please implement Schedule() and Wait() API to handle remote
   // compaction
 
