@@ -1570,6 +1570,8 @@ class VersionBuilder::Rep {
         unaddressed_missing_files.erase(file_number);
       } else if (!unaddressed_missing_files.empty()) {
         return false;
+      } else {
+        break;
       }
     }
     return true;
