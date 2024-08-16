@@ -1256,14 +1256,12 @@ class VersionBuilder::Rep {
         mutable_meta.GetGarbageBlobCount(), mutable_meta.GetGarbageBlobBytes());
   }
 
-  bool BlobFileOnlyLinkedToMissingL0Files(
+  bool OnlyLinkedToMissingL0Files(
       const std::unordered_set<uint64_t>& linked_ssts) const {
-    return !linked_ssts.empty() &&
-           std::all_of(linked_ssts.begin(), linked_ssts.end(),
-                       [&](const uint64_t& element) {
-                         return l0_missing_files_.find(element) !=
-                                l0_missing_files_.end();
-                       });
+    return std::all_of(
+        linked_ssts.begin(), linked_ssts.end(), [&](const uint64_t& element) {
+          return l0_missing_files_.find(element) != l0_missing_files_.end();
+        });
   }
 
   // Add the blob file specified by meta to *vstorage if it is determined to
@@ -1274,19 +1272,19 @@ class VersionBuilder::Rep {
     assert(vstorage);
     assert(meta);
 
+    const auto& linked_ssts = meta->GetLinkedSsts();
     if (track_found_and_missing_files_) {
       if (missing_blob_files_.find(blob_file_number) !=
           missing_blob_files_.end()) {
         return;
       }
-      auto iter = mutable_blob_file_metas_.find(blob_file_number);
-      assert(iter != mutable_blob_file_metas_.end());
-      if (BlobFileOnlyLinkedToMissingL0Files(iter->second.GetLinkedSsts())) {
+      // Leave the empty case for the below blob garbage collection logic.
+      if (!linked_ssts.empty() && OnlyLinkedToMissingL0Files(linked_ssts)) {
         return;
       }
     }
 
-    if (meta->GetLinkedSsts().empty() &&
+    if (linked_ssts.empty() &&
         meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
       return;
     }
@@ -1599,7 +1597,7 @@ class VersionBuilder::Rep {
       if (!linked_ssts.empty() && no_l0_files_missing) {
         return false;
       }
-      if (!BlobFileOnlyLinkedToMissingL0Files(linked_ssts)) {
+      if (!OnlyLinkedToMissingL0Files(linked_ssts)) {
         return false;
       }
     }

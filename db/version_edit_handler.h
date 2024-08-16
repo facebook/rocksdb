@@ -119,16 +119,15 @@ class VersionEditHandler : public VersionEditHandlerBase {
       VersionSet* version_set, bool track_found_and_missing_files,
       bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer,
-      const ReadOptions& read_options,
+      const ReadOptions& read_options, bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
-          EpochNumberRequirement::kMustPresent,
-      bool allow_incomplete_valid_version = false)
+          EpochNumberRequirement::kMustPresent)
       : VersionEditHandler(read_only, column_families, version_set,
                            track_found_and_missing_files,
                            no_error_if_files_missing, io_tracer, read_options,
                            /*skip_load_table_files=*/false,
-                           epoch_number_requirement,
-                           allow_incomplete_valid_version) {}
+                           allow_incomplete_valid_version,
+                           epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 
@@ -161,9 +160,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
       bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options, bool skip_load_table_files,
+      bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
-          EpochNumberRequirement::kMustPresent,
-      bool allow_incomplete_valid_version = false);
+          EpochNumberRequirement::kMustPresent);
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
@@ -216,12 +215,12 @@ class VersionEditHandler : public VersionEditHandlerBase {
   bool skip_load_table_files_;
   bool initialized_;
   std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
-  EpochNumberRequirement epoch_number_requirement_;
   // If false, only a complete Version for which all files consisting it can be
   // found is considered a valid Version. If true, besides complete Version, an
   // incomplete Version with only a suffix of L0 files missing is also
   // considered valid if the Version is never edited in an atomic group.
   const bool allow_incomplete_valid_version_;
+  EpochNumberRequirement epoch_number_requirement_;
   std::unordered_set<uint32_t> cfds_to_mark_no_udt_;
 
  private:
@@ -242,7 +241,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
 // A class similar to its base class, i.e. VersionEditHandler.
 // VersionEditHandlerPointInTime restores the versions to the most recent point
-// in time such that at this point, the version does not have missing files.
+// in time such that at this point, the version does not have missing files. Or
+// if `allow_incomplete_valid_version` is true, only a suffix of L0 files (and
+// their associated blob files) are missing.
 //
 // Not thread-safe, external synchronization is necessary if an object of
 // VersionEditHandlerPointInTime is shared by multiple threads.
@@ -251,10 +252,9 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   VersionEditHandlerPointInTime(
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
-      const ReadOptions& read_options,
+      const ReadOptions& read_options, bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
-          EpochNumberRequirement::kMustPresent,
-      bool allow_incomplete_valid_version = true);
+          EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
 
   bool HasMissingFiles() const;
@@ -320,8 +320,8 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
                               EpochNumberRequirement::kMustPresent)
       : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
                                       version_set, io_tracer, read_options,
-                                      epoch_number_requirement,
-                                      /*allow_incomplete_valid_version=*/false),
+                                      /*allow_incomplete_valid_version=*/false,
+                                      epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
   Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
@@ -370,8 +370,8 @@ class DumpManifestHandler : public VersionEditHandler {
             /*track_found_and_missing_files=*/false,
             /*no_error_if_files_missing=*/false, io_tracer, read_options,
             /*skip_load_table_files=*/true,
-            /*epoch_number_requirement=*/EpochNumberRequirement::kMustPresent,
-            /*allow_incomplete_valid_version=*/false),
+            /*allow_incomplete_valid_version=*/false,
+            /*epoch_number_requirement=*/EpochNumberRequirement::kMustPresent),
         verbose_(verbose),
         hex_(hex),
         json_(json),

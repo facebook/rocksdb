@@ -6080,7 +6080,8 @@ Status VersionSet::Recover(
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_found_and_missing_files=*/false, no_error_if_files_missing,
-        io_tracer_, read_options, EpochNumberRequirement::kMightMissing);
+        io_tracer_, read_options, /*allow_incomplete_valid_version=*/false,
+        EpochNumberRequirement::kMightMissing);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -6256,7 +6257,8 @@ Status VersionSet::TryRecoverFromOneManifest(
                      /*checksum=*/true, /*log_num=*/0);
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
-      read_options, EpochNumberRequirement::kMightMissing);
+      read_options, /*allow_incomplete_valid_version=*/true,
+      EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 

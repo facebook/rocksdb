@@ -155,8 +155,8 @@ VersionEditHandler::VersionEditHandler(
     VersionSet* version_set, bool track_found_and_missing_files,
     bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
     const ReadOptions& read_options, bool skip_load_table_files,
-    EpochNumberRequirement epoch_number_requirement,
-    bool allow_incomplete_valid_version)
+    bool allow_incomplete_valid_version,
+    EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandlerBase(read_options),
       read_only_(read_only),
       column_families_(std::move(column_families)),
@@ -166,8 +166,8 @@ VersionEditHandler::VersionEditHandler(
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
       initialized_(false),
-      epoch_number_requirement_(epoch_number_requirement),
-      allow_incomplete_valid_version_(allow_incomplete_valid_version) {
+      allow_incomplete_valid_version_(allow_incomplete_valid_version),
+      epoch_number_requirement_(epoch_number_requirement) {
   assert(version_set_ != nullptr);
 }
 
@@ -690,14 +690,13 @@ Status VersionEditHandler::MaybeHandleFileBoundariesForNewFiles(
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
-    const ReadOptions& read_options,
-    EpochNumberRequirement epoch_number_requirement,
-    bool allow_incomplete_valid_version)
+    const ReadOptions& read_options, bool allow_incomplete_valid_version,
+    EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_found_and_missing_files=*/true,
                          /*no_error_if_files_missing=*/true, io_tracer,
-                         read_options, epoch_number_requirement,
-                         allow_incomplete_valid_version) {}
+                         read_options, allow_incomplete_valid_version,
+                         epoch_number_requirement) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& cfid_and_version : atomic_update_versions_) {

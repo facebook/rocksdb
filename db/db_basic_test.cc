@@ -3578,24 +3578,24 @@ TEST_P(BestEffortsRecoverIncompleteVersionTest, Basic) {
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<std::string> all_cf_names = {kDefaultColumnFamilyName, "pikachu",
                                            "eevee"};
-  size_t num_cfs = handles_.size();
+  int num_cfs = static_cast<int>(handles_.size());
   ASSERT_EQ(3, num_cfs);
   std::string start = "a";
   Slice start_slice = start;
   std::string end = "d";
   Slice end_slice = end;
-  for (size_t cf = 0; cf != num_cfs; ++cf) {
-    ASSERT_OK(Put(static_cast<int>(cf), "a", "a_value"));
-    ASSERT_OK(Flush(static_cast<int>(cf)));
+  for (int cf = 0; cf != num_cfs; ++cf) {
+    ASSERT_OK(Put(cf, "a", "a_value"));
+    ASSERT_OK(Flush(cf));
     // Compact file to L1 to avoid trivial file move in the next compaction
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf],
                                 &start_slice, &end_slice));
-    ASSERT_OK(Put(static_cast<int>(cf), "a", "a_value_new"));
-    ASSERT_OK(Flush(static_cast<int>(cf)));
-    ASSERT_OK(Put(static_cast<int>(cf), "b", "b_value"));
-    ASSERT_OK(Flush(static_cast<int>(cf)));
-    ASSERT_OK(Put(static_cast<int>(cf), "f", "f_value"));
-    ASSERT_OK(Flush(static_cast<int>(cf)));
+    ASSERT_OK(Put(cf, "a", "a_value_new"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "b", "b_value"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "f", "f_value"));
+    ASSERT_OK(Flush(cf));
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf],
                                 &start_slice, &end_slice));
   }
@@ -3603,7 +3603,7 @@ TEST_P(BestEffortsRecoverIncompleteVersionTest, Basic) {
   dbfull()->TEST_DeleteObsoleteFiles();
 
   // Delete the most recent L0 file which is before a compaction.
-  for (size_t i = 0; i < all_cf_names.size(); ++i) {
+  for (int i = 0; i < num_cfs; ++i) {
     std::vector<std::string>& files =
         flush_table_listener->GetFlushedFiles(all_cf_names[i]);
     ASSERT_EQ(4, files.size());
@@ -3620,7 +3620,7 @@ TEST_P(BestEffortsRecoverIncompleteVersionTest, Basic) {
   options.best_efforts_recovery = true;
   ReopenWithColumnFamilies(all_cf_names, options);
 
-  for (size_t i = 0; i < all_cf_names.size(); ++i) {
+  for (int i = 0; i < num_cfs; ++i) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
     ColumnFamilyData* cfd = cfh->cfd();
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
@@ -3632,7 +3632,7 @@ TEST_P(BestEffortsRecoverIncompleteVersionTest, Basic) {
   // Verify data
   ReadOptions read_opts;
   read_opts.total_order_seek = true;
-  for (size_t i = 0; i < all_cf_names.size(); ++i) {
+  for (int i = 0; i < num_cfs; ++i) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[i]));
     iter->SeekToFirst();
     ASSERT_TRUE(iter->Valid());
@@ -3650,9 +3650,9 @@ TEST_P(BestEffortsRecoverIncompleteVersionTest, Basic) {
   }
 
   // Write more data.
-  for (size_t cf = 0; cf < all_cf_names.size(); ++cf) {
-    ASSERT_OK(Put(static_cast<int>(cf), "g", "g_value"));
-    ASSERT_OK(Flush(static_cast<int>(cf)));
+  for (int cf = 0; cf < num_cfs; ++cf) {
+    ASSERT_OK(Put(cf, "g", "g_value"));
+    ASSERT_OK(Flush(cf));
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf], nullptr,
                                 nullptr));
     std::string value;
