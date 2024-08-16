@@ -69,6 +69,11 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
       }
     }
   }
+  if (keys_per_partition_ > 1 && prefix_extractor()) {
+    // Correct for adding next prefix in CutAFilterBlock *after* checking
+    // against this threshold
+    keys_per_partition_--;
+  }
 }
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
@@ -76,16 +81,15 @@ PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
 }
 
 bool PartitionedFilterBlockBuilder::DecideCutAFilterBlock() {
-  // +1 to correct for adding next prefix in CutAFilterBlock
   size_t added = filter_bits_builder_->EstimateEntriesAdded();
   if (decouple_from_index_partitions_) {
     // NOTE: Can't just use ==, because estimated might be incremented by more
-    // than one. +1 to correct for adding next prefix in CutAFilterBlock
-    return added + 1 >= keys_per_partition_;
+    // than one.
+    return added >= keys_per_partition_;
   } else {
     // NOTE: Can't just use ==, because estimated might be incremented by more
-    // than one. +1 to correct for adding next prefix in CutAFilterBlock
-    if (added + 1 >= keys_per_partition_) {
+    // than one.
+    if (added >= keys_per_partition_) {
       // Currently only index builder is in charge of cutting a partition. We
       // keep requesting until it is granted.
       p_index_builder_->RequestPartitionCut();
