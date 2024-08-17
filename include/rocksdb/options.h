@@ -1434,7 +1434,17 @@ struct DBOptions {
   // For example, if an SST or blob file referenced by the MANIFEST is missing,
   // BER might be able to find a set of files corresponding to an old "point in
   // time" version of the column family, possibly from an older MANIFEST
-  // file. Some other kinds of DB files (e.g. CURRENT, LOCK, IDENTITY) are
+  // file.
+  // Besides complete "point in time" version, an incomplete version with
+  // only a suffix of L0 files missing can also be recovered to if the
+  // versioning history doesn't include an atomic flush.  From the users'
+  // perspective, missing a suffix of L0 files means missing the
+  // user's most recently written data. So the remaining available files still
+  // presents a valid point in time view, although for some previous time. It's
+  // not done for atomic flush because that guarantees a consistent view across
+  // column families. We cannot guarantee that if recovering an incomplete
+  // version.
+  // Some other kinds of DB files (e.g. CURRENT, LOCK, IDENTITY) are
   // either ignored or replaced with BER, or quietly fixed regardless of BER
   // setting. BER does require at least one valid MANIFEST to recover to a
   // non-trivial DB state, unlike `ldb repair`.
