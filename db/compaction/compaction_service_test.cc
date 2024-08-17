@@ -142,7 +142,7 @@ class MyTestCompactionService : public CompactionService {
   void SetCanceled(bool canceled) { canceled_ = canceled; }
 
   CompactionServiceJobStatus GetFinalCompactionServiceJobStatus() {
-    return final_updated_status_;
+    return final_updated_status_.load();
   }
 
  private:
@@ -167,8 +167,8 @@ class MyTestCompactionService : public CompactionService {
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
   std::atomic_bool canceled_{false};
-  CompactionServiceJobStatus final_updated_status_ =
-      CompactionServiceJobStatus::kUseLocal;
+  std::atomic<CompactionServiceJobStatus> final_updated_status_{
+      CompactionServiceJobStatus::kUseLocal};
 };
 
 class CompactionServiceTest : public DBTestBase {
