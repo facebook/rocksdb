@@ -65,6 +65,11 @@ class RemapFileSystem : public FileSystemWrapper {
                            std::unique_ptr<FSWritableFile>* result,
                            IODebugContext* dbg) override;
 
+  IOStatus ReopenWritableFile(const std::string& fname,
+                              const FileOptions& options,
+                              std::unique_ptr<FSWritableFile>* result,
+                              IODebugContext* dbg) override;
+
   IOStatus ReuseWritableFile(const std::string& fname,
                              const std::string& old_fname,
                              const FileOptions& options,
