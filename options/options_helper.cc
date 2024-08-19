@@ -213,6 +213,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_protection_bytes_per_key;
   cf_opts->block_protection_bytes_per_key =
       moptions.block_protection_bytes_per_key;
+  cf_opts->paranoid_memory_checks = moptions.paranoid_memory_checks;
   cf_opts->bottommost_file_compaction_delay =
       moptions.bottommost_file_compaction_delay;
 

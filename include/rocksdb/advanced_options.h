@@ -1090,6 +1090,13 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t bottommost_file_compaction_delay = 0;
 
+  // Enables additional integrity checks during reads/scans.
+  // Specifically, for skiplist-based memtables, we verify that keys visited
+  // are in order. This is helpful to detect corrupted memtable keys during
+  // reads. Enabling this feature incurs a performance overhead due to an
+  // additional key comparison during memtable lookup.
+  bool paranoid_memory_checks = false;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

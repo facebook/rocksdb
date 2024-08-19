@@ -4055,6 +4055,7 @@ void InitializeOptionsFromFlags(
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;
+  options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;

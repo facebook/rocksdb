@@ -60,8 +60,9 @@ struct ImmutableMemTableOptions {
   Statistics* statistics;
   MergeOperator* merge_operator;
   Logger* info_log;
-  bool allow_data_in_errors;
   uint32_t protection_bytes_per_key;
+  bool allow_data_in_errors;
+  bool paranoid_memory_checks;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -266,6 +267,11 @@ class MemTable {
   // If do_merge = false then any Merge Operands encountered for key are simply
   // stored in merge_context.operands_list and never actually merged to get a
   // final value. The raw Merge Operands are eventually returned to the user.
+  // @param value If not null and memtable contains a value for key, `value`
+  // will be set to the result value.
+  // @param column If not null and memtable contains a value/WideColumn for key,
+  // `column` will be set to the result value/WideColumn.
+  // Note: only one of `value` and `column` can be non-nullptr.
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.
