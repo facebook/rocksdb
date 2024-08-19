@@ -462,6 +462,8 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
     for (int i = GetMaxHeight(); i < height; i++) {
       prev_[i] = head_;
     }
+    // fprintf(stderr, "Change height from %d to %d\n", max_height_, height);
+
     // It is ok to mutate max_height_ without any synchronization
     // with concurrent readers.  A concurrent reader that observes
     // the new value of max_height_ will see either the old value of
