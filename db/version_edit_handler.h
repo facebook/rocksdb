@@ -100,7 +100,9 @@ using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;
 // A class used for scanning MANIFEST file.
 // VersionEditHandler reads a MANIFEST file, parses the version edits, and
 // builds the version set's in-memory state, e.g. the version storage info for
-// the versions of column families.
+// the versions of column families. It replays all the version edits in one
+// MANIFEST file to build the end version.
+//
 // To use this class and its subclasses,
 // 1. Create an object of VersionEditHandler or its subclasses.
 //    VersionEditHandler handler(read_only, column_families, version_set,
@@ -240,10 +242,18 @@ class VersionEditHandler : public VersionEditHandlerBase {
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.
-// VersionEditHandlerPointInTime restores the versions to the most recent point
-// in time such that at this point, the version does not have missing files. Or
-// if `allow_incomplete_valid_version` is true, only a suffix of L0 files (and
+// Unlike VersionEditHandler that only aims to build the end version, this class
+// supports building the most recent point in time version. A point in time
+// version is a version for which no files are missing, or if
+// `allow_incomplete_valid_version` is true, only a suffix of L0 files (and
 // their associated blob files) are missing.
+//
+// Building a point in time version when end version is not available can
+// be useful for best efforts recovery (options.best_efforts_recovery), which
+// uses this class and sets `allow_incomplete_valid_version` to true.
+// It's also useful for secondary instances/follower instances for which end
+// version could be transiently unavailable. These two cases use subclass
+// `ManifestTailer` and sets `allow_incomplete_valid_version` to false.
 //
 // Not thread-safe, external synchronization is necessary if an object of
 // VersionEditHandlerPointInTime is shared by multiple threads.
@@ -310,6 +320,12 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   void AtomicUpdateVersionsApply();
 };
 
+// A class similar to `VersionEditHandlerPointInTime` that parse MANIFEST and
+// builds point in time version.
+// `ManifestTailer` supports reading one MANIFEST file in multiple tailing
+// attempts and supports switching to a different MANIFEST after
+// `PrepareToReadNewManifest` is called. This class is used by secondary and
+// follower instance.
 class ManifestTailer : public VersionEditHandlerPointInTime {
  public:
   explicit ManifestTailer(std::vector<ColumnFamilyDescriptor> column_families,
