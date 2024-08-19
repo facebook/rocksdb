@@ -1,1 +1,0 @@
-*Fix a bug where file snapshot functions like backup, checkpoint may attempt to copy a non-existing manifest file. #12882
