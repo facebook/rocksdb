@@ -1,6 +1,13 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.7.0 (08/19/2024)
+### New Features
+* Introduce a new mutable CF option `paranoid_memory_checks`. It enables additional validation on data integrity during reads/scanning. Currently, skip list based memtable will validate key ordering during look up and scans.
+
+### Public API Changes
+* Adds optional installation callback function for remote compaction
+
 ## 9.6.0 (08/16/2024)
 ### New Features
 * *Best efforts recovery supports recovering to incomplete Version with a clean seqno cut that presents a valid point in time view from the user's perspective, if versioning history doesn't include atomic flush.
