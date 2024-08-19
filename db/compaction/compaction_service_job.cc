@@ -140,9 +140,13 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     return compaction_status;
   }
 
+  // CompactionServiceJobStatus::kSuccess was returned, but somehow we failed to
+  // read the result. Consider this as an installation failure
   if (!s.ok()) {
     sub_compact->status = s;
     compaction_result.status.PermitUncheckedError();
+    db_options_.compaction_service->OnInstallation(
+        response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
     return CompactionServiceJobStatus::kFailure;
   }
   sub_compact->status = compaction_result.status;
@@ -154,18 +158,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     is_first_one = false;
   }
 
-  ROCKS_LOG_INFO(db_options_.info_log,
-                 "[%s] [JOB %d] Receive remote compaction result, output path: "
-                 "%s, files: %s",
-                 compaction_input.column_family.name.c_str(), job_id_,
-                 compaction_result.output_path.c_str(),
-                 output_files_oss.str().c_str());
+  ROCKS_LOG_INFO(
+      db_options_.info_log,
+      "[%s] [JOB %d] Received remote compaction result, output path: "
+      "%s, files: %s",
+      compaction_input.column_family.name.c_str(), job_id_,
+      compaction_result.output_path.c_str(), output_files_oss.str().c_str());
 
-  if (!s.ok()) {
-    sub_compact->status = s;
-    return CompactionServiceJobStatus::kFailure;
-  }
-
+  // Installation Starts
   for (const auto& file : compaction_result.output_files) {
     uint64_t file_num = versions_->NewFileNumber();
     auto src_file = compaction_result.output_path + "/" + file.file_name;
@@ -174,6 +174,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
+      db_options_.compaction_service->OnInstallation(
+          response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
       return CompactionServiceJobStatus::kFailure;
     }
 
@@ -182,6 +184,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
+      db_options_.compaction_service->OnInstallation(
+          response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
       return CompactionServiceJobStatus::kFailure;
     }
     meta.fd = FileDescriptor(file_num, compaction->output_path_id(), file_size,
@@ -206,6 +210,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   RecordTick(stats_, REMOTE_COMPACT_READ_BYTES, compaction_result.bytes_read);
   RecordTick(stats_, REMOTE_COMPACT_WRITE_BYTES,
              compaction_result.bytes_written);
+  db_options_.compaction_service->OnInstallation(
+      response.scheduled_job_id, CompactionServiceJobStatus::kSuccess);
   return CompactionServiceJobStatus::kSuccess;
 }
 
