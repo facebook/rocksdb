@@ -55,9 +55,14 @@
 #define ROCKSDB_LIBRARY_API
 #endif
 #else
+
+#ifdef HIDE_PRIVATE_SYMBOLS
+#define ROCKSDB_LIBRARY_API __attribute__((visibility("default")))
+#else
 #define ROCKSDB_LIBRARY_API
 #endif
 
+#endif
 #ifdef __cplusplus
 extern "C" {
 #endif
