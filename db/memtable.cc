@@ -70,7 +70,7 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       protection_bytes_per_key(
           mutable_cf_options.memtable_protection_bytes_per_key),
       allow_data_in_errors(ioptions.allow_data_in_errors),
-      integrity_checks(mutable_cf_options.integrity_checks) {}
+      paranoid_memory_checks(mutable_cf_options.paranoid_memory_checks) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
@@ -380,7 +380,7 @@ class MemTableIterator : public InternalIterator {
         value_pinned_(
             !mem.GetImmutableMemTableOptions()->inplace_update_support),
         arena_mode_(arena != nullptr),
-        integrity_checks_(mem.moptions_.integrity_checks),
+        paranoid_memory_checks_(mem.moptions_.paranoid_memory_checks),
         allow_data_in_error(mem.moptions_.allow_data_in_errors) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
@@ -443,7 +443,7 @@ class MemTableIterator : public InternalIterator {
         }
       }
     }
-    if (integrity_checks_) {
+    if (paranoid_memory_checks_) {
       status_ = iter_->SeekAndValidate(k, nullptr, allow_data_in_error);
     } else {
       iter_->Seek(k, nullptr);
@@ -468,7 +468,7 @@ class MemTableIterator : public InternalIterator {
         }
       }
     }
-    if (integrity_checks_) {
+    if (paranoid_memory_checks_) {
       status_ = iter_->SeekAndValidate(k, nullptr, allow_data_in_error);
     } else {
       iter_->Seek(k, nullptr);
@@ -497,7 +497,7 @@ class MemTableIterator : public InternalIterator {
   void Next() override {
     PERF_COUNTER_ADD(next_on_memtable_count, 1);
     assert(Valid());
-    if (integrity_checks_) {
+    if (paranoid_memory_checks_) {
       status_ = iter_->NextAndValidate(allow_data_in_error);
     } else {
       iter_->Next();
@@ -519,7 +519,7 @@ class MemTableIterator : public InternalIterator {
   void Prev() override {
     PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
-    if (integrity_checks_) {
+    if (paranoid_memory_checks_) {
       status_ = iter_->PrevAndValidate(allow_data_in_error);
     } else {
       iter_->Prev();
@@ -578,7 +578,7 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool value_pinned_;
   bool arena_mode_;
-  const bool integrity_checks_;
+  const bool paranoid_memory_checks_;
   const bool allow_data_in_error;
 
   void VerifyEntryChecksum() {
@@ -1387,7 +1387,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
 
-  if (!moptions_.integrity_checks) {
+  if (!moptions_.paranoid_memory_checks) {
     table_->Get(key, &saver, SaveValue);
   } else {
     Status check_s = table_->GetAndValidate(key, &saver, SaveValue,

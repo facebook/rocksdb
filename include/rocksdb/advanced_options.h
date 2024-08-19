@@ -1095,7 +1095,7 @@ struct AdvancedColumnFamilyOptions {
   // are in order. This is helpful to detect corrupted memtable keys during
   // reads. Enabling this feature incurs a performance overhead due to an
   // additional key comparison during memtable lookup.
-  bool integrity_checks = false;
+  bool paranoid_memory_checks = false;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

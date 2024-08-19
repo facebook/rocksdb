@@ -342,14 +342,14 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
 TEST_F(DBMemTableTest, IntegrityChecks) {
   // We insert keys key000000, key000001 and key000002 into skiplist at fixed
   // height 1 (smallest height). Then we corrupt the second key to aey000001 to
-  // make it smaller. With `integrity_checks` set to true, if the
+  // make it smaller. With `paranoid_memory_checks` set to true, if the
   // skip list sees key000000 and then aey000001, then it will report out of
-  // order keys with corruption status. With `integrity_checks` set
+  // order keys with corruption status. With `paranoid_memory_checks` set
   // to false, read/scan may return wrong results.
   for (bool allow_data_in_error : {false, true}) {
     Options options = CurrentOptions();
     options.allow_data_in_errors = allow_data_in_error;
-    options.integrity_checks = true;
+    options.paranoid_memory_checks = true;
     DestroyAndReopen(options);
     SyncPoint::GetInstance()->SetCallBack(
         "InlineSkipList::RandomHeight::height", [](void* h) {
@@ -380,7 +380,7 @@ TEST_F(DBMemTableTest, IntegrityChecks) {
     std::string key0 = Slice(Key(0)).ToString(true);
     ASSERT_EQ(s.ToString().find(key0) != std::string::npos,
               allow_data_in_error);
-    // Without `integrity_checks`, NotFound will be returned.
+    // Without `paranoid_memory_checks`, NotFound will be returned.
     // This would fail an assertion in InlineSkipList::FindGreaterOrEqual().
     // If we remove the assertion, this passes.
     // ASSERT_TRUE(db_->Get(ReadOptions(), Key(1), &val).IsNotFound());

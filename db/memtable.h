@@ -62,7 +62,7 @@ struct ImmutableMemTableOptions {
   Logger* info_log;
   uint32_t protection_bytes_per_key;
   bool allow_data_in_errors;
-  bool integrity_checks;
+  bool paranoid_memory_checks;
 };
 
 // Batched counters to updated when inserting keys in one write batch.

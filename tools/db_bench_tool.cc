@@ -1280,7 +1280,8 @@ DEFINE_bool(
     auto_readahead_size, false,
     "When set true, RocksDB does auto tuning of readahead size during Scans");
 
-DEFINE_bool(integrity_checks, false, "Sets CF option integrity_checks");
+DEFINE_bool(paranoid_memory_checks, false,
+            "Sets CF option paranoid_memory_checks");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -4741,7 +4742,7 @@ class Benchmark {
         FLAGS_memtable_protection_bytes_per_key;
     options.block_protection_bytes_per_key =
         FLAGS_block_protection_bytes_per_key;
-    options.integrity_checks = FLAGS_integrity_checks;
+    options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
   }
 
   void InitializeOptionsGeneral(Options* opts) {
