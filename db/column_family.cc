@@ -1652,6 +1652,9 @@ bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(
   }
   for (const Slice& table_newest_udt :
        imm()->GetTablesNewestUDT(max_memtable_id)) {
+    if (table_newest_udt.empty()) {
+      continue;
+    }
     assert(table_newest_udt.size() == full_history_ts_low.size());
     // Checking the newest UDT contained in MemTable with ascending ID up to
     // `max_memtable_id`. Return immediately on finding the first MemTable that
