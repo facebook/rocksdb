@@ -576,6 +576,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, follower_catchup_retry_wait_ms),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"metadata_write_temperature",
+         {offsetof(struct ImmutableDBOptions, metadata_write_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"wal_write_temperature",
+         {offsetof(struct ImmutableDBOptions, wal_write_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -778,7 +786,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       follower_refresh_catchup_period_ms(
           options.follower_refresh_catchup_period_ms),
       follower_catchup_retry_count(options.follower_catchup_retry_count),
-      follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms) {
+      follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms),
+      metadata_write_temperature(options.metadata_write_temperature),
+      wal_write_temperature(options.wal_write_temperature) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -956,6 +966,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    db_host_id.c_str());
   ROCKS_LOG_HEADER(log, "            Options.enforce_single_del_contracts: %s",
                    enforce_single_del_contracts ? "true" : "false");
+  ROCKS_LOG_HEADER(log, "            Options.metadata_write_temperature: %s",
+                   temperature_to_string[metadata_write_temperature].c_str());
+  ROCKS_LOG_HEADER(log, "            Options.wal_write_temperature: %s",
+                   temperature_to_string[wal_write_temperature].c_str());
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {
