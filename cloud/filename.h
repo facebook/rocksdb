@@ -2,12 +2,11 @@
 
 #pragma once
 
+#include <rocksdb/slice.h>
+
 #include <algorithm>
 #include <functional>
 #include <string>
-#include <cstring>
-
-#include <rocksdb/slice.h>
 
 //
 // These are inlined methods to deal with pathnames and filenames.
@@ -81,17 +80,23 @@ inline bool ends_with(std::string const& value, std::string const& ending) {
   return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
-inline std::string MakeCloudManifestFile(const std::string& dbname, const std::string& cookie) {
-  return cookie.empty() ? (dbname + "/CLOUDMANIFEST")
-                        : (dbname + "/CLOUDMANIFEST-" + cookie);
+inline std::string MakeCloudManifestFile(const std::string& cookie) {
+  return cookie.empty() ? "CLOUDMANIFEST" : "CLOUDMANIFEST-" + cookie;
+}
+inline std::string MakeCloudManifestFile(const std::string& dbname,
+                                         const std::string& cookie) {
+  assert(!dbname.empty());
+  return dbname + "/" + MakeCloudManifestFile(cookie);
 }
 
+inline std::string ManifestFileWithEpoch(const std::string& epoch) {
+  return epoch.empty() ? "MANIFEST" : "MANIFEST-" + epoch;
+}
 inline std::string ManifestFileWithEpoch(const std::string& dbname,
                                          const std::string& epoch) {
-  return epoch.empty() ? (dbname + "/MANIFEST")
-                       : (dbname + "/MANIFEST-" + epoch);
+  assert(!dbname.empty());
+  return dbname + "/" + ManifestFileWithEpoch(epoch);
 }
-
 
 inline std::string RemoveEpoch(const std::string& path) {
   auto lastDash = path.rfind('-');
@@ -114,7 +119,7 @@ inline std::string GetCookie(const std::string& cloud_manifest_file_path) {
     return "";
   }
 
-  return cloud_manifest_fname.substr(firstDash+1);
+  return cloud_manifest_fname.substr(firstDash + 1);
 }
 
 // pathaname seperator

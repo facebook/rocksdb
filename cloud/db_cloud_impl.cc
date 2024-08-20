@@ -336,7 +336,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
 
   // Create a temp MANIFEST file first as this captures all the files we need
   auto current_epoch = cfs->GetCloudManifest()->GetCurrentEpoch();
-  auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
+  auto manifest_fname = ManifestFileWithEpoch(current_epoch);
   auto tmp_manifest_fname = manifest_fname + ".tmp";
   st = CopyFile(local_fs.get(), GetName() + "/" + manifest_fname,
                 Temperature::kUnknown, GetName() + "/" + tmp_manifest_fname,

@@ -2307,6 +2307,9 @@ IOStatus CloudFileSystemImpl::FindLiveFilesFromLocalManifest(
 }
 
 std::string CloudFileSystemImpl::CloudManifestFile(const std::string& dbname) {
+  if (dbname.empty()) {
+    return MakeCloudManifestFile(cloud_fs_options.cookie_on_open);
+  }
   return MakeCloudManifestFile(dbname, cloud_fs_options.cookie_on_open);
 }
 
