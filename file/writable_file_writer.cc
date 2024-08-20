@@ -409,7 +409,7 @@ IOStatus WritableFileWriter::SyncIfNeeded(const IOOptions& io_options) {
   // files could be potentially cached in OS for their whole
   // life time, thus we might not want to flush at all).
 
-  // We try to avoid sync to the last 1MB of data. For two reasons:
+  // We try to avoid sync to the last 1MB of flushed data. For two reasons:
   // (1) avoid rewrite the same page that is modified later.
   // (2) for older version of OS, write can block while writing out
   //     the page.
@@ -421,7 +421,7 @@ IOStatus WritableFileWriter::SyncIfNeeded(const IOOptions& io_options) {
     const uint64_t kBytesNotSyncRange =
         1024 * 1024;                                // recent 1MB is not synced.
     const uint64_t kBytesAlignWhenSync = 4 * 1024;  // Align 4KB.
-    uint64_t cur_size = filesize_.load(std::memory_order_acquire);
+    uint64_t cur_size = writable_file_->GetFileSize(io_options, nullptr);
     if (cur_size > kBytesNotSyncRange) {
       uint64_t offset_sync_to = cur_size - kBytesNotSyncRange;
       offset_sync_to -= offset_sync_to % kBytesAlignWhenSync;
