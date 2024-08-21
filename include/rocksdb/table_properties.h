@@ -296,8 +296,8 @@ struct TableProperties {
 
   // The largest sequence number of keys in this file.
   // UINT64_MAX means unknown.
-  // Only written to properties block if known (should be unknown unless
-  // the table is empty).
+  // Only written to properties block if known (should be known unless the
+  // table is empty).
   uint64_t key_largest_seqno = UINT64_MAX;
 
   // DB identity
