@@ -163,8 +163,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kSequenceNumberTimeMapping,
         props.seqno_to_time_mapping);
   }
-  assert(props.key_largest_seqno != UINT64_MAX);
-  Add(TablePropertiesNames::kKeyLargestSeqno, props.key_largest_seqno);
+  if (props.key_largest_seqno != UINT64_MAX) {
+    Add(TablePropertiesNames::kKeyLargestSeqno, props.key_largest_seqno);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {

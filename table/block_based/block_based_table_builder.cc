@@ -1787,6 +1787,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
 
+    assert(IsEmpty() || rep_->props.key_largest_seqno != UINT64_MAX);
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
 
