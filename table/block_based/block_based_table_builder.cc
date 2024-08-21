@@ -627,6 +627,9 @@ struct BlockBasedTableBuilder::Rep {
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
     }
+    // Default is UINT64_MAX for unknown. Setting it to 0 here
+    // to allow updating it by taking max in BlockBasedTableBuilder::Add().
+    props.key_largest_seqno = 0;
 
     if (FormatVersionUsesContextChecksum(table_options.format_version)) {
       // Must be non-zero and semi- or quasi-random
@@ -1014,7 +1017,10 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   if (!ok()) {
     return;
   }
-  ValueType value_type = ExtractValueType(ikey);
+  ValueType value_type;
+  SequenceNumber seq;
+  UnPackSequenceAndType(ExtractInternalKeyFooter(ikey), &seq, &value_type);
+  r->props.key_largest_seqno = std::max(r->props.key_largest_seqno, seq);
   if (IsValueType(value_type)) {
 #ifndef NDEBUG
     if (r->props.num_entries > r->props.num_range_deletions) {
@@ -1781,6 +1787,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
 
+    assert(IsEmpty() || rep_->props.key_largest_seqno != UINT64_MAX);
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
 
