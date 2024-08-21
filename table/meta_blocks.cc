@@ -82,7 +82,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
                            const_cast<TableProperties*>(&props));
 
   Add(TablePropertiesNames::kOriginalFileNumber, props.orig_file_number);
-  Add(TablePropertiesNames::kRawKeySize, props.raw_key_size);
+  Add(TablePropertiesNames::kRawKeySize, props.raw_key_size);  // follow this
   Add(TablePropertiesNames::kRawValueSize, props.raw_value_size);
   Add(TablePropertiesNames::kDataSize, props.data_size);
   Add(TablePropertiesNames::kIndexSize, props.index_size);
@@ -93,7 +93,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kIndexKeyIsUserKey, props.index_key_is_user_key);
   Add(TablePropertiesNames::kIndexValueIsDeltaEncoded,
       props.index_value_is_delta_encoded);
-  Add(TablePropertiesNames::kNumEntries, props.num_entries);
+  Add(TablePropertiesNames::kNumEntries, props.num_entries);  // follow this
   Add(TablePropertiesNames::kNumFilterEntries, props.num_filter_entries);
   Add(TablePropertiesNames::kDeletedKeys, props.num_deletions);
   Add(TablePropertiesNames::kMergeOperands, props.num_merge_operands);
@@ -163,6 +163,8 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kSequenceNumberTimeMapping,
         props.seqno_to_time_mapping);
   }
+  assert(props.key_largest_seqno != UINT64_MAX);
+  Add(TablePropertiesNames::kKeyLargestSeqno, props.key_largest_seqno);
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -336,6 +338,8 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->tail_start_offset},
       {TablePropertiesNames::kUserDefinedTimestampsPersisted,
        &new_table_properties->user_defined_timestamps_persisted},
+      {TablePropertiesNames::kKeyLargestSeqno,
+       &new_table_properties->key_largest_seqno},
   };
 
   std::string last_key;
