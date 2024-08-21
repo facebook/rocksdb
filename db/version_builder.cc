@@ -269,9 +269,10 @@ class VersionBuilder::Rep {
   std::unordered_map<uint64_t, int> table_file_levels_;
   // Current compact cursors that should be changed after the last compaction
   std::unordered_map<int, InternalKey> updated_compact_cursors_;
-  std::shared_ptr<NewestFirstByEpochNumber> level_zero_cmp_by_epochno_;
-  std::shared_ptr<NewestFirstBySeqNo> level_zero_cmp_by_seqno_;
-  std::shared_ptr<BySmallestKey> level_nonzero_cmp_;
+  const std::shared_ptr<const NewestFirstByEpochNumber>
+      level_zero_cmp_by_epochno_;
+  const std::shared_ptr<const NewestFirstBySeqNo> level_zero_cmp_by_seqno_;
+  const std::shared_ptr<const BySmallestKey> level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
   // version edits.
@@ -1591,7 +1592,8 @@ class VersionBuilder::Rep {
       }
       auto iter = mutable_blob_file_metas_.find(missing_blob_file);
       assert(iter != mutable_blob_file_metas_.end());
-      auto linked_ssts = iter->second.GetLinkedSsts();
+      const std::unordered_set<uint64_t>& linked_ssts =
+          iter->second.GetLinkedSsts();
       // TODO(yuzhangyu): In theory, if no L0 SST files ara missing, and only
       // blob files exclusively linked to a L0 suffix are missing, we can
       // recover to a valid point in time too. We don't recover that type of

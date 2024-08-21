@@ -1277,6 +1277,15 @@ class VersionSet {
                  bool no_error_if_files_missing = false, bool is_retry = false,
                  Status* log_status = nullptr);
 
+  // Do a best-efforts recovery (Options.best_efforts_recovery=true) from all
+  // available MANIFEST files. Similar to `Recover` with these differences:
+  // 1) not only the latest MANIFEST can be used, if it's not available or
+  //    no successful recovery can be achieved with it, this function also tries
+  //    to recover from previous MANIFEST files, in reverse chronological order
+  //    until a successful recovery can be achieved.
+  // 2) this function doesn't just aim to recover to the latest version, if that
+  //    is not available, the most recent point in time version will be saved in
+  //    memory. Check doc for `VersionEditHandlerPointInTime` for more details.
   Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
                     bool read_only,
                     const std::vector<std::string>& files_in_dbname,
