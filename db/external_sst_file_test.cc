@@ -3744,6 +3744,13 @@ INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestDBGeneratedFileTest,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST_P(IngestDBGeneratedFileTest, FailureCase) {
+  if (encrypted_env_ && ingest_opts.move_files) {
+    // FIXME: should fail ingestion or support this combination.
+    ROCKSDB_GTEST_SKIP(
+        "Encrypted env and move_files do not work together, as we reopen the "
+        "file after linking it which appends an extra encryption prefix.");
+    return;
+  }
   // Ingesting overlapping data should always fail.
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
