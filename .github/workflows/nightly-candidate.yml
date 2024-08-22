@@ -11,7 +11,7 @@ jobs:
       image: ubuntu-2004:202111-02
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.0.0
+    - uses: actions/checkout@v4.1.7
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/install-gflags"
     - run: make V=1 J=4 -j4 check

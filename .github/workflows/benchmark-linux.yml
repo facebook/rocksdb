@@ -8,7 +8,7 @@ jobs:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on: self-hosted
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v4.1.7
     - uses: "./.github/actions/build-for-benchmarks"
     - uses: "./.github/actions/perform-benchmarks"
     - uses: "./.github/actions/post-benchmarks"

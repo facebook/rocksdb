@@ -9,7 +9,7 @@ jobs:
     runs-on:
       labels: arm64large # GitHub hosted ARM runners do not yet exist
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v4.1.7
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/install-gflags"
     - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
@@ -21,7 +21,7 @@ jobs:
     env:
       JAVA_HOME: "/usr/lib/jvm/java-8-openjdk-arm64"
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v4.1.7
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/install-gflags"
     - name: Set Java Environment
