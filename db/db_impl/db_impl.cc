@@ -5836,11 +5836,6 @@ Status DBImpl::IngestExternalFiles(
             "write_global_seqno is deprecated and does not work with "
             "allow_db_generated_files.");
       }
-      if (ingest_opts.move_files) {
-        return Status::NotSupported(
-            "Options move_files and allow_db_generated_files are not "
-            "compatible.");
-      }
     }
   }
 
