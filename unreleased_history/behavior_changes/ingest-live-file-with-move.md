@@ -1,0 +1,1 @@
+* Support ingesting db generated files using hard link.
