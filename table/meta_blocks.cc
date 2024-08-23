@@ -163,6 +163,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kSequenceNumberTimeMapping,
         props.seqno_to_time_mapping);
   }
+  if (props.key_largest_seqno != UINT64_MAX) {
+    Add(TablePropertiesNames::kKeyLargestSeqno, props.key_largest_seqno);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -336,6 +339,8 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->tail_start_offset},
       {TablePropertiesNames::kUserDefinedTimestampsPersisted,
        &new_table_properties->user_defined_timestamps_persisted},
+      {TablePropertiesNames::kKeyLargestSeqno,
+       &new_table_properties->key_largest_seqno},
   };
 
   std::string last_key;

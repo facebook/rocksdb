@@ -113,6 +113,8 @@ std::string TableProperties::ToString(const std::string& prop_delim,
                  user_defined_timestamps_persisted ? std::string("true")
                                                    : std::string("false"),
                  prop_delim, kv_delim);
+  AppendProperty(result, "largest sequence number in file", key_largest_seqno,
+                 prop_delim, kv_delim);
 
   AppendProperty(
       result, "merge operator name",
@@ -311,6 +313,8 @@ const std::string TablePropertiesNames::kTailStartOffset =
     "rocksdb.tail.start.offset";
 const std::string TablePropertiesNames::kUserDefinedTimestampsPersisted =
     "rocksdb.user.defined.timestamps.persisted";
+const std::string TablePropertiesNames::kKeyLargestSeqno =
+    "rocksdb.key.largest.seqno";
 
 #ifndef NDEBUG
 // WARNING: TEST_SetRandomTableProperties assumes the following layout of

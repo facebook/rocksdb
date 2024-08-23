@@ -3776,6 +3776,7 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
                                  live_meta[0].relative_filename);
     // Ingesting a file whose boundary key has non-zero seqno.
     Status s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
+    // This error msg is from checking seqno of boundary keys.
     ASSERT_TRUE(
         s.ToString().find("External file has non zero sequence number") !=
         std::string::npos);
@@ -3822,10 +3823,9 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
           live_meta[0].directory + "/" + live_meta[0].relative_filename;
       s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
       ASSERT_NOK(s);
-      ASSERT_TRUE(
-          s.ToString().find(
-              "External file has a key with non zero sequence number") !=
-          std::string::npos);
+      // This error msg is from checking largest seqno in table property.
+      ASSERT_TRUE(s.ToString().find("non zero largest sequence number") !=
+                  std::string::npos);
       db_->ReleaseSnapshot(snapshot);
     }
 

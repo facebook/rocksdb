@@ -30,7 +30,7 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <vector>
+#include <unordered_map>
 
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
