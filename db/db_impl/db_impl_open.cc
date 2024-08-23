@@ -320,7 +320,12 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     }
     std::unique_ptr<FSWritableFile> file;
     FileOptions file_options = fs_->OptimizeForManifestWrite(file_options_);
-    file_options.temperature = immutable_db_options_.metadata_write_temperature;
+    // DB option takes precedence when not kUnknown
+    if (immutable_db_options_.metadata_write_temperature !=
+        Temperature::kUnknown) {
+      file_options.temperature =
+          immutable_db_options_.metadata_write_temperature;
+    }
     s = NewWritableFile(fs_.get(), manifest, &file, file_options);
     if (!s.ok()) {
       return s;
@@ -1939,7 +1944,10 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
-  opt_file_options.temperature = immutable_db_options_.wal_write_temperature;
+  // DB option takes precedence when not kUnknown
+  if (immutable_db_options_.wal_write_temperature != Temperature::kUnknown) {
+    opt_file_options.temperature = immutable_db_options_.wal_write_temperature;
+  }
   std::string wal_dir = immutable_db_options_.GetWalDir();
   std::string log_fname = LogFileName(wal_dir, log_file_num);
 

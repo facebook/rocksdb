@@ -5511,7 +5511,10 @@ Status VersionSet::ProcessManifestWrites(
   std::unique_ptr<log::Writer> new_desc_log_ptr;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
-    opt_file_opts.temperature = file_options_.temperature;
+    // DB option (in file_options_) takes precedence when not kUnknown
+    if (file_options_.temperature != Temperature::kUnknown) {
+      opt_file_opts.temperature = file_options_.temperature;
+    }
     mu->Unlock();
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestStart");
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
