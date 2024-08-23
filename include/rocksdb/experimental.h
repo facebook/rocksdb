@@ -61,99 +61,17 @@ Status UpdateManifestForFilesState(
 // EXPERIMENTAL new filtering features
 // ****************************************************************************
 
-// A class for splitting a key into meaningful pieces, or "segments" for
-// filtering purposes. Keys can also be put in "categories" to simplify
-// some configuration and handling. To simplify satisfying some filtering
-// requirements, the segments must encompass a complete key prefix (or the whole
-// key) and segments cannot overlap.
+// KeySegmentsExtractor - A class for splitting a key into meaningful pieces, or
+// "segments" for filtering purposes. We say the first key segment has segment
+// ordinal 0, the second has segment ordinal 1, etc. To simplify satisfying some
+// filtering requirements, the segments must encompass a complete key prefix (or
+// the whole key). There cannot be gaps between segments (though segments are
+// allowed to be essentially unused), and segments cannot overlap.
 //
-// Once in production, the behavior associated with a particular Name()
-// cannot change. Introduce a new Name() when introducing new behaviors.
-// See also SstQueryFilterConfigsManager below.
-//
-// OTHER CURRENT LIMITATIONS (maybe relaxed in the future for segments only
-// needing point query or WHERE filtering):
-// * Assumes the (default) byte-wise comparator is used.
-// * Assumes the category contiguousness property: that each category is
-// contiguous in comparator order. In other words, any key between two keys of
-// category c must also be in category c.
-// * Assumes the (weak) segment ordering property (described below) always
-// holds. (For byte-wise comparator, this is implied by the segment prefix
-// property, also described below.)
-// * Not yet compatible with user timestamp feature
-//
-// SEGMENT ORDERING PROPERTY: For maximum use in filters, especially for
-// filtering key range queries, we must have a correspondence between
-// the lexicographic ordering of key segments and the ordering of keys
-// they are extracted from. In other words, if we took the segmented keys
-// and ordered them primarily by (byte-wise) order on segment 0, then
-// on segment 1, etc., then key order of the original keys would not be
-// violated. This is the WEAK form of the property, where multiple keys
-// might generate the same segments, but such keys must be contiguous in
-// key order. (The STRONG form of the property is potentially more useful,
-// but for bytewise comparator, it can be inferred from segments satisfying
-// the weak property by assuming another segment that extends to the end of
-// the key, which would be empty if the segments already extend to the end
-// of the key.)
-//
-// The segment ordering property is hard to think about directly, but for
-// bytewise comparator, it is implied by a simpler property to reason about:
-// the segment prefix property (see below). (NOTE: an example way to satisfy
-// the segment ordering property while breaking the segment prefix property
-// is to have a segment delimited by any byte smaller than a certain value,
-// and not include the delimiter with the segment leading up to the delimiter.
-// For example, the space character is ordered before other printable
-// characters, so breaking "foo bar" into "foo", " ", and "bar" would be
-// legal, but not recommended.)
-//
-// SEGMENT PREFIX PROPERTY: If a key generates segments s0, ..., sn (possibly
-// more beyond sn) and sn does not extend to the end of the key, then all keys
-// starting with bytes s0+...+sn (concatenated) also generate the same segments
-// (possibly more). For example, if a key has segment s0 which is less than the
-// whole key and another key starts with the bytes of s0--or only has the bytes
-// of s0--then the other key must have the same segment s0. In other words, any
-// prefix of segments that might not extend to the end of the key must form an
-// unambiguous prefix code. See
-// https://en.wikipedia.org/wiki/Prefix_code  In other other words, parsing
-// a key into segments cannot use even a single byte of look-ahead. Upon
-// processing each byte, the extractor decides whether to cut a segment that
-// ends with that byte, but not one that ends before that byte. The only
-// exception is that upon reaching the end of the key, the extractor can choose
-// whether to make a segment that ends at the end of the key.
-//
-// Example types of key segments that can be freely mixed in any order:
-// * Some fixed number of bytes or codewords.
-// * Ends in a delimiter byte or codeword. (Not including the delimiter as
-// part of the segment leading up to it would very likely violate the segment
-// prefix property.)
-// * Length-encoded sequence of bytes or codewords. The length could even
-// come from a preceding segment.
-// * Any/all remaining bytes to the end of the key, though this implies all
-// subsequent segments will be empty.
-// For each kind of segment, it should be determined before parsing the segment
-// whether an incomplete/short parse will be treated as a segment extending to
-// the end of the key or as an empty segment.
-//
-// For example, keys might consist of
-// * Segment 0: Any sequence of bytes up to and including the first ':'
-// character, or the whole key if no ':' is present.
-// * Segment 1: The next four bytes, all or nothing (in case of short key).
-// * Segment 2: An unsigned byte indicating the number of additional bytes in
-// the segment, and then that many bytes (or less up to the end of the key).
-// * Segment 3: Any/all remaining bytes in the key
-//
-// For an example of what can go wrong, consider using '4' as a delimiter
-// but not including it with the segment leading up to it. Suppose we have
-// these keys and corresponding first segments:
-// "123456" -> "123"
-// "124536" -> "12"
-// "125436" -> "125"
-// Notice how byte-wise comparator ordering of the segments does not follow
-// the ordering of the keys. This means we cannot safely use a filter with
-// a range of segment values for filtering key range queries.
-//
-// Also note that it is legal for all keys in a category (or many categories)
-// to return an empty sequence of segments.
+// Keys can also be put in "categories" to simplify some configuration and
+// handling. A "legal" key or bound is one that does not return an error (as a
+// special, unused category) from the extractor. It is also allowed for all
+// keys in a category to return an empty sequence of segments.
 //
 // To eliminate a confusing distinction between a segment that is empty vs.
 // "not present" for a particular key, each key is logically assiciated with
@@ -161,6 +79,204 @@ Status UpdateManifestForFilesState(
 // segments. In practice, we only represent a finite sequence that (at least)
 // covers the non-trivial segments.
 //
+// Once in production, the behavior associated with a particular GetId()
+// cannot change. Introduce a new GetId() when introducing new behaviors.
+// See also SstQueryFilterConfigsManager below.
+//
+// This feature hasn't yet been validated with user timestamp.
+//
+// = A SIMPLIFIED MODEL =
+// Let us start with the easiest set of contraints to satisfy with a key
+// segments extractor that generally allows for correct point and range
+// filtering, and add complexity from there. Here we first assume
+// * The column family is using the byte-wise comparator, or reverse byte-wise
+// * A single category is assigned to all keys (by the extractor)
+// * Using simplified criteria for legal segment extraction, the "segment
+//   maximal prefix property"
+//
+// SEGMENT MAXIMAL PREFIX PROPERTY: If key or bound p is a byte-wise prefix of
+// legal key or bound k, then the segments generated by p are a "maximal prefix"
+// of the segments generated by k. Specifically, if the byte in position i of p
+// is assigned to segment j, then the byte in position i of k is also assigned
+// to segment j.
+//
+// Equivalently, the segment that a byte is assigned to can only depend on the
+// bytes that come before it, not on the byte itself or anything later. This
+// specifically exludes "all or nothing" segments where it is only included
+// if it reaches a particular width or delimiter. A segment resembling the
+// FixedPrefixTransform would be illegal (without other assumptions); it must
+// be like CappedPrefixTransform.
+//
+// This basically matches the notion of parsing prefix codes (see
+// https://en.wikipedia.org/wiki/Prefix_code) except we have to include any
+// partial segment (code word) at the end whenever an extension to that key
+// might produce a full segment. An example would be parsing UTF-8 into
+// segments corresponding to encoded code points, where any incomplete code
+// at the end must be part of a trailing segment. Note a three-way
+// correspondence between
+// (a) byte-wise ordering of encoded code points, e.g.
+//     { D0 98 E2 82 AC }
+//     { E2 82 AC D0 98 }
+// (b) lexicographic-then-byte-wise ordering of segments that are each an
+//     encoded code point, e.g.
+//     {{ D0 98 } { E2 82 AC }}
+//     {{ E2 82 AC } { D0 98 }}
+// and (c) lexicographic ordering of the decoded code points, e.g.
+//     { U+0418 U+20AC }
+//     { U+20AC U+0418 }
+// The correspondence between (a) and (b) is a result of the segment maximal
+// prefix property and is critical for correct application of filters to
+// range queries. The correspondence with (c) is a handy attribute of UTF-8
+// (with no over-long encodings) and might be useful to the application.
+//
+// Example types of key segments that can be freely mixed in any order:
+// * Capped number of bytes or codewords. The number cap for the segment
+// could be the same for all keys or encoded earlier in the key.
+// * Up to *and including* a delimiter byte or codeword.
+// * Any/all remaining bytes to the end of the key, though this implies all
+// subsequent segments will be empty.
+// As part of the segment maximal prefix property, if the segments do not
+// extend to the end of the key, that must be implied by the bytes that are
+// in segments, NOT because the potential contents of a segment were considered
+// incomplete.
+//
+// For example, keys might consist of
+// * Segment 0: Any sequence of bytes up to and including the first ':'
+// character, or the whole key if no ':' is present.
+// * Segment 1: The next four bytes, or less if we reach end of key.
+// * Segment 2: An unsigned byte indicating the number of additional bytes in
+// the segment, and then that many bytes (or less up to the end of the key).
+// * Segment 3: Any/all remaining bytes in the key
+//
+// For an example of what can go wrong, consider using '4' as a delimiter
+// but not including it with the segment leading up to it. Suppose we have
+// these keys and corresponding first segments:
+// "123456" -> "123" (in file 1)
+// "124536" -> "12"  (in file 2)
+// "125436" -> "125" (in file 1)
+// Notice how byte-wise comparator ordering of the segments does not follow
+// the ordering of the keys. This means we cannot safely use a filter with
+// a range of segment values for filtering key range queries. For example,
+// we might get a range query for ["123", "125Z") and miss that key "124536"
+// in file 2 is in range because its first segment "12" is out of the range
+// of the first segments on the bounds, "123" and "125".
+//
+// CATEGORIES: The KeySegmentsExtractor is allowed to place keys in categories
+// so that different parts of the key space can use different filtering
+// strategies. The following property is generally recommended for safe filter
+// applicability
+// * CATEGORY CONTIGUOUSNESS PROPERTY: each category is contiguous in
+//   comparator order. In other words, any key between two keys of category c
+//   must also be in category c.
+// An alternative to categories when distinct kinds of keys are interspersed
+// is to leave some segments empty when they do not apply to that key.
+// Filters are generally set up to handle an empty segment specially so that
+// it doesn't interfere with tracking accurate ranges on non-empty occurrences
+// of the segment.
+//
+// = BEYOND THE SIMPLIFIED MODEL =
+//
+// DETAILED GENERAL REQUIREMENTS (incl OTHER COMPARATORS): The exact
+// requirements on a key segments extractor depend on whether and how we use
+// filters to answer queries that they cannot answer directly. To understand
+// this, we describe
+// (A) the types of filters in terms of data they represent and can directly
+// answer queries about,
+// (B) the types of read queries that we want to use filters for, and
+// (C) the assumptions that need to be satisfied to connect those two.
+//
+// TYPES OF FILTERS: Although not exhaustive, here are some useful categories
+// of filter data:
+// * Equivalence class filtering - Represents or over-approximates a set of
+// equivalence classes on keys. The size of the representation is roughly
+// proportional to the number of equivalence classes added. Bloom and ribbon
+// filters are examples.
+// * Order-based filtering - Represents one or more subranges of a key space or
+// key segment space. A filter query only requires application of the CF
+// comparator. The size of the representation is roughly proportional to the
+// number of subranges and to the key or segment size.
+//
+// TYPES OF READ QUERIES and their DIRECT FILTERS:
+// * Point query - Whether there {definitely isn't, might be} an entry for a
+// particular key in an SST file (or partition, etc.).
+// The DIRECT FILTER for a point query is an equivalence class filter on the
+// whole key.
+// * Range query - Whether there {definitely isn't, might be} any entries
+// within a lower and upper key bound, in an SST file (or partition, etc.).
+//    NOTE: For this disucssion, we ignore the detail of inclusive vs.
+//    exclusive bounds by assuming a generalized notion of "bound" (vs. key)
+//    that conveniently represents spaces between keys. For details, see
+//    https://github.com/facebook/rocksdb/pull/11434
+//    PARTITIONING NOTE: TODO
+// The DIRECT FILTER for a range query is an order-based filter on the whole
+// key (non-empty intersection of bounds/keys). Simple minimum and maximum
+// keys for each SST file are automatically provided by metadata and used in
+// the read path for filtering (as well as binary search indexing).
+// * Where clauses - Additional constraints that can be put on range queries.
+// Specifically, a where clause is a tuple <i,j,c,b1,b2> representing that the
+// concatenated sequence of segments from i to j (inclusive) compares between
+// b1 and b2 according to comparator c.
+//    EXAMPLE: To represent that segment of ordinal i is equal to s, that would
+//    be <i,i,bytewise_comparator,before(s),after(s)>.
+//    NOTE: To represent something like segment has a particular prefix, you
+//    would need to split the key into more segments appropriately. There is
+//    little loss of generality because we can combine adjacent segments for
+//    specifying where clauses and implementing filters.
+// The DIRECT FILTER for a where clause is an order-based filter on the same
+// sequence of segments and comparator (non-empty intersection of bounds/keys),
+// or in the special case of an equality clause (see example), an equivalence
+// class filter on the sequence of segments.
+//
+// GENERALIZING FILTERS (INDIRECT):
+// * Point queries can utilize essentially any kind of filter by extracting
+// applicable segments of the query key (if not using whole key) and querying
+// the corresponding equivalence class or trivial range.
+//    NOTE: There is NO requirement e.g. that the comparator used by the filter
+//    match the CF key comparator or similar. The extractor simply needs to be
+//    a pure function that does not return "out of bounds" segments.
+//
+// Beyond point queries, we generally expect the key comparator to be a
+// lexicographic / big endian ordering at a high level, while each segment
+// can use an arbitrary comparator.
+//
+// * Equivalence class filters can apply to range queries under conditions
+// resembling legacy prefix filtering (prefix_extractor). An equivalence class
+// filter on segments i through j and category set s is applicable to a range
+// query from lb to ub if
+//   * All segments through j extracted from lb and ub are equal.
+//     NOTE: being in the same filtering equivalence class is insufficient, as
+//     that could be unrelated inputs with a hash collision. Here we are
+//     omitting details that would formally accommodate comparators in which
+//     different bytes can be considered equal.
+//   * COMMON SEGMENT PREFIX PROPERTY (for all x, y, z): if keys x and z have
+//   equal segments up through ordinal j and key y is ordered between x and
+//   z according to the CF comparator, then y has equal segments up through
+//   ordinal j (compared to either x or z). (This is implied by the SEGMENT
+//   MAXIMAL PREFIX PROPERTY in the simplified model.)
+//   * Extraction of lb and ub place them in category set s
+//   * CATEGORY SET CONTIGUOUSNESS PROPERTY for a set of categories s, for all
+//   x, y, z: if x and z are in a category in category set s and key y is
+//   ordered between x and z according to the CF comparator, then key y is
+//   in a category in category set s.
+//
+// * Order-based filters on segments (rather than whole key) can apply to range
+// queries (with "whole key" bounds). Specifically, an order-based filter on
+// segments i through j and category set s is applicable to a range query from
+// lb to ub if
+//   * All segments through i-1 extracted from lb and ub are equal
+//   * SEGMENT ORDERING PROPERTY for ordinal i through j and segments
+//   comparator c, for all x, y, and z: if keys x and z have equal segments up
+//   through ordinal i-1 and key y is ordered x < y < z according to the CF
+//   comparator, then both
+//     * The common segment prefix property is satisifed through ordinal i-1
+//     * x_i..j <= y_i..j <= z_i..j according to segment comparator c, where
+//     x_i..j is the concatenation of segments i through j of key x (etc.).
+//     (This is implied by the SEGMENT MAXIMAL PREFIX PROPERTY in the simplified
+//     model.)
+//   * Extraction of lb and ub place them in category set s
+//   * CATEGORY SET CONTIGUOUSNESS PROPERTY above is satisfied for s
+//
+// TODO: non-bytewise examples
 class KeySegmentsExtractor {
  public:
   // The extractor assigns keys to categories so that it is easier to
@@ -269,6 +385,9 @@ class KeySegmentsExtractor {
                        Result* result) const = 0;
 };
 
+std::shared_ptr<const KeySegmentsExtractor>
+MakeSharedCappedKeySegmentsExtractor(const std::vector<size_t>& byte_widths);
+
 // Alternatives for filtering inputs
 
 // An individual key segment.
@@ -305,13 +424,13 @@ struct SelectUserTimestamp {};
 
 struct SelectColumnName {};
 
-struct SelectValue {};
-
-// Note: more variants might be added in the future.
+// NOTE: more variants might be added in the future.
+// NOTE2: filtering on values is not supported because it could easily break
+// overwrite semantics. (Filter out SST with newer, non-matching value but
+// see obsolete value that does match.)
 using FilterInput =
     std::variant<SelectWholeKey, SelectKeySegment, SelectKeySegmentRange,
-                 SelectLegacyKeyPrefix, SelectUserTimestamp, SelectColumnName,
-                 SelectValue>;
+                 SelectLegacyKeyPrefix, SelectUserTimestamp, SelectColumnName>;
 
 // Base class for individual filtering schemes in terms of chosen
 // FilterInputs, but not tied to a particular KeySegmentsExtractor.

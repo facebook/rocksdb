@@ -152,6 +152,83 @@ Status UpdateManifestForFilesState(
 // EXPERIMENTAL new filtering features
 
 namespace {
+template <size_t N>
+class SemiStaticCappedKeySegmentsExtractor : public KeySegmentsExtractor {
+ public:
+  SemiStaticCappedKeySegmentsExtractor(const uint32_t* byte_widths) {
+    id_ = kName();
+    uint32_t prev_end = 0;
+    if constexpr (N > 0) {  // Suppress a compiler warning
+      for (size_t i = 0; i < N; ++i) {
+        prev_end = prev_end + byte_widths[i];
+        ideal_ends_[i] = prev_end;
+        id_ += std::to_string(byte_widths[i]) + "b";
+      }
+    }
+  }
+
+  static const char* kName() { return "CappedKeySegmentsExtractor"; }
+
+  const char* Name() const override { return kName(); }
+
+  std::string GetId() const override { return id_; }
+
+  void Extract(const Slice& key_or_bound, KeyKind /*kind*/,
+               Result* result) const override {
+    // Optimistic assignment
+    result->segment_ends.assign(ideal_ends_.begin(), ideal_ends_.end());
+    uint32_t key_size = static_cast<uint32_t>(key_or_bound.size());
+    if (N > 0 && key_size < ideal_ends_.back()) {
+      // Need to fix up (should be rare)
+      for (size_t i = 0; i < N; ++i) {
+        result->segment_ends[i] = std::min(key_size, result->segment_ends[i]);
+      }
+    }
+  }
+
+ private:
+  std::array<uint32_t, N> ideal_ends_;
+  std::string id_;
+};
+
+class DynamicCappedKeySegmentsExtractor : public KeySegmentsExtractor {
+ public:
+  DynamicCappedKeySegmentsExtractor(const std::vector<uint32_t>& byte_widths) {
+    id_ = kName();
+    uint32_t prev_end = 0;
+    for (size_t i = 0; i < byte_widths.size(); ++i) {
+      prev_end = prev_end + byte_widths[i];
+      ideal_ends_[i] = prev_end;
+      id_ += std::to_string(byte_widths[i]) + "b";
+    }
+    final_ideal_end_ = prev_end;
+  }
+
+  static const char* kName() { return "CappedKeySegmentsExtractor"; }
+
+  const char* Name() const override { return kName(); }
+
+  std::string GetId() const override { return id_; }
+
+  void Extract(const Slice& key_or_bound, KeyKind /*kind*/,
+               Result* result) const override {
+    // Optimistic assignment
+    result->segment_ends = ideal_ends_;
+    uint32_t key_size = static_cast<uint32_t>(key_or_bound.size());
+    if (key_size < final_ideal_end_) {
+      // Need to fix up (should be rare)
+      for (size_t i = 0; i < ideal_ends_.size(); ++i) {
+        result->segment_ends[i] = std::min(key_size, result->segment_ends[i]);
+      }
+    }
+  }
+
+ private:
+  std::vector<uint32_t> ideal_ends_;
+  uint32_t final_ideal_end_;
+  std::string id_;
+};
+
 void GetFilterInput(FilterInput select, const Slice& key,
                     const KeySegmentsExtractor::Result& extracted,
                     Slice* out_input, Slice* out_leadup) {
@@ -211,12 +288,6 @@ void GetFilterInput(FilterInput select, const Slice& key,
       assert(false);
       return Slice();
     }
-
-    Slice operator()(SelectValue) {
-      // TODO
-      assert(false);
-      return Slice();
-    }
   };
 
   Slice input = std::visit(FilterInputGetter(key, extracted), select);
@@ -255,9 +326,6 @@ const char* DeserializeFilterInput(const char* p, const char* limit,
           return p;
         case 3:
           *out = SelectColumnName{};
-          return p;
-        case 4:
-          *out = SelectValue{};
           return p;
         default:
           // Reserved for future use
@@ -315,7 +383,6 @@ void SerializeFilterInput(std::string* out, const FilterInput& select) {
     void operator()(SelectLegacyKeyPrefix) { out->push_back(1); }
     void operator()(SelectUserTimestamp) { out->push_back(2); }
     void operator()(SelectColumnName) { out->push_back(3); }
-    void operator()(SelectValue) { out->push_back(4); }
     void operator()(SelectKeySegment select) {
       // TODO: expand supported cases
       assert(select.segment_index < 16);
@@ -1188,6 +1255,48 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
 const std::string SstQueryFilterConfigsManagerImpl::kTablePropertyName =
     "rocksdb.sqfc";
 }  // namespace
+
+std::shared_ptr<const KeySegmentsExtractor>
+MakeSharedCappedKeySegmentsExtractor(const std::vector<size_t>& byte_widths) {
+  std::vector<uint32_t> byte_widths_checked;
+  byte_widths_checked.resize(byte_widths.size());
+  size_t final_end = 0;
+  for (size_t i = 0; i < byte_widths.size(); ++i) {
+    final_end += byte_widths[i];
+    if (byte_widths[i] > UINT32_MAX / 2 || final_end > UINT32_MAX) {
+      // Better to crash than to proceed unsafely
+      return nullptr;
+    }
+    byte_widths_checked[i] = static_cast<uint32_t>(byte_widths[i]);
+  }
+
+  switch (byte_widths_checked.size()) {
+    case 0:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<0>>(
+          byte_widths_checked.data());
+    case 1:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<1>>(
+          byte_widths_checked.data());
+    case 2:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<2>>(
+          byte_widths_checked.data());
+    case 3:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<3>>(
+          byte_widths_checked.data());
+    case 4:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<4>>(
+          byte_widths_checked.data());
+    case 5:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<5>>(
+          byte_widths_checked.data());
+    case 6:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<6>>(
+          byte_widths_checked.data());
+    default:
+      return std::make_shared<DynamicCappedKeySegmentsExtractor>(
+          byte_widths_checked);
+  }
+}
 
 bool SstQueryFilterConfigs::IsEmptyNotFound() const {
   return this == &kEmptyNotFoundSQFC;
