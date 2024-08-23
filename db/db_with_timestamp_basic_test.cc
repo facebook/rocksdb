@@ -189,6 +189,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetMultipleCfs) {
   Status s = db_->CreateColumnFamily(options1, "data", &handle);
   ASSERT_OK(s);
 
+  std::string ts = Timestamp(1, 0);
   WriteBatch wb(0, 0, 0, kTimestampSize);
   ASSERT_OK(wb.Put("a", "value"));
   ASSERT_OK(wb.Put(handle, "a", "value"));
@@ -213,33 +214,27 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetMultipleCfs) {
   handles.push_back(db_->DefaultColumnFamily());
   handles.push_back(handle);
 
-  const auto verify_db =
-      [this](std::vector<ColumnFamilyHandle*> handles,
-             const std::vector<Slice>& keys, const std::string& ts,
-             const std::vector<std::string>& expected_values) {
-        Slice read_ts_slice(ts);
-        ReadOptions read_opts;
-        read_opts.timestamp = &read_ts_slice;
+  {
+    Slice read_ts_slice(ts);
+    ReadOptions read_opts;
+    read_opts.timestamp = &read_ts_slice;
 
-        size_t num_keys = keys.size();
-        std::vector<PinnableSlice> values;
-        values.resize(num_keys);
-        std::vector<Status> statuses;
-        statuses.resize(num_keys);
-        std::vector<std::string> timestamps;
-        timestamps.resize(num_keys);
+    std::vector<PinnableSlice> values;
+    values.resize(num_keys);
+    std::vector<Status> statuses;
+    statuses.resize(num_keys);
+    std::vector<std::string> timestamps;
+    timestamps.resize(num_keys);
 
-        db_->MultiGet(read_opts, num_keys, handles.data(), keys.data(),
-                      values.data(), timestamps.data(), statuses.data());
+    db_->MultiGet(read_opts, num_keys, handles.data(), keys.data(),
+                  values.data(), timestamps.data(), statuses.data());
 
-        for (int i = 0; i < num_keys; i++) {
-          ASSERT_EQ(Status::OK(), statuses[i]);
-          ASSERT_EQ(expected_values[i], values[i].ToString());
-          ASSERT_EQ(ts, timestamps[i]);
-        }
-      };
-
-  verify_db(handles, keys, Timestamp(1, 0), expected_values);
+    for (int i = 0; i < num_keys; i++) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(expected_values[i], values[i].ToString());
+      ASSERT_EQ(ts, timestamps[i]);
+    }
+  }
 
   delete handle;
   Close();
