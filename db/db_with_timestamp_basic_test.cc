@@ -193,15 +193,11 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetMultipleCfs) {
   WriteBatch wb(0, 0, 0, kTimestampSize);
   ASSERT_OK(wb.Put("a", "value"));
   ASSERT_OK(wb.Put(handle, "a", "value"));
-  {
-    std::string ts = Timestamp(1, 0);
-    const auto ts_sz_func = [kTimestampSize, handle](uint32_t cf_id) {
-      assert(handle);
-      return kTimestampSize;
-    };
-    ASSERT_OK(wb.UpdateTimestamps(ts, ts_sz_func));
-    ASSERT_OK(db_->Write(WriteOptions(), &wb));
-  }
+  const auto ts_sz_func = [kTimestampSize](uint32_t /*cf_id*/) {
+    return kTimestampSize;
+  };
+  ASSERT_OK(wb.UpdateTimestamps(ts, ts_sz_func));
+  ASSERT_OK(db_->Write(WriteOptions(), &wb));
 
   int num_keys = 2;
   std::vector<Slice> keys;
