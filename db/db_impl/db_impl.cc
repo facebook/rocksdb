@@ -3143,10 +3143,11 @@ Status DBImpl::MultiGetImpl(
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
 
   assert(sorted_keys);
+  assert(start_key + num_keys <= sorted_keys->size());
   // Clear the timestamps for returning results so that we can distinguish
   // between tombstone or key that has never been written
-  for (auto* kctx : *sorted_keys) {
-    assert(kctx);
+  for (size_t i = start_key; i < start_key + num_keys; ++i) {
+    KeyContext* kctx = (*sorted_keys)[i];
     if (kctx->timestamp) {
       kctx->timestamp->clear();
     }
