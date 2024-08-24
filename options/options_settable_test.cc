@@ -367,7 +367,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false;"
                              "enforce_single_del_contracts=false;"
-                             "daily_offpeak_time_utc=08:30-19:00;",
+                             "daily_offpeak_time_utc=08:30-19:00;"
+                             "follower_refresh_catchup_period_ms=123;"
+                             "follower_catchup_retry_count=456;"
+                             "follower_catchup_retry_wait_ms=789;"
+                             "metadata_write_temperature=kCold;"
+                             "wal_write_temperature=kHot;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

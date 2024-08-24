@@ -1415,16 +1415,22 @@ class VersionSetTestBase {
     }
   }
 
+  void CreateCurrentFile() {
+    // Make "CURRENT" file point to the new manifest file.
+    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                             Temperature::kUnknown,
+                             /* dir_contains_current_file */ nullptr));
+  }
+
   // Create DB with 3 column families.
   void NewDB() {
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
+    ASSERT_OK(
+        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     PrepareManifest(&column_families_, &last_seqno, &log_writer);
     log_writer.reset();
-    // Make "CURRENT" file point to the new manifest file.
-    Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
-    ASSERT_OK(s);
+    CreateCurrentFile();
 
     EXPECT_OK(versions_->Recover(column_families_, false));
     EXPECT_EQ(column_families_.size(),
@@ -2600,7 +2606,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       edits_[i].MarkAtomicGroup(--remaining);
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
+    CreateCurrentFile();
   }
 
   void SetupIncompleteTrailingAtomicGroup(int atomic_group_size) {
@@ -2612,7 +2618,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       edits_[i].MarkAtomicGroup(--remaining);
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
+    CreateCurrentFile();
   }
 
   void SetupCorruptedAtomicGroup(int atomic_group_size) {
@@ -2626,7 +2632,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       }
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
+    CreateCurrentFile();
   }
 
   void SetupIncorrectAtomicGroup(int atomic_group_size) {
@@ -2642,7 +2648,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       }
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
+    CreateCurrentFile();
   }
 
   void SetupTestSyncPoints() {
@@ -3408,8 +3414,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
   PrepareManifest(&column_families, &last_seqno, &log_writer);
-  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
 
   EXPECT_OK(versions_->Recover(column_families, false /* read_only */));
   EXPECT_EQ(column_families.size(),
@@ -3431,7 +3436,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   cfd_to_drop->Ref();
   drop_cf_edit.SetColumnFamily(cfd_to_drop->GetID());
   mutex_.Lock();
-  s = versions_->LogAndApply(
+  Status s = versions_->LogAndApply(
       cfd_to_drop, *cfd_to_drop->GetLatestMutableCFOptions(), read_options,
       write_options, &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
@@ -3541,9 +3546,7 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
 TEST_F(EmptyDefaultCfNewManifest, Recover) {
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
-                            /* dir_contains_current_file */ nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
   std::string manifest_path;
   VerifyManifest(&manifest_path);
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -3552,7 +3555,7 @@ TEST_F(EmptyDefaultCfNewManifest, Recover) {
                                cf_options_);
   std::string db_id;
   bool has_missing_table_file = false;
-  s = versions_->TryRecoverFromOneManifest(
+  Status s = versions_->TryRecoverFromOneManifest(
       manifest_path, column_families, false, &db_id, &has_missing_table_file);
   ASSERT_OK(s);
   ASSERT_FALSE(has_missing_table_file);
@@ -3573,7 +3576,8 @@ class VersionSetTestEmptyDb
     assert(nullptr != log_writer);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
-      ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
+      ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_,
+                                Temperature::kUnknown));
       DBOptions tmp_db_options;
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
@@ -3606,9 +3610,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
   db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
-                            /* dir_contains_current_file */ nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
 
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -3623,9 +3625,9 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
 
   std::string db_id;
   bool has_missing_table_file = false;
-  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
-                                           read_only, &db_id,
-                                           &has_missing_table_file);
+  Status s = versions_->TryRecoverFromOneManifest(
+      manifest_path, column_families, read_only, &db_id,
+      &has_missing_table_file);
   auto iter =
       std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
   if (iter == cf_names.end()) {
@@ -3651,9 +3653,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
-                     /* dir_contains_current_file */ nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
 
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -3699,9 +3699,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
-                     /* dir_contains_current_file */ nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
 
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -3758,9 +3756,7 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
-                     /* dir_contains_current_file */ nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
 
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -3816,9 +3812,7 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
-                     /* dir_contains_current_file */ nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
 
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -4025,15 +4019,14 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
   log_writer_.reset();
-  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
   std::string manifest_path;
   VerifyManifest(&manifest_path);
   std::string db_id;
   bool has_missing_table_file = false;
-  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
-                                           /*read_only=*/false, &db_id,
-                                           &has_missing_table_file);
+  Status s = versions_->TryRecoverFromOneManifest(
+      manifest_path, column_families_,
+      /*read_only=*/false, &db_id, &has_missing_table_file);
   ASSERT_OK(s);
   ASSERT_TRUE(has_missing_table_file);
   for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
@@ -4083,15 +4076,14 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
   log_writer_.reset();
-  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
   std::string manifest_path;
   VerifyManifest(&manifest_path);
   std::string db_id;
   bool has_missing_table_file = false;
-  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
-                                           /*read_only=*/false, &db_id,
-                                           &has_missing_table_file);
+  Status s = versions_->TryRecoverFromOneManifest(
+      manifest_path, column_families_,
+      /*read_only=*/false, &db_id, &has_missing_table_file);
   ASSERT_OK(s);
   ASSERT_TRUE(has_missing_table_file);
   for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
@@ -4137,15 +4129,14 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
   log_writer_.reset();
-  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
-  ASSERT_OK(s);
+  CreateCurrentFile();
   std::string manifest_path;
   VerifyManifest(&manifest_path);
   std::string db_id;
   bool has_missing_table_file = false;
-  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
-                                           /*read_only=*/false, &db_id,
-                                           &has_missing_table_file);
+  Status s = versions_->TryRecoverFromOneManifest(
+      manifest_path, column_families_,
+      /*read_only=*/false, &db_id, &has_missing_table_file);
   ASSERT_OK(s);
   ASSERT_FALSE(has_missing_table_file);
   for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
@@ -4266,15 +4257,14 @@ class BestEffortsRecoverIncompleteVersionTest
         /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>(),
         blob_files);
     log_writer_.reset();
-    Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
-    ASSERT_OK(s);
+    CreateCurrentFile();
     std::string manifest_path;
     VerifyManifest(&manifest_path);
     std::string db_id;
     bool has_missing_table_file = false;
-    s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
-                                             /*read_only=*/false, &db_id,
-                                             &has_missing_table_file);
+    Status s = versions_->TryRecoverFromOneManifest(
+        manifest_path, column_families_,
+        /*read_only=*/false, &db_id, &has_missing_table_file);
     ASSERT_OK(s);
     ASSERT_TRUE(has_missing_table_file);
   }

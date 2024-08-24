@@ -195,7 +195,9 @@ struct FileOptions : EnvOptions {
   FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)
-      : EnvOptions(opts), handoff_checksum_type(ChecksumType::kCRC32c) {}
+      : EnvOptions(opts),
+        temperature(opts.metadata_write_temperature),
+        handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const EnvOptions& opts)
       : EnvOptions(opts), handoff_checksum_type(ChecksumType::kCRC32c) {}
@@ -1952,7 +1954,8 @@ class FSDirectoryWrapper : public FSDirectory {
 // A utility routine: write "data" to the named file.
 IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
                            const std::string& fname, bool should_sync = false,
-                           const IOOptions& io_options = IOOptions());
+                           const IOOptions& io_options = IOOptions(),
+                           const FileOptions& file_options = FileOptions());
 
 // A utility routine: read contents of named file into *data
 IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
