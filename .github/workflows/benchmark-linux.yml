@@ -1,7 +1,8 @@
 name: facebook/rocksdb/benchmark-linux
-on:
-  schedule:
-  - cron: 7 */2 * * *  # At minute 7 past every 2nd hour
+# FIXME: Disabled temporarily
+# on:
+#   schedule:
+#   - cron: 7 */2 * * *  # At minute 7 past every 2nd hour
 
 jobs:
   benchmark-linux:
