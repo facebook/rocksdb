@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.6.1 (08/24/2024)
+### Bug Fixes
+* Fix correctness of MultiGet across column families with user timestamp.
+
 ## 9.6.0 (08/19/2024)
 ### New Features
 * *Best efforts recovery supports recovering to incomplete Version with a clean seqno cut that presents a valid point in time view from the user's perspective, if versioning history doesn't include atomic flush.
