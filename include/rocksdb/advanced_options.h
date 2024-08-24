@@ -813,7 +813,7 @@ struct AdvancedColumnFamilyOptions {
   // If this option is set, when creating the last level files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
-  // When using FIFO compaction, this option is ignored.
+  // Currently only compatible with universal compaction.
   //
   // Dynamically changeable through the SetOptions() API
   Temperature last_level_temperature = Temperature::kUnknown;

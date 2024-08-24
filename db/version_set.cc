@@ -5511,6 +5511,10 @@ Status VersionSet::ProcessManifestWrites(
   std::unique_ptr<log::Writer> new_desc_log_ptr;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
+    // DB option (in file_options_) takes precedence when not kUnknown
+    if (file_options_.temperature != Temperature::kUnknown) {
+      opt_file_opts.temperature = file_options_.temperature;
+    }
     mu->Unlock();
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestStart");
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
@@ -5637,9 +5641,9 @@ Status VersionSet::ProcessManifestWrites(
       assert(manifest_io_status.ok());
     }
     if (s.ok() && new_descriptor_log) {
-      io_s = SetCurrentFile(write_options, fs_.get(), dbname_,
-                            pending_manifest_file_number_,
-                            dir_contains_current_file);
+      io_s = SetCurrentFile(
+          write_options, fs_.get(), dbname_, pending_manifest_file_number_,
+          file_options_.temperature, dir_contains_current_file);
       if (!io_s.ok()) {
         s = io_s;
         // Quarantine old manifest file in case new manifest file's CURRENT file
