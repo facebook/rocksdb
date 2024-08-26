@@ -180,6 +180,15 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
+  options.follower_refresh_catchup_period_ms =
+      immutable_db_options.follower_refresh_catchup_period_ms;
+  options.follower_catchup_retry_count =
+      immutable_db_options.follower_catchup_retry_count;
+  options.follower_catchup_retry_wait_ms =
+      immutable_db_options.follower_catchup_retry_wait_ms;
+  options.metadata_write_temperature =
+      immutable_db_options.metadata_write_temperature;
+  options.wal_write_temperature = immutable_db_options.wal_write_temperature;
   return options;
 }
 

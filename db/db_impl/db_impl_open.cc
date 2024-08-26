@@ -295,7 +295,8 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   VersionEdit new_db;
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
-  Status s = SetIdentityFile(write_options, env_, dbname_);
+  Status s = SetIdentityFile(write_options, env_, dbname_,
+                             immutable_db_options_.metadata_write_temperature);
   if (!s.ok()) {
     return s;
   }
@@ -319,6 +320,12 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     }
     std::unique_ptr<FSWritableFile> file;
     FileOptions file_options = fs_->OptimizeForManifestWrite(file_options_);
+    // DB option takes precedence when not kUnknown
+    if (immutable_db_options_.metadata_write_temperature !=
+        Temperature::kUnknown) {
+      file_options.temperature =
+          immutable_db_options_.metadata_write_temperature;
+    }
     s = NewWritableFile(fs_.get(), manifest, &file, file_options);
     if (!s.ok()) {
       return s;
@@ -344,6 +351,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(write_options, fs_.get(), dbname_, 1,
+                       immutable_db_options_.metadata_write_temperature,
                        directories_.GetDbDir());
     if (new_filenames) {
       new_filenames->emplace_back(
@@ -1936,6 +1944,10 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
+  // DB option takes precedence when not kUnknown
+  if (immutable_db_options_.wal_write_temperature != Temperature::kUnknown) {
+    opt_file_options.temperature = immutable_db_options_.wal_write_temperature;
+  }
   std::string wal_dir = immutable_db_options_.GetWalDir();
   std::string log_fname = LogFileName(wal_dir, log_file_num);
 

@@ -1580,6 +1580,16 @@ struct DBOptions {
   // Default 100ms
   uint64_t follower_catchup_retry_wait_ms = 100;
 
+  // When DB files other than SST, blob and WAL files are created, use this
+  // filesystem temperature. (See also `wal_write_temperature` and various
+  // `*_temperature` CF options.) When not `kUnknown`, this overrides any
+  // temperature set by OptimizeForManifestWrite functions.
+  Temperature metadata_write_temperature = Temperature::kUnknown;
+
+  // Use this filesystem temperature when creating WAL files. When not
+  // `kUnknown`, this overrides any temperature set by OptimizeForLogWrite
+  // functions.
+  Temperature wal_write_temperature = Temperature::kUnknown;
   // End EXPERIMENTAL
 };
 
