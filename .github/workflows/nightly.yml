@@ -3,6 +3,7 @@ on:
   schedule:
   - cron: 0 9 * * *
   workflow_dispatch:
+permissions: {}
 jobs:
   build-format-compatible:
     if: ${{ github.repository_owner == 'facebook' }}

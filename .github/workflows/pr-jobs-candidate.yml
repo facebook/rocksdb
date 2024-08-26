@@ -1,5 +1,6 @@
 name: facebook/rocksdb/pr-jobs-candidate
 on: workflow_dispatch
+permissions: {}
 jobs:
   # These jobs would be in pr-jobs but are failing or otherwise broken for
   # some reason.
