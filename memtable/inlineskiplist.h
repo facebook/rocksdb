@@ -969,12 +969,12 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
       while (true) {
         // Checking for duplicate keys on the level 0 is sufficient
         if (UNLIKELY(i == 0 && splice->next_[i] != nullptr &&
-                     compare_(x->Key(), splice->next_[i]->Key()) >= 0)) {
+                     compare_(splice->next_[i]->Key(), key_decoded) <= 0)) {
           // duplicate key
           return false;
         }
         if (UNLIKELY(i == 0 && splice->prev_[i] != head_ &&
-                     compare_(splice->prev_[i]->Key(), x->Key()) >= 0)) {
+                     compare_(splice->prev_[i]->Key(), key_decoded) >= 0)) {
           // duplicate key
           return false;
         }
@@ -1012,12 +1012,12 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
       }
       // Checking for duplicate keys on the level 0 is sufficient
       if (UNLIKELY(i == 0 && splice->next_[i] != nullptr &&
-                   compare_(x->Key(), splice->next_[i]->Key()) >= 0)) {
+                   compare_(splice->next_[i]->Key(), key_decoded) <= 0)) {
         // duplicate key
         return false;
       }
       if (UNLIKELY(i == 0 && splice->prev_[i] != head_ &&
-                   compare_(splice->prev_[i]->Key(), x->Key()) >= 0)) {
+                   compare_(splice->prev_[i]->Key(), key_decoded) >= 0)) {
         // duplicate key
         return false;
       }
