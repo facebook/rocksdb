@@ -1,5 +1,6 @@
 name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
+permissions: {}
 jobs:
   # NOTE: multiple workflows would be recommended, but the current GHA UI in
   # PRs doesn't make it clear when there's an overall error with a workflow,
