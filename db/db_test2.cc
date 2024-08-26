@@ -6739,6 +6739,7 @@ TEST_F(DBTest2, VariousFileTemperatures) {
                 TCM({{options.default_write_temperature, 2}}));
 
       ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 
       ASSERT_EQ(test_fs->CountCurrentSstFilesByTemp(),
                 TCM({{options.last_level_temperature, 1}}));
