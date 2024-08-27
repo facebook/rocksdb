@@ -1280,11 +1280,9 @@ void LevelIterator::Seek(const Slice& target) {
                                           ts_sz);
       if (prefix_extractor_->InDomain(target_user_key_without_ts) &&
           (!prefix_extractor_->InDomain(next_file_first_user_key_without_ts) ||
-           user_comparator_.CompareWithoutTimestamp(
-               prefix_extractor_->Transform(target_user_key_without_ts), false,
-               prefix_extractor_->Transform(
-                   next_file_first_user_key_without_ts),
-               false) != 0)) {
+           prefix_extractor_->Transform(target_user_key_without_ts)
+                   .compare(prefix_extractor_->Transform(
+                       next_file_first_user_key_without_ts)) != 0)) {
         // SkipEmptyFileForward() will not advance to next file when this flag
         // is set for reason detailed below.
         //
@@ -5510,8 +5508,13 @@ Status VersionSet::ProcessManifestWrites(
   Status s;
   IOStatus io_s;
   IOStatus manifest_io_status;
+  std::unique_ptr<log::Writer> new_desc_log_ptr;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
+    // DB option (in file_options_) takes precedence when not kUnknown
+    if (file_options_.temperature != Temperature::kUnknown) {
+      opt_file_opts.temperature = file_options_.temperature;
+    }
     mu->Unlock();
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestStart");
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
@@ -5538,6 +5541,7 @@ Status VersionSet::ProcessManifestWrites(
       }
     }
 
+    log::Writer* raw_desc_log_ptr = descriptor_log_.get();
     if (s.ok() && new_descriptor_log) {
       // This is fine because everything inside of this block is serialized --
       // only one thread can be here at the same time
@@ -5559,12 +5563,14 @@ Status VersionSet::ProcessManifestWrites(
             db_options_->listeners, nullptr,
             tmp_set.Contains(FileType::kDescriptorFile),
             tmp_set.Contains(FileType::kDescriptorFile)));
-        descriptor_log_.reset(
+        new_desc_log_ptr.reset(
             new log::Writer(std::move(file_writer), 0, false));
+        raw_desc_log_ptr = new_desc_log_ptr.get();
         s = WriteCurrentStateToManifest(write_options, curr_state,
-                                        wal_additions, descriptor_log_.get(),
-                                        io_s);
-      } else {
+                                        wal_additions, raw_desc_log_ptr, io_s);
+        assert(s == io_s);
+      }
+      if (!io_s.ok()) {
         manifest_io_status = io_s;
         s = io_s;
       }
@@ -5607,7 +5613,7 @@ Status VersionSet::ProcessManifestWrites(
         }
         ++idx;
 #endif /* !NDEBUG */
-        io_s = descriptor_log_->AddRecord(write_options, record);
+        io_s = raw_desc_log_ptr->AddRecord(write_options, record);
         if (!io_s.ok()) {
           s = io_s;
           manifest_io_status = io_s;
@@ -5617,7 +5623,7 @@ Status VersionSet::ProcessManifestWrites(
 
       if (s.ok()) {
         io_s =
-            SyncManifest(db_options_, write_options, descriptor_log_->file());
+            SyncManifest(db_options_, write_options, raw_desc_log_ptr->file());
         manifest_io_status = io_s;
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
@@ -5635,9 +5641,9 @@ Status VersionSet::ProcessManifestWrites(
       assert(manifest_io_status.ok());
     }
     if (s.ok() && new_descriptor_log) {
-      io_s = SetCurrentFile(write_options, fs_.get(), dbname_,
-                            pending_manifest_file_number_,
-                            dir_contains_current_file);
+      io_s = SetCurrentFile(
+          write_options, fs_.get(), dbname_, pending_manifest_file_number_,
+          file_options_.temperature, dir_contains_current_file);
       if (!io_s.ok()) {
         s = io_s;
         // Quarantine old manifest file in case new manifest file's CURRENT file
@@ -5650,7 +5656,7 @@ Status VersionSet::ProcessManifestWrites(
 
     if (s.ok()) {
       // find offset in manifest file where this version is stored.
-      new_manifest_file_size = descriptor_log_->file()->GetFileSize();
+      new_manifest_file_size = raw_desc_log_ptr->file()->GetFileSize();
     }
 
     if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
@@ -5696,6 +5702,7 @@ Status VersionSet::ProcessManifestWrites(
   // Append the old manifest file to the obsolete_manifest_ list to be deleted
   // by PurgeObsoleteFiles later.
   if (s.ok() && new_descriptor_log) {
+    descriptor_log_ = std::move(new_desc_log_ptr);
     obsolete_manifests_.emplace_back(
         DescriptorFileName("", manifest_file_number_));
   }
@@ -5765,14 +5772,11 @@ Status VersionSet::ProcessManifestWrites(
     for (auto v : versions) {
       delete v;
     }
-    if (manifest_io_status.ok()) {
-      manifest_file_number_ = pending_manifest_file_number_;
-      manifest_file_size_ = new_manifest_file_size;
-    }
     // If manifest append failed for whatever reason, the file could be
     // corrupted. So we need to force the next version update to start a
     // new manifest file.
     descriptor_log_.reset();
+    new_desc_log_ptr.reset();
     // If manifest operations failed, then we know the CURRENT file still
     // points to the original MANIFEST. Therefore, we can safely delete the
     // new MANIFEST.
@@ -5799,7 +5803,7 @@ Status VersionSet::ProcessManifestWrites(
     // a) CURRENT points to the new MANIFEST, and the new MANIFEST is present.
     // b) CURRENT points to the original MANIFEST, and the original MANIFEST
     //    also exists.
-    if (new_descriptor_log && !manifest_io_status.ok()) {
+    if (!manifest_io_status.ok() && new_descriptor_log) {
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
@@ -6080,7 +6084,8 @@ Status VersionSet::Recover(
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_found_and_missing_files=*/false, no_error_if_files_missing,
-        io_tracer_, read_options, EpochNumberRequirement::kMightMissing);
+        io_tracer_, read_options, /*allow_incomplete_valid_version=*/false,
+        EpochNumberRequirement::kMightMissing);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -6256,7 +6261,8 @@ Status VersionSet::TryRecoverFromOneManifest(
                      /*checksum=*/true, /*log_num=*/0);
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
-      read_options, EpochNumberRequirement::kMightMissing);
+      read_options, /*allow_incomplete_valid_version=*/true,
+      EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 
@@ -7477,7 +7483,7 @@ Status ReactiveVersionSet::ReadAndApply(
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());
   }
   if (files_to_delete) {
-    *files_to_delete = std::move(manifest_tailer_->GetIntermediateFiles());
+    *files_to_delete = manifest_tailer_->GetAndClearIntermediateFiles();
   }
 
   return s;

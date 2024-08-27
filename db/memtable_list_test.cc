@@ -287,6 +287,7 @@ TEST_F(MemTableListTest, GetTest) {
 
   // Fetch the newly written keys
   merge_context.Clear();
+  s = Status::OK();
   found = mem->Get(LookupKey("key1", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
@@ -295,6 +296,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(value, "value1");
 
   merge_context.Clear();
+  s = Status::OK();
   found = mem->Get(LookupKey("key1", 2), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
@@ -303,6 +305,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
+  s = Status::OK();
   found = mem->Get(LookupKey("key2", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
@@ -311,6 +314,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(value, "value2.2");
 
   merge_context.Clear();
+  s = Status::OK();
   found = mem->Get(LookupKey("key3", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
@@ -350,6 +354,7 @@ TEST_F(MemTableListTest, GetTest) {
 
   // Fetch keys via MemTableList
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key1", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -357,6 +362,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
+  s = Status::OK();
   found = list.current()->Get(LookupKey("key1", saved_seq), &value,
                               /*columns=*/nullptr, /*timestamp=*/nullptr, &s,
                               &merge_context, &max_covering_tombstone_seq,
@@ -365,6 +371,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ("value1", value);
 
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key2", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -373,12 +380,14 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(value, "value2.3");
 
   merge_context.Clear();
+  s = Status::OK();
   found = list.current()->Get(LookupKey("key2", 1), &value, /*columns=*/nullptr,
                               /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, ReadOptions());
   ASSERT_FALSE(found);
 
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key3", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -438,6 +447,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Fetch the newly written keys
   merge_context.Clear();
+  s = Status::OK();
   found = mem->Get(LookupKey("key1", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
@@ -446,6 +456,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
+  s = Status::OK();
   found = mem->Get(LookupKey("key2", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
@@ -462,6 +473,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Fetch keys via MemTableList
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key1", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -469,6 +481,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key2", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -508,6 +521,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Verify keys are present in history
   merge_context.Clear();
+  s = Status::OK();
   found = list.current()->GetFromHistory(
       LookupKey("key1", seq), &value, /*columns=*/nullptr,
       /*timestamp=*/nullptr, &s, &merge_context, &max_covering_tombstone_seq,
@@ -515,6 +529,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
+  s = Status::OK();
   found = list.current()->GetFromHistory(
       LookupKey("key2", seq), &value, /*columns=*/nullptr,
       /*timestamp=*/nullptr, &s, &merge_context, &max_covering_tombstone_seq,
@@ -568,6 +583,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Verify keys are no longer in MemTableList
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key1", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -575,6 +591,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_FALSE(found);
 
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key2", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -582,6 +599,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_FALSE(found);
 
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key3", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,
@@ -590,6 +608,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Verify that the second memtable's keys are in the history
   merge_context.Clear();
+  s = Status::OK();
   found = list.current()->GetFromHistory(
       LookupKey("key1", seq), &value, /*columns=*/nullptr,
       /*timestamp=*/nullptr, &s, &merge_context, &max_covering_tombstone_seq,
@@ -597,6 +616,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
+  s = Status::OK();
   found = list.current()->GetFromHistory(
       LookupKey("key3", seq), &value, /*columns=*/nullptr,
       /*timestamp=*/nullptr, &s, &merge_context, &max_covering_tombstone_seq,
@@ -606,6 +626,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Verify that key2 from the first memtable is no longer in the history
   merge_context.Clear();
+  s = Status::OK();
   found =
       list.current()->Get(LookupKey("key2", seq), &value, /*columns=*/nullptr,
                           /*timestamp=*/nullptr, &s, &merge_context,

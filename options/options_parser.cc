@@ -69,8 +69,9 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
   }
   std::unique_ptr<FSWritableFile> wf;
 
-  Status s =
-      fs->NewWritableFile(file_name, FileOptions(), &wf, nullptr);
+  FileOptions file_options;
+  file_options.temperature = db_opt.metadata_write_temperature;
+  Status s = fs->NewWritableFile(file_name, file_options, &wf, nullptr);
   if (!s.ok()) {
     return s;
   }

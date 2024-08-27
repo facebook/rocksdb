@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -26,6 +27,7 @@
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 
@@ -6542,6 +6544,235 @@ TEST_P(RenameCurrentTest, Compaction) {
   Reopen(options);
   ASSERT_EQ("NOT_FOUND", Get("foo"));
   ASSERT_EQ("d_value", Get("d"));
+}
+
+TEST_F(DBTest2, VariousFileTemperatures) {
+  constexpr size_t kNumberFileTypes = static_cast<size_t>(kBlobFile) + 1U;
+
+  struct MyTestFS : public FileTemperatureTestFS {
+    explicit MyTestFS(const std::shared_ptr<FileSystem>& fs)
+        : FileTemperatureTestFS(fs) {
+      Reset();
+    }
+
+    IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSWritableFile>* result,
+                             IODebugContext* dbg) override {
+      IOStatus ios =
+          FileTemperatureTestFS::NewWritableFile(fname, opts, result, dbg);
+      if (ios.ok()) {
+        uint64_t number;
+        FileType type;
+        if (ParseFileName(GetFileName(fname), &number, "LOG", &type)) {
+          if (type == kTableFile) {
+            // Not checked here
+          } else if (type == kWalFile) {
+            if (opts.temperature != expected_wal_temperature) {
+              std::cerr << "Attempt to open " << fname << " with temperature "
+                        << temperature_to_string[opts.temperature]
+                        << " rather than "
+                        << temperature_to_string[expected_wal_temperature]
+                        << std::endl;
+              assert(false);
+            }
+          } else if (type == kDescriptorFile) {
+            if (opts.temperature != expected_manifest_temperature) {
+              std::cerr << "Attempt to open " << fname << " with temperature "
+                        << temperature_to_string[opts.temperature]
+                        << " rather than "
+                        << temperature_to_string[expected_wal_temperature]
+                        << std::endl;
+              assert(false);
+            }
+          } else if (opts.temperature != expected_other_metadata_temperature) {
+            std::cerr << "Attempt to open " << fname << " with temperature "
+                      << temperature_to_string[opts.temperature]
+                      << " rather than "
+                      << temperature_to_string[expected_wal_temperature]
+                      << std::endl;
+            assert(false);
+          }
+          UpdateCount(type, 1);
+        }
+      }
+      return ios;
+    }
+
+    IOStatus RenameFile(const std::string& src, const std::string& dst,
+                        const IOOptions& options,
+                        IODebugContext* dbg) override {
+      IOStatus ios = FileTemperatureTestFS::RenameFile(src, dst, options, dbg);
+      if (ios.ok()) {
+        uint64_t number;
+        FileType src_type;
+        FileType dst_type;
+        assert(ParseFileName(GetFileName(src), &number, "LOG", &src_type));
+        assert(ParseFileName(GetFileName(dst), &number, "LOG", &dst_type));
+
+        UpdateCount(src_type, -1);
+        UpdateCount(dst_type, 1);
+      }
+      return ios;
+    }
+
+    void UpdateCount(FileType type, int delta) {
+      size_t i = static_cast<size_t>(type);
+      assert(i < kNumberFileTypes);
+      counts[i].FetchAddRelaxed(delta);
+    }
+
+    std::map<FileType, size_t> PopCounts() {
+      std::map<FileType, size_t> ret;
+      for (size_t i = 0; i < kNumberFileTypes; ++i) {
+        int c = counts[i].ExchangeRelaxed(0);
+        if (c > 0) {
+          ret[static_cast<FileType>(i)] = c;
+        }
+      }
+      return ret;
+    }
+
+    FileOptions OptimizeForLogWrite(
+        const FileOptions& file_options,
+        const DBOptions& /*db_options*/) const override {
+      FileOptions opts = file_options;
+      if (optimize_wal_temperature != Temperature::kUnknown) {
+        opts.temperature = optimize_wal_temperature;
+      }
+      return opts;
+    }
+
+    FileOptions OptimizeForManifestWrite(
+        const FileOptions& file_options) const override {
+      FileOptions opts = file_options;
+      if (optimize_manifest_temperature != Temperature::kUnknown) {
+        opts.temperature = optimize_manifest_temperature;
+      }
+      return opts;
+    }
+
+    void Reset() {
+      optimize_manifest_temperature = Temperature::kUnknown;
+      optimize_wal_temperature = Temperature::kUnknown;
+      expected_manifest_temperature = Temperature::kUnknown;
+      expected_other_metadata_temperature = Temperature::kUnknown;
+      expected_wal_temperature = Temperature::kUnknown;
+      for (auto& c : counts) {
+        c.StoreRelaxed(0);
+      }
+    }
+
+    Temperature optimize_manifest_temperature;
+    Temperature optimize_wal_temperature;
+    Temperature expected_manifest_temperature;
+    Temperature expected_other_metadata_temperature;
+    Temperature expected_wal_temperature;
+    std::array<RelaxedAtomic<int>, kNumberFileTypes> counts;
+  };
+
+  // We don't have enough non-unknown temps to confidently distinguish that
+  // a specific setting caused a specific outcome, in a single run. This is a
+  // reasonable work-around without blowing up test time. Only returns
+  // non-unknown temperatures.
+  auto RandomTemp = [] {
+    static std::vector<Temperature> temps = {
+        Temperature::kHot, Temperature::kWarm, Temperature::kCold};
+    return temps[Random::GetTLSInstance()->Uniform(
+        static_cast<int>(temps.size()))];
+  };
+
+  auto test_fs = std::make_shared<MyTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
+  for (bool use_optimize : {false, true}) {
+    std::cerr << "use_optimize: " << std::to_string(use_optimize) << std::endl;
+    for (bool use_temp_options : {false, true}) {
+      std::cerr << "use_temp_options: " << std::to_string(use_temp_options)
+                << std::endl;
+
+      Options options = CurrentOptions();
+      // Currently require for last level temperature
+      options.compaction_style = kCompactionStyleUniversal;
+      options.env = env.get();
+      test_fs->Reset();
+      if (use_optimize) {
+        test_fs->optimize_manifest_temperature = RandomTemp();
+        test_fs->expected_manifest_temperature =
+            test_fs->optimize_manifest_temperature;
+        test_fs->optimize_wal_temperature = RandomTemp();
+        test_fs->expected_wal_temperature = test_fs->optimize_wal_temperature;
+      }
+      if (use_temp_options) {
+        options.metadata_write_temperature = RandomTemp();
+        test_fs->expected_manifest_temperature =
+            options.metadata_write_temperature;
+        test_fs->expected_other_metadata_temperature =
+            options.metadata_write_temperature;
+        options.wal_write_temperature = RandomTemp();
+        test_fs->expected_wal_temperature = options.wal_write_temperature;
+        options.last_level_temperature = RandomTemp();
+        options.default_write_temperature = RandomTemp();
+      }
+
+      DestroyAndReopen(options);
+      Defer closer([&] { Close(); });
+
+      using FTC = std::map<FileType, size_t>;
+      // Files on DB startup
+      ASSERT_EQ(test_fs->PopCounts(), FTC({{kWalFile, 1},
+                                           {kDescriptorFile, 2},
+                                           {kCurrentFile, 2},
+                                           {kIdentityFile, 1},
+                                           {kOptionsFile, 1}}));
+
+      // Temperature count map
+      using TCM = std::map<Temperature, size_t>;
+      ASSERT_EQ(test_fs->CountCurrentSstFilesByTemp(), TCM({}));
+
+      ASSERT_OK(Put("foo", "1"));
+      ASSERT_OK(Put("bar", "1"));
+      ASSERT_OK(Flush());
+      ASSERT_OK(Put("foo", "2"));
+      ASSERT_OK(Put("bar", "2"));
+      ASSERT_OK(Flush());
+
+      ASSERT_EQ(test_fs->CountCurrentSstFilesByTemp(),
+                TCM({{options.default_write_temperature, 2}}));
+
+      ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+      ASSERT_EQ(test_fs->CountCurrentSstFilesByTemp(),
+                TCM({{options.last_level_temperature, 1}}));
+
+      ASSERT_OK(Put("foo", "3"));
+      ASSERT_OK(Put("bar", "3"));
+      ASSERT_OK(Flush());
+
+      // Just in memtable/WAL
+      ASSERT_OK(Put("dog", "3"));
+
+      {
+        TCM expected;
+        expected[options.default_write_temperature] += 1;
+        expected[options.last_level_temperature] += 1;
+        ASSERT_EQ(test_fs->CountCurrentSstFilesByTemp(), expected);
+      }
+
+      // New files during operation
+      ASSERT_EQ(test_fs->PopCounts(), FTC({{kWalFile, 3}, {kTableFile, 4}}));
+
+      Reopen(options);
+
+      // New files during re-open/recovery
+      ASSERT_EQ(test_fs->PopCounts(), FTC({{kWalFile, 1},
+                                           {kTableFile, 1},
+                                           {kDescriptorFile, 1},
+                                           {kCurrentFile, 1},
+                                           {kOptionsFile, 1}}));
+
+      Destroy(options);
+    }
+  }
 }
 
 TEST_F(DBTest2, LastLevelTemperature) {

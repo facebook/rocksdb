@@ -552,7 +552,8 @@ class CompactionJobTestBase : public testing::Test {
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
         /*error_handler=*/nullptr, /*read_only=*/false));
     compaction_job_stats_.Reset();
-    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
+    ASSERT_OK(
+        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);
@@ -575,7 +576,8 @@ class CompactionJobTestBase : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
+    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                       Temperature::kUnknown, nullptr);
 
     ASSERT_OK(s);
 

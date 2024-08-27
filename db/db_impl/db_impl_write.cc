@@ -556,6 +556,35 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += seq_inc;
 
+    if (log_context.need_log_sync) {
+      VersionEdit synced_wals;
+      log_write_mutex_.Lock();
+      if (status.ok()) {
+        MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync,
+                       &synced_wals);
+      } else {
+        MarkLogsNotSynced(logfile_number_);
+      }
+      log_write_mutex_.Unlock();
+      if (status.ok() && synced_wals.IsWalAddition()) {
+        InstrumentedMutexLock l(&mutex_);
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        const ReadOptions read_options;
+        status = ApplyWALToManifest(read_options, write_options, &synced_wals);
+      }
+
+      // Requesting sync with two_write_queues_ is expected to be very rare. We
+      // hence provide a simple implementation that is not necessarily
+      // efficient.
+      if (status.ok() && two_write_queues_) {
+        if (manual_wal_flush_) {
+          status = FlushWAL(true);
+        } else {
+          status = SyncWAL();
+        }
+      }
+    }
+
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
       SequenceNumber next_sequence = current_sequence;
@@ -637,34 +666,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
   } else {
     assert(pre_release_cb_status.ok());
-  }
-
-  if (log_context.need_log_sync) {
-    VersionEdit synced_wals;
-    log_write_mutex_.Lock();
-    if (status.ok()) {
-      MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync,
-                     &synced_wals);
-    } else {
-      MarkLogsNotSynced(logfile_number_);
-    }
-    log_write_mutex_.Unlock();
-    if (status.ok() && synced_wals.IsWalAddition()) {
-      InstrumentedMutexLock l(&mutex_);
-      // TODO: plumb Env::IOActivity, Env::IOPriority
-      const ReadOptions read_options;
-      status = ApplyWALToManifest(read_options, write_options, &synced_wals);
-    }
-
-    // Requesting sync with two_write_queues_ is expected to be very rare. We
-    // hence provide a simple implementation that is not necessarily efficient.
-    if (two_write_queues_) {
-      if (manual_wal_flush_) {
-        status = FlushWAL(true);
-      } else {
-        status = SyncWAL();
-      }
-    }
   }
 
   bool should_exit_batch_group = true;
@@ -968,21 +969,17 @@ Status DBImpl::WriteImplWALOnly(
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
   if (publish_last_seq == kDoPublishLastSeq) {
-    Status status;
-
     // Currently we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
-    WriteContext write_context;
-    if (error_handler_.IsDBStopped()) {
-      status = error_handler_.GetBGError();
-    }
+
     // TODO(myabandeh): Make preliminary checks thread-safe so we could do them
     // without paying the cost of obtaining the mutex.
-    if (status.ok()) {
-      LogContext log_context;
-      status = PreprocessWrite(write_options, &log_context, &write_context);
-      WriteStatusCheckOnLocked(status);
-    }
+    LogContext log_context;
+    WriteContext write_context;
+    Status status =
+        PreprocessWrite(write_options, &log_context, &write_context);
+    WriteStatusCheckOnLocked(status);
+
     if (!status.ok()) {
       WriteThread::WriteGroup write_group;
       write_thread->EnterAsBatchGroupLeader(&w, &write_group);
@@ -1410,6 +1407,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   total_log_size_ += log_entry.size();
   log_file_number_size.AddSize(*log_size);
   log_empty_ = false;
+
   return io_s;
 }
 
@@ -1482,9 +1480,14 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
         if (!io_s.ok()) {
           break;
         }
-        io_s = log.writer->file()->Sync(opts, immutable_db_options_.use_fsync);
-        if (!io_s.ok()) {
-          break;
+        // If last sync failed on a later WAL, this could be a fully synced
+        // and closed WAL that just needs to be recorded as synced in the
+        // manifest.
+        if (auto* f = log.writer->file()) {
+          io_s = f->Sync(opts, immutable_db_options_.use_fsync);
+          if (!io_s.ok()) {
+            break;
+          }
         }
       }
     }
@@ -1649,7 +1652,8 @@ Status DBImpl::WriteRecoverableState() {
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
     autovector<ColumnFamilyData*>* selected_cfds,
-    const autovector<ColumnFamilyData*>& provided_candidate_cfds) {
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+    FlushReason flush_reason) {
   mutex_.AssertHeld();
   assert(selected_cfds);
 
@@ -1672,7 +1676,8 @@ void DBImpl::SelectColumnFamiliesForAtomicFlush(
       continue;
     }
     if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-        !cached_recoverable_state_empty_.load()) {
+        !cached_recoverable_state_empty_.load() ||
+        IsRecoveryFlush(flush_reason)) {
       selected_cfds->push_back(cfd);
     }
   }

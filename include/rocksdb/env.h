@@ -30,6 +30,7 @@
 #include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/types.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -159,6 +160,9 @@ class Env : public Customizable {
 
     // Size of file in bytes
     uint64_t size_bytes;
+
+    // EXPERIMENTAL - only provided by some implementations
+    Temperature temperature = Temperature::kUnknown;
   };
 
   Env();

@@ -238,6 +238,11 @@ class KeySegmentsExtractor {
     // determined by segment 0 in some way, often the first byte.) The enum
     // scalar values do not need to be related to key order.
     KeyCategory category = kDefaultCategory;
+
+    void Reset() {
+      segment_ends.clear();
+      category = kDefaultCategory;
+    }
   };
 
   virtual ~KeySegmentsExtractor() {}

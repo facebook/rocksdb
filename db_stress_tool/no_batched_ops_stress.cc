@@ -1611,67 +1611,90 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
+    // To track the final write status
+    Status s;
+    // To track the initial write status
+    Status initial_write_s;
+    // To track whether WAL write may have succeeded during the initial failed
+    // write
+    bool initial_wal_write_may_succeed = true;
+
     PendingExpectedValue pending_expected_value =
         shared->PreparePut(rand_column_family, rand_key);
+
     const uint32_t value_base = pending_expected_value.GetFinalValueBase();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
-    Status s;
+    uint64_t wait_for_recover_start_time = 0;
+    do {
+      // In order to commit the expected state for the initial write failed with
+      // injected retryable error and successful WAL write, retry the write
+      // until it succeeds after the recovery finishes
+      if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+          initial_wal_write_may_succeed) {
+        std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
+      }
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
+        if (!FLAGS_use_txn) {
+          if (FLAGS_use_attribute_group) {
+            s = db_->PutEntity(write_opts, k,
+                               GenerateAttributeGroups({cfh}, value_base, v));
+          } else {
+            s = db_->PutEntity(write_opts, cfh, k,
+                               GenerateWideColumns(value_base, v));
+          }
+        } else {
+          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+            return txn.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+          });
+        }
+      } else if (FLAGS_use_timed_put_one_in > 0 &&
+                 ((value_base + kLargePrimeForCommonFactorSkew) %
+                  FLAGS_use_timed_put_one_in) == 0) {
+        WriteBatch wb;
+        uint64_t write_unix_time = GetWriteUnixTime(thread);
+        s = wb.TimedPut(cfh, k, v, write_unix_time);
+        if (s.ok()) {
+          s = db_->Write(write_opts, &wb);
+        }
+      } else if (FLAGS_use_merge) {
+        if (!FLAGS_use_txn) {
+          if (FLAGS_user_timestamp_size == 0) {
+            s = db_->Merge(write_opts, cfh, k, v);
+          } else {
+            s = db_->Merge(write_opts, cfh, k, write_ts, v);
+          }
+        } else {
+          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+            return txn.Merge(cfh, k, v);
+          });
+        }
+      } else {
+        if (!FLAGS_use_txn) {
+          if (FLAGS_user_timestamp_size == 0) {
+            s = db_->Put(write_opts, cfh, k, v);
+          } else {
+            s = db_->Put(write_opts, cfh, k, write_ts, v);
+          }
+        } else {
+          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+            return txn.Put(cfh, k, v);
+          });
+        }
+      }
+      UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                &initial_wal_write_may_succeed,
+                                &wait_for_recover_start_time);
 
-    if (FLAGS_use_put_entity_one_in > 0 &&
-        (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      if (!FLAGS_use_txn) {
-        if (FLAGS_use_attribute_group) {
-          s = db_->PutEntity(write_opts, k,
-                             GenerateAttributeGroups({cfh}, value_base, v));
-        } else {
-          s = db_->PutEntity(write_opts, cfh, k,
-                             GenerateWideColumns(value_base, v));
-        }
-      } else {
-        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-          return txn.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
-        });
-      }
-    } else if (FLAGS_use_timed_put_one_in > 0 &&
-               ((value_base + kLargePrimeForCommonFactorSkew) %
-                FLAGS_use_timed_put_one_in) == 0) {
-      WriteBatch wb;
-      uint64_t write_unix_time = GetWriteUnixTime(thread);
-      s = wb.TimedPut(cfh, k, v, write_unix_time);
-      if (s.ok()) {
-        s = db_->Write(write_opts, &wb);
-      }
-    } else if (FLAGS_use_merge) {
-      if (!FLAGS_use_txn) {
-        if (FLAGS_user_timestamp_size == 0) {
-          s = db_->Merge(write_opts, cfh, k, v);
-        } else {
-          s = db_->Merge(write_opts, cfh, k, write_ts, v);
-        }
-      } else {
-        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-          return txn.Merge(cfh, k, v);
-        });
-      }
-    } else {
-      if (!FLAGS_use_txn) {
-        if (FLAGS_user_timestamp_size == 0) {
-          s = db_->Put(write_opts, cfh, k, v);
-        } else {
-          s = db_->Put(write_opts, cfh, k, write_ts, v);
-        }
-      } else {
-        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-          return txn.Put(cfh, k, v);
-        });
-      }
-    }
+    } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+             initial_wal_write_may_succeed);
 
     if (!s.ok()) {
       pending_expected_value.Rollback();
       if (IsErrorInjectedAndRetryable(s)) {
+        assert(!initial_wal_write_may_succeed);
         return s;
       } else if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -1685,11 +1708,15 @@ class NonBatchedOpsStressTest : public StressTest {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
         thread->shared->SafeTerminate();
       }
+    } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestPut");
+      pending_expected_value.Commit();
+      thread->stats.AddBytesForWrites(1, sz);
+      PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
+                    sz);
     }
-    pending_expected_value.Commit();
-    thread->stats.AddBytesForWrites(1, sz);
-    PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
-                  sz);
     return s;
   }
 
@@ -1711,27 +1738,51 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice key = key_str;
     auto cfh = column_families_[rand_column_family];
 
+    // To track the final write status
+    Status s;
+    // To track the initial write status
+    Status initial_write_s;
+    // To track whether WAL write may have succeeded during the initial failed
+    // write
+    bool initial_wal_write_may_succeed = true;
+
     // Use delete if the key may be overwritten and a single deletion
     // otherwise.
-    Status s;
     if (shared->AllowsOverwrite(rand_key)) {
       PendingExpectedValue pending_expected_value =
           shared->PrepareDelete(rand_column_family, rand_key);
-      if (!FLAGS_use_txn) {
-        if (FLAGS_user_timestamp_size == 0) {
-          s = db_->Delete(write_opts, cfh, key);
-        } else {
-          s = db_->Delete(write_opts, cfh, key, write_ts);
+
+      uint64_t wait_for_recover_start_time = 0;
+      do {
+        // In order to commit the expected state for the initial write failed
+        // with injected retryable error and successful WAL write, retry the
+        // write until it succeeds after the recovery finishes
+        if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+            initial_wal_write_may_succeed) {
+          std::this_thread::sleep_for(
+              std::chrono::microseconds(1 * 1000 * 1000));
         }
-      } else {
-        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-          return txn.Delete(cfh, key);
-        });
-      }
+        if (!FLAGS_use_txn) {
+          if (FLAGS_user_timestamp_size == 0) {
+            s = db_->Delete(write_opts, cfh, key);
+          } else {
+            s = db_->Delete(write_opts, cfh, key, write_ts);
+          }
+        } else {
+          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+            return txn.Delete(cfh, key);
+          });
+        }
+        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                  &initial_wal_write_may_succeed,
+                                  &wait_for_recover_start_time);
+      } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+               initial_wal_write_may_succeed);
 
       if (!s.ok()) {
         pending_expected_value.Rollback();
         if (IsErrorInjectedAndRetryable(s)) {
+          assert(!initial_wal_write_may_succeed);
           return s;
         } else if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
@@ -1746,27 +1797,48 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
           thread->shared->SafeTerminate();
         }
+      } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
+        pending_expected_value.Commit();
+        thread->stats.AddDeletes(1);
       }
-      pending_expected_value.Commit();
-      thread->stats.AddDeletes(1);
     } else {
       PendingExpectedValue pending_expected_value =
           shared->PrepareSingleDelete(rand_column_family, rand_key);
-      if (!FLAGS_use_txn) {
-        if (FLAGS_user_timestamp_size == 0) {
-          s = db_->SingleDelete(write_opts, cfh, key);
-        } else {
-          s = db_->SingleDelete(write_opts, cfh, key, write_ts);
+
+      uint64_t wait_for_recover_start_time = 0;
+      do {
+        // In order to commit the expected state for the initial write failed
+        // with injected retryable error and successful WAL write, retry the
+        // write until it succeeds after the recovery finishes
+        if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+            initial_wal_write_may_succeed) {
+          std::this_thread::sleep_for(
+              std::chrono::microseconds(1 * 1000 * 1000));
         }
-      } else {
-        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-          return txn.SingleDelete(cfh, key);
-        });
-      }
+        if (!FLAGS_use_txn) {
+          if (FLAGS_user_timestamp_size == 0) {
+            s = db_->SingleDelete(write_opts, cfh, key);
+          } else {
+            s = db_->SingleDelete(write_opts, cfh, key, write_ts);
+          }
+        } else {
+          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+            return txn.SingleDelete(cfh, key);
+          });
+        }
+        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                  &initial_wal_write_may_succeed,
+                                  &wait_for_recover_start_time);
+      } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+               initial_wal_write_may_succeed);
 
       if (!s.ok()) {
         pending_expected_value.Rollback();
         if (IsErrorInjectedAndRetryable(s)) {
+          assert(!initial_wal_write_may_succeed);
           return s;
         } else if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
@@ -1781,9 +1853,13 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
           thread->shared->SafeTerminate();
         }
+      } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
+        pending_expected_value.Commit();
+        thread->stats.AddSingleDeletes(1);
       }
-      pending_expected_value.Commit();
-      thread->stats.AddSingleDeletes(1);
     }
     return s;
   }
@@ -1805,16 +1881,20 @@ class NonBatchedOpsStressTest : public StressTest {
       rand_key =
           thread->rand.Next() % (max_key - FLAGS_range_deletion_width + 1);
     }
-    for (int j = 0; j < FLAGS_range_deletion_width; ++j) {
-      if (j == 0 ||
-          ((rand_key + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
-        range_locks.emplace_back(new MutexLock(
-            shared->GetMutexForKey(rand_column_family, rand_key + j)));
-      }
-    }
+    GetDeleteRangeKeyLocks(thread, rand_column_family, rand_key, &range_locks);
+
+    // To track the final write status
+    Status s;
+    // To track the initial write status
+    Status initial_write_s;
+    // To track whether WAL write may have succeeded during the initial failed
+    // write
+    bool initial_wal_write_may_succeed = true;
+
     std::vector<PendingExpectedValue> pending_expected_values =
         shared->PrepareDeleteRange(rand_column_family, rand_key,
                                    rand_key + FLAGS_range_deletion_width);
+
     const int covered = static_cast<int>(pending_expected_values.size());
     std::string keystr = Key(rand_key);
     Slice key = keystr;
@@ -1823,20 +1903,36 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice end_key = end_keystr;
     std::string write_ts_str;
     Slice write_ts;
-    Status s;
-    if (FLAGS_user_timestamp_size) {
-      write_ts_str = GetNowNanos();
-      write_ts = write_ts_str;
-      s = db_->DeleteRange(write_opts, cfh, key, end_key, write_ts);
-    } else {
-      s = db_->DeleteRange(write_opts, cfh, key, end_key);
-    }
+    uint64_t wait_for_recover_start_time = 0;
+
+    do {
+      // In order to commit the expected state for the initial write failed with
+      // injected retryable error and successful WAL write, retry the write
+      // until it succeeds after the recovery finishes
+      if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+          initial_wal_write_may_succeed) {
+        std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
+      }
+      if (FLAGS_user_timestamp_size) {
+        write_ts_str = GetNowNanos();
+        write_ts = write_ts_str;
+        s = db_->DeleteRange(write_opts, cfh, key, end_key, write_ts);
+      } else {
+        s = db_->DeleteRange(write_opts, cfh, key, end_key);
+      }
+      UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                &initial_wal_write_may_succeed,
+                                &wait_for_recover_start_time);
+    } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
+             initial_wal_write_may_succeed);
+
     if (!s.ok()) {
       for (PendingExpectedValue& pending_expected_value :
            pending_expected_values) {
         pending_expected_value.Rollback();
       }
       if (IsErrorInjectedAndRetryable(s)) {
+        assert(!initial_wal_write_may_succeed);
         return s;
       } else if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -1850,13 +1946,17 @@ class NonBatchedOpsStressTest : public StressTest {
         fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
         thread->shared->SafeTerminate();
       }
+    } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestDeleteRange");
+      for (PendingExpectedValue& pending_expected_value :
+           pending_expected_values) {
+        pending_expected_value.Commit();
+      }
+      thread->stats.AddRangeDeletions(1);
+      thread->stats.AddCoveredByRangeDeletions(covered);
     }
-    for (PendingExpectedValue& pending_expected_value :
-         pending_expected_values) {
-      pending_expected_value.Commit();
-    }
-    thread->stats.AddRangeDeletions(1);
-    thread->stats.AddCoveredByRangeDeletions(covered);
     return s;
   }
 
@@ -1881,6 +1981,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // ingestion a clean slate
       s = db_stress_env->DeleteFile(sst_filename);
     }
+
     if (fault_fs_guard) {
       fault_fs_guard->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataRead);
@@ -1923,6 +2024,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
       PendingExpectedValue pending_expected_value =
           shared->PreparePut(column_family, key);
+
       const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       values.push_back(value_base);
       pending_expected_values.push_back(pending_expected_value);
@@ -2485,6 +2587,8 @@ class NonBatchedOpsStressTest : public StressTest {
         // Value doesn't exist in db, update state to reflect that
         shared->SyncDelete(cf, key);
         return true;
+      } else {
+        assert(false);
       }
     }
     char expected_value_data[kValueMaxLen];
@@ -2583,7 +2687,11 @@ class NonBatchedOpsStressTest : public StressTest {
     SharedState* const shared = thread->shared;
     assert(shared);
 
-    if (!shared->AllowsOverwrite(key) && shared->Exists(column_family, key)) {
+    const ExpectedValue expected_value =
+        thread->shared->Get(column_family, key);
+    bool may_exist = !ExpectedValueHelper::MustHaveNotExisted(expected_value,
+                                                              expected_value);
+    if (!shared->AllowsOverwrite(key) && may_exist) {
       // Just do read your write checks for keys that allow overwrites.
       return;
     }

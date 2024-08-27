@@ -27,7 +27,7 @@ class StressTest {
  public:
   StressTest();
 
-  virtual ~StressTest();
+  virtual ~StressTest() {}
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
@@ -48,6 +48,12 @@ class StressTest {
     return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
            FLAGS_manual_wal_flush_one_in > 0;
   }
+  Status EnableAutoCompaction() {
+    assert(options_.disable_auto_compactions);
+    Status s = db_->EnableAutoCompaction(column_families_);
+    return s;
+  }
+  void CleanUp();
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
@@ -61,6 +67,55 @@ class StressTest {
       return 0;
     }
   }
+
+  void UpdateIfInitialWriteFails(Env* db_stress_env, const Status& write_s,
+                                 Status* initial_write_s,
+                                 bool* initial_wal_write_may_succeed,
+                                 uint64_t* wait_for_recover_start_time) {
+    assert(db_stress_env && initial_write_s && initial_wal_write_may_succeed &&
+           wait_for_recover_start_time);
+    // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
+    // first write fails
+    if (!write_s.ok() && (*initial_write_s).ok()) {
+      *initial_write_s = write_s;
+      *initial_wal_write_may_succeed =
+          !FaultInjectionTestFS::IsFailedToWriteToWALError(*initial_write_s);
+      *wait_for_recover_start_time = db_stress_env->NowMicros();
+    }
+  }
+
+  void PrintWriteRecoveryWaitTimeIfNeeded(Env* db_stress_env,
+                                          const Status& initial_write_s,
+                                          bool initial_wal_write_may_succeed,
+                                          uint64_t wait_for_recover_start_time,
+                                          const std::string& thread_name) {
+    assert(db_stress_env);
+    bool waited_for_recovery = !initial_write_s.ok() &&
+                               IsErrorInjectedAndRetryable(initial_write_s) &&
+                               initial_wal_write_may_succeed;
+    if (waited_for_recovery) {
+      uint64_t elapsed_sec =
+          (db_stress_env->NowMicros() - wait_for_recover_start_time) / 1000000;
+      if (elapsed_sec > 10) {
+        fprintf(stdout,
+                "%s thread slept to wait for write recovery for "
+                "%" PRIu64 " seconds\n",
+                thread_name.c_str(), elapsed_sec);
+      }
+    }
+  }
+  void GetDeleteRangeKeyLocks(
+      ThreadState* thread, int rand_column_family, int64_t rand_key,
+      std::vector<std::unique_ptr<MutexLock>>* range_locks) {
+    for (int j = 0; j < FLAGS_range_deletion_width; ++j) {
+      if (j == 0 ||
+          ((rand_key + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+        range_locks->emplace_back(new MutexLock(
+            thread->shared->GetMutexForKey(rand_column_family, rand_key + j)));
+      }
+    }
+  }
+
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
 
@@ -281,7 +336,8 @@ class StressTest {
 
   bool IsErrorInjectedAndRetryable(const Status& error_s) const {
     assert(!error_s.ok());
-    return error_s.getState() && std::strstr(error_s.getState(), "inject") &&
+    return error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s) &&
            !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
@@ -395,5 +451,6 @@ void InitializeOptionsGeneral(
 // user-defined timestamp.
 void CheckAndSetOptionsForUserTimestamp(Options& options);
 
+bool ShouldDisableAutoCompactionsBeforeVerifyDb();
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

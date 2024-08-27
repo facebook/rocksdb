@@ -49,14 +49,13 @@ class ExpectedState {
   // Does not requires external locking.
   ExpectedValue Get(int cf, int64_t key);
 
-  // Prepare a Delete that will be started but not finished yet
+  // Prepare a Delete that will be started but not finished yet.
   // This is useful for crash-recovery testing when the process may crash
   // before updating the corresponding expected value
   //
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  PendingExpectedValue PrepareDelete(int cf, int64_t key,
-                                     bool* prepared = nullptr);
+  PendingExpectedValue PrepareDelete(int cf, int64_t key);
 
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.

@@ -168,6 +168,7 @@ struct MutableCFOptions {
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
+        paranoid_memory_checks(options.paranoid_memory_checks),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level),
@@ -317,6 +318,7 @@ struct MutableCFOptions {
   Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;
   uint8_t block_protection_bytes_per_key;
+  bool paranoid_memory_checks;
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;

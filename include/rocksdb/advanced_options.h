@@ -61,18 +61,6 @@ enum CompactionPri : char {
   kRoundRobin = 0x4,
 };
 
-// Temperature of a file. Used to pass to FileSystem for a different
-// placement and/or coding.
-// Reserve some numbers in the middle, in case we need to insert new tier
-// there.
-enum class Temperature : uint8_t {
-  kUnknown = 0,
-  kHot = 0x04,
-  kWarm = 0x08,
-  kCold = 0x0C,
-  kLastTemperature,
-};
-
 struct FileTemperatureAge {
   Temperature temperature = Temperature::kUnknown;
   uint64_t age = 0;
@@ -813,7 +801,7 @@ struct AdvancedColumnFamilyOptions {
   // If this option is set, when creating the last level files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
-  // When using FIFO compaction, this option is ignored.
+  // Currently only compatible with universal compaction.
   //
   // Dynamically changeable through the SetOptions() API
   Temperature last_level_temperature = Temperature::kUnknown;
@@ -1089,6 +1077,13 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0 (no delay)
   // Dynamically changeable through the SetOptions() API.
   uint32_t bottommost_file_compaction_delay = 0;
+
+  // Enables additional integrity checks during reads/scans.
+  // Specifically, for skiplist-based memtables, we verify that keys visited
+  // are in order. This is helpful to detect corrupted memtable keys during
+  // reads. Enabling this feature incurs a performance overhead due to an
+  // additional key comparison during memtable lookup.
+  bool paranoid_memory_checks = false;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

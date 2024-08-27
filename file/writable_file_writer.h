@@ -22,6 +22,9 @@
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
+#ifndef NDEBUG
+#include "utilities/fault_injection_fs.h"
+#endif  // NDEBUG
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
@@ -233,13 +236,17 @@ class WritableFileWriter {
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
   ~WritableFileWriter() {
-    ThreadStatus::OperationType cur_op_type =
+    IOOptions io_options;
+#ifndef NDEBUG
+    // This is needed to pass the IOActivity related checks in stress test.
+    // See DbStressWritableFileWrapper.
+    ThreadStatus::OperationType op_type =
         ThreadStatusUtil::GetThreadOperation();
-    ThreadStatusUtil::SetThreadOperation(
-        ThreadStatus::OperationType::OP_UNKNOWN);
-    auto s = Close(IOOptions());
+    io_options.io_activity =
+        ThreadStatusUtil::TEST_GetExpectedIOActivity(op_type);
+#endif
+    auto s = Close(io_options);
     s.PermitUncheckedError();
-    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
 
   std::string file_name() const { return file_name_; }
@@ -304,6 +311,9 @@ class WritableFileWriter {
   // operating on the file after an error happens.
   void reset_seen_error() {
     seen_error_.store(false, std::memory_order_relaxed);
+#ifndef NDEBUG
+    seen_injected_error_.store(false, std::memory_order_relaxed);
+#endif  // NDEBUG
   }
   void set_seen_error(const Status& s) {
     seen_error_.store(true, std::memory_order_relaxed);
@@ -320,10 +330,14 @@ class WritableFileWriter {
   }
 #endif  // NDEBUG
 
+  // TODO(hx235): store the actual previous error status and return it here
   IOStatus GetWriterHasPreviousErrorStatus() {
 #ifndef NDEBUG
     if (seen_injected_error_.load(std::memory_order_relaxed)) {
-      return IOStatus::IOError("Writer has previous injected error.");
+      std::stringstream msg;
+      msg << "Writer has previous " << FaultInjectionTestFS::kInjected
+          << " error.";
+      return IOStatus::IOError(msg.str());
     }
 #endif  // NDEBUG
     return IOStatus::IOError("Writer has previous error.");

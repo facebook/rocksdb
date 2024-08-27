@@ -235,6 +235,11 @@ struct TransactionDBOptions {
                      const Slice& /*key*/)>
       rollback_deletion_type_callback;
 
+  // A flag to control for the whole DB whether user-defined timestamp based
+  // validation are enabled when applicable. Only WriteCommittedTxn support
+  // user-defined timestamps so this option only applies in this case.
+  bool enable_udt_validation = true;
+
  private:
   // 128 entries
   // Should the default value change, please also update wp_snapshot_cache_bits
@@ -318,6 +323,22 @@ struct TransactionOptions {
   // description. If a negative value is specified, then the default value from
   // TransactionDBOptions is used.
   int64_t write_batch_flush_threshold = -1;
+
+  // DO NOT USE.
+  // This is only a temporary option dedicated for MyRocks that will soon be
+  // removed.
+  // In normal use cases, meta info like column family's timestamp size is
+  // tracked at the transaction layer, so it's not necessary and even
+  // detrimental to track such info inside the internal WriteBatch because it
+  // may let anti-patterns like bypassing Transaction write APIs and directly
+  // write to its internal `WriteBatch` retrieved like this:
+  // https://github.com/facebook/mysql-5.6/blob/fb-mysql-8.0.32/storage/rocksdb/ha_rocksdb.cc#L4949-L4950
+  // Setting this option to true will keep aforementioned use case continue to
+  // work before it's refactored out.
+  // When this flag is enabled, we also intentionally only track the timestamp
+  // size in APIs that MyRocks currently are using, including Put, Merge, Delete
+  // DeleteRange, SingleDelete.
+  bool write_batch_track_timestamp_size = false;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB

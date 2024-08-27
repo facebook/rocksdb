@@ -235,7 +235,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
 
   AutoThreadOperationStageUpdater stage_run(ThreadStatus::STAGE_FLUSH_RUN);
   if (mems_.empty()) {
-    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Nothing in memtable to flush",
+    ROCKS_LOG_BUFFER(log_buffer_, "[%s] No memtable to flush",
                      cfd_->GetName().c_str());
     return Status::OK();
   }
@@ -1017,10 +1017,15 @@ Status FlushJob::WriteLevel0Table() {
     ROCKS_LOG_BUFFER(log_buffer_,
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
                      " bytes %s"
-                     "%s",
+                     " %s"
+                     " %s",
                      cfd_->GetName().c_str(), job_context_->job_id,
                      meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
                      s.ToString().c_str(),
+                     s.ok() && meta_.fd.GetFileSize() == 0
+                         ? "It's an empty SST file from a successful flush so "
+                           "won't be kept in the DB"
+                         : "",
                      meta_.marked_for_compaction ? " (needs compaction)" : "");
 
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
@@ -1151,6 +1156,11 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
   // Find the newest user-defined timestamps from all the flushed memtables.
   for (MemTable* m : mems_) {
     Slice table_newest_udt = m->GetNewestUDT();
+    // Empty memtables can be legitimately created and flushed, for example
+    // by error recovery flush attempts.
+    if (table_newest_udt.empty()) {
+      continue;
+    }
     if (cutoff_udt_.empty() ||
         ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) > 0) {
       if (!cutoff_udt_.empty()) {

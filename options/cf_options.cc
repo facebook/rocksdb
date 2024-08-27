@@ -531,6 +531,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, block_protection_bytes_per_key),
           OptionType::kUInt8T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"paranoid_memory_checks",
+         {offsetof(struct MutableCFOptions, paranoid_memory_checks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {kOptNameCompOpts,
          OptionTypeInfo::Struct(
              kOptNameCompOpts, &compression_options_type_info,
@@ -1104,6 +1108,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  ttl);
   ROCKS_LOG_INFO(log, "              periodic_compaction_seconds: %" PRIu64,
                  periodic_compaction_seconds);
+  ROCKS_LOG_INFO(log, "                   paranoid_memory_checks: %d",
+                 paranoid_memory_checks);
   std::string result;
   char buf[10];
   for (const auto m : max_bytes_for_level_multiplier_additional) {

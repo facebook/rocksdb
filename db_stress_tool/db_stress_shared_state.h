@@ -31,6 +31,7 @@ DECLARE_int32(compaction_thread_pool_adjust_interval);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_bool(error_recovery_with_no_fault_injection);
 DECLARE_bool(sync_fault_injection);
+DECLARE_int32(range_deletion_width);
 DECLARE_bool(disable_wal);
 DECLARE_int32(manual_wal_flush_one_in);
 DECLARE_int32(metadata_read_fault_one_in);
@@ -44,6 +45,8 @@ DECLARE_int32(open_write_fault_one_in);
 DECLARE_int32(open_read_fault_one_in);
 
 DECLARE_int32(inject_error_severity);
+DECLARE_bool(disable_auto_compactions);
+DECLARE_bool(enable_compaction_filter);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
@@ -147,7 +150,8 @@ class SharedState {
 
   ~SharedState() {
 #ifndef NDEBUG
-    if (FLAGS_read_fault_one_in) {
+    if (FLAGS_read_fault_one_in || FLAGS_write_fault_one_in ||
+        FLAGS_metadata_write_fault_one_in) {
       SyncPoint::GetInstance()->ClearAllCallBacks();
       SyncPoint::GetInstance()->DisableProcessing();
     }
@@ -260,8 +264,8 @@ class SharedState {
   // This is useful for crash-recovery testing when the process may crash
   // before updating the corresponding expected value
   //
-  // Requires external locking covering `key` in `cf` to prevent concurrent
-  // write or delete to the same `key`.
+  // Requires external locking covering `key` in `cf` to prevent
+  // concurrent write or delete to the same `key`.
   PendingExpectedValue PreparePut(int cf, int64_t key) {
     return expected_state_manager_->PreparePut(cf, key);
   }

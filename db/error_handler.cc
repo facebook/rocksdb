@@ -423,10 +423,6 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     // IO error as hard error. Note that, all the NoSpace error should be
     // handled by the SstFileManager::StartErrorRecovery(). Therefore, no matter
     // it is retryable or file scope, this logic will be bypassed.
-    bool auto_recovery = false;
-    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
-                                          &new_bg_io_err, db_mutex_,
-                                          &auto_recovery);
 
     RecordStats({ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT},
                 {} /* int_histograms */);
@@ -442,6 +438,10 @@ void ErrorHandler::SetBGError(const Status& bg_status,
       ROCKS_LOG_INFO(
           db_options_.info_log,
           "ErrorHandler: Compaction will schedule by itself to resume\n");
+      bool auto_recovery = false;
+      EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                            &new_bg_io_err, db_mutex_,
+                                            &auto_recovery);
       // Not used in this code path.
       new_bg_io_err.PermitUncheckedError();
       return;
@@ -466,10 +466,13 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     Status bg_err(new_bg_io_err, severity);
     CheckAndSetRecoveryAndBGError(bg_err);
     recover_context_ = context;
+    bool auto_recovery = db_options_.max_bgerror_resume_count > 0;
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                          &new_bg_io_err, db_mutex_,
+                                          &auto_recovery);
     StartRecoverFromRetryableBGIOError(bg_io_err);
     return;
   }
-
   HandleKnownErrors(new_bg_io_err, reason);
 }
 

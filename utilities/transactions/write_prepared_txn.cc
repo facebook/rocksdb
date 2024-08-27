@@ -529,7 +529,8 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   // TODO(yanqin): support user-defined timestamp
   return TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, /*ts=*/nullptr,
-      false /* cache_only */, &snap_checker, min_uncommitted);
+      false /* cache_only */, &snap_checker, min_uncommitted,
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation);
 }
 
 void WritePreparedTxn::SetSnapshot() {

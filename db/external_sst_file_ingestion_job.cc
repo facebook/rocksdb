@@ -44,9 +44,12 @@ Status ExternalSstFileIngestionJob::Prepare(
       return status;
     }
 
+    // Files generated in another DB or CF may have a different column family
+    // ID, so we let it pass here.
     if (file_to_ingest.cf_id !=
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
-        file_to_ingest.cf_id != cfd_->GetID()) {
+        file_to_ingest.cf_id != cfd_->GetID() &&
+        !ingestion_options_.allow_db_generated_files) {
       return Status::InvalidArgument(
           "External file column family id don't match");
     }
@@ -623,7 +626,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     DeleteInternalFiles();
     consumed_seqno_count_ = 0;
     files_overlap_ = false;
-  } else if (status.ok() && ingestion_options_.move_files) {
+  } else if (status.ok() && ingestion_options_.move_files &&
+             !ingestion_options_.allow_db_generated_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
@@ -704,9 +708,16 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
   // Get table version
   auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
   if (version_iter == uprops.end()) {
-    return Status::Corruption("External file version not found");
+    if (!ingestion_options_.allow_db_generated_files) {
+      return Status::Corruption("External file version not found");
+    } else {
+      // 0 is special version for when a file from live DB does not have the
+      // version table property
+      file_to_ingest->version = 0;
+    }
+  } else {
+    file_to_ingest->version = DecodeFixed32(version_iter->second.c_str());
   }
-  file_to_ingest->version = DecodeFixed32(version_iter->second.c_str());
 
   auto seqno_iter = uprops.find(ExternalSstFilePropertyNames::kGlobalSeqno);
   if (file_to_ingest->version == 2) {
@@ -733,8 +744,15 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
       return Status::InvalidArgument(
           "External SST file V1 does not support global seqno");
     }
+  } else if (file_to_ingest->version == 0) {
+    // allow_db_generated_files is true
+    assert(seqno_iter == uprops.end());
+    file_to_ingest->original_seqno = 0;
+    file_to_ingest->global_seqno_offset = 0;
   } else {
-    return Status::InvalidArgument("External file version is not supported");
+    return Status::InvalidArgument("External file version " +
+                                   std::to_string(file_to_ingest->version) +
+                                   " is not supported");
   }
 
   file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
@@ -896,6 +914,34 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   } else if (!iter->status().ok()) {
     return iter->status();
   }
+  SequenceNumber largest_seqno =
+      table_reader.get()->GetTableProperties()->key_largest_seqno;
+  // UINT64_MAX means unknown and the file is generated before table property
+  // `key_largest_seqno` is introduced.
+  if (largest_seqno != UINT64_MAX && largest_seqno > 0) {
+    return Status::Corruption(
+        "External file has non zero largest sequence number " +
+        std::to_string(largest_seqno));
+  }
+  if (ingestion_options_.allow_db_generated_files &&
+      largest_seqno == UINT64_MAX) {
+    // Need to verify that all keys have seqno zero.
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      Status pik_status =
+          ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+      if (!pik_status.ok()) {
+        return Status::Corruption("Corrupted key in external file. ",
+                                  pik_status.getState());
+      }
+      if (key.sequence != 0) {
+        return Status::NotSupported(
+            "External file has a key with non zero sequence number.");
+      }
+    }
+    if (!iter->status().ok()) {
+      return iter->status();
+    }
+  }
 
   std::unique_ptr<InternalIterator> range_del_iter(
       table_reader->NewRangeTombstoneIterator(ro));
@@ -910,6 +956,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       if (!pik_status.ok()) {
         return Status::Corruption("Corrupted key in external file. ",
                                   pik_status.getState());
+      }
+      if (key.sequence != 0) {
+        return Status::Corruption(
+            "External file has a range deletion with non zero sequence "
+            "number.");
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 
@@ -1045,10 +1096,17 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
           "Column family enables user-defined timestamps, please make sure the "
           "key range (without timestamp) of external file does not overlap "
           "with key range (without timestamp) in the db");
+      return status;
     }
     if (*assigned_seqno == 0) {
       *assigned_seqno = last_seqno + 1;
     }
+  }
+
+  if (ingestion_options_.allow_db_generated_files && *assigned_seqno != 0) {
+    return Status::InvalidArgument(
+        "An ingested file is assigned to a non-zero sequence number, which is "
+        "incompatible with ingestion option allow_db_generated_files.");
   }
   return status;
 }

@@ -295,7 +295,8 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   VersionEdit new_db;
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
-  Status s = SetIdentityFile(write_options, env_, dbname_);
+  Status s = SetIdentityFile(write_options, env_, dbname_,
+                             immutable_db_options_.metadata_write_temperature);
   if (!s.ok()) {
     return s;
   }
@@ -319,6 +320,12 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     }
     std::unique_ptr<FSWritableFile> file;
     FileOptions file_options = fs_->OptimizeForManifestWrite(file_options_);
+    // DB option takes precedence when not kUnknown
+    if (immutable_db_options_.metadata_write_temperature !=
+        Temperature::kUnknown) {
+      file_options.temperature =
+          immutable_db_options_.metadata_write_temperature;
+    }
     s = NewWritableFile(fs_.get(), manifest, &file, file_options);
     if (!s.ok()) {
       return s;
@@ -344,6 +351,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(write_options, fs_.get(), dbname_, 1,
+                       immutable_db_options_.metadata_write_temperature,
                        directories_.GetDbDir());
     if (new_filenames) {
       new_filenames->emplace_back(
@@ -530,6 +538,12 @@ Status DBImpl::Recover(
                            /*no_error_if_files_missing=*/false, is_retry,
                            &desc_status);
     desc_status.PermitUncheckedError();
+    if (is_retry) {
+      RecordTick(stats_, FILE_READ_CORRUPTION_RETRY_COUNT);
+      if (desc_status.ok()) {
+        RecordTick(stats_, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+      }
+    }
     if (can_retry) {
       // If we're opening for the first time and the failure is likely due to
       // a corrupt MANIFEST file (could result in either the log::Reader
@@ -640,7 +654,7 @@ Status DBImpl::Recover(
                            f->fd.smallest_seqno, f->fd.largest_seqno,
                            f->marked_for_compaction,
                            f->temperature,  // this can be different from
-                                            // `last_level_temperature`
+                           // `last_level_temperature`
                            f->oldest_blob_file_number, f->oldest_ancester_time,
                            f->file_creation_time, f->epoch_number,
                            f->file_checksum, f->file_checksum_func_name,
@@ -1930,6 +1944,10 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
+  // DB option takes precedence when not kUnknown
+  if (immutable_db_options_.wal_write_temperature != Temperature::kUnknown) {
+    opt_file_options.temperature = immutable_db_options_.wal_write_temperature;
+  }
   std::string wal_dir = immutable_db_options_.GetWalDir();
   std::string log_fname = LogFileName(wal_dir, log_file_num);
 

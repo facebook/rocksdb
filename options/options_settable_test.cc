@@ -188,6 +188,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "block_size_deviation=8;block_restart_interval=4; "
       "metadata_block_size=1024;"
       "partition_filters=false;"
+      "decouple_partitioned_filters=true;"
       "optimize_filters_for_memory=true;"
       "use_delta_encoding=true;"
       "index_block_restart_interval=4;"
@@ -366,7 +367,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false;"
                              "enforce_single_del_contracts=false;"
-                             "daily_offpeak_time_utc=08:30-19:00;",
+                             "daily_offpeak_time_utc=08:30-19:00;"
+                             "follower_refresh_catchup_period_ms=123;"
+                             "follower_catchup_retry_count=456;"
+                             "follower_catchup_retry_wait_ms=789;"
+                             "metadata_write_temperature=kCold;"
+                             "wal_write_temperature=kHot;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -567,7 +573,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "block_protection_bytes_per_key=1;"
       "memtable_max_range_deletions=999999;"
       "bottommost_file_compaction_delay=7200;"
-      "uncache_aggressiveness=1234;",
+      "uncache_aggressiveness=1234;"
+      "paranoid_memory_checks=1;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

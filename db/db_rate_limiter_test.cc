@@ -245,7 +245,13 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   // In DirectIO, where we support tail prefetching, during table open, we only
   // do 1 read instead of 4 as described above. Actual checksum verification
   // reads stay the same.
+#ifdef OS_WIN
+  // No file system prefetch implemented for OS Win. During table open,
+  // we only do 1 read for BufferedIO.
+  int num_read_per_file = 4;
+#else
   int num_read_per_file = (!use_direct_io_) ? 7 : 4;
+#endif
   int expected = kNumFiles * num_read_per_file;
 
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));

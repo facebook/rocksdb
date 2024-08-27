@@ -929,15 +929,19 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::Put(this, cf_id, key, value);
+    s = WriteBatchInternal::Put(this, cf_id, key, value);
+  } else {
+    needs_in_place_update_ts_ = true;
+    has_key_with_ts_ = true;
+    std::string dummy_ts(ts_sz, '\0');
+    std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+    s = WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
+                                SliceParts(&value, 1));
   }
-
-  needs_in_place_update_ts_ = true;
-  has_key_with_ts_ = true;
-  std::string dummy_ts(ts_sz, '\0');
-  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
-  return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
-                                 SliceParts(&value, 1));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts_sz);
+  }
+  return s;
 }
 
 Status WriteBatch::TimedPut(ColumnFamilyHandle* column_family, const Slice& key,
@@ -962,7 +966,7 @@ Status WriteBatch::TimedPut(ColumnFamilyHandle* column_family, const Slice& key,
 
 Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& ts, const Slice& value) {
-  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  Status s = CheckColumnFamilyTimestampSize(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -970,8 +974,12 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
   assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
-  return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
-                                 SliceParts(&value, 1));
+  s = WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
+                              SliceParts(&value, 1));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts.size());
+  }
+  return s;
 }
 
 Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
@@ -1039,7 +1047,11 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
   }
 
   if (ts_sz == 0) {
-    return WriteBatchInternal::Put(this, cf_id, key, value);
+    s = WriteBatchInternal::Put(this, cf_id, key, value);
+    if (s.ok()) {
+      MaybeTrackTimestampSize(cf_id, ts_sz);
+    }
+    return s;
   }
 
   return Status::InvalidArgument(
@@ -1246,20 +1258,24 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::Delete(this, cf_id, key);
+    s = WriteBatchInternal::Delete(this, cf_id, key);
+  } else {
+    needs_in_place_update_ts_ = true;
+    has_key_with_ts_ = true;
+    std::string dummy_ts(ts_sz, '\0');
+    std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+    s = WriteBatchInternal::Delete(this, cf_id,
+                                   SliceParts(key_with_ts.data(), 2));
   }
-
-  needs_in_place_update_ts_ = true;
-  has_key_with_ts_ = true;
-  std::string dummy_ts(ts_sz, '\0');
-  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
-  return WriteBatchInternal::Delete(this, cf_id,
-                                    SliceParts(key_with_ts.data(), 2));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts_sz);
+  }
+  return s;
 }
 
 Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& ts) {
-  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  Status s = CheckColumnFamilyTimestampSize(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -1267,8 +1283,12 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key,
   has_key_with_ts_ = true;
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
-  return WriteBatchInternal::Delete(this, cf_id,
-                                    SliceParts(key_with_ts.data(), 2));
+  s = WriteBatchInternal::Delete(this, cf_id,
+                                 SliceParts(key_with_ts.data(), 2));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts.size());
+  }
+  return s;
 }
 
 Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
@@ -1313,7 +1333,11 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::Delete(this, cf_id, key);
+    s = WriteBatchInternal::Delete(this, cf_id, key);
+    if (s.ok()) {
+      MaybeTrackTimestampSize(cf_id, ts_sz);
+    }
+    return s;
   }
 
   return Status::InvalidArgument(
@@ -1361,20 +1385,24 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::SingleDelete(this, cf_id, key);
+    s = WriteBatchInternal::SingleDelete(this, cf_id, key);
+  } else {
+    needs_in_place_update_ts_ = true;
+    has_key_with_ts_ = true;
+    std::string dummy_ts(ts_sz, '\0');
+    std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+    s = WriteBatchInternal::SingleDelete(this, cf_id,
+                                         SliceParts(key_with_ts.data(), 2));
   }
-
-  needs_in_place_update_ts_ = true;
-  has_key_with_ts_ = true;
-  std::string dummy_ts(ts_sz, '\0');
-  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
-  return WriteBatchInternal::SingleDelete(this, cf_id,
-                                          SliceParts(key_with_ts.data(), 2));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts_sz);
+  }
+  return s;
 }
 
 Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& ts) {
-  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  Status s = CheckColumnFamilyTimestampSize(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -1382,8 +1410,12 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
   assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
-  return WriteBatchInternal::SingleDelete(this, cf_id,
-                                          SliceParts(key_with_ts.data(), 2));
+  s = WriteBatchInternal::SingleDelete(this, cf_id,
+                                       SliceParts(key_with_ts.data(), 2));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts.size());
+  }
+  return s;
 }
 
 Status WriteBatchInternal::SingleDelete(WriteBatch* b,
@@ -1430,7 +1462,11 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::SingleDelete(this, cf_id, key);
+    s = WriteBatchInternal::SingleDelete(this, cf_id, key);
+    if (s.ok()) {
+      MaybeTrackTimestampSize(cf_id, ts_sz);
+    }
+    return s;
   }
 
   return Status::InvalidArgument(
@@ -1480,23 +1516,27 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::DeleteRange(this, cf_id, begin_key, end_key);
+    s = WriteBatchInternal::DeleteRange(this, cf_id, begin_key, end_key);
+  } else {
+    needs_in_place_update_ts_ = true;
+    has_key_with_ts_ = true;
+    std::string dummy_ts(ts_sz, '\0');
+    std::array<Slice, 2> begin_key_with_ts{{begin_key, dummy_ts}};
+    std::array<Slice, 2> end_key_with_ts{{end_key, dummy_ts}};
+    s = WriteBatchInternal::DeleteRange(this, cf_id,
+                                        SliceParts(begin_key_with_ts.data(), 2),
+                                        SliceParts(end_key_with_ts.data(), 2));
   }
-
-  needs_in_place_update_ts_ = true;
-  has_key_with_ts_ = true;
-  std::string dummy_ts(ts_sz, '\0');
-  std::array<Slice, 2> begin_key_with_ts{{begin_key, dummy_ts}};
-  std::array<Slice, 2> end_key_with_ts{{end_key, dummy_ts}};
-  return WriteBatchInternal::DeleteRange(
-      this, cf_id, SliceParts(begin_key_with_ts.data(), 2),
-      SliceParts(end_key_with_ts.data(), 2));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts_sz);
+  }
+  return s;
 }
 
 Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
                                const Slice& begin_key, const Slice& end_key,
                                const Slice& ts) {
-  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  Status s = CheckColumnFamilyTimestampSize(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -1505,9 +1545,13 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{begin_key, ts}};
   std::array<Slice, 2> end_key_with_ts{{end_key, ts}};
-  return WriteBatchInternal::DeleteRange(this, cf_id,
-                                         SliceParts(key_with_ts.data(), 2),
-                                         SliceParts(end_key_with_ts.data(), 2));
+  s = WriteBatchInternal::DeleteRange(this, cf_id,
+                                      SliceParts(key_with_ts.data(), 2),
+                                      SliceParts(end_key_with_ts.data(), 2));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts.size());
+  }
+  return s;
 }
 
 Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
@@ -1554,7 +1598,11 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::DeleteRange(this, cf_id, begin_key, end_key);
+    s = WriteBatchInternal::DeleteRange(this, cf_id, begin_key, end_key);
+    if (s.ok()) {
+      MaybeTrackTimestampSize(cf_id, ts_sz);
+    }
+    return s;
   }
 
   return Status::InvalidArgument(
@@ -1608,21 +1656,25 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::Merge(this, cf_id, key, value);
+    s = WriteBatchInternal::Merge(this, cf_id, key, value);
+  } else {
+    needs_in_place_update_ts_ = true;
+    has_key_with_ts_ = true;
+    std::string dummy_ts(ts_sz, '\0');
+    std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+
+    s = WriteBatchInternal::Merge(
+        this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1));
   }
-
-  needs_in_place_update_ts_ = true;
-  has_key_with_ts_ = true;
-  std::string dummy_ts(ts_sz, '\0');
-  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
-
-  return WriteBatchInternal::Merge(
-      this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts_sz);
+  }
+  return s;
 }
 
 Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
                          const Slice& ts, const Slice& value) {
-  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  Status s = CheckColumnFamilyTimestampSize(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -1630,8 +1682,12 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
   assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
-  return WriteBatchInternal::Merge(
-      this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1));
+  s = WriteBatchInternal::Merge(this, cf_id, SliceParts(key_with_ts.data(), 2),
+                                SliceParts(&value, 1));
+  if (s.ok()) {
+    MaybeTrackTimestampSize(cf_id, ts.size());
+  }
+  return s;
 }
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
@@ -1680,7 +1736,11 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::Merge(this, cf_id, key, value);
+    s = WriteBatchInternal::Merge(this, cf_id, key, value);
+    if (s.ok()) {
+      MaybeTrackTimestampSize(cf_id, ts_sz);
+    }
+    return s;
   }
 
   return Status::InvalidArgument(

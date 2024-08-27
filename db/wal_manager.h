@@ -49,7 +49,8 @@ class WalManager {
         wal_in_db_path_(db_options_.IsWalDirSameAsDBPath()),
         io_tracer_(io_tracer) {}
 
-  Status GetSortedWalFiles(VectorWalPtr& files);
+  Status GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos = true,
+                           bool include_archived = true);
 
   // Allow user to tail transaction log to find all recent changes to the
   // database that are newer than `seq_number`.
@@ -78,7 +79,7 @@ class WalManager {
 
  private:
   Status GetSortedWalsOfType(const std::string& path, VectorWalPtr& log_files,
-                             WalFileType type);
+                             WalFileType type, bool need_seqnos);
   // Requires: all_logs should be sorted with earliest log file first
   // Retains all log files in all_logs which contain updates with seq no.
   // Greater Than or Equal to the requested SequenceNumber.

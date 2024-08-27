@@ -75,6 +75,7 @@ default_params = {
     "compaction_pri": random.randint(0, 4),
     "key_may_exist_one_in": lambda: random.choice([100, 100000]),
     "data_block_index_type": lambda: random.choice([0, 1]),
+    "decouple_partitioned_filters": lambda: random.choice([0, 1, 1]),
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
@@ -130,7 +131,8 @@ default_params = {
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
-    "recycle_log_file_num": lambda: random.randint(0, 1),
+    # See disabled DBWALTest.RecycleMultipleWalsCrash
+    "recycle_log_file_num": 0,
     "snapshot_hold_ops": 100000,
     "sqfc_name": lambda: random.choice(["foo", "bar"]),
     # 0 = disable writing SstQueryFilters
@@ -338,6 +340,7 @@ default_params = {
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
+    "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -523,6 +526,8 @@ txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 # For optimistic transaction db
@@ -536,6 +541,8 @@ optimistic_txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 best_efforts_recovery_params = {
@@ -773,12 +780,6 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-        # Prefix-recoverability relies on tracing successful user writes.
-        # Currently we trace all user writes regardless of whether it later succeeds or not.
-        # To simplify, we disable any user write failure injection.
-        # TODO(hx235): support tracing user writes with failure injection.
-        dest_params["metadata_write_fault_one_in"] = 0
-        dest_params["exclude_wal_from_write_fault_injection"] = 1
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
@@ -838,6 +839,8 @@ def finalize_and_sanitize(src_params):
         # Wide-column pessimistic transaction APIs are initially supported for
         # WriteCommitted only
         dest_params["use_put_entity_one_in"] = 0
+        # MultiCfIterator is currently only compatible with write committed policy
+        dest_params["use_multi_cf_iterator"] = 0        
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0
@@ -920,6 +923,16 @@ def finalize_and_sanitize(src_params):
         dest_params["prefixpercent"] = 0
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
+    if dest_params.get("disable_wal") == 0 and dest_params.get("reopen") > 0:
+        # Reopen with WAL currently requires persisting WAL data before closing for reopen.
+        # Previous injected WAL write errors may not be cleared by the time of closing and ready
+        # for persisting WAL.
+        # To simplify, we disable any WAL write error injection.
+        # TODO(hx235): support WAL write error injection with reopen
+        # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
+        # have to disable metadata write fault injection to other file
+        dest_params["exclude_wal_from_write_fault_injection"] = 1
+        dest_params["metadata_write_fault_one_in"] = 0
     if dest_params.get("disable_wal") == 1:
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment

@@ -304,6 +304,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, partition_filters),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"decouple_partitioned_filters",
+         {offsetof(struct BlockBasedTableOptions, decouple_partitioned_filters),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"optimize_filters_for_memory",
          {offsetof(struct BlockBasedTableOptions, optimize_filters_for_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -971,6 +975,8 @@ const std::string BlockBasedTablePropertyNames::kWholeKeyFiltering =
     "rocksdb.block.based.table.whole.key.filtering";
 const std::string BlockBasedTablePropertyNames::kPrefixFiltering =
     "rocksdb.block.based.table.prefix.filtering";
+const std::string BlockBasedTablePropertyNames::kDecoupledPartitionedFilters =
+    "rocksdb.block.based.table.decoupled.partitioned.filters";
 const std::string kHashIndexPrefixesBlock = "rocksdb.hashindex.prefixes";
 const std::string kHashIndexPrefixesMetadataBlock =
     "rocksdb.hashindex.metadata";
