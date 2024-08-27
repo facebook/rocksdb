@@ -738,7 +738,6 @@ Status FileExpectedStateManager::Restore(DB* db) {
     if (s.ok()) {
       for (size_t i = 0; i < expected_state_dir_children.size(); ++i) {
         const auto& filename = expected_state_dir_children[i];
-        size_t suffix = filename.find_last_of(".");
         if (filename.size() >= kTraceFilenameSuffix.size() &&
             filename.rfind(kTraceFilenameSuffix) ==
                 filename.size() - kTraceFilenameSuffix.size()) {
