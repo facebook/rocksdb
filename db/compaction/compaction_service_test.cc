@@ -44,13 +44,24 @@ class MyTestCompactionService : public CompactionService {
         table_properties_collector_factories_(
             std::move(table_properties_collector_factories)) {
     // Register Compaction Filter
-    const auto& library = ObjectLibrary::Default();
-    library->AddFactory<CompactionFilter>(
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      ObjectRegistry::Default()->AddLibrary("MyTestCompactionService",
+                                            RegisterCompactionFilter, "");
+    });
+  }
+
+  static int RegisterCompactionFilter(ObjectLibrary& library,
+                                      const std::string& /*arg*/) {
+    library.AddFactory<CompactionFilter>(
         PartialDeleteCompactionFilter::kClassName(),
         [](const std::string& /*uri*/, std::unique_ptr<CompactionFilter>*,
            std::string* /* errmsg */) {
-          return new PartialDeleteCompactionFilter();
+          static PartialDeleteCompactionFilter compactionFilter;
+          return &compactionFilter;
         });
+    size_t num_types;
+    return static_cast<int>(library.GetFactoryCount(&num_types));
   }
 
   static const char* kClassName() { return "MyTestCompactionService"; }
