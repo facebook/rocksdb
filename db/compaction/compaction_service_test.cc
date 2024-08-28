@@ -3,12 +3,29 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "table/unique_id_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class PartialDeleteCompactionFilter : public CompactionFilter {
+ public:
+  CompactionFilter::Decision FilterV2(
+      int /*level*/, const Slice& key, ValueType /*value_type*/,
+      const Slice& /*existing_value*/, std::string* /*new_value*/,
+      std::string* /*skip_until*/) const override {
+    int i = std::stoi(key.ToString().substr(3));
+    if (i > 5 && i <= 105) {
+      return CompactionFilter::Decision::kRemove;
+    }
+    return CompactionFilter::Decision::kKeep;
+  }
+
+  static const char* kClassName() { return "PartialDeleteCompactionFilter"; }
+  const char* Name() const override { return kClassName(); }
+};
 
 class MyTestCompactionService : public CompactionService {
  public:
@@ -25,7 +42,17 @@ class MyTestCompactionService : public CompactionService {
         wait_info_("na", "na", "na", 0, Env::TOTAL),
         listeners_(listeners),
         table_properties_collector_factories_(
-            std::move(table_properties_collector_factories)) {}
+            std::move(table_properties_collector_factories)) {
+    // Register Compaction Filter
+    const auto& library = ObjectLibrary::Default();
+    library->AddFactory<CompactionFilter>(
+        PartialDeleteCompactionFilter::kClassName(),
+        [](const std::string& /*uri*/,
+           std::unique_ptr<rocksdb::CompactionFilter>*,
+           std::string* /* errmsg */) {
+          return new PartialDeleteCompactionFilter();
+        });
+  }
 
   static const char* kClassName() { return "MyTestCompactionService"; }
 
@@ -73,19 +100,10 @@ class MyTestCompactionService : public CompactionService {
     options_override.env = options_.env;
     options_override.file_checksum_gen_factory =
         options_.file_checksum_gen_factory;
-    options_override.comparator = options_.comparator;
-    options_override.merge_operator = options_.merge_operator;
-    options_override.compaction_filter = options_.compaction_filter;
-    options_override.compaction_filter_factory =
-        options_.compaction_filter_factory;
-    options_override.prefix_extractor = options_.prefix_extractor;
-    options_override.table_factory = options_.table_factory;
-    options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
     options_override.statistics = statistics_;
     if (!listeners_.empty()) {
       options_override.listeners = listeners_;
     }
-
     if (!table_properties_collector_factories_.empty()) {
       options_override.table_properties_collector_factories =
           table_properties_collector_factories_;
@@ -476,22 +494,6 @@ TEST_F(CompactionServiceTest, SubCompaction) {
   // make sure there's sub-compaction by checking the compaction number
   ASSERT_GE(compaction_num, 2);
 }
-
-class PartialDeleteCompactionFilter : public CompactionFilter {
- public:
-  CompactionFilter::Decision FilterV2(
-      int /*level*/, const Slice& key, ValueType /*value_type*/,
-      const Slice& /*existing_value*/, std::string* /*new_value*/,
-      std::string* /*skip_until*/) const override {
-    int i = std::stoi(key.ToString().substr(3));
-    if (i > 5 && i <= 105) {
-      return CompactionFilter::Decision::kRemove;
-    }
-    return CompactionFilter::Decision::kKeep;
-  }
-
-  const char* Name() const override { return "PartialDeleteCompactionFilter"; }
-};
 
 TEST_F(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();

@@ -2293,6 +2293,9 @@ struct CompactionServiceOptionsOverride {
   Env* env = Env::Default();
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
+  // DEPRECATED - CFOption pointer configurations will be passed as static name
+  // These will need to be registered in the remote worker's ObjectRegistry,
+  // then created by Type::CreateFromString() when needed.
   const Comparator* comparator = BytewiseComparator();
   std::shared_ptr<MergeOperator> merge_operator = nullptr;
   const CompactionFilter* compaction_filter = nullptr;
@@ -2300,6 +2303,7 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
   std::shared_ptr<TableFactory> table_factory;
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
+  // END of deprecation marker
 
   // Only subsets of events are triggered in remote compaction worker, like:
   // `OnTableFileCreated`, `OnTableFileCreationStarted`,
