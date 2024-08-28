@@ -113,7 +113,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db = TableFileName(
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
-    if (ingestion_options_.move_files) {
+    if (ingestion_options_.move_files || ingestion_options_.link_files) {
       status =
           fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
       if (status.ok()) {
@@ -626,8 +626,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     DeleteInternalFiles();
     consumed_seqno_count_ = 0;
     files_overlap_ = false;
-  } else if (status.ok() && ingestion_options_.move_files &&
-             !ingestion_options_.allow_db_generated_files) {
+  } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
