@@ -2132,7 +2132,7 @@ struct CompactRangeOptions {
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
   // The input files will be unlinked after successful ingestion.
-  // The implementation depends hard links (LinkFile) instead of traditional
+  // The implementation depends on hard links (LinkFile) instead of traditional
   // move (RenameFile) to maximize the chances to restore to the original
   // state upon failure.
   bool move_files = false;
