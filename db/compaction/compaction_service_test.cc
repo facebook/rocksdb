@@ -47,8 +47,7 @@ class MyTestCompactionService : public CompactionService {
     const auto& library = ObjectLibrary::Default();
     library->AddFactory<CompactionFilter>(
         PartialDeleteCompactionFilter::kClassName(),
-        [](const std::string& /*uri*/,
-           std::unique_ptr<rocksdb::CompactionFilter>*,
+        [](const std::string& /*uri*/, std::unique_ptr<CompactionFilter>*,
            std::string* /* errmsg */) {
           return new PartialDeleteCompactionFilter();
         });
