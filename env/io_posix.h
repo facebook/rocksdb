@@ -265,6 +265,7 @@ const unsigned int kIoUringDepth = 256;
 
 inline void DeleteIOUring(void* p) {
   struct io_uring* iu = static_cast<struct io_uring*>(p);
+  io_uring_queue_exit(iu);
   delete iu;
 }
 
