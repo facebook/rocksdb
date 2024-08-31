@@ -25,6 +25,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/sst_file_manager.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -1030,6 +1031,100 @@ TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
   ASSERT_EQ(std::string(1024, 'a'), get_result);
   delete snapshot_db;
 }
+
+class CheckpointDestroyTest : public CheckpointTest,
+                              public testing::WithParamInterface<bool> {};
+
+TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
+  bool slow_deletion = GetParam();
+  Options options = CurrentOptions();
+  options.num_levels = 2;
+  options.disable_auto_compactions = true;
+  Status s;
+  options.sst_file_manager.reset(NewSstFileManager(
+      options.env, options.info_log, "", slow_deletion ? 1024 * 1024 : 0,
+      false /* delete_existing_trash */, &s, 1));
+  ASSERT_OK(s);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "a"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("bar", "b"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("bar", "val" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 2);
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+
+  delete checkpoint;
+  checkpoint = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 2);
+
+  DB* snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "foo", &get_result));
+  ASSERT_EQ("a", get_result);
+  ASSERT_OK(snapshot_db->Get(read_opts, "bar", &get_result));
+  ASSERT_EQ("val9", get_result);
+  delete snapshot_db;
+
+  // Make sure original obsolete files for hard linked files are all deleted.
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_);
+  db_impl->TEST_DeleteObsoleteFiles();
+  auto sfm = static_cast_with_check<SstFileManagerImpl>(
+      options.sst_file_manager.get());
+  ASSERT_NE(nullptr, sfm);
+  sfm->WaitForEmptyTrash();
+  // SST file 2-12 for "bar" will be compacted into one file on L1 during the
+  // compaction  after checkpoint is created. SST file 1 on L1: foo, seq:
+  // 1 (hard links is 1 after checkpoint destroy)
+  std::atomic<int> bg_delete_sst{0};
+  std::atomic<int> fg_delete_sst{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile::cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto file_name = *static_cast<std::string*>(arg);
+        if (file_name.size() >= 4 &&
+            file_name.compare(file_name.size() - 4, 4, ".sst") == 0) {
+          fg_delete_sst.fetch_add(1);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile::cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto file_name = *static_cast<std::string*>(arg);
+        if (file_name.size() >= 10 &&
+            file_name.compare(file_name.size() - 10, 10, ".sst.trash") == 0) {
+          bg_delete_sst.fetch_add(1);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(DestroyDB(snapshot_name_, options));
+  if (slow_deletion) {
+    ASSERT_EQ(fg_delete_sst, 1);
+    ASSERT_EQ(bg_delete_sst, 11);
+  } else {
+    ASSERT_EQ(fg_delete_sst, 12);
+  }
+
+  ASSERT_EQ("a", Get("foo"));
+  ASSERT_EQ("val9", Get("bar"));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+INSTANTIATE_TEST_CASE_P(CheckpointDestroyTest, CheckpointDestroyTest,
+                        ::testing::Values(true, false));
 
 }  // namespace ROCKSDB_NAMESPACE
 

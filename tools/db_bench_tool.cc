@@ -641,6 +641,11 @@ DEFINE_bool(use_cache_jemalloc_no_dump_allocator, false,
 DEFINE_bool(use_cache_memkind_kmem_allocator, false,
             "Use memkind kmem allocator for block/blob cache.");
 
+DEFINE_bool(
+    decouple_partitioned_filters,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().decouple_partitioned_filters,
+    "Decouple filter partitioning from index partitioning.");
+
 DEFINE_bool(partition_index_and_filters, false,
             "Partition index and filter blocks.");
 
@@ -1274,6 +1279,9 @@ DEFINE_uint64(
 DEFINE_bool(
     auto_readahead_size, false,
     "When set true, RocksDB does auto tuning of readahead size during Scans");
+
+DEFINE_bool(paranoid_memory_checks, false,
+            "Sets CF option paranoid_memory_checks");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -4362,6 +4370,8 @@ class Benchmark {
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
       }
+      block_based_options.decouple_partitioned_filters =
+          FLAGS_decouple_partitioned_filters;
       if (FLAGS_partition_index_and_filters || FLAGS_partition_index) {
         if (FLAGS_index_with_first_key) {
           fprintf(stderr,
@@ -4732,6 +4742,7 @@ class Benchmark {
         FLAGS_memtable_protection_bytes_per_key;
     options.block_protection_bytes_per_key =
         FLAGS_block_protection_bytes_per_key;
+    options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
   }
 
   void InitializeOptionsGeneral(Options* opts) {

@@ -674,10 +674,8 @@ class SstFileWriterCollector : public TablePropertiesCollector {
 
   Status Finish(UserCollectedProperties* properties) override {
     std::string count = std::to_string(count_);
-    *properties = UserCollectedProperties{
-        {prefix_ + "_SstFileWriterCollector", "YES"},
-        {prefix_ + "_Count", count},
-    };
+    properties->insert({prefix_ + "_SstFileWriterCollector", "YES"});
+    properties->insert({prefix_ + "_Count", count});
     return Status::OK();
   }
 
@@ -3727,13 +3725,14 @@ INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
                                         std::make_tuple(true, true),
                                         std::make_tuple(false, false)));
 
-class IngestDBGeneratedFileTest : public ExternalSSTFileTestBase,
-                                  public ::testing::WithParamInterface<bool> {
+class IngestDBGeneratedFileTest
+    : public ExternalSSTFileTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   IngestDBGeneratedFileTest() {
     ingest_opts.allow_db_generated_files = true;
-    ingest_opts.move_files = false;
-    ingest_opts.verify_checksums_before_ingest = GetParam();
+    ingest_opts.move_files = std::get<0>(GetParam());
+    ingest_opts.verify_checksums_before_ingest = std::get<1>(GetParam());
     ingest_opts.snapshot_consistency = false;
   }
 
@@ -3742,9 +3741,16 @@ class IngestDBGeneratedFileTest : public ExternalSSTFileTestBase,
 };
 
 INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestDBGeneratedFileTest,
-                        testing::Bool());
+                        testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST_P(IngestDBGeneratedFileTest, FailureCase) {
+  if (encrypted_env_ && ingest_opts.move_files) {
+    // FIXME: should fail ingestion or support this combination.
+    ROCKSDB_GTEST_SKIP(
+        "Encrypted env and move_files do not work together, as we reopen the "
+        "file after linking it which appends an extra encryption prefix.");
+    return;
+  }
   // Ingesting overlapping data should always fail.
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));
@@ -3778,6 +3784,7 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
                                  live_meta[0].relative_filename);
     // Ingesting a file whose boundary key has non-zero seqno.
     Status s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
+    // This error msg is from checking seqno of boundary keys.
     ASSERT_TRUE(
         s.ToString().find("External file has non zero sequence number") !=
         std::string::npos);
@@ -3824,10 +3831,9 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
           live_meta[0].directory + "/" + live_meta[0].relative_filename;
       s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
       ASSERT_NOK(s);
-      ASSERT_TRUE(
-          s.ToString().find(
-              "External file has a key with non zero sequence number") !=
-          std::string::npos);
+      // This error msg is from checking largest seqno in table property.
+      ASSERT_TRUE(s.ToString().find("non zero largest sequence number") !=
+                  std::string::npos);
       db_->ReleaseSnapshot(snapshot);
     }
 
@@ -3897,14 +3903,6 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
     ASSERT_TRUE(s.ToString().find(err) != std::string::npos);
     ASSERT_NOK(s);
 
-    ingest_opts.move_files = true;
-    s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
-    ingest_opts.move_files = false;
-    ASSERT_TRUE(
-        s.ToString().find("Options move_files and allow_db_generated_files are "
-                          "not compatible") != std::string::npos);
-    ASSERT_NOK(s);
-
     ingest_opts.snapshot_consistency = false;
     ASSERT_OK(db_->IngestExternalFile(to_ingest_files, ingest_opts));
     db_->ReleaseSnapshot(snapshot);
@@ -3924,14 +3922,16 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
 
 class IngestDBGeneratedFileTest2
     : public ExternalSSTFileTestBase,
-      public ::testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
+      public ::testing::WithParamInterface<
+          std::tuple<bool, bool, bool, bool, bool>> {
  public:
   IngestDBGeneratedFileTest2() = default;
 };
 
 INSTANTIATE_TEST_CASE_P(VaryingOptions, IngestDBGeneratedFileTest2,
                         testing::Combine(testing::Bool(), testing::Bool(),
-                                         testing::Bool(), testing::Bool()));
+                                         testing::Bool(), testing::Bool(),
+                                         testing::Bool()));
 
 TEST_P(IngestDBGeneratedFileTest2, NotOverlapWithDB) {
   // Use a separate column family to sort some data, generate multiple SST
@@ -3939,11 +3939,11 @@ TEST_P(IngestDBGeneratedFileTest2, NotOverlapWithDB) {
   // to be ingested does not overlap with existing data.
   IngestExternalFileOptions ingest_opts;
   ingest_opts.allow_db_generated_files = true;
-  ingest_opts.move_files = false;
   ingest_opts.snapshot_consistency = std::get<0>(GetParam());
   ingest_opts.allow_global_seqno = std::get<1>(GetParam());
   ingest_opts.allow_blocking_flush = std::get<2>(GetParam());
   ingest_opts.fail_if_not_bottommost_level = std::get<3>(GetParam());
+  ingest_opts.move_files = std::get<4>(GetParam());
 
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));

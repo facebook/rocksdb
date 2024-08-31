@@ -1619,28 +1619,21 @@ class NonBatchedOpsStressTest : public StressTest {
     // write
     bool initial_wal_write_may_succeed = true;
 
-    bool prepared = false;
     PendingExpectedValue pending_expected_value =
-        shared->PreparePut(rand_column_family, rand_key, &prepared);
-    if (!prepared) {
-      pending_expected_value.PermitUnclosedPendingState();
-      return s;
-    }
+        shared->PreparePut(rand_column_family, rand_key);
 
     const uint32_t value_base = pending_expected_value.GetFinalValueBase();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
+    uint64_t wait_for_recover_start_time = 0;
     do {
       // In order to commit the expected state for the initial write failed with
       // injected retryable error and successful WAL write, retry the write
       // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
           initial_wal_write_may_succeed) {
-        lock.reset();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
-        lock.reset(new MutexLock(
-            shared->GetMutexForKey(rand_column_family, rand_key)));
       }
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
@@ -1691,13 +1684,10 @@ class NonBatchedOpsStressTest : public StressTest {
           });
         }
       }
-      // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
-      // first write fails
-      if (!s.ok() && initial_write_s.ok()) {
-        initial_write_s = s;
-        initial_wal_write_may_succeed =
-            !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-      }
+      UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                &initial_wal_write_may_succeed,
+                                &wait_for_recover_start_time);
+
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
              initial_wal_write_may_succeed);
 
@@ -1719,6 +1709,9 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->SafeTerminate();
       }
     } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestPut");
       pending_expected_value.Commit();
       thread->stats.AddBytesForWrites(1, sz);
       PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
@@ -1756,25 +1749,18 @@ class NonBatchedOpsStressTest : public StressTest {
     // Use delete if the key may be overwritten and a single deletion
     // otherwise.
     if (shared->AllowsOverwrite(rand_key)) {
-      bool prepared = false;
       PendingExpectedValue pending_expected_value =
-          shared->PrepareDelete(rand_column_family, rand_key, &prepared);
-      if (!prepared) {
-        pending_expected_value.PermitUnclosedPendingState();
-        return s;
-      }
+          shared->PrepareDelete(rand_column_family, rand_key);
 
+      uint64_t wait_for_recover_start_time = 0;
       do {
         // In order to commit the expected state for the initial write failed
         // with injected retryable error and successful WAL write, retry the
         // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
             initial_wal_write_may_succeed) {
-          lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
-          lock.reset(new MutexLock(
-              shared->GetMutexForKey(rand_column_family, rand_key)));
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
@@ -1787,13 +1773,9 @@ class NonBatchedOpsStressTest : public StressTest {
             return txn.Delete(cfh, key);
           });
         }
-        // Only update `initial_write_s`, `initial_wal_write_may_succeed` when
-        // the first write fails
-        if (!s.ok() && initial_write_s.ok()) {
-          initial_write_s = s;
-          initial_wal_write_may_succeed =
-              !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-        }
+        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                  &initial_wal_write_may_succeed,
+                                  &wait_for_recover_start_time);
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
@@ -1816,29 +1798,25 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
         pending_expected_value.Commit();
         thread->stats.AddDeletes(1);
       }
     } else {
-      bool prepared = false;
       PendingExpectedValue pending_expected_value =
-          shared->PrepareSingleDelete(rand_column_family, rand_key, &prepared);
-      if (!prepared) {
-        pending_expected_value.PermitUnclosedPendingState();
-        return s;
-      }
+          shared->PrepareSingleDelete(rand_column_family, rand_key);
 
+      uint64_t wait_for_recover_start_time = 0;
       do {
         // In order to commit the expected state for the initial write failed
         // with injected retryable error and successful WAL write, retry the
         // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
             initial_wal_write_may_succeed) {
-          lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
-          lock.reset(new MutexLock(
-              shared->GetMutexForKey(rand_column_family, rand_key)));
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
@@ -1851,13 +1829,9 @@ class NonBatchedOpsStressTest : public StressTest {
             return txn.SingleDelete(cfh, key);
           });
         }
-        // Only update `initial_write_s`, `initial_wal_write_may_succeed` when
-        // the first write fails
-        if (!s.ok() && initial_write_s.ok()) {
-          initial_write_s = s;
-          initial_wal_write_may_succeed =
-              !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-        }
+        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                  &initial_wal_write_may_succeed,
+                                  &wait_for_recover_start_time);
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
@@ -1880,6 +1854,9 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
         pending_expected_value.Commit();
         thread->stats.AddSingleDeletes(1);
       }
@@ -1914,18 +1891,9 @@ class NonBatchedOpsStressTest : public StressTest {
     // write
     bool initial_wal_write_may_succeed = true;
 
-    bool prepared = false;
     std::vector<PendingExpectedValue> pending_expected_values =
         shared->PrepareDeleteRange(rand_column_family, rand_key,
-                                   rand_key + FLAGS_range_deletion_width,
-                                   &prepared);
-    if (!prepared) {
-      for (PendingExpectedValue& pending_expected_value :
-           pending_expected_values) {
-        pending_expected_value.PermitUnclosedPendingState();
-      }
-      return s;
-    }
+                                   rand_key + FLAGS_range_deletion_width);
 
     const int covered = static_cast<int>(pending_expected_values.size());
     std::string keystr = Key(rand_key);
@@ -1935,6 +1903,7 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice end_key = end_keystr;
     std::string write_ts_str;
     Slice write_ts;
+    uint64_t wait_for_recover_start_time = 0;
 
     do {
       // In order to commit the expected state for the initial write failed with
@@ -1942,10 +1911,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
           initial_wal_write_may_succeed) {
-        range_locks.clear();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
-        GetDeleteRangeKeyLocks(thread, rand_column_family, rand_key,
-                               &range_locks);
       }
       if (FLAGS_user_timestamp_size) {
         write_ts_str = GetNowNanos();
@@ -1954,13 +1920,9 @@ class NonBatchedOpsStressTest : public StressTest {
       } else {
         s = db_->DeleteRange(write_opts, cfh, key, end_key);
       }
-      // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
-      // first write fails
-      if (!s.ok() && initial_write_s.ok()) {
-        initial_write_s = s;
-        initial_wal_write_may_succeed =
-            !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-      }
+      UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                &initial_wal_write_may_succeed,
+                                &wait_for_recover_start_time);
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
              initial_wal_write_may_succeed);
 
@@ -1985,6 +1947,9 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->SafeTerminate();
       }
     } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestDeleteRange");
       for (PendingExpectedValue& pending_expected_value :
            pending_expected_values) {
         pending_expected_value.Commit();
@@ -2057,16 +2022,8 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       keys.push_back(key);
 
-      bool prepared = false;
       PendingExpectedValue pending_expected_value =
-          shared->PreparePut(column_family, key, &prepared);
-      if (!prepared) {
-        pending_expected_value.PermitUnclosedPendingState();
-        for (PendingExpectedValue& pev : pending_expected_values) {
-          pev.PermitUnclosedPendingState();
-        }
-        return;
-      }
+          shared->PreparePut(column_family, key);
 
       const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       values.push_back(value_base);
@@ -2630,6 +2587,8 @@ class NonBatchedOpsStressTest : public StressTest {
         // Value doesn't exist in db, update state to reflect that
         shared->SyncDelete(cf, key);
         return true;
+      } else {
+        assert(false);
       }
     }
     char expected_value_data[kValueMaxLen];
@@ -2728,7 +2687,11 @@ class NonBatchedOpsStressTest : public StressTest {
     SharedState* const shared = thread->shared;
     assert(shared);
 
-    if (!shared->AllowsOverwrite(key) && shared->Exists(column_family, key)) {
+    const ExpectedValue expected_value =
+        thread->shared->Get(column_family, key);
+    bool may_exist = !ExpectedValueHelper::MustHaveNotExisted(expected_value,
+                                                              expected_value);
+    if (!shared->AllowsOverwrite(key) && may_exist) {
       // Just do read your write checks for keys that allow overwrites.
       return;
     }

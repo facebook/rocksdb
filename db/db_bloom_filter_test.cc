@@ -45,6 +45,12 @@ const std::string kStandard128Ribbon =
 const std::string kAutoBloom = BloomFilterPolicy::kClassName();
 const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
 
+enum class FilterPartitioning {
+  kUnpartitionedFilter,
+  kCoupledPartitionedFilter,
+  kDecoupledPartitionedFilter,
+};
+
 template <typename T>
 T Pop(T& var) {
   auto rv = var;
@@ -62,32 +68,61 @@ class DBBloomFilterTest : public DBTestBase {
  public:
   DBBloomFilterTest()
       : DBTestBase("db_bloom_filter_test", /*env_do_fsync=*/true) {}
+
+  bool PartitionFilters() {
+    return filter_partitioning_ != FilterPartitioning::kUnpartitionedFilter;
+  }
+
+  void SetInTableOptions(BlockBasedTableOptions* table_options) {
+    table_options->partition_filters = PartitionFilters();
+    if (PartitionFilters()) {
+      table_options->index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    }
+  }
+
+ protected:
+  FilterPartitioning filter_partitioning_ =
+      FilterPartitioning::kUnpartitionedFilter;
 };
 
-class DBBloomFilterTestWithParam
-    : public DBTestBase,
+class DBBloomFilterTestWithPartitioningParam
+    : public DBBloomFilterTest,
+      public testing::WithParamInterface<FilterPartitioning> {
+ public:
+  ~DBBloomFilterTestWithPartitioningParam() override = default;
+
+  void SetUp() override { filter_partitioning_ = GetParam(); }
+};
+
+class DBBloomFilterTestWithFormatParams
+    : public DBBloomFilterTest,
       public testing::WithParamInterface<
-          std::tuple<std::string, bool, uint32_t>> {
-  //                             public testing::WithParamInterface<bool> {
+          std::tuple<std::string, FilterPartitioning, uint32_t>> {
  protected:
   std::string bfp_impl_;
-  bool partition_filters_;
+  double bits_per_key_;
   uint32_t format_version_;
 
  public:
-  DBBloomFilterTestWithParam()
-      : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
-
-  ~DBBloomFilterTestWithParam() override = default;
+  ~DBBloomFilterTestWithFormatParams() override = default;
 
   void SetUp() override {
     bfp_impl_ = std::get<0>(GetParam());
-    partition_filters_ = std::get<1>(GetParam());
+    bits_per_key_ = 10;  // default;
+    filter_partitioning_ = std::get<1>(GetParam());
     format_version_ = std::get<2>(GetParam());
+  }
+
+  void SetInTableOptions(BlockBasedTableOptions* table_options) {
+    DBBloomFilterTest::SetInTableOptions(table_options);
+    table_options->filter_policy = Create(bits_per_key_, bfp_impl_);
+    table_options->format_version = format_version_;
   }
 };
 
-class DBBloomFilterTestDefFormatVersion : public DBBloomFilterTestWithParam {};
+class DBBloomFilterTestDefFormatVersion
+    : public DBBloomFilterTestWithFormatParams {};
 
 class SliceTransformLimitedDomainGeneric : public SliceTransform {
   const char* Name() const override {
@@ -118,11 +153,11 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     std::string value;
     anon::OptionsOverride options_override;
     options_override.filter_policy = Create(20, bfp_impl_);
-    options_override.partition_filters = partition_filters_;
+    options_override.partition_filters = PartitionFilters();
     options_override.metadata_block_size = 32;
     options_override.full_block_cache = true;
     Options options = CurrentOptions(options_override);
-    if (partition_filters_) {
+    if (PartitionFilters()) {
       auto* table_options =
           options.table_factory->GetOptions<BlockBasedTableOptions>();
       if (table_options != nullptr &&
@@ -190,397 +225,383 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
       ChangeOptions(kSkipPlainTable | kSkipHashIndex | kSkipFIFOCompaction));
 }
 
-TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
-  for (bool partition_filters : {true, false}) {
-    Options options = last_options_;
-    options.prefix_extractor =
-        std::make_shared<SliceTransformLimitedDomainGeneric>();
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    get_perf_context()->EnablePerLevelPerfContext();
-    BlockBasedTableOptions bbto;
-    bbto.filter_policy.reset(NewBloomFilterPolicy(10));
-    if (partition_filters) {
-      bbto.partition_filters = true;
-      bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-    }
-    bbto.whole_key_filtering = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
+TEST_P(DBBloomFilterTestWithPartitioningParam,
+       GetFilterByPrefixBloomCustomPrefixExtractor) {
+  Options options = last_options_;
+  options.prefix_extractor =
+      std::make_shared<SliceTransformLimitedDomainGeneric>();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  get_perf_context()->EnablePerLevelPerfContext();
+  BlockBasedTableOptions bbto;
+  SetInTableOptions(&bbto);
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
 
-    WriteOptions wo;
-    ReadOptions ro;
-    FlushOptions fo;
-    fo.wait = true;
-    std::string value;
+  WriteOptions wo;
+  ReadOptions ro;
+  FlushOptions fo;
+  fo.wait = true;
+  std::string value;
 
-    ASSERT_OK(dbfull()->Put(wo, "barbarbar", "foo"));
-    ASSERT_OK(dbfull()->Put(wo, "barbarbar2", "foo2"));
-    ASSERT_OK(dbfull()->Put(wo, "foofoofoo", "bar"));
+  ASSERT_OK(dbfull()->Put(wo, "barbarbar", "foo"));
+  ASSERT_OK(dbfull()->Put(wo, "barbarbar2", "foo2"));
+  ASSERT_OK(dbfull()->Put(wo, "foofoofoo", "bar"));
 
-    ASSERT_OK(dbfull()->Flush(fo));
+  ASSERT_OK(dbfull()->Flush(fo));
 
-    ASSERT_EQ("foo", Get("barbarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
+  ASSERT_EQ("foo", Get("barbarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
 
-    ASSERT_EQ("foo2", Get("barbarbar2"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
+  ASSERT_EQ("foo2", Get("barbarbar2"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
 
-    ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
+  ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
 
-    ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
+  ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
 
-    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
 
-    ro.total_order_seek = true;
-    // NOTE: total_order_seek no longer affects Get()
-    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
+  ro.total_order_seek = true;
+  // NOTE: total_order_seek no longer affects Get()
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
 
-    // No bloom on extractor changed
-    ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
-    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
+  // No bloom on extractor changed
+  ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
 
-    // No bloom on extractor changed, after re-open
-    options.prefix_extractor.reset(NewCappedPrefixTransform(10));
-    Reopen(options);
-    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
+  // No bloom on extractor changed, after re-open
+  options.prefix_extractor.reset(NewCappedPrefixTransform(10));
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
 
-    get_perf_context()->Reset();
-  }
+  get_perf_context()->Reset();
 }
 
-TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
-  for (bool partition_filters : {true, false}) {
-    Options options = last_options_;
-    options.prefix_extractor.reset(NewFixedPrefixTransform(8));
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    get_perf_context()->EnablePerLevelPerfContext();
-    BlockBasedTableOptions bbto;
-    bbto.filter_policy.reset(NewBloomFilterPolicy(10));
-    if (partition_filters) {
-      bbto.partition_filters = true;
-      bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-    }
-    bbto.whole_key_filtering = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
+TEST_P(DBBloomFilterTestWithPartitioningParam, GetFilterByPrefixBloom) {
+  Options options = last_options_;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  get_perf_context()->EnablePerLevelPerfContext();
+  BlockBasedTableOptions bbto;
+  SetInTableOptions(&bbto);
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
 
-    WriteOptions wo;
-    ReadOptions ro;
-    FlushOptions fo;
-    fo.wait = true;
-    std::string value;
+  WriteOptions wo;
+  ReadOptions ro;
+  FlushOptions fo;
+  fo.wait = true;
+  std::string value;
 
-    ASSERT_OK(dbfull()->Put(wo, "barbarbar", "foo"));
-    ASSERT_OK(dbfull()->Put(wo, "barbarbar2", "foo2"));
-    ASSERT_OK(dbfull()->Put(wo, "foofoofoo", "bar"));
+  ASSERT_OK(dbfull()->Put(wo, "barbarbar", "foo"));
+  ASSERT_OK(dbfull()->Put(wo, "barbarbar2", "foo2"));
+  ASSERT_OK(dbfull()->Put(wo, "foofoofoo", "bar"));
 
-    ASSERT_OK(dbfull()->Flush(fo));
+  ASSERT_OK(dbfull()->Flush(fo));
 
-    ASSERT_EQ("foo", Get("barbarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    ASSERT_EQ("foo2", Get("barbarbar2"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
+  ASSERT_EQ("foo", Get("barbarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  ASSERT_EQ("foo2", Get("barbarbar2"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
 
-    ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
+  ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
 
-    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
 
-    ro.total_order_seek = true;
-    // NOTE: total_order_seek no longer affects Get()
-    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
+  ro.total_order_seek = true;
+  // NOTE: total_order_seek no longer affects Get()
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 1);
 
-    // No bloom on extractor changed
-    ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
-    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
+  // No bloom on extractor changed
+  ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(Pop(GetLevelPerfContext(0).bloom_filter_useful), 0);
 
-    get_perf_context()->Reset();
-  }
+  get_perf_context()->Reset();
 }
 
-TEST_F(DBBloomFilterTest, FilterNumEntriesCoalesce) {
-  for (bool partition_filters : {true, false}) {
-    SCOPED_TRACE("partition_filters=" + std::to_string(partition_filters));
-    for (bool prefix : {true, false}) {
-      SCOPED_TRACE("prefix=" + std::to_string(prefix));
-      for (bool whole : {true, false}) {
-        SCOPED_TRACE("whole=" + std::to_string(whole));
-        Options options = last_options_;
-        options.prefix_extractor.reset();
-        if (prefix) {
-          options.prefix_extractor.reset(NewFixedPrefixTransform(3));
-        }
-        BlockBasedTableOptions bbto;
-        bbto.filter_policy.reset(NewBloomFilterPolicy(10));
-        bbto.whole_key_filtering = whole;
-        if (partition_filters) {
-          bbto.partition_filters = true;
-          bbto.index_type =
-              BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-        }
-        options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-        DestroyAndReopen(options);
+TEST_P(DBBloomFilterTestWithPartitioningParam, FilterNumEntriesCoalesce) {
+  for (bool prefix : {true, false}) {
+    SCOPED_TRACE("prefix=" + std::to_string(prefix));
+    for (bool whole : {true, false}) {
+      SCOPED_TRACE("whole=" + std::to_string(whole));
+      Options options = last_options_;
+      options.prefix_extractor.reset();
+      if (prefix) {
+        options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+      }
+      BlockBasedTableOptions bbto;
+      SetInTableOptions(&bbto);
+      bbto.filter_policy.reset(NewBloomFilterPolicy(10));
+      bbto.whole_key_filtering = whole;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      DestroyAndReopen(options);
 
-        // Need a snapshot to allow keeping multiple entries for the same key
-        std::vector<const Snapshot*> snapshots;
-        for (int i = 1; i <= 3; ++i) {
-          std::string val = "val" + std::to_string(i);
-          ASSERT_OK(Put("foo1", val));
-          ASSERT_OK(Put("foo2", val));
-          ASSERT_OK(Put("bar1", val));
-          ASSERT_OK(Put("bar2", val));
-          ASSERT_OK(Put("bar3", val));
-          snapshots.push_back(db_->GetSnapshot());
-        }
-        ASSERT_OK(Flush());
+      // Need a snapshot to allow keeping multiple entries for the same key
+      std::vector<const Snapshot*> snapshots;
+      for (int i = 1; i <= 3; ++i) {
+        std::string val = "val" + std::to_string(i);
+        ASSERT_OK(Put("foo1", val));
+        ASSERT_OK(Put("foo2", val));
+        ASSERT_OK(Put("bar1", val));
+        ASSERT_OK(Put("bar2", val));
+        ASSERT_OK(Put("bar3", val));
+        snapshots.push_back(db_->GetSnapshot());
+      }
+      ASSERT_OK(Flush());
 
-        TablePropertiesCollection tpc;
-        ASSERT_OK(db_->GetPropertiesOfAllTables(&tpc));
-        // sanity checks
-        ASSERT_EQ(tpc.size(), 1U);
-        auto& tp = *tpc.begin()->second;
-        EXPECT_EQ(tp.num_entries, 3U * 5U);
+      TablePropertiesCollection tpc;
+      ASSERT_OK(db_->GetPropertiesOfAllTables(&tpc));
+      // sanity checks
+      ASSERT_EQ(tpc.size(), 1U);
+      auto& tp = *tpc.begin()->second;
+      EXPECT_EQ(tp.num_entries, 3U * 5U);
 
-        // test checks
-        unsigned ex_filter_entries = 0;
-        if (whole) {
-          ex_filter_entries += 5;  // unique keys
-        }
-        if (prefix) {
-          ex_filter_entries += 2;  // unique prefixes
-        }
-        EXPECT_EQ(tp.num_filter_entries, ex_filter_entries);
+      // test checks
+      unsigned ex_filter_entries = 0;
+      if (whole) {
+        ex_filter_entries += 5;  // unique keys
+      }
+      if (prefix) {
+        ex_filter_entries += 2;  // unique prefixes
+      }
+      EXPECT_EQ(tp.num_filter_entries, ex_filter_entries);
 
-        for (auto* sn : snapshots) {
-          db_->ReleaseSnapshot(sn);
-        }
+      for (auto* sn : snapshots) {
+        db_->ReleaseSnapshot(sn);
       }
     }
   }
 }
 
-TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
-  for (bool partition_filters : {true, false}) {
-    Options options = last_options_;
-    options.prefix_extractor.reset(NewFixedPrefixTransform(3));
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    get_perf_context()->EnablePerLevelPerfContext();
+TEST_P(DBBloomFilterTestWithPartitioningParam, WholeKeyFilterProp) {
+  Options options = last_options_;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  get_perf_context()->EnablePerLevelPerfContext();
 
-    BlockBasedTableOptions bbto;
-    bbto.filter_policy.reset(NewBloomFilterPolicy(10));
-    bbto.whole_key_filtering = false;
-    if (partition_filters) {
-      bbto.partition_filters = true;
-      bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  BlockBasedTableOptions bbto;
+  SetInTableOptions(&bbto);
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  FlushOptions fo;
+  fo.wait = true;
+  std::string value;
+
+  ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
+  // Needs insert some keys to make sure files are not filtered out by key
+  // ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  ASSERT_OK(dbfull()->Flush(fo));
+
+  Reopen(options);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("foo", Get("foobar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+
+  // Reopen with whole key filtering enabled and prefix extractor
+  // NULL. Bloom filter should be off for both of whole key and
+  // prefix bloom.
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.prefix_extractor.reset();
+  Reopen(options);
+
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("foo", Get("foobar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  // Write DB with only full key filtering.
+  ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
+  // Needs insert some keys to make sure files are not filtered out by key
+  // ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Reopen with both of whole key off and prefix extractor enabled.
+  // Still no bloom filter should be used.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("foo", Get("foobar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+
+  // Try to create a DB with mixed files:
+  ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
+  // Needs insert some keys to make sure files are not filtered out by key
+  // ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  options.prefix_extractor.reset();
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  // Try to create a DB with mixed files.
+  ASSERT_OK(dbfull()->Put(wo, "barfoo", "bar"));
+  // In this case needs insert some keys to make sure files are
+  // not filtered out by key ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  ASSERT_OK(Flush());
+
+  // Now we have two files:
+  // File 1: An older file with prefix bloom (disabled)
+  // File 2: A newer file with whole bloom filter.
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("foo", Get("foobar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("bar", Get("barfoo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+
+  // Reopen with the same setting: only whole key is used
+  Reopen(options);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("foo", Get("foobar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("bar", Get("barfoo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+
+  // Restart with both filters are allowed
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  // File 1 will has it filtered out.
+  // File 2 will not, as prefix `foo` exists in the file.
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("foo", Get("foobar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("bar", Get("barfoo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+
+  // Restart with only prefix bloom is allowed.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("foo", Get("foobar"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("bar", Get("barfoo"));
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
+  uint64_t bloom_filter_useful_all_levels = 0;
+  for (auto& kv : (*(get_perf_context()->level_to_perf_context))) {
+    if (kv.second.bloom_filter_useful > 0) {
+      bloom_filter_useful_all_levels += kv.second.bloom_filter_useful;
     }
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
-
-    WriteOptions wo;
-    ReadOptions ro;
-    FlushOptions fo;
-    fo.wait = true;
-    std::string value;
-
-    ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
-    // Needs insert some keys to make sure files are not filtered out by key
-    // ranges.
-    ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
-    ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
-    ASSERT_OK(dbfull()->Flush(fo));
-
-    Reopen(options);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("bar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("foo", Get("foobar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-
-    // Reopen with whole key filtering enabled and prefix extractor
-    // NULL. Bloom filter should be off for both of whole key and
-    // prefix bloom.
-    bbto.whole_key_filtering = true;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    options.prefix_extractor.reset();
-    Reopen(options);
-
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("bar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("foo", Get("foobar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    // Write DB with only full key filtering.
-    ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
-    // Needs insert some keys to make sure files are not filtered out by key
-    // ranges.
-    ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
-    ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
-    // Reopen with both of whole key off and prefix extractor enabled.
-    // Still no bloom filter should be used.
-    options.prefix_extractor.reset(NewFixedPrefixTransform(3));
-    bbto.whole_key_filtering = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    Reopen(options);
-
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("bar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("foo", Get("foobar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-
-    // Try to create a DB with mixed files:
-    ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
-    // Needs insert some keys to make sure files are not filtered out by key
-    // ranges.
-    ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
-    ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
-    options.prefix_extractor.reset();
-    bbto.whole_key_filtering = true;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    Reopen(options);
-
-    // Try to create a DB with mixed files.
-    ASSERT_OK(dbfull()->Put(wo, "barfoo", "bar"));
-    // In this case needs insert some keys to make sure files are
-    // not filtered out by key ranges.
-    ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
-    ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
-    ASSERT_OK(Flush());
-
-    // Now we have two files:
-    // File 1: An older file with prefix bloom (disabled)
-    // File 2: A newer file with whole bloom filter.
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("NOT_FOUND", Get("bar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("foo", Get("foobar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("bar", Get("barfoo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-
-    // Reopen with the same setting: only whole key is used
-    Reopen(options);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("NOT_FOUND", Get("bar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("foo", Get("foobar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("bar", Get("barfoo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-
-    // Restart with both filters are allowed
-    options.prefix_extractor.reset(NewFixedPrefixTransform(3));
-    bbto.whole_key_filtering = true;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    Reopen(options);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    // File 1 will has it filtered out.
-    // File 2 will not, as prefix `foo` exists in the file.
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("NOT_FOUND", Get("bar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("foo", Get("foobar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ("bar", Get("barfoo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-
-    // Restart with only prefix bloom is allowed.
-    options.prefix_extractor.reset(NewFixedPrefixTransform(3));
-    bbto.whole_key_filtering = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    Reopen(options);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("NOT_FOUND", Get("bar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("foo", Get("foobar"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ("bar", Get("barfoo"));
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
-    EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
-    uint64_t bloom_filter_useful_all_levels = 0;
-    for (auto& kv : (*(get_perf_context()->level_to_perf_context))) {
-      if (kv.second.bloom_filter_useful > 0) {
-        bloom_filter_useful_all_levels += kv.second.bloom_filter_useful;
-      }
-    }
-    ASSERT_EQ(12, bloom_filter_useful_all_levels);
-    get_perf_context()->Reset();
   }
+  ASSERT_EQ(12, bloom_filter_useful_all_levels);
+  get_perf_context()->Reset();
 }
 
-TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
+INSTANTIATE_TEST_CASE_P(
+    DBBloomFilterTestWithPartitioningParam,
+    DBBloomFilterTestWithPartitioningParam,
+    ::testing::Values(FilterPartitioning::kUnpartitionedFilter,
+                      FilterPartitioning::kCoupledPartitionedFilter,
+                      FilterPartitioning::kDecoupledPartitionedFilter));
+
+TEST_P(DBBloomFilterTestWithFormatParams, BloomFilter) {
   do {
     Options options = CurrentOptions();
     env_->count_random_reads_ = true;
@@ -588,20 +609,23 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     // ChangeCompactOptions() only changes compaction style, which does not
     // trigger reset of table_factory
     BlockBasedTableOptions table_options;
+    // When partitioned filters are coupled to index blocks, they tend to get
+    // extra fractional bits per key when rounding up to the next cache line
+    // size. Here we correct for that to get similar effective bits per key.
+    bits_per_key_ = table_options.decouple_partitioned_filters ? 10.5 : 10;
+    SetInTableOptions(&table_options);
     table_options.no_block_cache = true;
-    table_options.filter_policy = Create(10, bfp_impl_);
     table_options.optimize_filters_for_memory = false;
-    table_options.partition_filters = partition_filters_;
-    if (partition_filters_) {
-      table_options.index_type =
-          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-    }
-    table_options.format_version = format_version_;
     if (format_version_ >= 4) {
       // value delta encoding challenged more with index interval > 1
       table_options.index_block_restart_interval = 8;
     }
-    table_options.metadata_block_size = 32;
+    // This test is rather sensitive to the actual filter partition block size,
+    // and keeping that consistent between coupled and uncoupled requires a
+    // different metadata block size for this example (where it controls index
+    // block size).
+    table_options.metadata_block_size =
+        table_options.decouple_partitioned_filters ? 320 : 32;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -628,7 +652,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     int reads = env_->random_read_counter_.Read();
     fprintf(stderr, "%d present => %d reads\n", N, reads);
     ASSERT_GE(reads, N);
-    if (partition_filters_) {
+    if (PartitionFilters()) {
       // Without block cache, we read an extra partition filter per each
       // level*read and a partition index per each read
       ASSERT_LE(reads, 4 * N + 2 * N / 100);
@@ -643,7 +667,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     }
     reads = env_->random_read_counter_.Read();
     fprintf(stderr, "%d missing => %d reads\n", N, reads);
-    if (partition_filters_) {
+    if (PartitionFilters()) {
       // With partitioned filter we read one extra filter per level per each
       // missed read.
       ASSERT_LE(reads, 2 * N + 3 * N / 100);
@@ -658,7 +682,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     uint64_t nkeys = N + N / 100;
     uint64_t filter_size = ParseUint64(props["filter_size"]);
     EXPECT_LE(filter_size,
-              (partition_filters_ ? 12 : 11) * nkeys / /*bits / byte*/ 8);
+              (PartitionFilters() ? 12 : 11) * nkeys / /*bits / byte*/ 8);
     if (bfp_impl_ == kAutoRibbon) {
       // Sometimes using Ribbon filter which is more space-efficient
       EXPECT_GE(filter_size, 7 * nkeys / /*bits / byte*/ 8);
@@ -679,15 +703,20 @@ namespace {
 
 class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
  public:
-  void AddKey(const Slice&) override {}
-  size_t EstimateEntriesAdded() override { return 0U; }
+  void AddKey(const Slice&) override { ++count_; }
+  void AddKeyAndAlt(const Slice&, const Slice&) override { count_ += 2; }
+  size_t EstimateEntriesAdded() override { return count_; }
   Slice Finish(std::unique_ptr<const char[]>* /* buf */) override {
+    count_ = 0;
     // Interpreted as "always true" filter (0 probes over 1 byte of
     // payload, 5 bytes metadata)
     return Slice("\0\0\0\0\0\0", 6);
   }
   using FilterBitsBuilder::Finish;
   size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
+
+ private:
+  size_t count_ = 0;
 };
 
 class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {
@@ -709,7 +738,7 @@ class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {
 
 }  // anonymous namespace
 
-TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
+TEST_P(DBBloomFilterTestWithFormatParams, SkipFilterOnEssentiallyZeroBpk) {
   constexpr int maxKey = 10;
   auto PutFn = [&]() {
     int i;
@@ -740,12 +769,7 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
-  table_options.partition_filters = partition_filters_;
-  if (partition_filters_) {
-    table_options.index_type =
-        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-  }
-  table_options.format_version = format_version_;
+  SetInTableOptions(&table_options);
 
   // Test 1: bits per key < 0.5 means skip filters -> no filter
   // constructed or read.
@@ -819,27 +843,85 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   EXPECT_EQ(props["filter_size"], "0");
 }
 
+TEST_P(DBBloomFilterTestWithFormatParams, FilterBitsBuilderDedup) {
+  BlockBasedTableOptions table_options;
+  SetInTableOptions(&table_options);
+  FilterBuildingContext context{table_options};
+  std::unique_ptr<FilterBitsBuilder> builder{
+      table_options.filter_policy->GetBuilderWithContext(context)};
+
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 0U);
+  // Check for sufficient de-duplication between regular keys and alt keys
+  // (prefixes), keeping in mind that the key might equal its prefix.
+
+  builder->AddKey("abc");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 1U);
+  builder->AddKeyAndAlt("abc1", "abc");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 2U);
+  builder->AddKeyAndAlt("bcd", "bcd");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 3U);
+  builder->AddKeyAndAlt("cde-1", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
+  builder->AddKeyAndAlt("cde", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 5U);
+  builder->AddKeyAndAlt("cde1", "cde");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 6U);
+  builder->AddKeyAndAlt("def-1", "def");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
+  builder->AddKeyAndAlt("def", "def");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 8U);
+  builder->AddKey("def$$");  // Like not in extractor domain
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
+  builder->AddKey("def$$");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 9U);
+  builder->AddKeyAndAlt("efg42", "efg");
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
+  builder->AddKeyAndAlt("efg", "efg");  // Like extra "alt" on a partition
+  ASSERT_EQ(builder->EstimateEntriesAdded(), 11U);
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
-        std::make_tuple(kAutoBloom, true, test::kDefaultFormatVersion),
-        std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion),
-        std::make_tuple(kAutoRibbon, false, test::kDefaultFormatVersion)));
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
+                        test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
-    FormatDef, DBBloomFilterTestWithParam,
+    FormatDef, DBBloomFilterTestWithFormatParams,
     ::testing::Values(
-        std::make_tuple(kAutoBloom, true, test::kDefaultFormatVersion),
-        std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion),
-        std::make_tuple(kAutoRibbon, false, test::kDefaultFormatVersion)));
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
+                        test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
-    FormatLatest, DBBloomFilterTestWithParam,
-    ::testing::Values(std::make_tuple(kAutoBloom, true, kLatestFormatVersion),
-                      std::make_tuple(kAutoBloom, false, kLatestFormatVersion),
-                      std::make_tuple(kAutoRibbon, false,
-                                      kLatestFormatVersion)));
+    FormatLatest, DBBloomFilterTestWithFormatParams,
+    ::testing::Values(
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter,
+                        kLatestFormatVersion),
+        std::make_tuple(kAutoBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter,
+                        kLatestFormatVersion),
+        std::make_tuple(kAutoBloom, FilterPartitioning::kUnpartitionedFilter,
+                        kLatestFormatVersion),
+        std::make_tuple(kAutoRibbon, FilterPartitioning::kUnpartitionedFilter,
+                        kLatestFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -957,18 +1039,17 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
 using FilterConstructionReserveMemoryHash = uint64_t;
 
 class ChargeFilterConstructionTestWithParam
-    : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<
-          CacheEntryRoleOptions::Decision, std::string, bool, bool>> {
+    : public DBBloomFilterTest,
+      public testing::WithParamInterface<
+          std::tuple<CacheEntryRoleOptions::Decision, std::string,
+                     FilterPartitioning, bool>> {
  public:
   ChargeFilterConstructionTestWithParam()
-      : DBTestBase("db_bloom_filter_tests",
-                   /*env_do_fsync=*/true),
-        num_key_(0),
+      : num_key_(0),
         charge_filter_construction_(std::get<0>(GetParam())),
         policy_(std::get<1>(GetParam())),
-        partition_filters_(std::get<2>(GetParam())),
         detect_filter_construct_corruption_(std::get<3>(GetParam())) {
+    filter_partitioning_ = std::get<2>(GetParam());
     if (charge_filter_construction_ ==
             CacheEntryRoleOptions::Decision::kDisabled ||
         policy_ == kLegacyBloom) {
@@ -976,7 +1057,7 @@ class ChargeFilterConstructionTestWithParam
       // cache charging happens instead of its accuracy. Therefore we don't
       // need many keys.
       num_key_ = 5;
-    } else if (partition_filters_) {
+    } else if (PartitionFilters()) {
       // For PartitionFilter case, since we set
       // table_options.metadata_block_size big enough such that each partition
       // trigger at least 1 dummy entry reservation each for hash entries and
@@ -1013,6 +1094,7 @@ class ChargeFilterConstructionTestWithParam
 
   BlockBasedTableOptions GetBlockBasedTableOptions() {
     BlockBasedTableOptions table_options;
+    SetInTableOptions(&table_options);
 
     // We set cache capacity big enough to prevent cache full for convenience in
     // calculation.
@@ -1022,10 +1104,7 @@ class ChargeFilterConstructionTestWithParam
         {CacheEntryRole::kFilterConstruction,
          {/*.charged = */ charge_filter_construction_}});
     table_options.filter_policy = Create(10, policy_);
-    table_options.partition_filters = partition_filters_;
     if (table_options.partition_filters) {
-      table_options.index_type =
-          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       // We set table_options.metadata_block_size big enough so that each
       // partition trigger at least 1 dummy entry insertion each for hash
       // entries and final filter.
@@ -1054,8 +1133,6 @@ class ChargeFilterConstructionTestWithParam
 
   std::string GetFilterPolicy() { return policy_; }
 
-  bool PartitionFilters() { return partition_filters_; }
-
   std::shared_ptr<
       TargetCacheChargeTrackingCache<CacheEntryRole::kFilterConstruction>>
   GetCache() {
@@ -1066,7 +1143,6 @@ class ChargeFilterConstructionTestWithParam
   std::size_t num_key_;
   CacheEntryRoleOptions::Decision charge_filter_construction_;
   std::string policy_;
-  bool partition_filters_;
   std::shared_ptr<
       TargetCacheChargeTrackingCache<CacheEntryRole::kFilterConstruction>>
       cache_;
@@ -1078,28 +1154,43 @@ INSTANTIATE_TEST_CASE_P(
     ChargeFilterConstructionTestWithParam,
     ::testing::Values(
         std::make_tuple(CacheEntryRoleOptions::Decision::kDisabled,
-                        kFastLocalBloom, false, false),
+                        kFastLocalBloom,
+                        FilterPartitioning::kUnpartitionedFilter, false),
 
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kFastLocalBloom, false, false),
+                        kFastLocalBloom,
+                        FilterPartitioning::kUnpartitionedFilter, false),
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kFastLocalBloom, false, true),
+                        kFastLocalBloom,
+                        FilterPartitioning::kUnpartitionedFilter, true),
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kFastLocalBloom, true, false),
+                        kFastLocalBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter, false),
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kFastLocalBloom, true, true),
+                        kFastLocalBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kFastLocalBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter, true),
 
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kStandard128Ribbon, false, false),
+                        kStandard128Ribbon,
+                        FilterPartitioning::kUnpartitionedFilter, false),
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kStandard128Ribbon, false, true),
+                        kStandard128Ribbon,
+                        FilterPartitioning::kUnpartitionedFilter, true),
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kStandard128Ribbon, true, false),
+                        kStandard128Ribbon,
+                        FilterPartitioning::kCoupledPartitionedFilter, false),
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kStandard128Ribbon, true, true),
+                        kStandard128Ribbon,
+                        FilterPartitioning::kCoupledPartitionedFilter, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kStandard128Ribbon,
+                        FilterPartitioning::kDecoupledPartitionedFilter, true),
 
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled, kLegacyBloom,
-                        false, false)));
+                        FilterPartitioning::kUnpartitionedFilter, false)));
 
 // TODO: Speed up this test, and reduce disk space usage (~700MB)
 // The current test inserts many keys (on the scale of dummy entry size)
@@ -1160,7 +1251,6 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
   bool charge_filter_construction = (ChargeFilterConstructMemory() ==
                                      CacheEntryRoleOptions::Decision::kEnabled);
   std::string policy = GetFilterPolicy();
-  bool partition_filters = PartitionFilters();
   bool detect_filter_construct_corruption =
       table_options.detect_filter_construct_corruption;
 
@@ -1247,7 +1337,7 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
      *  last longer since we release hash entries reservation later.
      *
      */
-    if (!partition_filters) {
+    if (!PartitionFilters()) {
       EXPECT_EQ(filter_construction_cache_res_peaks.size(), 1)
           << "Filter construction cache charging should have only 1 peak in "
              "case: kFastLocalBloom + FullFilter";
@@ -1369,7 +1459,7 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
      *  = hash entries + banding + final filter
      *
      */
-    if (!partition_filters) {
+    if (!PartitionFilters()) {
       ASSERT_GE(
           std::floor(
               1.0 * predicted_final_filter_cache_res /
@@ -1444,29 +1534,21 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
 }
 
 class DBFilterConstructionCorruptionTestWithParam
-    : public DBTestBase,
+    : public DBBloomFilterTest,
       public testing::WithParamInterface<
           std::tuple<bool /* detect_filter_construct_corruption */, std::string,
-                     bool /* partition_filters */>> {
+                     FilterPartitioning>> {
  public:
-  DBFilterConstructionCorruptionTestWithParam()
-      : DBTestBase("db_bloom_filter_tests",
-                   /*env_do_fsync=*/true) {}
-
-  BlockBasedTableOptions GetBlockBasedTableOptions() {
-    BlockBasedTableOptions table_options;
-    table_options.detect_filter_construct_corruption = std::get<0>(GetParam());
-    table_options.filter_policy = Create(10, std::get<1>(GetParam()));
-    table_options.partition_filters = std::get<2>(GetParam());
-    if (table_options.partition_filters) {
-      table_options.index_type =
-          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  void SetInTableOptions(BlockBasedTableOptions* table_options) {
+    table_options->detect_filter_construct_corruption = std::get<0>(GetParam());
+    table_options->filter_policy = Create(10, std::get<1>(GetParam()));
+    filter_partitioning_ = std::get<2>(GetParam());
+    DBBloomFilterTest::SetInTableOptions(table_options);
+    if (PartitionFilters()) {
       // We set table_options.metadata_block_size small enough so we can
       // trigger filter partitioning with GetNumKey() amount of keys
-      table_options.metadata_block_size = 10;
+      table_options->metadata_block_size = 10;
     }
-
-    return table_options;
   }
 
   // Return an appropriate amount of keys for testing
@@ -1477,15 +1559,26 @@ class DBFilterConstructionCorruptionTestWithParam
 INSTANTIATE_TEST_CASE_P(
     DBFilterConstructionCorruptionTestWithParam,
     DBFilterConstructionCorruptionTestWithParam,
-    ::testing::Values(std::make_tuple(false, kFastLocalBloom, false),
-                      std::make_tuple(true, kFastLocalBloom, false),
-                      std::make_tuple(true, kFastLocalBloom, true),
-                      std::make_tuple(true, kStandard128Ribbon, false),
-                      std::make_tuple(true, kStandard128Ribbon, true)));
+    ::testing::Values(
+        std::make_tuple(false, kFastLocalBloom,
+                        FilterPartitioning::kUnpartitionedFilter),
+        std::make_tuple(true, kFastLocalBloom,
+                        FilterPartitioning::kUnpartitionedFilter),
+        std::make_tuple(true, kFastLocalBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(true, kFastLocalBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter),
+        std::make_tuple(true, kStandard128Ribbon,
+                        FilterPartitioning::kUnpartitionedFilter),
+        std::make_tuple(true, kStandard128Ribbon,
+                        FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(true, kStandard128Ribbon,
+                        FilterPartitioning::kDecoupledPartitionedFilter)));
 
 TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
   Options options = CurrentOptions();
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  BlockBasedTableOptions table_options;
+  SetInTableOptions(&table_options);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
@@ -1572,7 +1665,8 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
 TEST_P(DBFilterConstructionCorruptionTestWithParam,
        DynamicallyTurnOnAndOffDetectConstructCorruption) {
   Options options = CurrentOptions();
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  BlockBasedTableOptions table_options;
+  SetInTableOptions(&table_options);
   // We intend to turn on
   // table_options.detect_filter_construct_corruption dynamically
   // therefore we override this test parmater's value
@@ -2309,11 +2403,12 @@ static const std::string kPlainTable = "test_PlainTableBloom";
 
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
-      public testing::WithParamInterface<std::tuple<std::string, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<std::string, FilterPartitioning>> {
  public:
   BloomStatsTestWithParam() {
     bfp_impl_ = std::get<0>(GetParam());
-    partition_filters_ = std::get<1>(GetParam());
+    filter_partitioning_ = std::get<1>(GetParam());
 
     options_.create_if_missing = true;
     options_.prefix_extractor.reset(
@@ -2321,13 +2416,13 @@ class BloomStatsTestWithParam
     options_.memtable_prefix_bloom_size_ratio =
         8.0 * 1024.0 / static_cast<double>(options_.write_buffer_size);
     if (bfp_impl_ == kPlainTable) {
-      assert(!partition_filters_);  // not supported in plain table
+      assert(!PartitionFilters());  // not supported in plain table
       PlainTableOptions table_options;
       options_.table_factory.reset(NewPlainTableFactory(table_options));
     } else {
       BlockBasedTableOptions table_options;
-      if (partition_filters_) {
-        table_options.partition_filters = partition_filters_;
+      if (PartitionFilters()) {
+        table_options.partition_filters = PartitionFilters();
         table_options.index_type =
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       }
@@ -2350,7 +2445,6 @@ class BloomStatsTestWithParam
   static void TearDownTestCase() {}
 
   std::string bfp_impl_;
-  bool partition_filters_;
   Options options_;
 };
 
@@ -2463,11 +2557,20 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
 INSTANTIATE_TEST_CASE_P(
     BloomStatsTestWithParam, BloomStatsTestWithParam,
-    ::testing::Values(std::make_tuple(kLegacyBloom, false),
-                      std::make_tuple(kLegacyBloom, true),
-                      std::make_tuple(kFastLocalBloom, false),
-                      std::make_tuple(kFastLocalBloom, true),
-                      std::make_tuple(kPlainTable, false)));
+    ::testing::Values(
+        std::make_tuple(kLegacyBloom, FilterPartitioning::kUnpartitionedFilter),
+        std::make_tuple(kLegacyBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(kLegacyBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter),
+        std::make_tuple(kFastLocalBloom,
+                        FilterPartitioning::kUnpartitionedFilter),
+        std::make_tuple(kFastLocalBloom,
+                        FilterPartitioning::kCoupledPartitionedFilter),
+        std::make_tuple(kFastLocalBloom,
+                        FilterPartitioning::kDecoupledPartitionedFilter),
+        std::make_tuple(kPlainTable,
+                        FilterPartitioning::kUnpartitionedFilter)));
 
 namespace {
 void PrefixScanInit(DBBloomFilterTest* dbtest) {

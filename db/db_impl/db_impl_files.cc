@@ -970,7 +970,9 @@ Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
   }
   // Persist it to IDENTITY file if allowed
   if (!read_only) {
-    s = SetIdentityFile(write_options, env_, dbname_, db_id_);
+    s = SetIdentityFile(write_options, env_, dbname_,
+                        immutable_db_options_.metadata_write_temperature,
+                        db_id_);
   }
   return s;
 }

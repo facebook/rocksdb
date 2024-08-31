@@ -108,6 +108,11 @@ class MyTestCompactionService : public CompactionService {
     }
   }
 
+  void OnInstallation(const std::string& /*scheduled_job_id*/,
+                      CompactionServiceJobStatus status) override {
+    final_updated_status_ = status;
+  }
+
   int GetCompactionNum() { return compaction_num_.load(); }
 
   CompactionServiceJobInfo GetCompactionInfoForStart() { return start_info_; }
@@ -136,6 +141,10 @@ class MyTestCompactionService : public CompactionService {
 
   void SetCanceled(bool canceled) { canceled_ = canceled; }
 
+  CompactionServiceJobStatus GetFinalCompactionServiceJobStatus() {
+    return final_updated_status_.load();
+  }
+
  private:
   InstrumentedMutex mutex_;
   std::atomic_int compaction_num_{0};
@@ -158,6 +167,8 @@ class MyTestCompactionService : public CompactionService {
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
   std::atomic_bool canceled_{false};
+  std::atomic<CompactionServiceJobStatus> final_updated_status_{
+      CompactionServiceJobStatus::kUseLocal};
 };
 
 class CompactionServiceTest : public DBTestBase {
@@ -255,6 +266,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
 
   auto my_cs = GetCompactionService();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
+  ASSERT_EQ(CompactionServiceJobStatus::kSuccess,
+            my_cs->GetFinalCompactionServiceJobStatus());
 
   // make sure the compaction statistics is only recorded on the remote side
   ASSERT_GE(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES), 1);
@@ -437,6 +450,8 @@ TEST_F(CompactionServiceTest, InvalidResult) {
   Slice end(end_str);
   Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
   ASSERT_FALSE(s.ok());
+  ASSERT_EQ(CompactionServiceJobStatus::kFailure,
+            my_cs->GetFinalCompactionServiceJobStatus());
 }
 
 TEST_F(CompactionServiceTest, SubCompaction) {

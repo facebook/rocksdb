@@ -74,6 +74,7 @@ struct TablePropertiesNames {
   static const std::string kSequenceNumberTimeMapping;
   static const std::string kTailStartOffset;
   static const std::string kUserDefinedTimestampsPersisted;
+  static const std::string kKeyLargestSeqno;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -125,6 +126,8 @@ class TablePropertiesCollector {
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
   // It will be called only once by RocksDB internal.
+  // When the returned Status is not OK, the collected properties will not be
+  // written to the file's property block.
   //
   // @params properties  User will add their collected statistics to
   // `properties`.
@@ -132,6 +135,7 @@ class TablePropertiesCollector {
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
+  // Returned properties are used for logging.
   // It will only be called after Finish() has been called by RocksDB internal.
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
@@ -289,6 +293,12 @@ struct TableProperties {
   // when the file is created. Default to be true, only when this flag is false,
   // it's explicitly written to meta properties block.
   uint64_t user_defined_timestamps_persisted = 1;
+
+  // The largest sequence number of keys in this file.
+  // UINT64_MAX means unknown.
+  // Only written to properties block if known (should be known unless the
+  // table is empty).
+  uint64_t key_largest_seqno = UINT64_MAX;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created

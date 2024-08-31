@@ -73,6 +73,8 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   deadlock_detect_ = txn_options.deadlock_detect;
   deadlock_detect_depth_ = txn_options.deadlock_detect_depth;
   write_batch_.SetMaxBytes(txn_options.max_write_batch_size);
+  write_batch_.GetWriteBatch()->SetTrackTimestampSize(
+      txn_options.write_batch_track_timestamp_size);
   skip_concurrency_control_ = txn_options.skip_concurrency_control;
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
@@ -763,8 +765,16 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
     EncodeFixed64(commit_ts_buf, commit_timestamp_);
     Slice commit_ts(commit_ts_buf, sizeof(commit_ts_buf));
 
-    Status s =
-        wb->UpdateTimestamps(commit_ts, [wbwi, this](uint32_t cf) -> size_t {
+    Status s = wb->UpdateTimestamps(
+        commit_ts, [wb, wbwi, this](uint32_t cf) -> size_t {
+          // First search through timestamp info kept inside the WriteBatch
+          // in case some writes bypassed the Transaction's write APIs.
+          auto cf_id_to_ts_sz = wb->GetColumnFamilyToTimestampSize();
+          auto iter = cf_id_to_ts_sz.find(cf);
+          if (iter != cf_id_to_ts_sz.end()) {
+            size_t ts_sz = iter->second;
+            return ts_sz;
+          }
           auto cf_iter = cfs_with_ts_tracked_when_indexing_disabled_.find(cf);
           if (cf_iter != cfs_with_ts_tracked_when_indexing_disabled_.end()) {
             return sizeof(kMaxTxnTimestamp);
@@ -840,16 +850,24 @@ Status WriteCommittedTxn::CommitInternal() {
     s = WriteBatchInternal::MarkCommitWithTimestamp(working_batch, name_,
                                                     commit_ts);
     if (s.ok()) {
-      s = wb->UpdateTimestamps(commit_ts, [wbwi, this](uint32_t cf) -> size_t {
-        if (cfs_with_ts_tracked_when_indexing_disabled_.find(cf) !=
-            cfs_with_ts_tracked_when_indexing_disabled_.end()) {
-          return sizeof(kMaxTxnTimestamp);
-        }
-        const Comparator* ucmp =
-            WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
-        return ucmp ? ucmp->timestamp_size()
-                    : std::numeric_limits<size_t>::max();
-      });
+      s = wb->UpdateTimestamps(
+          commit_ts, [wb, wbwi, this](uint32_t cf) -> size_t {
+            // first search through timestamp info kept inside the WriteBatch
+            // in case some writes bypassed the Transaction's write APIs.
+            auto cf_id_to_ts_sz = wb->GetColumnFamilyToTimestampSize();
+            auto iter = cf_id_to_ts_sz.find(cf);
+            if (iter != cf_id_to_ts_sz.end()) {
+              return iter->second;
+            }
+            if (cfs_with_ts_tracked_when_indexing_disabled_.find(cf) !=
+                cfs_with_ts_tracked_when_indexing_disabled_.end()) {
+              return sizeof(kMaxTxnTimestamp);
+            }
+            const Comparator* ucmp =
+                WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
+            return ucmp ? ucmp->timestamp_size()
+                        : std::numeric_limits<size_t>::max();
+          });
     }
   }
 

@@ -380,6 +380,11 @@ DEFINE_bool(charge_blob_cache, false,
             "CacheEntryRoleOptions::charged of "
             "kBlobCache");
 
+DEFINE_bool(
+    decouple_partitioned_filters,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().decouple_partitioned_filters,
+    "Decouple filter partitioning from index partitioning.");
+
 DEFINE_int32(
     top_level_index_pinning,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
@@ -1442,5 +1447,9 @@ DEFINE_uint32(uncache_aggressiveness,
               "Aggressiveness of erasing cache entries that are likely "
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
+
+DEFINE_bool(paranoid_memory_checks,
+            ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
+            "Sets CF option paranoid_memory_checks.");
 
 #endif  // GFLAGS

@@ -31,6 +31,7 @@ DeleteScheduler::DeleteScheduler(SystemClock* clock, FileSystem* fs,
       total_trash_size_(0),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       pending_files_(0),
+      next_trash_bucket_(0),
       bytes_max_delete_chunk_(bytes_max_delete_chunk),
       closing_(false),
       cv_(&mu_),
@@ -66,10 +67,8 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
        total_trash_size_.load() > total_size * max_trash_db_ratio_.load())) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
-    TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
-    Status s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
+    Status s = DeleteFileImmediately(file_path, /*accounted=*/true);
     if (s.ok()) {
-      s = sst_file_manager_->OnDeleteFile(file_path);
       ROCKS_LOG_INFO(info_log_,
                      "Deleted file %s immediately, rate_bytes_per_sec %" PRIi64
                      ", total_trash_size %" PRIu64 ", total_size %" PRIi64
@@ -77,15 +76,57 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
                      file_path.c_str(), rate_bytes_per_sec_.load(),
                      total_trash_size_.load(), total_size,
                      max_trash_db_ratio_.load());
-      InstrumentedMutexLock l(&mu_);
-      RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
+  return AddFileToDeletionQueue(file_path, dir_to_sync, /*bucket=*/std::nullopt,
+                                /*accounted=*/true);
+}
 
+Status DeleteScheduler::DeleteUnaccountedFile(const std::string& file_path,
+                                              const std::string& dir_to_sync,
+                                              const bool force_bg,
+                                              std::optional<int32_t> bucket) {
+  uint64_t num_hard_links = 1;
+  fs_->NumFileLinks(file_path, IOOptions(), &num_hard_links, nullptr)
+      .PermitUncheckedError();
+
+  // We can tolerate rare races where we might immediately delete both links
+  // to a file.
+  if (rate_bytes_per_sec_.load() <= 0 || (!force_bg && num_hard_links > 1)) {
+    Status s = DeleteFileImmediately(file_path, /*accounted=*/false);
+    if (s.ok()) {
+      ROCKS_LOG_INFO(info_log_,
+                     "Deleted file %s immediately, rate_bytes_per_sec %" PRIi64,
+                     file_path.c_str(), rate_bytes_per_sec_.load());
+    }
+    return s;
+  }
+  return AddFileToDeletionQueue(file_path, dir_to_sync, bucket,
+                                /*accounted=*/false);
+}
+
+Status DeleteScheduler::DeleteFileImmediately(const std::string& file_path,
+                                              bool accounted) {
+  TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
+  TEST_SYNC_POINT_CALLBACK("DeleteScheduler::DeleteFile::cb",
+                           const_cast<std::string*>(&file_path));
+  Status s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
+  if (s.ok()) {
+    s = OnDeleteFile(file_path, accounted);
+    InstrumentedMutexLock l(&mu_);
+    RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
+  }
+  return s;
+}
+
+Status DeleteScheduler::AddFileToDeletionQueue(const std::string& file_path,
+                                               const std::string& dir_to_sync,
+                                               std::optional<int32_t> bucket,
+                                               bool accounted) {
   // Move file to trash
   std::string trash_file;
-  Status s = MarkAsTrash(file_path, &trash_file);
+  Status s = MarkAsTrash(file_path, accounted, &trash_file);
   ROCKS_LOG_INFO(info_log_, "Mark file: %s as trash -- %s", trash_file.c_str(),
                  s.ToString().c_str());
 
@@ -94,7 +135,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
                     file_path.c_str(), s.ToString().c_str());
     s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
-      s = sst_file_manager_->OnDeleteFile(file_path);
+      s = OnDeleteFile(file_path, accounted);
       ROCKS_LOG_INFO(info_log_, "Deleted file %s immediately",
                      trash_file.c_str());
       InstrumentedMutexLock l(&mu_);
@@ -104,11 +145,13 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
   }
 
   // Update the total trash size
-  uint64_t trash_file_size = 0;
-  IOStatus io_s =
-      fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
-  if (io_s.ok()) {
-    total_trash_size_.fetch_add(trash_file_size);
+  if (accounted) {
+    uint64_t trash_file_size = 0;
+    IOStatus io_s =
+        fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
+    if (io_s.ok()) {
+      total_trash_size_.fetch_add(trash_file_size);
+    }
   }
   //**TODO: What should we do if we failed to
   // get the file size?
@@ -117,8 +160,15 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
   {
     InstrumentedMutexLock l(&mu_);
     RecordTick(stats_.get(), FILES_MARKED_TRASH);
-    queue_.emplace(trash_file, dir_to_sync);
+    queue_.emplace(trash_file, dir_to_sync, accounted, bucket);
     pending_files_++;
+    if (bucket.has_value()) {
+      auto iter = pending_files_in_buckets_.find(bucket.value());
+      assert(iter != pending_files_in_buckets_.end());
+      if (iter != pending_files_in_buckets_.end()) {
+        iter->second++;
+      }
+    }
     if (pending_files_ == 1) {
       cv_.SignalAll();
     }
@@ -177,7 +227,7 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
 }
 
 Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
-                                    std::string* trash_file) {
+                                    bool accounted, std::string* trash_file) {
   // Sanity check of the path
   size_t idx = file_path.rfind('/');
   if (idx == std::string::npos || idx == file_path.size() - 1) {
@@ -211,7 +261,7 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
     }
     cnt++;
   }
-  if (s.ok()) {
+  if (s.ok() && accounted) {
     s = sst_file_manager_->OnMoveFile(file_path, *trash_file);
   }
   return s;
@@ -235,6 +285,8 @@ void DeleteScheduler::BackgroundEmptyTrash() {
     uint64_t total_deleted_bytes = 0;
     int64_t current_delete_rate = rate_bytes_per_sec_.load();
     while (!queue_.empty() && !closing_) {
+      // Satisfy static analysis.
+      std::optional<int32_t> bucket = std::nullopt;
       if (current_delete_rate != rate_bytes_per_sec_.load()) {
         // User changed the delete rate
         current_delete_rate = rate_bytes_per_sec_.load();
@@ -247,14 +299,17 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       // Get new file to delete
       const FileAndDir& fad = queue_.front();
       std::string path_in_trash = fad.fname;
+      std::string dir_to_sync = fad.dir;
+      bool accounted = fad.accounted;
+      bucket = fad.bucket;
 
       // We don't need to hold the lock while deleting the file
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
       bool is_complete = true;
       // Delete file from trash and update total_penlty value
-      Status s =
-          DeleteTrashFile(path_in_trash, fad.dir, &deleted_bytes, &is_complete);
+      Status s = DeleteTrashFile(path_in_trash, dir_to_sync, accounted,
+                                 &deleted_bytes, &is_complete);
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
       if (is_complete) {
@@ -288,12 +343,20 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       TEST_SYNC_POINT_CALLBACK("DeleteScheduler::BackgroundEmptyTrash:Wait",
                                &total_penalty);
 
+      int32_t pending_files_in_bucket = std::numeric_limits<int32_t>::max();
       if (is_complete) {
         pending_files_--;
+        if (bucket.has_value()) {
+          auto iter = pending_files_in_buckets_.find(bucket.value());
+          assert(iter != pending_files_in_buckets_.end());
+          if (iter != pending_files_in_buckets_.end()) {
+            pending_files_in_bucket = iter->second--;
+          }
+        }
       }
-      if (pending_files_ == 0) {
-        // Unblock WaitForEmptyTrash since there are no more files waiting
-        // to be deleted
+      if (pending_files_ == 0 || pending_files_in_bucket == 0) {
+        // Unblock WaitForEmptyTrash or WaitForEmptyTrashBucket since there are
+        // no more files waiting to be deleted
         cv_.SignalAll();
       }
     }
@@ -302,12 +365,14 @@ void DeleteScheduler::BackgroundEmptyTrash() {
 
 Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
                                         const std::string& dir_to_sync,
-                                        uint64_t* deleted_bytes,
+                                        bool accounted, uint64_t* deleted_bytes,
                                         bool* is_complete) {
   uint64_t file_size;
   Status s = fs_->GetFileSize(path_in_trash, IOOptions(), &file_size, nullptr);
   *is_complete = true;
   TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
+  TEST_SYNC_POINT_CALLBACK("DeleteScheduler::DeleteTrashFile::cb",
+                           const_cast<std::string*>(&path_in_trash));
   if (s.ok()) {
     bool need_full_delete = true;
     if (bytes_max_delete_chunk_ != 0 && file_size > bytes_max_delete_chunk_) {
@@ -374,7 +439,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
       }
       if (s.ok()) {
         *deleted_bytes = file_size;
-        s = sst_file_manager_->OnDeleteFile(path_in_trash);
+        s = OnDeleteFile(path_in_trash, accounted);
       }
     }
   }
@@ -384,10 +449,22 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
                     path_in_trash.c_str(), s.ToString().c_str());
     *deleted_bytes = 0;
   } else {
-    total_trash_size_.fetch_sub(*deleted_bytes);
+    if (accounted) {
+      total_trash_size_.fetch_sub(*deleted_bytes);
+    }
   }
 
   return s;
+}
+
+Status DeleteScheduler::OnDeleteFile(const std::string& file_path,
+                                     bool accounted) {
+  if (accounted) {
+    return sst_file_manager_->OnDeleteFile(file_path);
+  }
+  TEST_SYNC_POINT_CALLBACK("DeleteScheduler::OnDeleteFile",
+                           const_cast<std::string*>(&file_path));
+  return Status::OK();
 }
 
 void DeleteScheduler::WaitForEmptyTrash() {
@@ -395,6 +472,30 @@ void DeleteScheduler::WaitForEmptyTrash() {
   while (pending_files_ > 0 && !closing_) {
     cv_.Wait();
   }
+}
+
+std::optional<int32_t> DeleteScheduler::NewTrashBucket() {
+  if (rate_bytes_per_sec_.load() <= 0) {
+    return std::nullopt;
+  }
+  InstrumentedMutexLock l(&mu_);
+  int32_t bucket_number = next_trash_bucket_++;
+  pending_files_in_buckets_.emplace(bucket_number, 0);
+  return bucket_number;
+}
+
+void DeleteScheduler::WaitForEmptyTrashBucket(int32_t bucket) {
+  InstrumentedMutexLock l(&mu_);
+  if (bucket >= next_trash_bucket_) {
+    return;
+  }
+  auto iter = pending_files_in_buckets_.find(bucket);
+  while (iter != pending_files_in_buckets_.end() && iter->second > 0 &&
+         !closing_) {
+    cv_.Wait();
+    iter = pending_files_in_buckets_.find(bucket);
+  }
+  pending_files_in_buckets_.erase(bucket);
 }
 
 void DeleteScheduler::MaybeCreateBackgroundThread() {

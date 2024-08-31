@@ -3407,6 +3407,46 @@ class TableFileListener : public EventListener {
   InstrumentedMutex mutex_;
   std::unordered_map<std::string, std::vector<std::string>> cf_to_paths_;
 };
+
+class FlushTableFileListener : public EventListener {
+ public:
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    InstrumentedMutexLock lock(&mutex_);
+    if (info.reason != TableFileCreationReason::kFlush) {
+      return;
+    }
+    cf_to_flushed_files_[info.cf_name].push_back(info.file_path);
+  }
+  std::vector<std::string>& GetFlushedFiles(const std::string& cf_name) {
+    InstrumentedMutexLock lock(&mutex_);
+    return cf_to_flushed_files_[cf_name];
+  }
+
+ private:
+  InstrumentedMutex mutex_;
+  std::unordered_map<std::string, std::vector<std::string>>
+      cf_to_flushed_files_;
+};
+
+class FlushBlobFileListener : public EventListener {
+ public:
+  void OnBlobFileCreated(const BlobFileCreationInfo& info) override {
+    InstrumentedMutexLock lock(&mutex_);
+    if (info.reason != BlobFileCreationReason::kFlush) {
+      return;
+    }
+    cf_to_flushed_blobs_files_[info.cf_name].push_back(info.file_path);
+  }
+  std::vector<std::string>& GetFlushedBlobFiles(const std::string& cf_name) {
+    InstrumentedMutexLock lock(&mutex_);
+    return cf_to_flushed_blobs_files_[cf_name];
+  }
+
+ private:
+  InstrumentedMutex mutex_;
+  std::unordered_map<std::string, std::vector<std::string>>
+      cf_to_flushed_blobs_files_;
+};
 }  // anonymous namespace
 
 TEST_F(DBBasicTest, LastSstFileNotInManifest) {
@@ -3511,6 +3551,121 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
     ASSERT_OK(iter->status());
   }
 }
+
+// Param 0: whether to enable blob DB.
+// Param 1: when blob DB is enabled, whether to also delete the missing L0
+// file's associated blob file.
+class BestEffortsRecoverIncompleteVersionTest
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  BestEffortsRecoverIncompleteVersionTest()
+      : DBTestBase("best_efforts_recover_incomplete_version_test",
+                   /*env_do_fsync=*/false) {}
+};
+
+TEST_P(BestEffortsRecoverIncompleteVersionTest, Basic) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = std::get<0>(GetParam());
+  bool delete_blob_file_too = std::get<1>(GetParam());
+  DestroyAndReopen(options);
+  FlushTableFileListener* flush_table_listener = new FlushTableFileListener();
+  FlushBlobFileListener* flush_blob_listener = new FlushBlobFileListener();
+  // Disable auto compaction to simplify SST file name tracking.
+  options.disable_auto_compactions = true;
+  options.listeners.emplace_back(flush_table_listener);
+  options.listeners.emplace_back(flush_blob_listener);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  std::vector<std::string> all_cf_names = {kDefaultColumnFamilyName, "pikachu",
+                                           "eevee"};
+  int num_cfs = static_cast<int>(handles_.size());
+  ASSERT_EQ(3, num_cfs);
+  std::string start = "a";
+  Slice start_slice = start;
+  std::string end = "d";
+  Slice end_slice = end;
+  for (int cf = 0; cf != num_cfs; ++cf) {
+    ASSERT_OK(Put(cf, "a", "a_value"));
+    ASSERT_OK(Flush(cf));
+    // Compact file to L1 to avoid trivial file move in the next compaction
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf],
+                                &start_slice, &end_slice));
+    ASSERT_OK(Put(cf, "a", "a_value_new"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "b", "b_value"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "f", "f_value"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf],
+                                &start_slice, &end_slice));
+  }
+
+  dbfull()->TEST_DeleteObsoleteFiles();
+
+  // Delete the most recent L0 file which is before a compaction.
+  for (int i = 0; i < num_cfs; ++i) {
+    std::vector<std::string>& files =
+        flush_table_listener->GetFlushedFiles(all_cf_names[i]);
+    ASSERT_EQ(4, files.size());
+    ASSERT_OK(env_->DeleteFile(files[files.size() - 1]));
+    if (options.enable_blob_files) {
+      std::vector<std::string>& blob_files =
+          flush_blob_listener->GetFlushedBlobFiles(all_cf_names[i]);
+      ASSERT_EQ(4, blob_files.size());
+      if (delete_blob_file_too) {
+        ASSERT_OK(env_->DeleteFile(blob_files[files.size() - 1]));
+      }
+    }
+  }
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies(all_cf_names, options);
+
+  for (int i = 0; i < num_cfs; ++i) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ColumnFamilyData* cfd = cfh->cfd();
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    // The L0 file flushed right before the last compaction is missing.
+    ASSERT_EQ(0, vstorage->LevelFiles(0).size());
+    // Only the output of the last compaction is available.
+    ASSERT_EQ(1, vstorage->LevelFiles(1).size());
+  }
+  // Verify data
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  for (int i = 0; i < num_cfs; ++i) {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[i]));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ("a", iter->key());
+    ASSERT_EQ("a_value_new", iter->value());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ("b", iter->key());
+    ASSERT_EQ("b_value", iter->value());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Write more data.
+  for (int cf = 0; cf < num_cfs; ++cf) {
+    ASSERT_OK(Put(cf, "g", "g_value"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf], nullptr,
+                                nullptr));
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), handles_[cf], "g", &value));
+    ASSERT_EQ("g_value", value);
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(BestEffortsRecoverIncompleteVersionTest,
+                        BestEffortsRecoverIncompleteVersionTest,
+                        testing::Values(std::make_tuple(false, false),
+                                        std::make_tuple(true, false),
+                                        std::make_tuple(true, true)));
 
 TEST_F(DBBasicTest, BestEffortsRecoveryTryMultipleManifests) {
   Options options = CurrentOptions();

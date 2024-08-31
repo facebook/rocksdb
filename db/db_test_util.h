@@ -831,6 +831,15 @@ class FileTemperatureTestFS : public FileSystemWrapper {
     return count;
   }
 
+  std::map<Temperature, size_t> CountCurrentSstFilesByTemp() {
+    MutexLock lock(&mu_);
+    std::map<Temperature, size_t> ret;
+    for (const auto& e : current_sst_file_temperatures_) {
+      ret[e.second]++;
+    }
+    return ret;
+  }
+
   void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
     MutexLock lock(&mu_);
     current_sst_file_temperatures_[number] = temp;
@@ -842,7 +851,7 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       requested_sst_file_temperatures_;
   std::map<uint64_t, Temperature> current_sst_file_temperatures_;
 
-  std::string GetFileName(const std::string& fname) {
+  static std::string GetFileName(const std::string& fname) {
     auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
     // workaround only for Windows that the file path could contain both Windows
     // FilePathSeparator and '/'

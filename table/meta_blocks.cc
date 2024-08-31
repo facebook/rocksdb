@@ -59,12 +59,11 @@ PropertyBlockBuilder::PropertyBlockBuilder()
 
 void PropertyBlockBuilder::Add(const std::string& name,
                                const std::string& val) {
+  assert(props_.find(name) == props_.end());
   props_.insert({name, val});
 }
 
 void PropertyBlockBuilder::Add(const std::string& name, uint64_t val) {
-  assert(props_.find(name) == props_.end());
-
   std::string dst;
   PutVarint64(&dst, val);
 
@@ -164,11 +163,19 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kSequenceNumberTimeMapping,
         props.seqno_to_time_mapping);
   }
+  if (props.key_largest_seqno != UINT64_MAX) {
+    Add(TablePropertiesNames::kKeyLargestSeqno, props.key_largest_seqno);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
   for (const auto& prop : props_) {
+    assert(last_prop_added_to_block_.empty() ||
+           comparator_->Compare(prop.first, last_prop_added_to_block_) > 0);
     properties_block_->Add(prop.first, prop.second);
+#ifndef NDEBUG
+    last_prop_added_to_block_ = prop.first;
+#endif /* !NDEBUG */
   }
 
   return properties_block_->Finish();
@@ -218,12 +225,21 @@ bool NotifyCollectTableCollectorsOnFinish(
     UserCollectedProperties& readable_properties) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
-    Status s = collector->Finish(&user_collected_properties);
+    UserCollectedProperties user_properties;
+    Status s = collector->Finish(&user_properties);
     if (s.ok()) {
       for (const auto& prop : collector->GetReadableProperties()) {
         readable_properties.insert(prop);
       }
-      builder->Add(user_collected_properties);
+#ifndef NDEBUG
+      // Check different user properties collectors are not adding properties of
+      // the same name.
+      for (const auto& pair : user_properties) {
+        assert(user_collected_properties.find(pair.first) ==
+               user_collected_properties.end());
+      }
+#endif /* !NDEBUG */
+      user_collected_properties.merge(user_properties);
     } else {
       LogPropertiesCollectionError(info_log, "Finish" /* method */,
                                    collector->Name());
@@ -232,6 +248,7 @@ bool NotifyCollectTableCollectorsOnFinish(
       }
     }
   }
+  builder->Add(user_collected_properties);
   return all_succeeded;
 }
 
@@ -322,6 +339,8 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->tail_start_offset},
       {TablePropertiesNames::kUserDefinedTimestampsPersisted,
        &new_table_properties->user_defined_timestamps_persisted},
+      {TablePropertiesNames::kKeyLargestSeqno,
+       &new_table_properties->key_largest_seqno},
   };
 
   std::string last_key;

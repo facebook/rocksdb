@@ -45,6 +45,8 @@ DECLARE_int32(open_write_fault_one_in);
 DECLARE_int32(open_read_fault_one_in);
 
 DECLARE_int32(inject_error_severity);
+DECLARE_bool(disable_auto_compactions);
+DECLARE_bool(enable_compaction_filter);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
@@ -262,14 +264,10 @@ class SharedState {
   // This is useful for crash-recovery testing when the process may crash
   // before updating the corresponding expected value
   //
-  // It can fail and `*prepared` will be set to false if the previous write or
-  // delete is still in pending state (e.g, still in recovery for retryable IO
-  // errors). If succeeds,`*prepared` will be set to true
-  //
   // Requires external locking covering `key` in `cf` to prevent
   // concurrent write or delete to the same `key`.
-  PendingExpectedValue PreparePut(int cf, int64_t key, bool* prepared) {
-    return expected_state_manager_->PreparePut(cf, key, prepared);
+  PendingExpectedValue PreparePut(int cf, int64_t key) {
+    return expected_state_manager_->PreparePut(cf, key);
   }
 
   // Does not requires external locking.
@@ -281,31 +279,24 @@ class SharedState {
   // This is useful for crash-recovery testing when the process may crash
   // before updating the corresponding expected value
   //
-  // It can fail and `*prepared` will be set to false if the previous write or
-  // delete is still in pending state (e.g, still in recovery for retryable IO
-  // errors). If succeeds,`*prepared` will be set to true
-  //
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  PendingExpectedValue PrepareDelete(int cf, int64_t key, bool* prepared) {
-    return expected_state_manager_->PrepareDelete(cf, key, prepared);
+  PendingExpectedValue PrepareDelete(int cf, int64_t key) {
+    return expected_state_manager_->PrepareDelete(cf, key);
   }
 
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key,
-                                           bool* prepared) {
-    return expected_state_manager_->PrepareSingleDelete(cf, key, prepared);
+  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key) {
+    return expected_state_manager_->PrepareSingleDelete(cf, key);
   }
 
   // Requires external locking covering keys in `[begin_key, end_key)` in `cf`
   // to prevent concurrent write or delete to the same `key`.
   std::vector<PendingExpectedValue> PrepareDeleteRange(int cf,
                                                        int64_t begin_key,
-                                                       int64_t end_key,
-                                                       bool* prepared) {
-    return expected_state_manager_->PrepareDeleteRange(cf, begin_key, end_key,
-                                                       prepared);
+                                                       int64_t end_key) {
+    return expected_state_manager_->PrepareDeleteRange(cf, begin_key, end_key);
   }
 
   bool AllowsOverwrite(int64_t key) const {

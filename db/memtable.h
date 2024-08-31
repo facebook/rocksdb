@@ -60,8 +60,9 @@ struct ImmutableMemTableOptions {
   Statistics* statistics;
   MergeOperator* merge_operator;
   Logger* info_log;
-  bool allow_data_in_errors;
   uint32_t protection_bytes_per_key;
+  bool allow_data_in_errors;
+  bool paranoid_memory_checks;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -249,12 +250,14 @@ class MemTable {
   // If do_merge = true the default behavior which is Get value for key is
   // executed. Expected behavior is described right below.
   // If memtable contains a value for key, store it in *value and return true.
-  // If memtable contains a deletion for key, store a NotFound() error
-  // in *status and return true.
+  // If memtable contains a deletion for key, store NotFound() in *status and
+  // return true.
   // If memtable contains Merge operation as the most recent entry for a key,
   //   and the merge process does not stop (not reaching a value or delete),
   //   prepend the current merge operand to *operands.
   //   store MergeInProgress in s, and return false.
+  // If an unexpected error or corruption occurs, store Corruption() or other
+  // error in *status and return true.
   // Else, return false.
   // If any operation was found, its most recent sequence number
   // will be stored in *seq on success (regardless of whether true/false is
@@ -264,6 +267,11 @@ class MemTable {
   // If do_merge = false then any Merge Operands encountered for key are simply
   // stored in merge_context.operands_list and never actually merged to get a
   // final value. The raw Merge Operands are eventually returned to the user.
+  // @param value If not null and memtable contains a value for key, `value`
+  // will be set to the result value.
+  // @param column If not null and memtable contains a value/WideColumn for key,
+  // `column` will be set to the result value/WideColumn.
+  // Note: only one of `value` and `column` can be non-nullptr.
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.

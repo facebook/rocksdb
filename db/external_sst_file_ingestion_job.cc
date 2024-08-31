@@ -114,7 +114,6 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::string path_inside_db = TableFileName(
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
     if (ingestion_options_.move_files) {
-      assert(!ingestion_options_.allow_db_generated_files);
       status =
           fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
       if (status.ok()) {
@@ -627,7 +626,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     DeleteInternalFiles();
     consumed_seqno_count_ = 0;
     files_overlap_ = false;
-  } else if (status.ok() && ingestion_options_.move_files) {
+  } else if (status.ok() && ingestion_options_.move_files &&
+             !ingestion_options_.allow_db_generated_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
@@ -914,9 +914,18 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   } else if (!iter->status().ok()) {
     return iter->status();
   }
-  if (ingestion_options_.allow_db_generated_files) {
-    // Verify that all keys have seqno zero.
-    // TODO: store largest seqno in table property and validate it instead.
+  SequenceNumber largest_seqno =
+      table_reader.get()->GetTableProperties()->key_largest_seqno;
+  // UINT64_MAX means unknown and the file is generated before table property
+  // `key_largest_seqno` is introduced.
+  if (largest_seqno != UINT64_MAX && largest_seqno > 0) {
+    return Status::Corruption(
+        "External file has non zero largest sequence number " +
+        std::to_string(largest_seqno));
+  }
+  if (ingestion_options_.allow_db_generated_files &&
+      largest_seqno == UINT64_MAX) {
+    // Need to verify that all keys have seqno zero.
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       Status pik_status =
           ParseInternalKey(iter->key(), &key, allow_data_in_errors);

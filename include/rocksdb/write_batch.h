@@ -30,7 +30,7 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <vector>
+#include <unordered_map>
 
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
@@ -437,6 +437,30 @@ class WriteBatch : public WriteBatchBase {
   Status UpdateTimestamps(const Slice& ts,
                           std::function<size_t(uint32_t /*cf*/)> ts_sz_func);
 
+  // TODO: remove these internal APIs after MyRocks refactor to not directly
+  // write to a `WriteBatch` retrieved from `Transaction` via
+  // `Transaction::GetWriteBatch`.
+
+  void SetTrackTimestampSize(bool track_timestamp_size) {
+    track_timestamp_size_ = track_timestamp_size;
+  }
+
+  inline void MaybeTrackTimestampSize(uint32_t column_family_id, size_t ts_sz) {
+    if (!track_timestamp_size_) {
+      return;
+    }
+    auto iter = cf_id_to_ts_sz_.find(column_family_id);
+    if (iter == cf_id_to_ts_sz_.end()) {
+      cf_id_to_ts_sz_.emplace(column_family_id, ts_sz);
+    }
+  }
+
+  // Return a mapping from column family id to timestamp size of all the column
+  // families involved in this WriteBatch.
+  const std::unordered_map<uint32_t, size_t>& GetColumnFamilyToTimestampSize() {
+    return cf_id_to_ts_sz_;
+  }
+
   // Verify the per-key-value checksums of this write batch.
   // Corruption status will be returned if the verification fails.
   // If this write batch does not have per-key-value checksum,
@@ -510,6 +534,10 @@ class WriteBatch : public WriteBatchBase {
   std::unique_ptr<ProtectionInfo> prot_info_;
 
   size_t default_cf_ts_sz_ = 0;
+
+  bool track_timestamp_size_ = false;
+
+  std::unordered_map<uint32_t, size_t> cf_id_to_ts_sz_;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_

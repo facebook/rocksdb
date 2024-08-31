@@ -73,6 +73,10 @@ class PropertyBlockBuilder {
  private:
   std::unique_ptr<BlockBuilder> properties_block_;
   stl_wrappers::KVMap props_;
+#ifndef NDEBUG
+  const Comparator* comparator_ = BytewiseComparator();
+  Slice last_prop_added_to_block_;
+#endif /* !NDEBUG */
 };
 
 // Were we encounter any error occurs during user-defined statistics collection,

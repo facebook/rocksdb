@@ -388,6 +388,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
 
 IOStatus SetCurrentFile(const WriteOptions& write_options, FileSystem* fs,
                         const std::string& dbname, uint64_t descriptor_number,
+                        Temperature temp,
                         FSDirectory* dir_contains_current_file) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
@@ -397,8 +398,11 @@ IOStatus SetCurrentFile(const WriteOptions& write_options, FileSystem* fs,
   std::string tmp = TempFileName(dbname, descriptor_number);
   IOOptions opts;
   IOStatus s = PrepareIOFromWriteOptions(write_options, opts);
+  FileOptions file_opts;
+  file_opts.temperature = temp;
   if (s.ok()) {
-    s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true, opts);
+    s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true, opts,
+                          file_opts);
   }
   TEST_SYNC_POINT_CALLBACK("SetCurrentFile:BeforeRename", &s);
   if (s.ok()) {
@@ -423,7 +427,8 @@ IOStatus SetCurrentFile(const WriteOptions& write_options, FileSystem* fs,
 }
 
 Status SetIdentityFile(const WriteOptions& write_options, Env* env,
-                       const std::string& dbname, const std::string& db_id) {
+                       const std::string& dbname, Temperature temp,
+                       const std::string& db_id) {
   std::string id;
   if (db_id.empty()) {
     id = env->GenerateUniqueId();
@@ -437,8 +442,11 @@ Status SetIdentityFile(const WriteOptions& write_options, Env* env,
   Status s;
   IOOptions opts;
   s = PrepareIOFromWriteOptions(write_options, opts);
+  FileOptions file_opts;
+  file_opts.temperature = temp;
   if (s.ok()) {
-    s = WriteStringToFile(env, id, tmp, true, &opts);
+    s = WriteStringToFile(env->GetFileSystem().get(), id, tmp,
+                          /*should_sync=*/true, opts, file_opts);
   }
   if (s.ok()) {
     s = env->RenameFile(tmp, identify_file_name);

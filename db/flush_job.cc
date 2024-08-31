@@ -1156,6 +1156,11 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
   // Find the newest user-defined timestamps from all the flushed memtables.
   for (MemTable* m : mems_) {
     Slice table_newest_udt = m->GetNewestUDT();
+    // Empty memtables can be legitimately created and flushed, for example
+    // by error recovery flush attempts.
+    if (table_newest_udt.empty()) {
+      continue;
+    }
     if (cutoff_udt_.empty() ||
         ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) > 0) {
       if (!cutoff_udt_.empty()) {

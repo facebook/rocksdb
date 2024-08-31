@@ -103,6 +103,8 @@ struct ImmutableDBOptions {
   uint64_t follower_refresh_catchup_period_ms;
   uint64_t follower_catchup_retry_count;
   uint64_t follower_catchup_retry_wait_ms;
+  Temperature metadata_write_temperature;
+  Temperature wal_write_temperature;
 
   // Beginning convenience/helper objects that are not part of the base
   // DBOptions
