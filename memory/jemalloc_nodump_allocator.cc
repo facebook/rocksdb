@@ -132,7 +132,7 @@ static bool RenameArena(int arena_index, const char* new_arena_name) {
     size_t mib[3];
     size_t miblen = sizeof(mib) / sizeof(size_t);
 
-    // ref: https://github.com/jemalloc/jemalloc/blob/dev/test/unit/mallctl.c#L742
+    // ref:https://github.com/jemalloc/jemalloc/blob/dev/test/unit/mallctl.c#L742
     const std::string name_ctl = "arena." + std::to_string(arena_index) + ".name";
     mallctlnametomib(name_ctl.c_str(), mib, &miblen);
 
