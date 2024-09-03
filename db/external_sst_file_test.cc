@@ -66,7 +66,7 @@ class ExternalSSTFileTestBase : public DBTestBase {
 
 class ExternSSTFileLinkFailFallbackTest
     : public ExternalSSTFileTestBase,
-      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest() {
     fs_ = std::make_shared<ExternalSSTTestFS>(env_->GetFileSystem(), true);
@@ -2210,7 +2210,8 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   DestroyAndReopen(options_);
   const int kNumKeys = 10000;
   IngestExternalFileOptions ifo;
-  ifo.move_files = true;
+  ifo.move_files = std::get<2>(GetParam());
+  ifo.link_files = !ifo.move_files;
   ifo.failed_move_fall_back_to_copy = failed_move_fall_back_to_copy;
 
   std::string file_path = sst_files_dir_ + "file1.sst";
@@ -2251,6 +2252,13 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
     ASSERT_EQ(0, bytes_copied);
     ASSERT_EQ(file_size, bytes_moved);
     ASSERT_FALSE(copyfile);
+
+    Status es = env_->FileExists(file_path);
+    if (ifo.move_files) {
+      ASSERT_TRUE(es.IsNotFound());
+    } else {
+      ASSERT_OK(es);
+    }
   } else {
     // Link operation fails.
     ASSERT_EQ(0, bytes_moved);
@@ -2268,6 +2276,11 @@ TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
+                        ExternSSTFileLinkFailFallbackTest,
+                        testing::Combine(testing::Bool(), testing::Bool(),
+                                         testing::Bool()));
 
 class TestIngestExternalFileListener : public EventListener {
  public:
@@ -3719,19 +3732,13 @@ TEST_F(ExternalSSTFileWithTimestampTest, TimestampsNotPersistedBasic) {
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
-INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
-                        ExternSSTFileLinkFailFallbackTest,
-                        testing::Values(std::make_tuple(true, false),
-                                        std::make_tuple(true, true),
-                                        std::make_tuple(false, false)));
-
 class IngestDBGeneratedFileTest
     : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   IngestDBGeneratedFileTest() {
     ingest_opts.allow_db_generated_files = true;
-    ingest_opts.move_files = std::get<0>(GetParam());
+    ingest_opts.link_files = std::get<0>(GetParam());
     ingest_opts.verify_checksums_before_ingest = std::get<1>(GetParam());
     ingest_opts.snapshot_consistency = false;
   }
@@ -3744,10 +3751,10 @@ INSTANTIATE_TEST_CASE_P(BasicMultiConfig, IngestDBGeneratedFileTest,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST_P(IngestDBGeneratedFileTest, FailureCase) {
-  if (encrypted_env_ && ingest_opts.move_files) {
+  if (encrypted_env_ && ingest_opts.link_files) {
     // FIXME: should fail ingestion or support this combination.
     ROCKSDB_GTEST_SKIP(
-        "Encrypted env and move_files do not work together, as we reopen the "
+        "Encrypted env and link_files do not work together, as we reopen the "
         "file after linking it which appends an extra encryption prefix.");
     return;
   }
@@ -3943,7 +3950,7 @@ TEST_P(IngestDBGeneratedFileTest2, NotOverlapWithDB) {
   ingest_opts.allow_global_seqno = std::get<1>(GetParam());
   ingest_opts.allow_blocking_flush = std::get<2>(GetParam());
   ingest_opts.fail_if_not_bottommost_level = std::get<3>(GetParam());
-  ingest_opts.move_files = std::get<4>(GetParam());
+  ingest_opts.link_files = std::get<4>(GetParam());
 
   do {
     SCOPED_TRACE("option_config_ = " + std::to_string(option_config_));

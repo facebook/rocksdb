@@ -1,1 +1,1 @@
-* Support ingesting db generated files using hard link, i.e. IngestExternalFileOptions::move_files and IngestExternalFileOptions::allow_db_generated_files._
+* Support ingesting db generated files using hard link, i.e. IngestExternalFileOptions::move_files/link_files and IngestExternalFileOptions::allow_db_generated_files.
