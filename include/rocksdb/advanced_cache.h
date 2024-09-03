@@ -411,6 +411,14 @@ class Cache {
                                const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) = 0;
 
+  // Apply a callback to a cache handle. The Cache must ensure the lifetime
+  // of the key passed to the callback is valid for the duration of the
+  // callback. The handle may not belong to the cache, but is guaranteed to
+  // be type compatible.
+  virtual void ApplyToHandle(
+      Cache* cache, Handle* handle,
+      const std::function<void(const Slice& key, ObjectPtr obj, size_t charge,
+                               const CacheItemHelper* helper)>& callback) = 0;
   // Remove all entries.
   // Prerequisite: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
@@ -634,6 +642,15 @@ class CacheWrapper : public Cache {
                                const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
     target_->ApplyToAllEntries(callback, opts);
+  }
+
+  virtual void ApplyToHandle(
+      Cache* cache, Handle* handle,
+      const std::function<void(const Slice& key, ObjectPtr obj, size_t charge,
+                               const CacheItemHelper* helper)>& callback)
+      override {
+    auto cache_ptr = static_cast<CacheWrapper*>(cache);
+    target_->ApplyToHandle(cache_ptr->target_.get(), handle, callback);
   }
 
   void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
