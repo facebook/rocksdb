@@ -90,7 +90,16 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     uint64_t key_hash = GetSliceHash64(key);
     uint64_t alt_hash = GetSliceHash64(alt);
     std::optional<uint64_t> prev_key_hash;
-    std::optional<uint64_t> prev_alt_hash = hash_entries_info_.prev_alt_hash;
+    std::optional<uint64_t> prev_alt_hash;
+#ifdef ROCKSDB_VALGRIND_RUN
+    // Valgrind can report uninitialized FPs on std::optional usage. See e.g.
+    // https://stackoverflow.com/q/51616179
+    prev_key_hash = 42;
+    prev_alt_hash = 42;
+#endif
+    prev_key_hash = {};
+    prev_alt_hash = hash_entries_info_.prev_alt_hash;
+
     if (!hash_entries_info_.entries.empty()) {
       prev_key_hash = hash_entries_info_.entries.back();
     }
@@ -295,15 +304,6 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   bool detect_filter_construct_corruption_;
 
   struct HashEntriesInfo {
-#ifdef ROCKSDB_VALGRIND_RUN
-    HashEntriesInfo() {
-      // Valgrind can report uninitialized FPs on std::optional usage. See e.g.
-      // https://stackoverflow.com/q/51616179
-      std::memset((void*)&prev_alt_hash, 0, sizeof(prev_alt_hash));
-      prev_alt_hash = {};
-    }
-#endif
-
     // A deque avoids unnecessary copying of already-saved values
     // and has near-minimal peak memory use.
     std::deque<uint64_t> entries;

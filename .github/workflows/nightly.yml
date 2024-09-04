@@ -80,7 +80,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: PORTABLE=1 make V=1 -j32 valgrind_test
+    - run: make V=1 -j32 valgrind_test
     - uses: "./.github/actions/post-steps"
   build-windows-vs2022-avx2:
     if: ${{ github.repository_owner == 'facebook' }}
