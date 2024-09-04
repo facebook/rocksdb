@@ -97,7 +97,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     prev_key_hash = 42;
     prev_alt_hash = 42;
 #endif
-    prev_key_hash = {};
+    prev_key_hash.reset();
     prev_alt_hash = hash_entries_info_.prev_alt_hash;
 
     if (!hash_entries_info_.entries.empty()) {
