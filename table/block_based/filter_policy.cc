@@ -90,19 +90,25 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     uint64_t key_hash = GetSliceHash64(key);
     uint64_t alt_hash = GetSliceHash64(alt);
     std::optional<uint64_t> prev_key_hash;
-    std::optional<uint64_t> prev_alt_hash;
-#ifdef ROCKSDB_VALGRIND_RUN
-    // Valgrind can report uninitialized FPs on std::optional usage. See e.g.
-    // https://stackoverflow.com/q/51616179
-    prev_key_hash = 42;
-    prev_alt_hash = 42;
-#endif
-    prev_key_hash.reset();
-    prev_alt_hash = hash_entries_info_.prev_alt_hash;
+    std::optional<uint64_t> prev_alt_hash = hash_entries_info_.prev_alt_hash;
 
     if (!hash_entries_info_.entries.empty()) {
       prev_key_hash = hash_entries_info_.entries.back();
     }
+
+#ifdef ROCKSDB_VALGRIND_RUN
+    // Valgrind can report uninitialized FPs on std::optional usage. See e.g.
+    // https://stackoverflow.com/q/51616179
+    if (!prev_key_hash.has_value()) {
+      std::memset((void*)&prev_key_hash, 0, sizeof(prev_key_hash));
+      prev_key_hash.reset();
+    }
+    if (!prev_alt_hash.has_value()) {
+      std::memset((void*)&prev_alt_hash, 0, sizeof(prev_key_hash));
+      prev_alt_hash.reset();
+    }
+#endif
+
     // Add alt first, so that entries.back() always contains previous key
     // ASSUMING a change from one alt to the next implies a change to
     // corresponding key
