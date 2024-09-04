@@ -1566,14 +1566,15 @@ Status ColumnFamilyData::SetOptions(
 }
 
 // REQUIRES: DB mutex held
-Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
+Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(Version* version,
+                                                               int level) {
   if (initial_cf_options_.compaction_style != kCompactionStyleLevel) {
     return Env::WLTH_NOT_SET;
   }
   if (level == 0) {
     return Env::WLTH_MEDIUM;
   }
-  int base_level = current_->storage_info()->base_level();
+  int base_level = version->storage_info()->base_level();
 
   // L1: medium, L2: long, ...
   if (level - base_level >= 2) {

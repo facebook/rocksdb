@@ -511,7 +511,7 @@ class ColumnFamilyData {
     return initial_cf_options_;
   }
 
-  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(Version* version, int level);
 
   // created_dirs remembers directory created, so that we don't need to call
   // the same data creation operation again.

@@ -253,10 +253,11 @@ void CompactionJob::Prepare() {
   auto* c = compact_->compaction;
   ColumnFamilyData* cfd = c->column_family_data();
   assert(cfd != nullptr);
-  assert(cfd->current()->storage_info()->NumLevelFiles(
+  assert(c->input_version()->storage_info()->NumLevelFiles(
              compact_->compaction->level()) > 0);
 
-  write_hint_ = cfd->CalculateSSTWriteHint(c->output_level());
+  write_hint_ =
+      cfd->CalculateSSTWriteHint(c->input_version(), c->output_level());
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
@@ -297,8 +298,8 @@ void CompactionJob::Prepare() {
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
-        Status s =
-            cfd->current()->GetTableProperties(read_options, &tp, fmd, nullptr);
+        Status s = c->input_version()->GetTableProperties(read_options, &tp,
+                                                          fmd, nullptr);
         if (s.ok()) {
           s = seqno_to_time_mapping_.DecodeFrom(tp->seqno_to_time_mapping);
         }
@@ -875,7 +876,9 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
   }
 
   VersionStorageInfo::LevelSummaryStorage tmp;
-  auto vstorage = cfd->current()->storage_info();
+  Version* input_version = compact_->compaction->input_version();
+  assert(input_version);
+  auto vstorage = input_version->storage_info();
   const auto& stats = compaction_stats_.stats;
 
   double read_write_amp = 0.0;
