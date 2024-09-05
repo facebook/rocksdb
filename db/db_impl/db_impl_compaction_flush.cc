@@ -151,6 +151,9 @@ Status DBImpl::FlushMemTableToOutputFile(
   mutex_.AssertHeld();
   assert(cfd);
   assert(cfd->imm());
+  // TODO(yuzhangyu): When data placement is supported, we should only proceed
+  // if imm()'s current version's atomic replacement counter is the same as
+  // the counter when the FlushRequest was initially enqueued.
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
   assert(versions_);
@@ -207,6 +210,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // To address this, we make sure NotifyOnFlushBegin() executes after memtable
   // picking so that no new snapshot can be taken between the two functions.
 
+  // TODO(yuzhangyu): pass the atomic replacement counter to FlushJob, so
+  // it can use it to check anytime it needs.
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options, max_memtable_id,
       file_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
@@ -221,7 +226,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   FileMetaData file_meta;
 
   Status s;
-  bool need_cancel = false;
+  bool need_cleanup = false;
   IOStatus log_io_s = IOStatus::OK();
   if (needs_to_sync_closed_wals) {
     // SyncClosedWals() may unlock and re-lock the log_write_mutex multiple
@@ -270,8 +275,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    flush_job.PickMemTable();
-    need_cancel = true;
+    flush_job.PickMemTable(&need_cleanup);
   }
   TEST_SYNC_POINT_CALLBACK(
       "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", &flush_job);
@@ -288,14 +292,13 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
-    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
+    s = flush_job.Run(&need_cleanup, &logs_with_prep_tracker_, &file_meta,
                       &switched_to_mempurge, &skip_set_bg_error,
                       &error_handler_);
-    need_cancel = false;
   }
 
-  if (!s.ok() && need_cancel) {
-    flush_job.Cancel();
+  if (need_cleanup) {
+    flush_job.Cleanup();
   }
 
   if (s.ok()) {
@@ -436,6 +439,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     cfds.emplace_back(arg.cfd_);
   }
 
+  // TODO(yuzhangyu): When data placement is supported, we should only proceed
+  // if imm()'s current version's atomic replacement counter is the same as
+  // the counter when the FlushRequest was initially enqueued.
 #ifndef NDEBUG
   for (const auto cfd : cfds) {
     assert(cfd->imm()->NumNotFlushed() != 0);
@@ -482,6 +488,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
     uint64_t max_memtable_id = bg_flush_args[i].max_memtable_id_;
     FlushReason flush_reason = bg_flush_args[i].flush_reason_;
+    // TODO(yuzhangyu): pass the atomic replacement counter to FlushJob, so
+    // it can use it to check anytime it needs.
     jobs.emplace_back(new FlushJob(
         dbname_, cfd, immutable_db_options_, mutable_cf_options,
         max_memtable_id, file_options_for_compaction_, versions_.get(), &mutex_,
@@ -541,11 +549,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // exec_status stores the execution status of flush_jobs as
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
-  std::vector<bool> pick_status;
+  // Use of deque<bool> because vector<bool> doesn't allow &v[i].
+  std::deque<bool> need_cleanup(num_cfs, false);
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
-    pick_status.push_back(false);
   }
 
   bool flush_for_recovery =
@@ -565,8 +573,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   if (s.ok()) {
     for (int i = 0; i != num_cfs; ++i) {
-      jobs[i]->PickMemTable();
-      pick_status[i] = true;
+      jobs[i]->PickMemTable(&(need_cleanup.at(i)));
     }
   }
 
@@ -576,8 +583,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 1; i != num_cfs; ++i) {
       exec_status[i].second =
-          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i],
-                       &(switched_to_mempurge.at(i)));
+          jobs[i]->Run(&(need_cleanup.at(i)), &logs_with_prep_tracker_,
+                       &file_meta[i], &(switched_to_mempurge.at(i)));
       exec_status[i].first = true;
     }
     if (num_cfs > 1) {
@@ -589,7 +596,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     assert(exec_status.size() > 0);
     assert(!file_meta.empty());
     exec_status[0].second = jobs[0]->Run(
-        &logs_with_prep_tracker_, file_meta.data() /* &file_meta[0] */,
+        &(need_cleanup.at(0)), &logs_with_prep_tracker_,
+        file_meta.data() /* &file_meta[0] */,
         switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge.at(0)));
     exec_status[0].first = true;
 
@@ -608,6 +616,12 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
 
     s = error_status.ok() ? s : error_status;
+  }
+
+  for (int i = 0; i != num_cfs; ++i) {
+    if (need_cleanup[i]) {
+      jobs[i]->Cleanup();
+    }
   }
 
   if (s.IsColumnFamilyDropped()) {
@@ -634,20 +648,15 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
   } else if (!skip_set_bg_error) {
     // When `skip_set_bg_error` is true, no memtable is picked so
-    // there is no need to call Cancel() or RollbackMemtableFlush().
+    // there is no need to call RollbackMemtableFlush().
     //
     // Need to undo atomic flush if something went wrong, i.e. s is not OK and
     // it is not because of CF drop.
-    // Have to cancel the flush jobs that have NOT executed because we need to
-    // unref the versions.
-    for (int i = 0; i != num_cfs; ++i) {
-      if (pick_status[i] && !exec_status[i].first) {
-        jobs[i]->Cancel();
-      }
-    }
     for (int i = 0; i != num_cfs; ++i) {
       if (exec_status[i].second.ok() && exec_status[i].first) {
         auto& mems = jobs[i]->GetMemTables();
+        // TODO(yuzhangyu): pass the base atomic replacement counter into below
+        // function for checking.
         cfds[i]->imm()->RollbackMemtableFlush(
             mems, /*rollback_succeeding_memtables=*/false);
       }
@@ -657,6 +666,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   if (s.ok()) {
     const auto wait_to_install_func =
         [&]() -> std::pair<Status, bool /*continue to wait*/> {
+      // TODO(yuzhangyu): pass the base atomic replacement counter into below
+      // function for checking.
       if (!versions_->io_status().ok()) {
         // Something went wrong elsewhere, we cannot count on waiting for our
         // turn to write/sync to MANIFEST or CURRENT. Just return.
@@ -745,6 +756,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         assert(exec_status[i].first);
         assert(exec_status[i].second.ok());
         auto& mems = jobs[i]->GetMemTables();
+        // TODO(yuzhangyu): pass the base atomic replacement counter into below
+        // function for checking.
         cfds[i]->imm()->RollbackMemtableFlush(
             mems, /*rollback_succeeding_memtables=*/false);
       }
@@ -770,6 +783,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
     }
 
+    // TODO(yuzhangyu): pass the base atomic replacement counter into below
+    // function for checking.
     s = InstallMemtableAtomicFlushResults(
         nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
         versions_.get(), &logs_with_prep_tracker_, &mutex_, tmp_file_meta,

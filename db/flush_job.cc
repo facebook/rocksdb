@@ -132,6 +132,7 @@ FlushJob::FlushJob(
       sync_output_directory_(sync_output_directory),
       write_manifest_(write_manifest),
       edit_(nullptr),
+      imm_version_(nullptr),
       base_(nullptr),
       pick_memtable_called(false),
       thread_pri_(thread_pri),
@@ -145,7 +146,11 @@ FlushJob::FlushJob(
   TEST_SYNC_POINT("FlushJob::FlushJob()");
 }
 
-FlushJob::~FlushJob() { ThreadStatusUtil::ResetThreadStatus(); }
+FlushJob::~FlushJob() {
+  assert(!imm_version_);
+  assert(!base_);
+  ThreadStatusUtil::ResetThreadStatus();
+}
 
 void FlushJob::ReportStartedFlush() {
   ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
@@ -172,8 +177,9 @@ void FlushJob::RecordFlushIOStats() {
       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
-void FlushJob::PickMemTable() {
+void FlushJob::PickMemTable(bool* need_cleanup) {
   db_mutex_->AssertHeld();
+  assert(need_cleanup);
   assert(!pick_memtable_called);
   pick_memtable_called = true;
 
@@ -187,10 +193,15 @@ void FlushJob::PickMemTable() {
   // necessarily equal to max_next_log_number.
   uint64_t max_next_log_number = 0;
 
+  // TODO(yuzhangyu): pass the atomic replacement counter to below function so
+  // it can give up picking memtables immediately if the counter doesn't match.
+  // Need these extra checks because mutex can be released in between FlushJob's
+  // creation and this function.
   // Save the contents of the earliest memtable as a new Table
   cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_,
                                     &max_next_log_number);
   if (mems_.empty()) {
+    *need_cleanup = false;
     return;
   }
 
@@ -215,16 +226,16 @@ void FlushJob::PickMemTable() {
   // path 0 for level 0 file.
   meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   meta_.epoch_number = cfd_->NewEpochNumber();
-
-  base_ = cfd_->current();
-  base_->Ref();  // it is likely that we do not need this reference
+  RefInput(need_cleanup);
 }
 
-Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
-                     bool* switched_to_mempurge, bool* skipped_since_bg_error,
+Status FlushJob::Run(bool* need_cleanup, LogsWithPrepTracker* prep_tracker,
+                     FileMetaData* file_meta, bool* switched_to_mempurge,
+                     bool* skipped_since_bg_error,
                      ErrorHandler* error_handler) {
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
+  assert(need_cleanup);
   assert(pick_memtable_called);
   // Mempurge threshold can be dynamically changed.
   // For sake of consistency, mempurge_threshold is
@@ -237,8 +248,12 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   if (mems_.empty()) {
     ROCKS_LOG_BUFFER(log_buffer_, "[%s] No memtable to flush",
                      cfd_->GetName().c_str());
+    assert(!base_);
+    *need_cleanup = false;
     return Status::OK();
   }
+  // Explicit call to UnrefInput during Run will set this to false.
+  *need_cleanup = true;
 
   // I/O measurement variables
   PerfLevel prev_perf_level = PerfLevel::kEnableTime;
@@ -290,11 +305,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   }
   Status s;
   if (mempurge_s.ok()) {
-    base_->Unref();
+    UnrefInput(need_cleanup);
     s = Status::OK();
   } else {
     // This will release and re-acquire the mutex.
-    s = WriteLevel0Table();
+    s = WriteLevel0Table(need_cleanup);
   }
 
   if (s.ok() && cfd_->IsDropped()) {
@@ -305,11 +320,9 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     s = Status::ShutdownInProgress("Database shutdown");
   }
 
-  if (s.ok()) {
-    s = MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
-  }
-
   if (!s.ok()) {
+    // TODO(yuzhangyu): pass the base atomic replacement counter into below
+    // function for checking.
     cfd_->imm()->RollbackMemtableFlush(
         mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
   } else if (write_manifest_) {
@@ -327,15 +340,21 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
       }
     } else {
       TEST_SYNC_POINT("FlushJob::InstallResults");
+      // TODO(yuzhangyu): pass the base atomic replacement counter into below
+      // function for checking.
       // Replace immutable memtable with the generated Table
       s = cfd_->imm()->TryInstallMemtableFlushResults(
-              cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
-              meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-              log_buffer_, &committed_flush_jobs_info_,
-              !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
-                              but 'false' if mempurge successful: no new min log number
-                              or new level 0 file path to write to manifest. */);
+          cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
+          meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
+          log_buffer_, &committed_flush_jobs_info_,
+          !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
+                          but 'false' if mempurge successful: no new min log number
+                          or new level 0 file path to write to manifest. */);
     }
+  }
+
+  if (s.ok()) {
+    s = MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -388,10 +407,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   return s;
 }
 
-void FlushJob::Cancel() {
+void FlushJob::Cleanup() {
   db_mutex_->AssertHeld();
+  assert(imm_version_ != nullptr);
   assert(base_ != nullptr);
-  base_->Unref();
+  UnrefInput();
 }
 
 Status FlushJob::MemPurge() {
@@ -847,10 +867,11 @@ bool FlushJob::MemPurgeDecider(double threshold) {
           threshold);
 }
 
-Status FlushJob::WriteLevel0Table() {
+Status FlushJob::WriteLevel0Table(bool* need_cleanup) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
+  assert(need_cleanup);
   const uint64_t start_micros = clock_->NowMicros();
   const uint64_t start_cpu_micros = clock_->CPUMicros();
   Status s;
@@ -1036,7 +1057,7 @@ Status FlushJob::WriteLevel0Table() {
     TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table", &mems_);
     db_mutex_->Lock();
   }
-  base_->Unref();
+  UnrefInput(need_cleanup);
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
@@ -1059,6 +1080,8 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.unique_id, meta_.compensated_range_deletion_size,
                    meta_.tail_size, meta_.user_defined_timestamps_persisted);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
+    // TODO(yuzhangyu): set the base atomic replacement counter in the edit for
+    // the single-threaded manifest write queue to guard its commit.
   }
   // Piggyback FlushJobInfo on the first first flushed memtable.
   mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
@@ -1217,6 +1240,40 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
                                 ReadOptions(Env::IOActivity::kFlush),
                                 WriteOptions(Env::IOActivity::kFlush), &edit,
                                 db_mutex_, output_file_directory_);
+}
+
+void FlushJob::RefInput(bool* need_cleanup) {
+  assert(need_cleanup);
+  *need_cleanup = true;
+  assert(!imm_version_);
+  assert(!base_);
+  if (imm_version_) {
+    assert(base_);
+    return;
+  }
+  // Give flush job its own reference of the `MemTableListVersion` and `Version`
+  // to protect the input it needs access.
+  imm_version_ = cfd_->imm()->current();
+  imm_version_->Ref();
+  base_ = cfd_->current();
+  base_->Ref();
+}
+
+void FlushJob::UnrefInput(bool* need_cleanup) {
+  if (need_cleanup) {
+    *need_cleanup = false;
+  }
+  if (!imm_version_) {
+    assert(!base_);
+    return;
+  }
+
+  assert(imm_version_);
+  imm_version_->Unref(&job_context_->memtables_to_free);
+  imm_version_ = nullptr;
+
+  base_->Unref();
+  base_ = nullptr;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

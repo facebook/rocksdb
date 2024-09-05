@@ -77,20 +77,22 @@ class FlushJob {
            std::string full_history_ts_low = "",
            BlobFileCompletionCallback* blob_callback = nullptr);
 
+  // Debug mode enforce checking all resources are properly cleaned up.
   ~FlushJob();
 
   // Require db_mutex held.
-  // Once PickMemTable() is called, either Run() or Cancel() has to be called.
-  void PickMemTable();
+  // Called before `Run`, when either `PickMemTable` or `Run` sets
+  // `need_cleanup` to true, `Cleanup` should be called.
+  void PickMemTable(bool* need_cleanup);
   // @param skip_since_bg_error If not nullptr and if atomic_flush=false,
   // then it is set to true if flush installation is skipped and memtable
   // is rolled back due to existing background error.
-  Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
+  Status Run(bool* need_cleanup, LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr,
              bool* switched_to_mempurge = nullptr,
              bool* skipped_since_bg_error = nullptr,
              ErrorHandler* error_handler = nullptr);
-  void Cancel();
+  void Cleanup();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
   std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
@@ -100,10 +102,19 @@ class FlushJob {
  private:
   friend class FlushJobTest_GetRateLimiterPriorityForWrite_Test;
 
+  // Create FlushJob's own reference for the needed inputs. Function is
+  // idempotent. Debug mode enforces that it's only called once.
+  void RefInput(bool* need_cleanup);
+
+  // Unref FlushJob's own reference for the needed inputs after it's done using
+  // them. Function is idempotent. Debug mode enforces that it's only called
+  // once.
+  void UnrefInput(bool* need_cleanup = nullptr);
+
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
-  Status WriteLevel0Table();
+  Status WriteLevel0Table(bool* need_cleanup);
 
   // Memtable Garbage Collection algorithm: a MemPurge takes the list
   // of immutable memtables and filters out (or "purge") the outdated bytes
@@ -207,6 +218,7 @@ class FlushJob {
   FileMetaData meta_;
   autovector<MemTable*> mems_;
   VersionEdit* edit_;
+  MemTableListVersion* imm_version_;
   Version* base_;
   bool pick_memtable_called;
   Env::Priority thread_pri_;

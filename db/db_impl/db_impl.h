@@ -2202,6 +2202,9 @@ class DBImpl : public DB {
     std::unordered_map<ColumnFamilyData*, uint64_t>
         cfd_to_max_mem_id_to_persist;
 
+    // TODO(yuzhangyu): Add a field to track the base atomic replacement
+    // counter when flush is initially requested.
+
 #ifndef NDEBUG
     int reschedule_count = 1;
 #endif /* !NDEBUG */
