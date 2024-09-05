@@ -1,0 +1,1 @@
+* Fix a bug with auto error recovery from WAL failure that may cause CFs to be inconsistent (#12995). As part of the fix, IOError from writing to WAL due to no space is mapped to fatal error instead of hard error. 
