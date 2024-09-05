@@ -1151,6 +1151,8 @@ class DBImpl : public DB {
   // Get the background error status
   Status TEST_GetBGError();
 
+  bool TEST_IsRecoveryInProgress();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   uint64_t TEST_MaxNextLevelOverlappingBytes(

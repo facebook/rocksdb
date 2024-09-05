@@ -2931,6 +2931,29 @@ TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {
   ASSERT_EQ("new_v", Get("k"));
   Destroy(options);
 }
+
+TEST_F(DBWALTest, WALWriteErrorNoRecovery) {
+  Options options = CurrentOptions();
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  options.env = fault_fs_env.get();
+  options.manual_wal_flush = true;
+  DestroyAndReopen(options);
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kWrite, 7 /* seed*/, 1 /* one_in */,
+      true /* retryable */, false /* has_data_loss*/);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  ASSERT_OK(Put("k", "v"));
+  Status s;
+  s = db_->FlushWAL(false);
+  ASSERT_TRUE(s.IsIOError());
+  s = dbfull()->TEST_GetBGError();
+  ASSERT_EQ(s.severity(), Status::Severity::kFatalError);
+  ASSERT_FALSE(dbfull()->TEST_IsRecoveryInProgress());
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  Destroy(options);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
