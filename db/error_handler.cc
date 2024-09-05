@@ -63,7 +63,7 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
         {std::make_tuple(BackgroundErrorReason::kWriteCallback,
                          Status::Code::kIOError, Status::SubCode::kNoSpace,
                          true),
-         Status::Severity::kFatalError},
+         Status::Severity::kHardError},
         {std::make_tuple(BackgroundErrorReason::kWriteCallback,
                          Status::Code::kIOError, Status::SubCode::kNoSpace,
                          false),
@@ -389,8 +389,8 @@ void ErrorHandler::SetBGError(const Status& bg_status,
   if (bg_io_err.ok()) {
     return;
   }
-  ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
-                 bg_io_err.ToString().c_str());
+  ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s, reason %d",
+                 bg_io_err.ToString().c_str(), reason);
 
   RecordStats({ERROR_HANDLER_BG_ERROR_COUNT, ERROR_HANDLER_BG_IO_ERROR_COUNT},
               {} /* int_histograms */);
@@ -412,6 +412,28 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     recover_context_ = context;
     return;
   }
+  const bool wal_related_reason =
+      reason == BackgroundErrorReason::kWriteCallback ||
+      reason == BackgroundErrorReason::kMemTable ||
+      reason == BackgroundErrorReason::kFlush;
+  if (db_options_.manual_wal_flush && wal_related_reason) {
+    // We should not try auto recover from this error.
+    // With manual_wal_flush, a WAL write failure can drop buffered WAL writes.
+    // Memtables and WAL may not be consistent. A successful memtable flush on
+    // one CF can cause CFs to be inconsistent upon restart. Set severity to
+    // fatal to disallow resume.
+    bool auto_recovery = false;
+    Status bg_err(new_bg_io_err, Status::Severity::kFatalError);
+    CheckAndSetRecoveryAndBGError(bg_err);
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "ErrorHandler: A potentially WAL error happened, set "
+                   "background IO error as fatal error\n");
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                          &bg_err, db_mutex_, &auto_recovery);
+    recover_context_ = context;
+    return;
+  }
+
   if (bg_io_err.subcode() != IOStatus::SubCode::kNoSpace &&
       (bg_io_err.GetScope() == IOStatus::IOErrorScope::kIOErrorScopeFile ||
        bg_io_err.GetRetryable())) {

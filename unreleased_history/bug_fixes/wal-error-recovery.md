@@ -1,1 +1,1 @@
-* Fix a bug with auto error recovery from WAL failure that may cause CFs to be inconsistent (#12995). As part of the fix, IOError from writing to WAL due to no space is mapped to fatal error instead of hard error. 
+* Fix a bug with manual_wal_flush and auto error recovery from WAL failure that may cause CFs to be inconsistent (#12995). The fix will set potential WAL write failure as fatal error when manual_wal_flush is true, and disables auto error recovery from these errors.   

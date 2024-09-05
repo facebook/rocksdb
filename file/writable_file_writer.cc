@@ -623,10 +623,6 @@ IOStatus WritableFileWriter::WriteBuffered(const IOOptions& opts,
           // and let caller determine error handling.
           buf_.Size(0);
           buffered_data_crc32c_checksum_ = 0;
-          // We should not try auto recovery. Memtables and WAL are not
-          // consistent. A successful memtable flush can cause CFs to be
-          // inconsistent upon restart.
-          s.SetRetryable(false);
         }
         SetPerfLevel(prev_perf_level);
       }
@@ -730,10 +726,6 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const IOOptions& opts,
       // and let caller determine error handling.
       buf_.Size(0);
       buffered_data_crc32c_checksum_ = 0;
-      // We should not try auto recovery. Memtables and WAL are not
-      // consistent. A successful memtable flush can cause CFs to be
-      // inconsistent upon restart.
-      s.SetRetryable(false);
       set_seen_error(s);
       return s;
     }
