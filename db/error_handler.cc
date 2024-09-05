@@ -390,7 +390,7 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     return;
   }
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s, reason %d",
-                 bg_io_err.ToString().c_str(), reason);
+                 bg_io_err.ToString().c_str(), static_cast<int>(reason));
 
   RecordStats({ERROR_HANDLER_BG_ERROR_COUNT, ERROR_HANDLER_BG_IO_ERROR_COUNT},
               {} /* int_histograms */);
