@@ -876,9 +876,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
   }
 
   VersionStorageInfo::LevelSummaryStorage tmp;
-  Version* input_version = compact_->compaction->input_version();
-  assert(input_version);
-  auto vstorage = input_version->storage_info();
+  auto vstorage = cfd->current()->storage_info();
   const auto& stats = compaction_stats_.stats;
 
   double read_write_amp = 0.0;
