@@ -923,16 +923,22 @@ def finalize_and_sanitize(src_params):
         dest_params["prefixpercent"] = 0
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
-    if dest_params.get("disable_wal") == 0 and dest_params.get("reopen") > 0:
-        # Reopen with WAL currently requires persisting WAL data before closing for reopen.
-        # Previous injected WAL write errors may not be cleared by the time of closing and ready
-        # for persisting WAL.
-        # To simplify, we disable any WAL write error injection.
-        # TODO(hx235): support WAL write error injection with reopen
-        # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
-        # have to disable metadata write fault injection to other file
-        dest_params["exclude_wal_from_write_fault_injection"] = 1
-        dest_params["metadata_write_fault_one_in"] = 0
+    if dest_params.get("disable_wal") == 0:
+        if dest_params.get("reopen") > 0 or (dest_params.get("manual_wal_flush_one_in") and dest_params.get("column_families") != 1):
+            # Reopen with WAL currently requires persisting WAL data before closing for reopen.
+            # Previous injected WAL write errors may not be cleared by the time of closing and ready
+            # for persisting WAL.
+            # To simplify, we disable any WAL write error injection.
+            # TODO(hx235): support WAL write error injection with reopen
+            # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
+            # have to disable metadata write fault injection to other file
+            #
+            # WAL write failure can drop buffered WAL data. This can cause
+            # inconsistency when one CF has a successful flush during auto
+            # recovery. Disable the fault injection in this path for now until
+            # we have a fix that allows auto recovery.
+            dest_params["exclude_wal_from_write_fault_injection"] = 1
+            dest_params["metadata_write_fault_one_in"] = 0
     if dest_params.get("disable_wal") == 1:
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
