@@ -39,10 +39,20 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
           MakeTableFileName(file->fd.GetNumber()));
     }
   }
+
+  // CompactionFilter explicitly set in options.compaction_filter is not yet
+  // supported. Use CompactionFilterFactory instead.
+  if (compaction->column_family_data()
+          ->initial_cf_options()
+          .compaction_filter != nullptr) {
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
   compaction_input.column_family.name =
       compaction->column_family_data()->GetName();
-  compaction_input.column_family.options =
-      compaction->column_family_data()->GetLatestCFOptions();
+  compaction_input.column_family.options = BuildColumnFamilyOptions(
+      compaction->column_family_data()->initial_cf_options(),
+      *compaction->mutable_cf_options());
   compaction_input.db_options =
       BuildDBOptions(db_options_, mutable_db_options_copy_);
   compaction_input.snapshots = existing_snapshots_;

@@ -27,6 +27,20 @@ class PartialDeleteCompactionFilter : public CompactionFilter {
   const char* Name() const override { return kClassName(); }
 };
 
+class PartialDeleteCompactionFilterFactory : public CompactionFilterFactory {
+ public:
+  static const char* kClassName() {
+    return "PartialDeleteCompactionFilterFactory";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::unique_ptr<CompactionFilter>(
+        new PartialDeleteCompactionFilter());
+  }
+};
+
 class MyTestCompactionService : public CompactionService {
  public:
   MyTestCompactionService(
@@ -43,22 +57,23 @@ class MyTestCompactionService : public CompactionService {
         listeners_(listeners),
         table_properties_collector_factories_(
             std::move(table_properties_collector_factories)) {
-    // Register Compaction Filter
+    // Register Compaction Filter Factory
     static std::once_flag once;
     std::call_once(once, [&]() {
-      ObjectRegistry::Default()->AddLibrary("MyTestCompactionService",
-                                            RegisterCompactionFilter, "");
+      ObjectRegistry::Default()->AddLibrary(
+          "MyTestCompactionService", RegisterCompactionFilterFactory, "");
     });
   }
 
-  static int RegisterCompactionFilter(ObjectLibrary& library,
-                                      const std::string& /*arg*/) {
-    library.AddFactory<CompactionFilter>(
-        PartialDeleteCompactionFilter::kClassName(),
-        [](const std::string& /*uri*/, std::unique_ptr<CompactionFilter>*,
+  static int RegisterCompactionFilterFactory(ObjectLibrary& library,
+                                             const std::string& /*arg*/) {
+    library.AddFactory<CompactionFilterFactory>(
+        PartialDeleteCompactionFilterFactory::kClassName(),
+        [](const std::string& /*uri*/,
+           std::unique_ptr<CompactionFilterFactory>* guard,
            std::string* /* errmsg */) {
-          static PartialDeleteCompactionFilter compactionFilter;
-          return &compactionFilter;
+          guard->reset(new PartialDeleteCompactionFilterFactory());
+          return guard->get();
         });
     size_t num_types;
     return static_cast<int>(library.GetFactoryCount(&num_types));
@@ -509,6 +524,8 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();
   std::unique_ptr<CompactionFilter> delete_comp_filter(
       new PartialDeleteCompactionFilter());
+  // CompactionFilter explicitly set by options.compaction_filter is not
+  // supported by Remote Compaction, yet. Use Local compaction instead
   options.compaction_filter = delete_comp_filter.get();
   ReopenWithCompactionService(&options);
   GenerateTestData();
@@ -525,6 +542,31 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
       ASSERT_EQ(result, "value_new" + std::to_string(i));
     }
   }
+  // Verify that the compaction is done locally
+  auto my_cs = GetCompactionService();
+  ASSERT_EQ(my_cs->GetCompactionNum(), 0);
+}
+
+TEST_F(CompactionServiceTest, CompactionFilterFactory) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<PartialDeleteCompactionFilterFactory>();
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // verify result
+  for (int i = 0; i < 200; i++) {
+    auto result = Get(Key(i));
+    if (i > 5 && i <= 105) {
+      ASSERT_EQ(result, "NOT_FOUND");
+    } else if (i % 2) {
+      ASSERT_EQ(result, "value" + std::to_string(i));
+    } else {
+      ASSERT_EQ(result, "value_new" + std::to_string(i));
+    }
+  }
+  // Verify that the compaction is done remotely
   auto my_cs = GetCompactionService();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
 }
