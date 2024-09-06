@@ -239,7 +239,7 @@ public class IngestExternalFileOptions extends RocksObject {
    * ingestion
    * <p>
    * Users can override the default value using this option.
-   * Using a large readahead size (> 2MB) can typically improve the performance
+   * Using a large readahead size (&gt; 2MB) can typically improve the performance
    * of forward iteration on spinning disks.
    *
    * @return the current value of readahead size (0 if it has not been set)
@@ -254,7 +254,7 @@ public class IngestExternalFileOptions extends RocksObject {
    * ingestion
    * <p>
    * Users can override the default value using this option.
-   * Using a large readahead size (> 2MB) can typically improve the performance
+   * Using a large readahead size (&gt; 2MB) can typically improve the performance
    * of forward iteration on spinning disks.
    *
    * @param verifyChecksumsReadaheadSize the value of readahead size to set
