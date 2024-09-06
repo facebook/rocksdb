@@ -5837,6 +5837,10 @@ Status DBImpl::IngestExternalFiles(
             "allow_db_generated_files.");
       }
     }
+    if (ingest_opts.move_files && ingest_opts.link_files) {
+      return Status::InvalidArgument(
+          "`move_files` and `link_files` can not both be true.");
+    }
   }
 
   // TODO (yanqin) maybe handle the case in which column_families have
