@@ -146,4 +146,15 @@ public class IngestExternalFileOptionsTest {
       assertThat(options.failIfNotLastLevel()).isFalse();
     }
   }
+
+  @Test
+  public void linkFiles() {
+    try (final IngestExternalFileOptions options = new IngestExternalFileOptions()) {
+      assertThat(options.linkFiles()).isFalse();
+      assertThat(options.setLinkFiles(true)).isEqualTo(options);
+      assertThat(options.linkFiles()).isTrue();
+      assertThat(options.setLinkFiles(false)).isEqualTo(options);
+      assertThat(options.linkFiles()).isFalse();
+    }
+  }
 }
