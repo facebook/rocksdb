@@ -2216,10 +2216,27 @@ class DBImpl : public DB {
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
 
-  // Returns true if `req` is successfully enqueued.
-  bool SchedulePendingFlush(const FlushRequest& req);
+  // Below functions are for executing flush, compaction in the background. A
+  // dequeue is the communication channel between threads that asks for the work
+  // to be done and the available threads in the thread pool that pick it up to
+  // execute it. We use these terminologies to describe the state of the work
+  // and its transitions:
+  // 1) It becomes pending once it's successfully enqueued into the
+  //    corresponding dequeue, a work in this state is also called unscheduled.
+  //    Counter `unscheduled_*_` counts work in this state.
+  // 2) When `MaybeScheduleFlushOrCompaction` schedule a thread to run `BGWork*`
+  //    for the work, it becomes scheduled
+  //    Counter `bg_*_scheduled_` counts work in this state.
+  // 3) Once the thread start to execute `BGWork*`, the work is popped from the
+  //    dequeue, it is now in running state
+  //    Counter `num_running_*_` counts work in this state.
+  // 4) Eventually, the work is finished. We don't need to specifically track
+  //    finished work.
 
-  void SchedulePendingCompaction(ColumnFamilyData* cfd);
+  // Returns true if `req` is successfully enqueued.
+  bool EnqueuePendingFlush(const FlushRequest& req);
+
+  void EnqueuePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                             FileType type, uint64_t number, int job_id);
   static void BGWorkCompaction(void* arg);
