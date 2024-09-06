@@ -344,6 +344,31 @@ public class IngestExternalFileOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * True if the files will be linked instead of copying them.
+   * Same as moveFiles except that input files will NOT be unlinked.
+   * Only one of `moveFiles` and `linkFiles` can be set at the same time.
+   *
+   * @return true if files will be moved
+   */
+  public boolean linkFiles() {
+    return linkFiles(nativeHandle_);
+  }
+
+  /**
+   * Can be set to true to link the files instead of copying them.
+   * Same as moveFiles except that input files will NOT be unlinked.
+   * Only one of `moveFiles` and `linkFiles` can be set at the same time.
+   *
+   * @param linkFiles true if files should be linked instead of copied
+   *
+   * @return the reference to the current IngestExternalFileOptions.
+   */
+  public IngestExternalFileOptions setLinkFiles(final boolean linkFiles) {
+    setLinkFiles(nativeHandle_, linkFiles);
+    return this;
+  }
+
   private static native long newIngestExternalFileOptions();
   private static native long newIngestExternalFileOptions(final boolean moveFiles,
       final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
@@ -381,4 +406,7 @@ public class IngestExternalFileOptions extends RocksObject {
   private static native boolean failIfNotLastLevel(final long handle);
   private static native void setFailIfNotLastLevel(
       final long handle, final boolean failIfNotLastLevel);
+
+  private static native boolean linkFiles(final long handle);
+  private static native void setLinkFiles(final long handle, final boolean linkFiles);
 }
