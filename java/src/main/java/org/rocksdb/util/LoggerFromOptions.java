@@ -9,11 +9,17 @@ package org.rocksdb.util;
 import org.rocksdb.*;
 
 /**
- *
+ * This is a Java wrapper around a native RocksDB logger created by the
+ * CreateLoggerFromOptions API.
  */
 public class LoggerFromOptions extends RocksObject implements LoggerInterface {
-  public LoggerFromOptions(final String dbName, final DBOptions dbOptions) {
-    super(newLoggerFromOptions(dbName, dbOptions.getNativeHandle()));
+  private LoggerFromOptions(final String dbName, final DBOptions dbOptions) {
+    super(createLoggerFromOptions(dbName, dbOptions.getNativeHandle()));
+  }
+
+  static public LoggerFromOptions CreateLoggerFromOptions(
+      final String dbName, final DBOptions dbOptions) {
+    return new LoggerFromOptions(dbName, dbOptions);
   }
 
   @Override
@@ -33,7 +39,7 @@ public class LoggerFromOptions extends RocksObject implements LoggerInterface {
 
   @Override protected native void disposeInternal(long handle);
 
-  private static native long newLoggerFromOptions(final String dbName, final long dbOptions);
+  private static native long createLoggerFromOptions(final String dbName, final long dbOptions);
 
   private static native void setInfoLogLevel(final long handle, final byte logLevel);
   private static native byte infoLogLevel(final long handle);
