@@ -722,6 +722,38 @@ void DBImpl::DeleteObsoleteFiles() {
   mutex_.Lock();
 }
 
+VersionEdit GetDBRecoveryEditForObsoletingMemTables(
+    VersionSet* vset, const ColumnFamilyData& cfd,
+    const autovector<VersionEdit*>& edit_list,
+    const autovector<MemTable*>& memtables, LogsWithPrepTracker* prep_tracker) {
+  VersionEdit wal_deletion_edit;
+  uint64_t min_wal_number_to_keep = 0;
+  assert(edit_list.size() > 0);
+  if (vset->db_options()->allow_2pc) {
+    // Note that if mempurge is successful, the edit_list will
+    // not be applicable (contains info of new min_log number to keep,
+    // and level 0 file path of SST file created during normal flush,
+    // so both pieces of information are irrelevant after a successful
+    // mempurge operation).
+    min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
+        vset, cfd, edit_list, memtables, prep_tracker);
+
+    // We piggyback the information of earliest log file to keep in the
+    // manifest entry for the last file flushed.
+  } else {
+    min_wal_number_to_keep =
+        PrecomputeMinLogNumberToKeepNon2PC(vset, cfd, edit_list);
+  }
+
+  wal_deletion_edit.SetMinLogNumberToKeep(min_wal_number_to_keep);
+  if (vset->db_options()->track_and_verify_wals_in_manifest) {
+    if (min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
+      wal_deletion_edit.DeleteWalsBefore(min_wal_number_to_keep);
+    }
+  }
+  return wal_deletion_edit;
+}
+
 uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset, const autovector<MemTable*>& memtables_to_flush) {
   uint64_t min_log = 0;

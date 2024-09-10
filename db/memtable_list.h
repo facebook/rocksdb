@@ -447,6 +447,12 @@ class MemTableList {
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
 
+  // This API is only used by atomic date replacement. To get an edit for
+  // dropping the current `MemTableListVersion`.
+  VersionEdit GetEditForDroppingCurrentVersion(
+      const ColumnFamilyData* cfd, VersionSet* vset,
+      LogsWithPrepTracker* prep_tracker) const;
+
  private:
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,

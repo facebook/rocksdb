@@ -2963,6 +2963,14 @@ DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
 CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions,
                                     const MutableCFOptions& mutable_cf_options);
 
+// Return a VersionEdit for the DB's recovery when the `memtables` of the
+// specified column family are obsolete. Specifically, the min log number to
+// keep, and the WAL files that can be deleted.
+VersionEdit GetDBRecoveryEditForObsoletingMemTables(
+    VersionSet* vset, const ColumnFamilyData& cfd,
+    const autovector<VersionEdit*>& edit_list,
+    const autovector<MemTable*>& memtables, LogsWithPrepTracker* prep_tracker);
+
 // Return the earliest log file to keep after the memtable flush is
 // finalized.
 // `cfd_to_flush` is the column family whose memtable (specified in
