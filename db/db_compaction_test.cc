@@ -6146,7 +6146,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   std::vector<std::string> pending_compaction_cfs;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "SchedulePendingCompaction::cfd", [&](void* arg) {
+      "EnqueuePendingCompaction::cfd", [&](void* arg) {
         const std::string& cf_name =
             static_cast<ColumnFamilyData*>(arg)->GetName();
         pending_compaction_cfs.emplace_back(cf_name);

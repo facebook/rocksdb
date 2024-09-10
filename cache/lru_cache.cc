@@ -677,6 +677,17 @@ const Cache::CacheItemHelper* LRUCache::GetCacheItemHelper(
   return h->helper;
 }
 
+void LRUCache::ApplyToHandle(
+    Cache* cache, Handle* handle,
+    const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                             const CacheItemHelper* helper)>& callback) {
+  auto cache_ptr = static_cast<LRUCache*>(cache);
+  auto h = static_cast<const LRUHandle*>(handle);
+  callback(h->key(), h->value,
+           h->GetCharge(cache_ptr->GetShard(0).metadata_charge_policy_),
+           h->helper);
+}
+
 size_t LRUCache::TEST_GetLRUSize() {
   return SumOverShards([](LRUCacheShard& cs) { return cs.TEST_GetLRUSize(); });
 }

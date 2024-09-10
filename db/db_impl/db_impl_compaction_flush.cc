@@ -2377,7 +2377,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         ColumnFamilyData* loop_cfd =
             req.cfd_to_max_mem_id_to_persist.begin()->first;
         bool already_queued_for_flush = loop_cfd->queued_for_flush();
-        bool flush_req_enqueued = SchedulePendingFlush(req);
+        bool flush_req_enqueued = EnqueuePendingFlush(req);
         if (already_queued_for_flush || flush_req_enqueued) {
           loop_cfd->SetFlushSkipReschedule();
         }
@@ -2528,7 +2528,7 @@ Status DBImpl::AtomicFlushMemTables(
         }
       }
       GenerateFlushRequest(cfds, flush_reason, &flush_req);
-      SchedulePendingFlush(flush_req);
+      EnqueuePendingFlush(flush_req);
       MaybeScheduleFlushOrCompaction();
     }
 
@@ -2583,7 +2583,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   if (immutable_db_options_.atomic_flush) {
     FlushRequest flush_req;
     GenerateFlushRequest(cfds, flush_reason, &flush_req);
-    SchedulePendingFlush(flush_req);
+    EnqueuePendingFlush(flush_req);
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
       flush_memtable_ids.push_back(iter.second);
     }
@@ -2597,7 +2597,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
           flush_reason,
           {{cfd,
             std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
-      if (SchedulePendingFlush(flush_req)) {
+      if (EnqueuePendingFlush(flush_req)) {
         cfd->SetFlushSkipReschedule();
       };
     }
@@ -2950,6 +2950,7 @@ void DBImpl::AddToCompactionQueue(ColumnFamilyData* cfd) {
   cfd->Ref();
   compaction_queue_.push_back(cfd);
   cfd->set_queued_for_compaction(true);
+  ++unscheduled_compactions_;
 }
 
 ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
@@ -3005,7 +3006,7 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
   return cfd;
 }
 
-bool DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
+bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
   mutex_.AssertHeld();
   bool enqueued = false;
   if (reject_new_background_jobs_) {
@@ -3041,16 +3042,15 @@ bool DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
   return enqueued;
 }
 
-void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
+void DBImpl::EnqueuePendingCompaction(ColumnFamilyData* cfd) {
   mutex_.AssertHeld();
   if (reject_new_background_jobs_) {
     return;
   }
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
-    TEST_SYNC_POINT_CALLBACK("SchedulePendingCompaction::cfd",
+    TEST_SYNC_POINT_CALLBACK("EnqueuePendingCompaction::cfd",
                              static_cast<void*>(cfd));
     AddToCompactionQueue(cfd);
-    ++unscheduled_compactions_;
   }
 }
 
@@ -3218,7 +3218,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
 #ifndef NDEBUG
       flush_req.reschedule_count += 1;
 #endif /* !NDEBUG */
-      SchedulePendingFlush(flush_req);
+      EnqueuePendingFlush(flush_req);
       *reason = flush_reason;
       *flush_rescheduled_to_retain_udt = true;
       return Status::TryAgain();
@@ -3678,7 +3678,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
               ->ComputeCompactionScore(*(c->immutable_options()),
                                        *(c->mutable_cf_options()));
           AddToCompactionQueue(cfd);
-          ++unscheduled_compactions_;
 
           c.reset();
           // Don't need to sleep here, because BackgroundCallCompaction
@@ -3707,7 +3706,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           if (cfd->NeedsCompaction()) {
             // Yes, we need more compactions!
             AddToCompactionQueue(cfd);
-            ++unscheduled_compactions_;
             MaybeScheduleFlushOrCompaction();
           }
         }
@@ -3997,7 +3995,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                    *(c->mutable_cf_options()));
       if (!cfd->queued_for_compaction()) {
         AddToCompactionQueue(cfd);
-        ++unscheduled_compactions_;
       }
     }
   }
@@ -4269,7 +4266,7 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
-  SchedulePendingCompaction(cfd);
+  EnqueuePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 
   // Update max_total_in_memory_state_
