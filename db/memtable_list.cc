@@ -583,7 +583,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
       VersionEdit edit;
-#ifndef NDEBUG
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
       if (memtables_to_flush.size() == memlist.size()) {
         // TODO(yuzhangyu): remove this testing code once the
         // `GetEditForDroppingCurrentVersion` API is used by the atomic data
@@ -598,7 +598,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
 #else
       edit = GetDBRecoveryEditForObsoletingMemTables(
           vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
-#endif /* !NDEBUG */
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
       TEST_SYNC_POINT_CALLBACK(
           "MemTableList::TryInstallMemtableFlushResults:"
           "AfterComputeMinWalToKeep",
