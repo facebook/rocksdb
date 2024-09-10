@@ -39,7 +39,7 @@ public class LoggerFromOptionsTest {
     }
 
     LoggerFromOptions logger =
-        new LoggerFromOptions(logFolder.getRoot().toString(), new DBOptions());
+        LoggerFromOptions.CreateLoggerFromOptions(logFolder.getRoot().toString(), new DBOptions());
     logger.setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL);
 
     // Expect these configured options to be output in the log
