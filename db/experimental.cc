@@ -439,6 +439,7 @@ enum BuiltinSstQueryFilters : char {
   // and filtered independently because it might be a special case that is
   // not representative of the minimum in a spread of values.
   kBytewiseMinMaxFilter = 0x10,
+  kRevBytewiseMinMaxFilter = 0x11,
 };
 
 class SstQueryFilterBuilder {
@@ -526,7 +527,10 @@ class CategoryScopeFilterWrapperBuilder : public SstQueryFilterBuilder {
 
 class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
  public:
-  using SstQueryFilterConfigImpl::SstQueryFilterConfigImpl;
+  explicit BytewiseMinMaxSstQueryFilterConfig(
+      const FilterInput& input,
+      const KeySegmentsExtractor::KeyCategorySet& categories, bool reverse)
+      : SstQueryFilterConfigImpl(input, categories), reverse_(reverse) {}
 
   std::unique_ptr<SstQueryFilterBuilder> NewBuilder(
       bool sanity_checks) const override {
@@ -544,11 +548,13 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
       const KeySegmentsExtractor::Result& lower_bound_extracted,
       const Slice& upper_bound_excl,
       const KeySegmentsExtractor::Result& upper_bound_extracted) {
-    assert(!filter.empty() && filter[0] == kBytewiseMinMaxFilter);
+    assert(!filter.empty() && (filter[0] == kBytewiseMinMaxFilter ||
+                               filter[0] == kRevBytewiseMinMaxFilter));
     if (filter.size() <= 4) {
       // Missing some data
       return true;
     }
+    bool reverse = (filter[0] == kRevBytewiseMinMaxFilter);
     bool empty_included = (filter[1] & kEmptySeenFlag) != 0;
     const char* p = filter.data() + 2;
     const char* limit = filter.data() + filter.size();
@@ -595,8 +601,13 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
 
     // May match if both the upper bound and lower bound indicate there could
     // be overlap
-    return upper_bound_input.compare(smallest) >= 0 &&
-           lower_bound_input.compare(largest) <= 0;
+    if (reverse) {
+      return upper_bound_input.compare(smallest) <= 0 &&
+             lower_bound_input.compare(largest) >= 0;
+    } else {
+      return upper_bound_input.compare(smallest) >= 0 &&
+             lower_bound_input.compare(largest) <= 0;
+    }
   }
 
  protected:
@@ -618,19 +629,11 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
                        &prev_leadup);
 
         int compare = prev_leadup.compare(leadup);
-        if (compare > 0) {
-          status = Status::Corruption(
-              "Ordering invariant violated from 0x" +
-              prev_key->ToString(/*hex=*/true) + " with prefix 0x" +
-              prev_leadup.ToString(/*hex=*/true) + " to 0x" +
-              key.ToString(/*hex=*/true) + " with prefix 0x" +
-              leadup.ToString(/*hex=*/true));
-          return;
-        } else if (compare == 0) {
+        if (compare == 0) {
           // On the same prefix leading up to the segment, the segments must
           // not be out of order.
           compare = prev_input.compare(input);
-          if (compare > 0) {
+          if (parent.reverse_ ? compare < 0 : compare > 0) {
             status = Status::Corruption(
                 "Ordering invariant violated from 0x" +
                 prev_key->ToString(/*hex=*/true) + " with segment 0x" +
@@ -640,6 +643,9 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
             return;
           }
         }
+        // NOTE: it is not strictly required that the leadup be ordered, just
+        // satisfy the "common segment prefix property" which would be
+        // expensive to check
       }
 
       // Now actually update state for the filter inputs
@@ -665,7 +671,8 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
         return 0;
       }
       return 2 + GetFilterInputSerializedLength(parent.input_) +
-             VarintLength(smallest.size()) + smallest.size() + largest.size();
+             VarintLength(parent.reverse_ ? largest.size() : smallest.size()) +
+             smallest.size() + largest.size();
     }
 
     void Finish(std::string& append_to) override {
@@ -677,23 +684,27 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
       }
       size_t old_append_to_size = append_to.size();
       append_to.reserve(old_append_to_size + encoded_length);
-      append_to.push_back(kBytewiseMinMaxFilter);
+      append_to.push_back(parent.reverse_ ? kRevBytewiseMinMaxFilter
+                                          : kBytewiseMinMaxFilter);
 
       append_to.push_back(empty_seen ? kEmptySeenFlag : 0);
 
       SerializeFilterInput(&append_to, parent.input_);
 
-      PutVarint32(&append_to, static_cast<uint32_t>(smallest.size()));
-      append_to.append(smallest);
-      // The end of `largest` is given by the end of the filter
-      append_to.append(largest);
+      auto& minv = parent.reverse_ ? largest : smallest;
+      auto& maxv = parent.reverse_ ? smallest : largest;
+      PutVarint32(&append_to, static_cast<uint32_t>(minv.size()));
+      append_to.append(minv);
+      // The end of `maxv` is given by the end of the filter
+      append_to.append(maxv);
       assert(append_to.size() == old_append_to_size + encoded_length);
     }
 
     const BytewiseMinMaxSstQueryFilterConfig& parent;
     const bool sanity_checks;
     // Smallest and largest segment seen, excluding the empty segment which
-    // is tracked separately
+    // is tracked separately. "Reverse" from parent is only applied at
+    // serialization time, for efficiency.
     std::string smallest;
     std::string largest;
     bool empty_seen = false;
@@ -701,6 +712,8 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
     // Only for sanity checks
     Status status;
   };
+
+  bool reverse_;
 
  private:
   static constexpr char kEmptySeenFlag = 0x1;
@@ -1103,6 +1116,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
             may_match = MayMatch_CategoryScopeFilterWrapper(filter, *state);
             break;
           case kBytewiseMinMaxFilter:
+          case kRevBytewiseMinMaxFilter:
             if (state == nullptr) {
               // TODO? Report problem
               // No filtering
@@ -1304,8 +1318,15 @@ bool SstQueryFilterConfigs::IsEmptyNotFound() const {
 
 std::shared_ptr<SstQueryFilterConfig> MakeSharedBytewiseMinMaxSQFC(
     FilterInput input, KeySegmentsExtractor::KeyCategorySet categories) {
-  return std::make_shared<BytewiseMinMaxSstQueryFilterConfig>(input,
-                                                              categories);
+  return std::make_shared<BytewiseMinMaxSstQueryFilterConfig>(
+      input, categories,
+      /*reverse=*/false);
+}
+
+std::shared_ptr<SstQueryFilterConfig> MakeSharedReverseBytewiseMinMaxSQFC(
+    FilterInput input, KeySegmentsExtractor::KeyCategorySet categories) {
+  return std::make_shared<BytewiseMinMaxSstQueryFilterConfig>(input, categories,
+                                                              /*reverse=*/true);
 }
 
 Status SstQueryFilterConfigsManager::MakeShared(

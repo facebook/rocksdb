@@ -3737,6 +3737,7 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
 using experimental::KeySegmentsExtractor;
 using experimental::MakeSharedBytewiseMinMaxSQFC;
 using experimental::MakeSharedCappedKeySegmentsExtractor;
+using experimental::MakeSharedReverseBytewiseMinMaxSQFC;
 using experimental::SelectKeySegment;
 using experimental::SstQueryFilterConfigs;
 using experimental::SstQueryFilterConfigsManager;
@@ -4076,9 +4077,9 @@ TEST_F(DBBloomFilterTest, FixedWidthSegments) {
 
   // Filter config for second and fourth segment
   auto filter1 =
-      MakeSharedBytewiseMinMaxSQFC(experimental::SelectKeySegment(1));
+      MakeSharedReverseBytewiseMinMaxSQFC(experimental::SelectKeySegment(1));
   auto filter3 =
-      MakeSharedBytewiseMinMaxSQFC(experimental::SelectKeySegment(3));
+      MakeSharedReverseBytewiseMinMaxSQFC(experimental::SelectKeySegment(3));
   SstQueryFilterConfigs configs1 = {{filter1, filter3}, extractor1b3b0b4b};
   SstQueryFilterConfigsManager::Data data = {{42, {{"foo", configs1}}}};
   std::shared_ptr<SstQueryFilterConfigsManager> configs_manager;
@@ -4092,6 +4093,8 @@ TEST_F(DBBloomFilterTest, FixedWidthSegments) {
   Options options = CurrentOptions();
   options.statistics = CreateDBStatistics();
   options.table_properties_collector_factories.push_back(f);
+  // Next most common comparator after bytewise
+  options.comparator = ReverseBytewiseComparator();
 
   DestroyAndReopen(options);
 
@@ -4110,48 +4113,48 @@ TEST_F(DBBloomFilterTest, FixedWidthSegments) {
   using Keys = std::vector<std::string>;
 
   // Range is not filtered but segment 1 min/max filter is checked
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "acdc0000", "aczz0000"), Keys({}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aczz0000", "acdc0000"), Keys({}));
   EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Found (can't use segment 3 filter)
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqdc0000", "aqzz0000"),
-            Keys({"aqua1200", "aqua1230"}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqzz0000", "aqdc0000"),
+            Keys({"aqua1230", "aqua1200"}));
   EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Filtered because of segment 1 min-max not intersecting [aaa, abb]
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "zaaa0000", "zabb9999"), Keys({}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "zabb9999", "zaaa0000"), Keys({}));
   EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Found
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1000ZZZ", "aqua1200ZZZ"),
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1200ZZZ", "aqua1000ZZZ"),
             Keys({"aqua1200"}));
   EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Found despite short key
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1", "aqua121"), Keys({"aqua1200"}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua121", "aqua1"), Keys({"aqua1200"}));
   EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Filtered because of segment 3 min-max not intersecting [1000, 1100]
   // Note that the empty string is tracked outside of the min-max range.
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1000ZZZ", "aqua1100ZZZ"), Keys({}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1100ZZZ", "aqua1000ZZZ"), Keys({}));
   EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Also filtered despite short key
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1", "aqua11"), Keys({}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua11", "aqua1"), Keys({}));
   EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Found
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah", "blah21"),
-            Keys({"blah", "blah2"}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah21", "blag"),
+            Keys({"blah2", "blah"}));
   EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Found
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah", "blah0"), Keys({"blah"}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah0", "blag"), Keys({"blah"}));
   EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 
   // Filtered because of segment 3 min-max not intersecting [0, 1]
   // Note that the empty string is tracked outside of the min-max range.
-  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah0", "blah1"), Keys({}));
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah1", "blah0"), Keys({}));
   EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 }
 
