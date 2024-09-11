@@ -304,7 +304,8 @@ class FooterBuilder {
 Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
-                          uint64_t enforce_table_magic_number = 0);
+                          uint64_t enforce_table_magic_number = 0,
+                          Statistics* stats = nullptr);
 
 // Computes a checksum using the given ChecksumType. Sometimes we need to
 // include one more input byte logically at the end but not part of the main
