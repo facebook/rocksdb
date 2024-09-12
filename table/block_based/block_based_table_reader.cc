@@ -683,6 +683,9 @@ Status BlockBasedTable::Open(
                            kBlockBasedTableMagicNumber, ioptions.stats);
   }
   if (!s.ok()) {
+    if (s.IsCorruption()) {
+      RecordTick(ioptions.statistics.get(), SST_FOOTER_CORRUPTION_COUNT);
+    }
     return s;
   }
   if (!IsSupportedFormatVersion(footer.format_version())) {
