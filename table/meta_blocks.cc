@@ -291,6 +291,7 @@ Status ReadTablePropertiesHelper(
       TEST_SYNC_POINT_CALLBACK("ReadTablePropertiesHelper:0",
                                &block_contents.data);
     } else {
+      assert(s.IsCorruption());
       // If retrying, use a stronger file system read to check and correct
       // data corruption
       IOOptions opts;

@@ -186,6 +186,16 @@ class Footer {
   // Create empty. Populate using DecodeFrom.
   Footer() {}
 
+  void Reset() {
+    table_magic_number_ = kNullTableMagicNumber;
+    format_version_ = kInvalidFormatVersion;
+    base_context_checksum_ = 0;
+    metaindex_handle_ = BlockHandle::NullBlockHandle();
+    index_handle_ = BlockHandle::NullBlockHandle();
+    checksum_type_ = kInvalidChecksumType;
+    block_trailer_size_ = 0;
+  }
+
   // Deserialize a footer (populate fields) from `input` and check for various
   // corruptions. `input_offset` is the offset within the target file of
   // `input` buffer, which is needed for verifying format_version >= 6 footer.

@@ -559,6 +559,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
       CheckFSFeatureSupport(&fs, FSSupportedOps::kVerifyAndReconstructRead)) {
     IOOptions new_opts = opts;
     new_opts.verify_and_reconstruct_read = true;
+    footer->Reset();
     s = ReadFooterFromFileInternal(new_opts, file, fs, prefetch_buffer,
                                    file_size, footer,
                                    enforce_table_magic_number);
