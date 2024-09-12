@@ -230,7 +230,7 @@ class Compaction {
   // Delete this compaction from the list of running compactions.
   //
   // Requirement: DB mutex held
-  void ReleaseCompactionFiles(Status status);
+  void ReleaseCompactionFiles(const Status& status);
 
   // Returns the summary of the compaction in "output" with maximum "len"
   // in bytes.  The caller is responsible for the memory management of
@@ -435,12 +435,12 @@ class Compaction {
                                       const int start_level,
                                       const int output_level);
 
+  // mark (or clear) all files that are being compacted
+  void MarkFilesBeingCompacted(bool being_compacted) const;
+
  private:
 
   Status InitInputTableProperties();
-
-  // mark (or clear) all files that are being compacted
-  void MarkFilesBeingCompacted(bool mark_as_compacted);
 
   // get the smallest and largest key present in files to be compacted
   static void GetBoundaryKeys(VersionStorageInfo* vstorage,

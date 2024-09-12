@@ -1880,7 +1880,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     Status status = versions_->LogAndApply(cfd, mutable_cf_options,
                                            read_options, write_options, &edit,
                                            &mutex_, directories_.GetDbDir());
-
+    c->MarkFilesBeingCompacted(false);
     cfd->compaction_picker()->UnregisterCompaction(c.get());
     c.reset();
 
