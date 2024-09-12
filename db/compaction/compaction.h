@@ -436,7 +436,7 @@ class Compaction {
                                       const int output_level);
 
   // mark (or clear) all files that are being compacted
-  void MarkFilesBeingCompacted(bool mark_as_compacted);
+  void MarkFilesBeingCompacted(bool being_compacted) const;
 
  private:
 
