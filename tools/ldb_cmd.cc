@@ -116,7 +116,8 @@ const char* LDBCommand::DELIM = " ==> ";
 namespace {
 
 void DumpWalFile(Options options, std::string wal_file, bool print_header,
-                 bool print_values, bool is_write_committed,
+                 bool print_values, bool only_print_seqno_gaps,
+                 bool is_write_committed,
                  const std::map<uint32_t, const Comparator*>& ucmps,
                  LDBCommandExecuteResult* exec_state);
 
@@ -2214,8 +2215,9 @@ void DBDumperCommand::DoCommand() {
       case kWalFile:
         // TODO(myabandeh): allow configuring is_write_commited
         DumpWalFile(options_, path_, /* print_header_ */ true,
-                    /* print_values_ */ true, true /* is_write_commited */,
-                    ucmps_, &exec_state_);
+                    /* print_values_ */ true,
+                    /* only_print_seqno_gaps */ false,
+                    true /* is_write_commited */, ucmps_, &exec_state_);
         break;
       case kTableFile:
         DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true,
@@ -2843,7 +2845,8 @@ class InMemoryHandler : public WriteBatch::Handler {
 };
 
 void DumpWalFile(Options options, std::string wal_file, bool print_header,
-                 bool print_values, bool is_write_committed,
+                 bool print_values, bool only_print_seqno_gaps,
+                 bool is_write_committed,
                  const std::map<uint32_t, const Comparator*>& ucmps,
                  LDBCommandExecuteResult* exec_state) {
   const auto& fs = options.env->GetFileSystem();
@@ -2895,6 +2898,8 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
       }
       std::cout << "\n";
     }
+    std::optional<SequenceNumber> prev_batch_seqno = std::nullopt;
+    std::optional<uint32_t> prev_batch_count = std::nullopt;
     while (status.ok() && reader.ReadRecord(&record, &scratch)) {
       row.str("");
       if (record.size() < WriteBatchInternal::kHeader) {
@@ -2948,8 +2953,20 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
             break;
           }
         }
-        row << WriteBatchInternal::Sequence(&batch) << ",";
-        row << WriteBatchInternal::Count(&batch) << ",";
+        SequenceNumber sequence_number = WriteBatchInternal::Sequence(&batch);
+        uint32_t batch_count = WriteBatchInternal::Count(&batch);
+        if (only_print_seqno_gaps &&
+            (!prev_batch_seqno.has_value() || !prev_batch_count.has_value() ||
+             prev_batch_seqno.value() + prev_batch_count.value() ==
+                 sequence_number)) {
+          prev_batch_seqno = sequence_number;
+          prev_batch_count = batch_count;
+          continue;
+        }
+        row << sequence_number << ",";
+        row << batch_count << ",";
+        prev_batch_seqno = sequence_number;
+        prev_batch_count = batch_count;
         row << WriteBatchInternal::ByteSize(&batch) << ",";
         row << reader.LastRecordOffset() << ",";
         ColumnFamilyCollector cf_collector;
@@ -3003,6 +3020,8 @@ const std::string WALDumperCommand::ARG_WAL_FILE = "walfile";
 const std::string WALDumperCommand::ARG_WRITE_COMMITTED = "write_committed";
 const std::string WALDumperCommand::ARG_PRINT_VALUE = "print_value";
 const std::string WALDumperCommand::ARG_PRINT_HEADER = "header";
+const std::string WALDumperCommand::ARG_ONLY_PRINT_SEQNO_GAPS =
+    "only_print_seqno_gaps";
 
 WALDumperCommand::WALDumperCommand(
     const std::vector<std::string>& /*params*/,
@@ -3010,9 +3029,11 @@ WALDumperCommand::WALDumperCommand(
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true,
                  BuildCmdLineOptions({ARG_WAL_FILE, ARG_DB, ARG_WRITE_COMMITTED,
-                                      ARG_PRINT_HEADER, ARG_PRINT_VALUE})),
+                                      ARG_PRINT_HEADER, ARG_PRINT_VALUE,
+                                      ARG_ONLY_PRINT_SEQNO_GAPS})),
       print_header_(false),
       print_values_(false),
+      only_print_seqno_gaps_(false),
       is_write_committed_(false) {
   wal_file_.clear();
 
@@ -3023,6 +3044,7 @@ WALDumperCommand::WALDumperCommand(
 
   print_header_ = IsFlagPresent(flags, ARG_PRINT_HEADER);
   print_values_ = IsFlagPresent(flags, ARG_PRINT_VALUE);
+  only_print_seqno_gaps_ = IsFlagPresent(flags, ARG_ONLY_PRINT_SEQNO_GAPS);
   is_write_committed_ = ParseBooleanOption(options, ARG_WRITE_COMMITTED, true);
 
   if (wal_file_.empty()) {
@@ -3042,6 +3064,8 @@ void WALDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_DB + "=<db_path>]");
   ret.append(" [--" + ARG_PRINT_HEADER + "] ");
   ret.append(" [--" + ARG_PRINT_VALUE + "] ");
+  ret.append(" [--" + ARG_ONLY_PRINT_SEQNO_GAPS +
+             "] (assuming seq_per_batch = false) ");
   ret.append(" [--" + ARG_WRITE_COMMITTED + "=true|false] ");
   ret.append("\n");
 }
@@ -3049,7 +3073,8 @@ void WALDumperCommand::Help(std::string& ret) {
 void WALDumperCommand::DoCommand() {
   PrepareOptions();
   DumpWalFile(options_, wal_file_, print_header_, print_values_,
-              is_write_committed_, ucmps_, &exec_state_);
+              only_print_seqno_gaps_, is_write_committed_, ucmps_,
+              &exec_state_);
 }
 
 // ----------------------------------------------------------------------------
@@ -4545,8 +4570,10 @@ void DBFileDumperCommand::DoCommand() {
       std::string filename = wal_dir + wal->PathName();
       std::cout << filename << std::endl;
       // TODO(myabandeh): allow configuring is_write_commited
-      DumpWalFile(options_, filename, true, true, true /* is_write_commited */,
-                  ucmps_, &exec_state_);
+      DumpWalFile(options_, filename, true /* print_header */,
+                  true /* print_values */,
+                  false /* only_print_seqno_gapstrue */,
+                  true /* is_write_commited */, ucmps_, &exec_state_);
     }
   }
 }
