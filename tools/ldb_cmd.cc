@@ -184,13 +184,6 @@ void DumpWalFiles(Options options, const std::string& dir_or_file,
                   const std::map<uint32_t, const Comparator*>& ucmps,
                   LDBCommandExecuteResult* exec_state);
 
-void DumpWalFiles(Options options,
-                  const std::vector<std::unique_ptr<WalFile>>& sorted_wal_files,
-                  bool print_header, bool print_values,
-                  bool only_print_seqno_gaps, bool is_write_committed,
-                  const std::map<uint32_t, const Comparator*>& ucmps,
-                  LDBCommandExecuteResult* exec_state);
-
 void DumpWalFile(Options options, const std::string& wal_file,
                  bool print_header, bool print_values,
                  bool only_print_seqno_gaps, bool is_write_committed,
@@ -2970,24 +2963,6 @@ void DumpWalFiles(Options options, const std::string& dir_or_file,
   }
 }
 
-void DumpWalFiles(Options options,
-                  const std::vector<std::unique_ptr<WalFile>>& sorted_wal_files,
-                  bool print_header, bool print_values,
-                  bool only_print_seqno_gaps, bool is_write_committed,
-                  const std::map<uint32_t, const Comparator*>& ucmps,
-                  LDBCommandExecuteResult* exec_state) {
-  std::optional<SequenceNumber> prev_batch_seqno = std::nullopt;
-  std::optional<uint32_t> prev_batch_count = std::nullopt;
-  for (const auto& wal : sorted_wal_files) {
-    // TODO(qyang): option.wal_dir should be passed into ldb command
-    std::string wal_file_name = options.wal_dir + wal->PathName();
-    std::cout << "Checking wal file: " << wal_file_name << std::endl;
-    DumpWalFile(options, wal_file_name, print_header, print_values,
-                only_print_seqno_gaps, is_write_committed, ucmps, exec_state,
-                &prev_batch_seqno, &prev_batch_count);
-  }
-}
-
 void DumpWalFile(Options options, const std::string& wal_file,
                  bool print_header, bool print_values,
                  bool only_print_seqno_gaps, bool is_write_committed,
@@ -3101,6 +3076,7 @@ void DumpWalFile(Options options, const std::string& wal_file,
         uint32_t batch_count = WriteBatchInternal::Count(&batch);
         assert(prev_batch_seqno);
         assert(prev_batch_count);
+        // TODO(yuzhangyu): handle pessimistic transactions case.
         if (only_print_seqno_gaps &&
             (!prev_batch_seqno->has_value() || !prev_batch_count->has_value() ||
              prev_batch_seqno->value() + prev_batch_count->value() ==
@@ -3212,7 +3188,7 @@ void WALDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_PRINT_HEADER + "] ");
   ret.append(" [--" + ARG_PRINT_VALUE + "] ");
   ret.append(" [--" + ARG_ONLY_PRINT_SEQNO_GAPS +
-             "] (assuming seq_per_batch=false) ");
+             "] (only correct if not using pessimistic transactions)");
   ret.append(" [--" + ARG_WRITE_COMMITTED + "=true|false] ");
   ret.append("\n");
 }
@@ -4701,13 +4677,30 @@ void DBFileDumperCommand::DoCommand() {
 
   std::cout << "Write Ahead Log Files" << std::endl;
   std::cout << "==============================" << std::endl;
-  ROCKSDB_NAMESPACE::VectorWalPtr sorted_wal_files;
-  s = db_->GetSortedWalFiles(sorted_wal_files);
-  // TODO(qyang): option.wal_dir should be passed into ldb command
-  // TODO(myabandeh): allow configuring is_write_commited
-  DumpWalFiles(options_, sorted_wal_files, true /* print_header */,
-               true /* print_values */, false /* only_print_seqno_gapstrue */,
-               true /* is_write_commited */, ucmps_, &exec_state_);
+  ROCKSDB_NAMESPACE::VectorWalPtr wal_files;
+  s = db_->GetSortedWalFiles(wal_files);
+  if (!s.ok()) {
+    std::cerr << "Error when getting WAL files" << std::endl;
+  } else {
+    std::string wal_dir;
+    if (options_.wal_dir.empty()) {
+      wal_dir = db_->GetName();
+    } else {
+      wal_dir = NormalizePath(options_.wal_dir + "/");
+    }
+    std::optional<SequenceNumber> prev_batch_seqno = std::nullopt;
+    std::optional<uint32_t> prev_batch_count = std::nullopt;
+    for (auto& wal : wal_files) {
+      // TODO(qyang): option.wal_dir should be passed into ldb command
+      std::string filename = wal_dir + wal->PathName();
+      std::cout << filename << std::endl;
+      // TODO(myabandeh): allow configuring is_write_commited
+      DumpWalFile(
+          options_, filename, true /* print_header */, true /* print_values */,
+          false /* only_print_seqno_gapstrue */, true /* is_write_commited */,
+          ucmps_, &exec_state_, &prev_batch_seqno, &prev_batch_count);
+    }
+  }
 }
 
 const std::string DBLiveFilesMetadataDumperCommand::ARG_SORT_BY_FILENAME =
