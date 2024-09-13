@@ -263,9 +263,9 @@ Status ReadTablePropertiesHelper(
   assert(table_properties);
 
   Status s;
-  BlockContents block_contents;
   bool retry = false;
   while (true) {
+    BlockContents block_contents;
     size_t len = handle.size() + footer.GetBlockTrailerSize();
     // If this is an external SST file ingested with write_global_seqno set to
     // true, then we expect the checksum mismatch because checksum was written
