@@ -44,8 +44,8 @@
 #include "table/compaction_merging_iterator.h"
 
 #if USE_COROUTINES
-#include "folly/experimental/coro/BlockingWait.h"
-#include "folly/experimental/coro/Collect.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Collect.h"
 #endif
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
