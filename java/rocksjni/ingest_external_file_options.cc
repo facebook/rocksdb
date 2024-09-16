@@ -164,9 +164,8 @@ void Java_org_rocksdb_IngestExternalFileOptions_setIngestBehind(
  * Method:    writeGlobalSeqno
  * Signature: (J)Z
  */
-JNIEXPORT jboolean JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_writeGlobalSeqno(JNIEnv*, jclass,
-                                                            jlong jhandle) {
+jboolean Java_org_rocksdb_IngestExternalFileOptions_writeGlobalSeqno(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
   return options->write_global_seqno == JNI_TRUE;
@@ -177,8 +176,7 @@ Java_org_rocksdb_IngestExternalFileOptions_writeGlobalSeqno(JNIEnv*, jclass,
  * Method:    setWriteGlobalSeqno
  * Signature: (JZ)V
  */
-JNIEXPORT void JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_setWriteGlobalSeqno(
+void Java_org_rocksdb_IngestExternalFileOptions_setWriteGlobalSeqno(
     JNIEnv*, jclass, jlong jhandle, jboolean jwrite_global_seqno) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
@@ -190,8 +188,7 @@ Java_org_rocksdb_IngestExternalFileOptions_setWriteGlobalSeqno(
  * Method:    verifyChecksumsBeforeIngest
  * Signature: (J)Z
  */
-JNIEXPORT jboolean JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_verifyChecksumsBeforeIngest(
+jboolean Java_org_rocksdb_IngestExternalFileOptions_verifyChecksumsBeforeIngest(
     JNIEnv*, jclass, jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
@@ -203,8 +200,7 @@ Java_org_rocksdb_IngestExternalFileOptions_verifyChecksumsBeforeIngest(
  * Method:    setVerifyChecksumsBeforeIngest
  * Signature: (JZ)V
  */
-JNIEXPORT void JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_setVerifyChecksumsBeforeIngest(
+void Java_org_rocksdb_IngestExternalFileOptions_setVerifyChecksumsBeforeIngest(
     JNIEnv*, jclass, jlong jhandle, jboolean jverify_checksums_before_ingest) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
@@ -217,8 +213,7 @@ Java_org_rocksdb_IngestExternalFileOptions_setVerifyChecksumsBeforeIngest(
  * Method:    verifyChecksumsReadaheadSize
  * Signature: (J)Z
  */
-JNIEXPORT jlong JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_verifyChecksumsReadaheadSize(
+jlong Java_org_rocksdb_IngestExternalFileOptions_verifyChecksumsReadaheadSize(
     JNIEnv*, jclass, jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
@@ -230,8 +225,7 @@ Java_org_rocksdb_IngestExternalFileOptions_verifyChecksumsReadaheadSize(
  * Method:    setVerifyChecksumsReadaheadSize
  * Signature: (JZ)V
  */
-JNIEXPORT void JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_setVerifyChecksumsReadaheadSize(
+void Java_org_rocksdb_IngestExternalFileOptions_setVerifyChecksumsReadaheadSize(
     JNIEnv*, jclass, jlong jhandle, jlong jverify_checksums_readahead_size) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
@@ -243,9 +237,8 @@ Java_org_rocksdb_IngestExternalFileOptions_setVerifyChecksumsReadaheadSize(
  * Method:    verifyFileChecksum
  * Signature: (J)Z
  */
-JNIEXPORT jboolean JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_verifyFileChecksum(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+jboolean Java_org_rocksdb_IngestExternalFileOptions_verifyFileChecksum(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
   return options->verify_file_checksum ? JNI_TRUE : JNI_FALSE;
@@ -256,8 +249,7 @@ Java_org_rocksdb_IngestExternalFileOptions_verifyFileChecksum(JNIEnv*, jclass,
  * Method:    setVerifyFileChecksum
  * Signature: (JZ)V
  */
-JNIEXPORT void JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_setVerifyFileChecksum(
+void Java_org_rocksdb_IngestExternalFileOptions_setVerifyFileChecksum(
     JNIEnv*, jclass, jlong jhandle, jboolean jverify_file_checksum) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
@@ -269,9 +261,8 @@ Java_org_rocksdb_IngestExternalFileOptions_setVerifyFileChecksum(
  * Method:    failIfNotLastLevel
  * Signature: (J)Z
  */
-JNIEXPORT jboolean JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_failIfNotLastLevel(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+jboolean Java_org_rocksdb_IngestExternalFileOptions_failIfNotLastLevel(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
   return options->fail_if_not_bottommost_level ? JNI_TRUE : JNI_FALSE;
@@ -282,8 +273,7 @@ Java_org_rocksdb_IngestExternalFileOptions_failIfNotLastLevel(JNIEnv*, jclass,
  * Method:    setFailIfNotLastLevel
  * Signature: (JZ)V
  */
-JNIEXPORT void JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_setFailIfNotLastLevel(
+void Java_org_rocksdb_IngestExternalFileOptions_setFailIfNotLastLevel(
     JNIEnv*, jclass, jlong jhandle, jboolean jfail_if_not_bottommost_level) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
@@ -296,8 +286,8 @@ Java_org_rocksdb_IngestExternalFileOptions_setFailIfNotLastLevel(
  * Method:    linkFiles
  * Signature: (J)Z
  */
-JNIEXPORT jboolean JNICALL Java_org_rocksdb_IngestExternalFileOptions_linkFiles(
-    JNIEnv*, jclass, jlong jhandle) {
+jboolean Java_org_rocksdb_IngestExternalFileOptions_linkFiles(JNIEnv*, jclass,
+                                                              jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
   return options->link_files ? JNI_TRUE : JNI_FALSE;
@@ -308,7 +298,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_IngestExternalFileOptions_linkFiles(
  * Method:    setLinkFiles
  * Signature: (JZ)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_IngestExternalFileOptions_setLinkFiles(
+void Java_org_rocksdb_IngestExternalFileOptions_setLinkFiles(
     JNIEnv*, jclass, jlong jhandle, jboolean jlink_files) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
