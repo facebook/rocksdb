@@ -418,6 +418,8 @@ void ErrorHandler::SetBGError(const Status& bg_status,
            reason == BackgroundErrorReason::kFlush);
   }
   if (db_options_.manual_wal_flush && wal_related && bg_io_err.IsIOError()) {
+    // TODO: remove parameter `wal_related` once we can automatically recover
+    //  from WAL write failure.
     // We should not try auto recover IOError from writing to WAL .
     // With manual_wal_flush, a WAL write failure can drop buffered WAL writes.
     // Memtables and WAL may not be consistent. A successful memtable flush on
