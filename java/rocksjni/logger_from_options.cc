@@ -21,8 +21,7 @@
  * Method:    newLoggerFromOptions
  * Signature: (J)J
  */
-JNIEXPORT jlong JNICALL
-Java_org_rocksdb_util_LoggerFromOptions_createLoggerFromOptions(
+jlong Java_org_rocksdb_util_LoggerFromOptions_createLoggerFromOptions(
     JNIEnv* env, jclass, jstring jdb_name, jlong joptions_handle) {
   auto* db_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(joptions_handle);
@@ -49,7 +48,7 @@ Java_org_rocksdb_util_LoggerFromOptions_createLoggerFromOptions(
     return 0;
   }
 
-  return reinterpret_cast<jlong>(
+  return GET_CPLUSPLUS_POINTER(
       new std::shared_ptr<ROCKSDB_NAMESPACE::Logger>(std::move(logger)));
 }
 
