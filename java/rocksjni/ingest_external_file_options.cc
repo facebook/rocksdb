@@ -195,7 +195,7 @@ Java_org_rocksdb_IngestExternalFileOptions_verifyChecksumsBeforeIngest(
     JNIEnv*, jclass, jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
-  return options->verify_checksums_before_ingest == JNI_TRUE;
+  return options->verify_checksums_before_ingest ? JNI_TRUE : JNI_FALSE;
 }
 
 /*
@@ -248,7 +248,7 @@ Java_org_rocksdb_IngestExternalFileOptions_verifyFileChecksum(JNIEnv*, jclass,
                                                               jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
-  return options->verify_file_checksum == JNI_TRUE;
+  return options->verify_file_checksum ? JNI_TRUE : JNI_FALSE;
 }
 
 /*
@@ -274,7 +274,7 @@ Java_org_rocksdb_IngestExternalFileOptions_failIfNotLastLevel(JNIEnv*, jclass,
                                                               jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
-  return options->fail_if_not_bottommost_level == JNI_TRUE;
+  return options->fail_if_not_bottommost_level ? JNI_TRUE : JNI_FALSE;
 }
 
 /*
@@ -300,7 +300,7 @@ JNIEXPORT jboolean JNICALL Java_org_rocksdb_IngestExternalFileOptions_linkFiles(
     JNIEnv*, jclass, jlong jhandle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
-  return options->link_files == JNI_TRUE;
+  return options->link_files ? JNI_TRUE : JNI_FALSE;
 }
 
 /*
