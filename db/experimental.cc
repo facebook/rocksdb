@@ -178,10 +178,12 @@ class SemiStaticCappedKeySegmentsExtractor : public KeySegmentsExtractor {
     // Optimistic assignment
     result->segment_ends.assign(ideal_ends_.begin(), ideal_ends_.end());
     uint32_t key_size = static_cast<uint32_t>(key_or_bound.size());
-    if (N > 0 && key_size < ideal_ends_.back()) {
-      // Need to fix up (should be rare)
-      for (size_t i = 0; i < N; ++i) {
-        result->segment_ends[i] = std::min(key_size, result->segment_ends[i]);
+    if constexpr (N > 0) {  // Suppress a compiler warning
+      if (key_size < ideal_ends_.back()) {
+        // Need to fix up (should be rare)
+        for (size_t i = 0; i < N; ++i) {
+          result->segment_ends[i] = std::min(key_size, result->segment_ends[i]);
+        }
       }
     }
   }
