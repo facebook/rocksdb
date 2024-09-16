@@ -177,8 +177,8 @@ class SemiStaticCappedKeySegmentsExtractor : public KeySegmentsExtractor {
                Result* result) const override {
     // Optimistic assignment
     result->segment_ends.assign(ideal_ends_.begin(), ideal_ends_.end());
-    uint32_t key_size = static_cast<uint32_t>(key_or_bound.size());
     if constexpr (N > 0) {  // Suppress a compiler warning
+      uint32_t key_size = static_cast<uint32_t>(key_or_bound.size());
       if (key_size < ideal_ends_.back()) {
         // Need to fix up (should be rare)
         for (size_t i = 0; i < N; ++i) {
