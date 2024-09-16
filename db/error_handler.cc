@@ -381,7 +381,7 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
 //    BackgroundErrorReason reason) will be called to handle other error cases
 //    such as delegating to SstFileManager to handle no space error.
 void ErrorHandler::SetBGError(const Status& bg_status,
-                              BackgroundErrorReason reason) {
+                              BackgroundErrorReason reason, bool wal_related) {
   db_mutex_->AssertHeld();
   Status tmp_status = bg_status;
   IOStatus bg_io_err = status_to_io_status(std::move(tmp_status));
@@ -412,16 +412,17 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     recover_context_ = context;
     return;
   }
-  const bool wal_related_reason =
-      reason == BackgroundErrorReason::kWriteCallback ||
-      reason == BackgroundErrorReason::kMemTable ||
-      reason == BackgroundErrorReason::kFlush;
-  if (db_options_.manual_wal_flush && wal_related_reason) {
-    // We should not try auto recover from this error.
+  if (wal_related) {
+    assert(reason == BackgroundErrorReason::kWriteCallback ||
+           reason == BackgroundErrorReason::kMemTable ||
+           reason == BackgroundErrorReason::kFlush);
+  }
+  if (db_options_.manual_wal_flush && wal_related && bg_io_err.IsIOError()) {
+    // We should not try auto recover IOError from writing to WAL .
     // With manual_wal_flush, a WAL write failure can drop buffered WAL writes.
     // Memtables and WAL may not be consistent. A successful memtable flush on
-    // one CF can cause CFs to be inconsistent upon restart. Set severity to
-    // fatal to disallow resume.
+    // one CF can cause CFs to be inconsistent upon restart. Set the error
+    // severity to fatal to disallow resume.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kFatalError);
     CheckAndSetRecoveryAndBGError(bg_err);

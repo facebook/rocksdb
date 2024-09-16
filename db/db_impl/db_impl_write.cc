@@ -656,7 +656,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (!io_s.ok()) {
     // Check WriteToWAL status
-    IOStatusCheck(io_s);
+    WALIOStatusCheck(io_s);
   }
   if (!w.CallbackFailed()) {
     if (!io_s.ok()) {
@@ -799,7 +799,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (!io_s.ok()) {
       // Check WriteToWAL status
-      IOStatusCheck(io_s);
+      WALIOStatusCheck(io_s);
     } else if (!w.CallbackFailed()) {
       WriteStatusCheck(w.status);
     }
@@ -1077,7 +1077,7 @@ Status DBImpl::WriteImplWALOnly(
     // This error checking and return is moved up to avoid using uninitialized
     // last_sequence.
     if (!io_s.ok()) {
-      IOStatusCheck(io_s);
+      WALIOStatusCheck(io_s);
       write_thread->ExitAsBatchGroupLeader(write_group, status);
       return status;
     }
@@ -1175,7 +1175,7 @@ void DBImpl::WriteStatusCheck(const Status& status) {
   }
 }
 
-void DBImpl::IOStatusCheck(const IOStatus& io_status) {
+void DBImpl::WALIOStatusCheck(const IOStatus& io_status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
   if ((immutable_db_options_.paranoid_checks && !io_status.ok() &&
@@ -1183,7 +1183,8 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
       io_status.IsIOFenced()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
+    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback,
+                              /*wal_related=*/true);
     mutex_.Unlock();
   } else {
     // Force writable file to be continue writable.
@@ -2326,7 +2327,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable,
+                                /*wal_related=*/true);
     } else {
       error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     }
