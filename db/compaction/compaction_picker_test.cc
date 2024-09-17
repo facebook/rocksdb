@@ -1299,7 +1299,7 @@ TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
   ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
 }
 
-TEST_F(CompactionPickerTest, FIFOToColdAndWarm) {
+TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const uint64_t kFileSize = 100000;
   const uint64_t kMaxSize = kFileSize * 100000;
@@ -1344,11 +1344,10 @@ TEST_F(CompactionPickerTest, FIFOToColdAndWarm) {
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(compaction->compaction_reason(),
             CompactionReason::kChangeTemperature);
-  // Assumes compaction picker picks older files first.
+  // Compaction picker picks older files first and picks one file at a time.
   ASSERT_EQ(compaction->output_temperature(), Temperature::kWarm);
-  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
-  ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
 }
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
