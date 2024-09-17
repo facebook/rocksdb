@@ -773,4 +773,6 @@ void RegisterTestLibrary(const std::string& arg) {
     ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
   }
 }
+
+const std::string kUnitTestDbId = "UnitTest";
 }  // namespace ROCKSDB_NAMESPACE::test

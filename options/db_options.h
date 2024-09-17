@@ -89,6 +89,7 @@ struct ImmutableDBOptions {
   bool avoid_unnecessary_blocking_io;
   bool persist_stats_to_disk;
   bool write_dbid_to_manifest;
+  bool write_identity_file;
   size_t log_readahead_size;
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
   bool best_efforts_recovery;

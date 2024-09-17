@@ -688,76 +688,100 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts) {
   constexpr size_t kMinIdSize = 10;
   do {
     for (bool with_manifest : {false, true}) {
-      std::string idfilename = IdentityFileName(dbname_);
-      std::string id1, tmp;
-      ASSERT_OK(db_->GetDbIdentity(id1));
-      ASSERT_GE(id1.size(), kMinIdSize);
+      for (bool write_file : {false, true}) {
+        std::string idfilename = IdentityFileName(dbname_);
+        std::string id1, tmp;
+        ASSERT_OK(db_->GetDbIdentity(id1));
+        ASSERT_GE(id1.size(), kMinIdSize);
 
-      Options options = CurrentOptions();
-      options.write_dbid_to_manifest = with_manifest;
-      Reopen(options);
-      std::string id2;
-      ASSERT_OK(db_->GetDbIdentity(id2));
-      // id2 should match id1 because identity was not regenerated
-      ASSERT_EQ(id1, id2);
-      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
-      ASSERT_EQ(tmp, id2);
+        Options options = CurrentOptions();
+        options.write_dbid_to_manifest = with_manifest;
+        options.write_identity_file = true;  // initially
+        Reopen(options);
+        std::string id2;
+        ASSERT_OK(db_->GetDbIdentity(id2));
+        // id2 should match id1 because identity was not regenerated
+        ASSERT_EQ(id1, id2);
+        ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+        ASSERT_EQ(tmp, id2);
 
-      // Recover from deleted/missing IDENTITY
-      ASSERT_OK(env_->DeleteFile(idfilename));
-      Reopen(options);
-      std::string id3;
-      ASSERT_OK(db_->GetDbIdentity(id3));
-      if (with_manifest) {
-        // id3 should match id1 because identity was restored from manifest
-        ASSERT_EQ(id1, id3);
-      } else {
-        // id3 should NOT match id1 because identity was regenerated
-        ASSERT_NE(id1, id3);
-        ASSERT_GE(id3.size(), kMinIdSize);
-      }
-      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
-      ASSERT_EQ(tmp, id3);
+        if (write_file) {
+          // Recover from deleted/missing IDENTITY
+          ASSERT_OK(env_->DeleteFile(idfilename));
+        } else {
+          // Transition to no IDENTITY file
+          options.write_identity_file = false;
+          if (!with_manifest) {
+            // Incompatible options, should fail
+            ASSERT_NOK(TryReopen(options));
+            // Back to a usable config and continue
+            options.write_identity_file = true;
+            Reopen(options);
+            continue;
+          }
+        }
+        Reopen(options);
+        std::string id3;
+        ASSERT_OK(db_->GetDbIdentity(id3));
+        if (with_manifest) {
+          // id3 should match id1 because identity was restored from manifest
+          ASSERT_EQ(id1, id3);
+        } else {
+          // id3 should NOT match id1 because identity was regenerated
+          ASSERT_NE(id1, id3);
+          ASSERT_GE(id3.size(), kMinIdSize);
+        }
+        if (write_file) {
+          ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+          ASSERT_EQ(tmp, id3);
 
-      // Recover from truncated IDENTITY
-      {
-        std::unique_ptr<WritableFile> w;
-        ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
-        ASSERT_OK(w->Close());
-      }
-      Reopen(options);
-      std::string id4;
-      ASSERT_OK(db_->GetDbIdentity(id4));
-      if (with_manifest) {
-        // id4 should match id1 because identity was restored from manifest
-        ASSERT_EQ(id1, id4);
-      } else {
-        // id4 should NOT match id1 because identity was regenerated
-        ASSERT_NE(id1, id4);
-        ASSERT_GE(id4.size(), kMinIdSize);
-      }
-      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
-      ASSERT_EQ(tmp, id4);
+          // Recover from truncated IDENTITY
+          std::unique_ptr<WritableFile> w;
+          ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
+          ASSERT_OK(w->Close());
+        } else {
+          ASSERT_TRUE(env_->FileExists(idfilename).IsNotFound());
+        }
+        Reopen(options);
+        std::string id4;
+        ASSERT_OK(db_->GetDbIdentity(id4));
+        if (with_manifest) {
+          // id4 should match id1 because identity was restored from manifest
+          ASSERT_EQ(id1, id4);
+        } else {
+          // id4 should NOT match id1 because identity was regenerated
+          ASSERT_NE(id1, id4);
+          ASSERT_GE(id4.size(), kMinIdSize);
+        }
+        std::string silly_id = "asdf123456789";
+        if (write_file) {
+          ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+          ASSERT_EQ(tmp, id4);
 
-      // Recover from overwritten IDENTITY
-      std::string silly_id = "asdf123456789";
-      {
-        std::unique_ptr<WritableFile> w;
-        ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
-        ASSERT_OK(w->Append(silly_id));
-        ASSERT_OK(w->Close());
+          // Recover from overwritten IDENTITY
+          std::unique_ptr<WritableFile> w;
+          ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
+          ASSERT_OK(w->Append(silly_id));
+          ASSERT_OK(w->Close());
+        } else {
+          ASSERT_TRUE(env_->FileExists(idfilename).IsNotFound());
+        }
+        Reopen(options);
+        std::string id5;
+        ASSERT_OK(db_->GetDbIdentity(id5));
+        if (with_manifest) {
+          // id4 should match id1 because identity was restored from manifest
+          ASSERT_EQ(id1, id5);
+        } else {
+          ASSERT_EQ(id5, silly_id);
+        }
+        if (write_file) {
+          ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+          ASSERT_EQ(tmp, id5);
+        } else {
+          ASSERT_TRUE(env_->FileExists(idfilename).IsNotFound());
+        }
       }
-      Reopen(options);
-      std::string id5;
-      ASSERT_OK(db_->GetDbIdentity(id5));
-      if (with_manifest) {
-        // id4 should match id1 because identity was restored from manifest
-        ASSERT_EQ(id1, id5);
-      } else {
-        ASSERT_EQ(id5, silly_id);
-      }
-      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
-      ASSERT_EQ(tmp, id5);
     }
   } while (ChangeCompactOptions());
 }
