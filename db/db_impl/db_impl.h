@@ -1151,6 +1151,8 @@ class DBImpl : public DB {
   // Get the background error status
   Status TEST_GetBGError();
 
+  bool TEST_IsRecoveryInProgress();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   uint64_t TEST_MaxNextLevelOverlappingBytes(
@@ -1956,6 +1958,7 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
+  // Sets bg error if there is an error writing to WAL.
   IOStatus SyncClosedWals(const WriteOptions& write_options,
                           JobContext* job_context, VersionEdit* synced_wals,
                           bool error_recovery_in_prog);
@@ -2174,7 +2177,7 @@ class DBImpl : public DB {
 
   // Used by WriteImpl to update bg_error_ when IO error happens, e.g., write
   // WAL, sync WAL fails, if paranoid check is enabled.
-  void IOStatusCheck(const IOStatus& status);
+  void WALIOStatusCheck(const IOStatus& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
