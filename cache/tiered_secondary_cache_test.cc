@@ -253,6 +253,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   // Disable paranoid_file_checks so that flush will not read back the newly
@@ -364,6 +365,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   options.paranoid_file_checks = false;
@@ -506,6 +508,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   options.paranoid_file_checks = false;
@@ -606,6 +609,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.statistics = CreateDBStatistics();
 
@@ -717,6 +721,7 @@ TEST_F(DBTieredSecondaryCacheTest, IterateTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   options.paranoid_file_checks = false;
@@ -784,6 +789,7 @@ TEST_P(DBTieredAdmPolicyTest, CompressedOnlyTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   size_t comp_cache_usage = compressed_secondary_cache()->TEST_GetUsage();
@@ -836,6 +842,7 @@ TEST_P(DBTieredAdmPolicyTest, CompressedCacheAdmission) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   size_t comp_cache_usage = compressed_secondary_cache()->TEST_GetUsage();
@@ -937,6 +944,7 @@ TEST_F(DBTieredSecondaryCacheTest, FSBufferTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.statistics = CreateDBStatistics();
   options.env = wrap_env.get();

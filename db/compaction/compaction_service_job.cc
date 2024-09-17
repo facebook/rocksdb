@@ -261,11 +261,11 @@ Status CompactionServiceCompactionJob::Run() {
 
   auto* c = compact_->compaction;
   assert(c->column_family_data() != nullptr);
-  assert(c->column_family_data()->current()->storage_info()->NumLevelFiles(
-             compact_->compaction->level()) > 0);
+  const VersionStorageInfo* storage_info = c->input_version()->storage_info();
+  assert(storage_info);
+  assert(storage_info->NumLevelFiles(compact_->compaction->level()) > 0);
 
-  write_hint_ =
-      c->column_family_data()->CalculateSSTWriteHint(c->output_level());
+  write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
   Slice begin = compaction_input_.begin;

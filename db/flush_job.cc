@@ -630,7 +630,7 @@ Status FlushJob::MemPurge() {
         new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
-        // we do not call SchedulePendingFlush().
+        // we do not call EnqueuePendingFlush().
         cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
         new_mem->Ref();
         // Piggyback FlushJobInfo on the first flushed memtable.
@@ -861,7 +861,7 @@ Status FlushJob::WriteLevel0Table() {
   std::vector<BlobFileAddition> blob_file_additions;
 
   {
-    auto write_hint = cfd_->CalculateSSTWriteHint(0);
+    auto write_hint = base_->storage_info()->CalculateSSTWriteHint(/*level=*/0);
     Env::IOPriority io_priority = GetRateLimiterPriority();
     db_mutex_->Unlock();
     if (log_buffer_) {

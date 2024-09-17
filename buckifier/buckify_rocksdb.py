@@ -201,6 +201,10 @@ def generate_targets(repo_path, deps_map):
     TARGETS.add_binary(
         "db_stress", ["db_stress_tool/db_stress.cc"], [":rocksdb_stress_lib"]
     )
+    # db_bench binary
+    TARGETS.add_binary(
+        "db_bench", ["tools/db_bench.cc"], [":rocksdb_tools_lib"]
+    )
     # cache_bench binary
     TARGETS.add_binary(
         "cache_bench", ["cache/cache_bench.cc"], [":rocksdb_cache_bench_tools_lib"]

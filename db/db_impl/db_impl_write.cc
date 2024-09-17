@@ -1789,13 +1789,13 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       if (!immutable_db_options_.atomic_flush) {
         FlushRequest flush_req;
         GenerateFlushRequest({cfd}, FlushReason::kWalFull, &flush_req);
-        SchedulePendingFlush(flush_req);
+        EnqueuePendingFlush(flush_req);
       }
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
       GenerateFlushRequest(cfds, FlushReason::kWalFull, &flush_req);
-      SchedulePendingFlush(flush_req);
+      EnqueuePendingFlush(flush_req);
     }
     MaybeScheduleFlushOrCompaction();
   }
@@ -1881,13 +1881,13 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
         FlushRequest flush_req;
         GenerateFlushRequest({cfd}, FlushReason::kWriteBufferManager,
                              &flush_req);
-        SchedulePendingFlush(flush_req);
+        EnqueuePendingFlush(flush_req);
       }
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
       GenerateFlushRequest(cfds, FlushReason::kWriteBufferManager, &flush_req);
-      SchedulePendingFlush(flush_req);
+      EnqueuePendingFlush(flush_req);
     }
     MaybeScheduleFlushOrCompaction();
   }
@@ -2163,12 +2163,12 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       AssignAtomicFlushSeq(cfds);
       FlushRequest flush_req;
       GenerateFlushRequest(cfds, FlushReason::kWriteBufferFull, &flush_req);
-      SchedulePendingFlush(flush_req);
+      EnqueuePendingFlush(flush_req);
     } else {
       for (auto* cfd : cfds) {
         FlushRequest flush_req;
         GenerateFlushRequest({cfd}, FlushReason::kWriteBufferFull, &flush_req);
-        SchedulePendingFlush(flush_req);
+        EnqueuePendingFlush(flush_req);
       }
     }
     MaybeScheduleFlushOrCompaction();

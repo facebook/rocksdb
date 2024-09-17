@@ -1444,6 +1444,22 @@ const Cache::CacheItemHelper* BaseHyperClockCache<Table>::GetCacheItemHelper(
   return h->helper;
 }
 
+template <class Table>
+void BaseHyperClockCache<Table>::ApplyToHandle(
+    Cache* cache, Handle* handle,
+    const std::function<void(const Slice& key, Cache::ObjectPtr value,
+                             size_t charge, const CacheItemHelper* helper)>&
+        callback) {
+  BaseHyperClockCache<Table>* cache_ptr =
+      static_cast<BaseHyperClockCache<Table>*>(cache);
+  auto h = static_cast<const typename Table::HandleImpl*>(handle);
+  UniqueId64x2 unhashed;
+  auto hash_seed = cache_ptr->GetShard(h->GetHash()).GetTable().GetHashSeed();
+  callback(
+      ClockCacheShard<Table>::ReverseHash(h->hashed_key, &unhashed, hash_seed),
+      h->value, h->GetTotalCharge(), h->helper);
+}
+
 namespace {
 
 // For each cache shard, estimate what the table load factor would be if

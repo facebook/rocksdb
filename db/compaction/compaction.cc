@@ -686,12 +686,11 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
 };
 
 // Mark (or clear) each file that is being compacted
-void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
+void Compaction::MarkFilesBeingCompacted(bool being_compacted) const {
   for (size_t i = 0; i < num_input_levels(); i++) {
     for (size_t j = 0; j < inputs_[i].size(); j++) {
-      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted
-                               : inputs_[i][j]->being_compacted);
-      inputs_[i][j]->being_compacted = mark_as_compacted;
+      assert(being_compacted != inputs_[i][j]->being_compacted);
+      inputs_[i][j]->being_compacted = being_compacted;
     }
   }
 }
@@ -735,7 +734,7 @@ uint64_t Compaction::CalculateTotalInputSize() const {
   return size;
 }
 
-void Compaction::ReleaseCompactionFiles(Status status) {
+void Compaction::ReleaseCompactionFiles(const Status& status) {
   MarkFilesBeingCompacted(false);
   cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
 }

@@ -49,8 +49,8 @@
 #include "db/write_controller.h"
 #include "env/file_system_tracer.h"
 #if USE_COROUTINES
-#include "folly/experimental/coro/BlockingWait.h"
-#include "folly/experimental/coro/Collect.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Collect.h"
 #endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
@@ -625,6 +625,8 @@ class VersionStorageInfo {
   bool RangeMightExistAfterSortedRun(const Slice& smallest_user_key,
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
+
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level) const;
 
  private:
   void ComputeCompensatedSizes();

@@ -44,8 +44,8 @@
 #include "table/compaction_merging_iterator.h"
 
 #if USE_COROUTINES
-#include "folly/experimental/coro/BlockingWait.h"
-#include "folly/experimental/coro/Collect.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Collect.h"
 #endif
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -4917,6 +4917,27 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
     }
   }
   return false;
+}
+
+Env::WriteLifeTimeHint VersionStorageInfo::CalculateSSTWriteHint(
+    int level) const {
+  if (compaction_style_ != kCompactionStyleLevel) {
+    return Env::WLTH_NOT_SET;
+  }
+  if (level == 0) {
+    return Env::WLTH_MEDIUM;
+  }
+
+  // L1: medium, L2: long, ...
+  if (level - base_level_ >= 2) {
+    return Env::WLTH_EXTREME;
+  } else if (level < base_level_) {
+    // There is no restriction which prevents level passed in to be smaller
+    // than base_level.
+    return Env::WLTH_MEDIUM;
+  }
+  return static_cast<Env::WriteLifeTimeHint>(
+      level - base_level_ + static_cast<int>(Env::WLTH_MEDIUM));
 }
 
 void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
