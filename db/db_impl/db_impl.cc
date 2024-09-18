@@ -1526,7 +1526,7 @@ Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
                       io_s.ToString().c_str());
       // In case there is a fs error we should set it globally to prevent the
       // future writes
-      IOStatusCheck(io_s);
+      WALIOStatusCheck(io_s);
       // whether sync or not, we should abort the rest of function upon error
       return static_cast<Status>(io_s);
     }
@@ -1683,7 +1683,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
                     io_s.ToString().c_str());
     // In case there is a fs error we should set it globally to prevent the
     // future writes
-    IOStatusCheck(io_s);
+    WALIOStatusCheck(io_s);
   }
   if (io_s.ok() && need_wal_dir_sync) {
     io_s = directories_.GetWalDir()->FsyncWithDirOptions(
