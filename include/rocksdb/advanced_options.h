@@ -929,13 +929,12 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   double blob_garbage_collection_age_cutoff = 0.25;
 
-  // If the ratio of garbage in the oldest blob files exceeds this threshold,
-  // targeted compactions are scheduled in order to force garbage collecting
-  // the blob files in question, assuming they are all eligible based on the
-  // value of blob_garbage_collection_age_cutoff above. This option is
-  // currently only supported with leveled compactions.
-  // Note that enable_blob_garbage_collection has to be set in order for this
-  // option to have any effect.
+  // If the ratio of garbage in the blob files currently eligible for garbage
+  // collection exceeds this threshold, targeted compactions are scheduled in
+  // order to force garbage collecting the oldest blob files. This option is
+  // currently only supported with leveled compactions. Note that
+  // enable_blob_garbage_collection has to be set in order for this option to
+  // have any effect.
   //
   // Default: 1.0
   //

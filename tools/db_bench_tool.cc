@@ -1104,7 +1104,7 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
-              "the oldest blob files for forcing garbage collection.");
+              "the eligible blob files for forcing garbage collection.");
 
 DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
