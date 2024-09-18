@@ -115,10 +115,10 @@ const char* LDBCommand::DELIM = " ==> ";
 
 namespace {
 // Helper class to iterate WAL logs in a directory in chronological order.
-class WALPicker {
+class WALFileIterator {
  public:
-  explicit WALPicker(const std::string& parent_dir,
-                     const std::vector<std::string>& filenames);
+  explicit WALFileIterator(const std::string& parent_dir,
+                           const std::vector<std::string>& filenames);
   // REQUIRES Valid() == true
   std::string GetNextWAL();
   bool Valid() const { return wal_file_iter_ != log_files_.end(); }
@@ -130,8 +130,8 @@ class WALPicker {
   std::vector<std::string>::const_iterator wal_file_iter_;
 };
 
-WALPicker::WALPicker(const std::string& parent_dir,
-                     const std::vector<std::string>& filenames)
+WALFileIterator::WALFileIterator(const std::string& parent_dir,
+                                 const std::vector<std::string>& filenames)
     : parent_dir_(parent_dir) {
   // populate wal logs
   assert(!filenames.empty());
@@ -164,7 +164,7 @@ WALPicker::WALPicker(const std::string& parent_dir,
   wal_file_iter_ = log_files_.begin();
 }
 
-std::string WALPicker::GetNextWAL() {
+std::string WALFileIterator::GetNextWAL() {
   assert(Valid());
   std::string ret;
   if (wal_file_iter_ != log_files_.end()) {
@@ -2923,8 +2923,8 @@ void DumpWalFiles(Options options, const std::string& dir_or_file,
   std::vector<std::string> filenames;
   ROCKSDB_NAMESPACE::Env* env = options.env;
   ROCKSDB_NAMESPACE::Status st = env->GetChildren(dir_or_file, &filenames);
-  std::optional<SequenceNumber> prev_batch_seqno = std::nullopt;
-  std::optional<uint32_t> prev_batch_count = std::nullopt;
+  std::optional<SequenceNumber> prev_batch_seqno;
+  std::optional<uint32_t> prev_batch_count;
   if (!st.ok() || filenames.empty()) {
     // dir_or_file does not exist or does not contain children
     // Check its existence first
@@ -2937,28 +2937,37 @@ void DumpWalFiles(Options options, const std::string& dir_or_file,
       }
       return;
     }
+    // If it exists and doesn't have children, it should be a log file.
+    if (dir_or_file.length() <= 4 ||
+        dir_or_file.rfind(".log") != dir_or_file.length() - 4) {
+      if (exec_state) {
+        *exec_state = LDBCommandExecuteResult::Failed(
+            dir_or_file + ": Invalid log file name");
+      }
+      return;
+    }
     DumpWalFile(options, dir_or_file, print_header, print_values,
                 only_print_seqno_gaps, is_write_committed, ucmps, exec_state,
                 &prev_batch_seqno, &prev_batch_count);
   } else {
-    WALPicker wal_picker(dir_or_file, filenames);
-    if (!wal_picker.Valid()) {
+    WALFileIterator wal_file_iter(dir_or_file, filenames);
+    if (!wal_file_iter.Valid()) {
       if (exec_state) {
         *exec_state = LDBCommandExecuteResult::Failed(
             dir_or_file + ": No valid wal logs found");
       }
       return;
     }
-    std::string wal_file = wal_picker.GetNextWAL();
+    std::string wal_file = wal_file_iter.GetNextWAL();
     while (!wal_file.empty()) {
       std::cout << "Checking wal file: " << wal_file << std::endl;
       DumpWalFile(options, wal_file, print_header, print_values,
                   only_print_seqno_gaps, is_write_committed, ucmps, exec_state,
                   &prev_batch_seqno, &prev_batch_count);
-      if (exec_state->IsFailed() || !wal_picker.Valid()) {
+      if (exec_state->IsFailed() || !wal_file_iter.Valid()) {
         return;
       }
-      wal_file = wal_picker.GetNextWAL();
+      wal_file = wal_file_iter.GetNextWAL();
     }
   }
 }
@@ -3076,14 +3085,23 @@ void DumpWalFile(Options options, const std::string& wal_file,
         uint32_t batch_count = WriteBatchInternal::Count(&batch);
         assert(prev_batch_seqno);
         assert(prev_batch_count);
+        assert(prev_batch_seqno->has_value() == prev_batch_count->has_value());
         // TODO(yuzhangyu): handle pessimistic transactions case.
-        if (only_print_seqno_gaps &&
-            (!prev_batch_seqno->has_value() || !prev_batch_count->has_value() ||
-             prev_batch_seqno->value() + prev_batch_count->value() ==
-                 sequence_number)) {
-          *prev_batch_seqno = sequence_number;
-          *prev_batch_count = batch_count;
-          continue;
+        if (only_print_seqno_gaps) {
+          if (!prev_batch_seqno->has_value() ||
+              !prev_batch_count->has_value() ||
+              prev_batch_seqno->value() + prev_batch_count->value() ==
+                  sequence_number) {
+            *prev_batch_seqno = sequence_number;
+            *prev_batch_count = batch_count;
+            continue;
+          } else if (prev_batch_seqno->has_value() &&
+                     prev_batch_count->has_value()) {
+            row << "Prev batch sequence number: " << prev_batch_seqno->value()
+                << ", prev batch count: " << prev_batch_count->value() << ", ";
+            *prev_batch_seqno = sequence_number;
+            *prev_batch_count = batch_count;
+          }
         }
         row << sequence_number << ",";
         row << batch_count << ",";
@@ -4688,8 +4706,8 @@ void DBFileDumperCommand::DoCommand() {
     } else {
       wal_dir = NormalizePath(options_.wal_dir + "/");
     }
-    std::optional<SequenceNumber> prev_batch_seqno = std::nullopt;
-    std::optional<uint32_t> prev_batch_count = std::nullopt;
+    std::optional<SequenceNumber> prev_batch_seqno;
+    std::optional<uint32_t> prev_batch_count;
     for (auto& wal : wal_files) {
       // TODO(qyang): option.wal_dir should be passed into ldb command
       std::string filename = wal_dir + wal->PathName();
