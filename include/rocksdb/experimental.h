@@ -197,7 +197,9 @@ Status UpdateManifestForFilesState(
 // * Order-based filtering - Represents one or more subranges of a key space or
 // key segment space. A filter query only requires application of the CF
 // comparator. The size of the representation is roughly proportional to the
-// number of subranges and to the key or segment size.
+// number of subranges and to the key or segment size. For example, we call a
+// simple filter representing a minimum and a maximum value for a segment a
+// min-max filter.
 //
 // TYPES OF READ QUERIES and their DIRECT FILTERS:
 // * Point query - Whether there {definitely isn't, might be} an entry for a
@@ -239,10 +241,20 @@ Status UpdateManifestForFilesState(
 //    NOTE: There is NO requirement e.g. that the comparator used by the filter
 //    match the CF key comparator or similar. The extractor simply needs to be
 //    a pure function that does not return "out of bounds" segments.
+//    FOR EXAMPLE, a min-max filter on the 4th segment of keys can also be
+//    used for filtering point queries (Get/MultiGet) and could be as
+//    effective and much more space efficient than a Bloom filter, depending
+//    on the workload.
 //
 // Beyond point queries, we generally expect the key comparator to be a
-// lexicographic / big endian ordering at a high level, while each segment
-// can use an arbitrary comparator.
+// lexicographic / big endian ordering at a high level (or the reverse of that
+// ordering), while each segment can use an arbitrary comparator.
+//    FOR EXAMPLE, with a custom key comparator and segments extractor,
+//    segment 0 could be a 4-byte unsigned little-endian integer,
+//    segment 1 could be an 8-byte signed big-endian integer. This framework
+//    requires segment 0 to come before segment 1 in the key and to take
+//    precedence in key ordering (i.e. segment 1 order is only consulted when
+//    keys are equal in segment 0).
 //
 // * Equivalence class filters can apply to range queries under conditions
 // resembling legacy prefix filtering (prefix_extractor). An equivalence class
@@ -269,6 +281,7 @@ Status UpdateManifestForFilesState(
 // segments i through j and category set s is applicable to a range query from
 // lb to ub if
 //   * All segments through i-1 extracted from lb and ub are equal
+//   * The categories of lb and ub are in the category set s.
 //   * SEGMENT ORDERING PROPERTY for ordinal i through j, segments
 //   comparator c, category set s, for all x, y, and z: if
 //     * Keys x and z have equal segments up through ordinal i-1, and
