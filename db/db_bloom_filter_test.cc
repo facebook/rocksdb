@@ -3734,14 +3734,33 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
   }
 }
 
-TEST_F(DBBloomFilterTest, SstQueryFilter) {
-  using experimental::KeySegmentsExtractor;
-  using experimental::MakeSharedBytewiseMinMaxSQFC;
-  using experimental::SelectKeySegment;
-  using experimental::SstQueryFilterConfigs;
-  using experimental::SstQueryFilterConfigsManager;
-  using KeyCategorySet = KeySegmentsExtractor::KeyCategorySet;
+using experimental::KeySegmentsExtractor;
+using experimental::MakeSharedBytewiseMinMaxSQFC;
+using experimental::MakeSharedCappedKeySegmentsExtractor;
+using experimental::MakeSharedReverseBytewiseMinMaxSQFC;
+using experimental::SelectKeySegment;
+using experimental::SstQueryFilterConfigs;
+using experimental::SstQueryFilterConfigsManager;
+using KeyCategorySet = KeySegmentsExtractor::KeyCategorySet;
 
+static std::vector<std::string> RangeQueryKeys(
+    SstQueryFilterConfigsManager::Factory& factory, DB& db, const Slice& lb,
+    const Slice& ub) {
+  ReadOptions ro;
+  ro.iterate_lower_bound = &lb;
+  ro.iterate_upper_bound = &ub;
+  ro.table_filter = factory.GetTableFilterForRangeQuery(lb, ub);
+  auto it = db.NewIterator(ro);
+  std::vector<std::string> ret;
+  for (it->Seek(lb); it->Valid(); it->Next()) {
+    ret.push_back(it->key().ToString());
+  }
+  EXPECT_OK(it->status());
+  delete it;
+  return ret;
+};
+
+TEST_F(DBBloomFilterTest, SstQueryFilter) {
   struct MySegmentExtractor : public KeySegmentsExtractor {
     char min_first_char;
     char max_first_char;
@@ -3890,101 +3909,86 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   ASSERT_OK(Flush());
 
   using Keys = std::vector<std::string>;
-  auto RangeQueryKeys =
+  auto RangeQuery =
       [factory, db = db_](
           std::string lb, std::string ub,
           std::shared_ptr<SstQueryFilterConfigsManager::Factory> alt_factory =
               nullptr) {
-        Slice lb_slice = lb;
-        Slice ub_slice = ub;
-
-        ReadOptions ro;
-        ro.iterate_lower_bound = &lb_slice;
-        ro.iterate_upper_bound = &ub_slice;
-        ro.table_filter = (alt_factory ? alt_factory : factory)
-                              ->GetTableFilterForRangeQuery(lb_slice, ub_slice);
-        auto it = db->NewIterator(ro);
-        Keys ret;
-        for (it->Seek(lb_slice); it->Valid(); it->Next()) {
-          ret.push_back(it->key().ToString());
-        }
-        EXPECT_OK(it->status());
-        delete it;
-        return ret;
+        return RangeQueryKeys(alt_factory ? *alt_factory : *factory, *db, lb,
+                              ub);
       };
 
   // Control 1: range is not filtered but min/max filter is checked
   // because of common prefix leading up to 2nd segment
   // TODO/future: statistics for when filter is checked vs. not applicable
-  EXPECT_EQ(RangeQueryKeys("abc_150", "abc_249"),
+  EXPECT_EQ(RangeQuery("abc_150", "abc_249"),
             Keys({"abc_156_987", "abc_234", "abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Test 1: range is filtered to just lowest level, fully containing the
   // segments in that category
-  EXPECT_EQ(RangeQueryKeys("abc_100", "abc_179"),
+  EXPECT_EQ(RangeQuery("abc_100", "abc_179"),
             Keys({"abc_123", "abc_13", "abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 2: range is filtered to just lowest level, partial overlap
-  EXPECT_EQ(RangeQueryKeys("abc_1500_x_y", "abc_16QQ"), Keys({"abc_156_987"}));
+  EXPECT_EQ(RangeQuery("abc_1500_x_y", "abc_16QQ"), Keys({"abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 3: range is filtered to just highest level, fully containing the
   // segments in that category but would be overlapping the range for the other
   // file if the filter included all categories
-  EXPECT_EQ(RangeQueryKeys("abc_200", "abc_300"),
+  EXPECT_EQ(RangeQuery("abc_200", "abc_300"),
             Keys({"abc_234", "abc_245_567", "abc_25"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 4: range is filtered to just highest level, partial overlap (etc.)
-  EXPECT_EQ(RangeQueryKeys("abc_200", "abc_249"),
-            Keys({"abc_234", "abc_245_567"}));
+  EXPECT_EQ(RangeQuery("abc_200", "abc_249"), Keys({"abc_234", "abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 5: range is filtered from both levels, because of category scope
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Control 2: range is not filtered because association between 1st and
   // 2nd segment is not represented
-  EXPECT_EQ(RangeQueryKeys("abc_170", "abc_190"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_170", "abc_190"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Control 3: range is not filtered because there's no (bloom) filter on
   // 1st segment (like prefix filtering)
-  EXPECT_EQ(RangeQueryKeys("baa_170", "baa_190"), Keys({}));
+  EXPECT_EQ(RangeQuery("baa_170", "baa_190"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Control 4: range is not filtered because difference in segments leading
   // up to 2nd segment
-  EXPECT_EQ(RangeQueryKeys("abc_500", "abd_501"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_500", "abd_501"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // TODO: exclusive upper bound tests
 
   // ======= Testing 3rd segment (cross-category filter) =======
   // Control 5: not filtered because of segment range overlap
-  EXPECT_EQ(RangeQueryKeys(" z__700", " z__750"), Keys({}));
+  EXPECT_EQ(RangeQuery(" z__700", " z__750"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Test 6: filtered on both levels
-  EXPECT_EQ(RangeQueryKeys(" z__100", " z__300"), Keys({}));
+  EXPECT_EQ(RangeQuery(" z__100", " z__300"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Control 6: finding something, with 2nd segment filter helping
-  EXPECT_EQ(RangeQueryKeys("abc_156_9", "abc_156_99"), Keys({"abc_156_987"}));
+  EXPECT_EQ(RangeQuery("abc_156_9", "abc_156_99"), Keys({"abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
-  EXPECT_EQ(RangeQueryKeys("abc_245_56", "abc_245_57"), Keys({"abc_245_567"}));
+  EXPECT_EQ(RangeQuery("abc_245_56", "abc_245_57"), Keys({"abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 6: filtered on both levels, for different segments
-  EXPECT_EQ(RangeQueryKeys("abc_245_900", "abc_245_999"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_245_900", "abc_245_999"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // ======= Testing extractor read portability =======
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Only modifies how filters are written
@@ -3992,18 +3996,166 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   ASSERT_EQ(factory->GetFilteringVersion(), 0U);
   ASSERT_EQ(factory->GetConfigs().IsEmptyNotFound(), true);
 
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Even a different config name with different extractor can read
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400", MakeFactory("bar", 43)),
-            Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400", MakeFactory("bar", 43)), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Or a "not found" config name
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400", MakeFactory("blah", 43)),
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400", MakeFactory("blah", 43)),
             Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
+}
+
+static std::vector<int> ExtractedSizes(const KeySegmentsExtractor& ex,
+                                       const Slice& k) {
+  KeySegmentsExtractor::Result r;
+  ex.Extract(k, KeySegmentsExtractor::kFullUserKey, &r);
+  std::vector<int> ret;
+  uint32_t last = 0;
+  for (const auto i : r.segment_ends) {
+    ret.push_back(static_cast<int>(i - last));
+    last = i;
+  }
+  return ret;
+}
+
+TEST_F(DBBloomFilterTest, FixedWidthSegments) {
+  // Unit tests for
+  auto extractor_none = MakeSharedCappedKeySegmentsExtractor({});
+  auto extractor0b = MakeSharedCappedKeySegmentsExtractor({0});
+  auto extractor1b = MakeSharedCappedKeySegmentsExtractor({1});
+  auto extractor4b = MakeSharedCappedKeySegmentsExtractor({4});
+  auto extractor4b0b = MakeSharedCappedKeySegmentsExtractor({4, 0});
+  auto extractor4b0b4b = MakeSharedCappedKeySegmentsExtractor({4, 0, 4});
+  auto extractor1b3b0b4b = MakeSharedCappedKeySegmentsExtractor({1, 3, 0, 4});
+
+  ASSERT_EQ(extractor_none->GetId(), "CappedKeySegmentsExtractor");
+  ASSERT_EQ(extractor0b->GetId(), "CappedKeySegmentsExtractor0b");
+  ASSERT_EQ(extractor1b->GetId(), "CappedKeySegmentsExtractor1b");
+  ASSERT_EQ(extractor4b->GetId(), "CappedKeySegmentsExtractor4b");
+  ASSERT_EQ(extractor4b0b->GetId(), "CappedKeySegmentsExtractor4b0b");
+  ASSERT_EQ(extractor4b0b4b->GetId(), "CappedKeySegmentsExtractor4b0b4b");
+  ASSERT_EQ(extractor1b3b0b4b->GetId(), "CappedKeySegmentsExtractor1b3b0b4b");
+
+  using V = std::vector<int>;
+  ASSERT_EQ(V({}), ExtractedSizes(*extractor_none, {}));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor0b, {}));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor1b, {}));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor4b, {}));
+  ASSERT_EQ(V({0, 0}), ExtractedSizes(*extractor4b0b, {}));
+  ASSERT_EQ(V({0, 0, 0}), ExtractedSizes(*extractor4b0b4b, {}));
+  ASSERT_EQ(V({0, 0, 0, 0}), ExtractedSizes(*extractor1b3b0b4b, {}));
+
+  ASSERT_EQ(V({3}), ExtractedSizes(*extractor4b, "bla"));
+  ASSERT_EQ(V({3, 0}), ExtractedSizes(*extractor4b0b, "bla"));
+  ASSERT_EQ(V({1, 2, 0, 0}), ExtractedSizes(*extractor1b3b0b4b, "bla"));
+
+  ASSERT_EQ(V({}), ExtractedSizes(*extractor_none, "blah"));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor0b, "blah"));
+  ASSERT_EQ(V({1}), ExtractedSizes(*extractor1b, "blah"));
+  ASSERT_EQ(V({4}), ExtractedSizes(*extractor4b, "blah"));
+  ASSERT_EQ(V({4, 0}), ExtractedSizes(*extractor4b0b, "blah"));
+  ASSERT_EQ(V({4, 0, 0}), ExtractedSizes(*extractor4b0b4b, "blah"));
+  ASSERT_EQ(V({1, 3, 0, 0}), ExtractedSizes(*extractor1b3b0b4b, "blah"));
+
+  ASSERT_EQ(V({4, 0}), ExtractedSizes(*extractor4b0b, "blah1"));
+  ASSERT_EQ(V({4, 0, 1}), ExtractedSizes(*extractor4b0b4b, "blah1"));
+  ASSERT_EQ(V({4, 0, 2}), ExtractedSizes(*extractor4b0b4b, "blah12"));
+  ASSERT_EQ(V({4, 0, 3}), ExtractedSizes(*extractor4b0b4b, "blah123"));
+  ASSERT_EQ(V({1, 3, 0, 3}), ExtractedSizes(*extractor1b3b0b4b, "blah123"));
+
+  ASSERT_EQ(V({4}), ExtractedSizes(*extractor4b, "blah1234"));
+  ASSERT_EQ(V({4, 0}), ExtractedSizes(*extractor4b0b, "blah1234"));
+  ASSERT_EQ(V({4, 0, 4}), ExtractedSizes(*extractor4b0b4b, "blah1234"));
+  ASSERT_EQ(V({1, 3, 0, 4}), ExtractedSizes(*extractor1b3b0b4b, "blah1234"));
+
+  ASSERT_EQ(V({4, 0, 4}), ExtractedSizes(*extractor4b0b4b, "blah12345"));
+  ASSERT_EQ(V({1, 3, 0, 4}), ExtractedSizes(*extractor1b3b0b4b, "blah12345"));
+
+  // Filter config for second and fourth segment
+  auto filter1 =
+      MakeSharedReverseBytewiseMinMaxSQFC(experimental::SelectKeySegment(1));
+  auto filter3 =
+      MakeSharedReverseBytewiseMinMaxSQFC(experimental::SelectKeySegment(3));
+  SstQueryFilterConfigs configs1 = {{filter1, filter3}, extractor1b3b0b4b};
+  SstQueryFilterConfigsManager::Data data = {{42, {{"foo", configs1}}}};
+  std::shared_ptr<SstQueryFilterConfigsManager> configs_manager;
+  ASSERT_OK(SstQueryFilterConfigsManager::MakeShared(data, &configs_manager));
+  std::shared_ptr<SstQueryFilterConfigsManager::Factory> f;
+  ASSERT_OK(configs_manager->MakeSharedFactory("foo", 42, &f));
+
+  ASSERT_EQ(f->GetConfigsName(), "foo");
+  ASSERT_EQ(f->GetConfigs().IsEmptyNotFound(), false);
+
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.table_properties_collector_factories.push_back(f);
+  // Next most common comparator after bytewise
+  options.comparator = ReverseBytewiseComparator();
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("abcd1234", "val0"));
+  ASSERT_OK(Put("abcd1245", "val1"));
+  ASSERT_OK(Put("abcd99", "val2"));  // short key
+  ASSERT_OK(Put("aqua1200", "val3"));
+  ASSERT_OK(Put("aqua1230", "val4"));
+  ASSERT_OK(Put("zen", "val5"));  // very short key
+  ASSERT_OK(Put("azur1220", "val6"));
+  ASSERT_OK(Put("blah", "val7"));
+  ASSERT_OK(Put("blah2", "val8"));
+
+  ASSERT_OK(Flush());
+
+  using Keys = std::vector<std::string>;
+
+  // Range is not filtered but segment 1 min/max filter is checked
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aczz0000", "acdc0000"), Keys({}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found (can't use segment 3 filter)
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqzz0000", "aqdc0000"),
+            Keys({"aqua1230", "aqua1200"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Filtered because of segment 1 min-max not intersecting [aaa, abb]
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "zabb9999", "zaaa0000"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1200ZZZ", "aqua1000ZZZ"),
+            Keys({"aqua1200"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found despite short key
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua121", "aqua1"), Keys({"aqua1200"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Filtered because of segment 3 min-max not intersecting [1000, 1100]
+  // Note that the empty string is tracked outside of the min-max range.
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1100ZZZ", "aqua1000ZZZ"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Also filtered despite short key
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua11", "aqua1"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah21", "blag"),
+            Keys({"blah2", "blah"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah0", "blag"), Keys({"blah"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Filtered because of segment 3 min-max not intersecting [0, 1]
+  // Note that the empty string is tracked outside of the min-max range.
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah1", "blah0"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
