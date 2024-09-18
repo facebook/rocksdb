@@ -11,7 +11,7 @@ import json
 import os
 import sys
 
-from targets_builder import TARGETSBuilder
+from targets_builder import TARGETSBuilder, LiteralValue
 
 from util import ColorString
 
@@ -150,6 +150,7 @@ def generate_targets(repo_path, deps_map):
             "//folly/experimental/coro:task",
             "//folly/synchronization:distributed_mutex",
         ],
+        headers=LiteralValue("glob([\"**/*.h\"])")
     )
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
@@ -158,7 +159,6 @@ def generate_targets(repo_path, deps_map):
         deps=[
             ":rocksdb_lib",
         ],
-        headers=None,
         extra_external_deps="",
         link_whole=True,
     )
