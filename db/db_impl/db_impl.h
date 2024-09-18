@@ -1618,8 +1618,14 @@ class DBImpl : public DB {
   // vast majority of all files), since it already has the file size
   // on record, we don't need to query the file system. Otherwise, we query the
   // file system for the size of an unreferenced file.
+  // REQUIRES: mutex unlocked
   void TrackExistingDataFiles(
       const std::vector<std::string>& existing_data_files);
+
+  // Untrack data files in sst manager. This is only called during DB::Close on
+  // an unowned SstFileManager, to return it to a consistent state.
+  // REQUIRES: mutex unlocked
+  void UntrackDataFiles();
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -2189,6 +2195,10 @@ class DBImpl : public DB {
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
+
+  // REQUIRES: mutex unlocked
+  void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
+                           bool track);
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
