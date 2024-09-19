@@ -294,7 +294,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer) {
+    LogBuffer* log_buffer) const {
   const std::vector<FileTemperatureAge>& ages =
       mutable_cf_options.compaction_options_fifo
           .file_temperature_age_thresholds;
@@ -344,12 +344,10 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
   Temperature compaction_target_temp = Temperature::kLastTemperature;
   if (current_time > min_age) {
     uint64_t create_time_threshold = current_time - min_age;
-    uint64_t compaction_size = 0;
     // We will ideally identify a file qualifying for temperature change by
     // knowing the timestamp for the youngest entry in the file. However, right
     // now we don't have the information. We infer it by looking at timestamp of
     // the previous file's (which is just younger) oldest entry's timestamp.
-    Temperature cur_target_temp;
     // avoid index underflow
     assert(level_files.size() >= 1);
     for (size_t index = level_files.size() - 1; index >= 1; --index) {
@@ -374,7 +372,7 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
         // cur_file is too fresh
         break;
       }
-      cur_target_temp = ages[0].temperature;
+      Temperature cur_target_temp = ages[0].temperature;
       for (size_t i = 1; i < ages.size(); ++i) {
         if (current_time >= ages[i].age &&
             oldest_ancestor_time <= current_time - ages[i].age) {
@@ -382,35 +380,20 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
         }
       }
       if (cur_file->temperature == cur_target_temp) {
-        if (inputs[0].empty()) {
-          continue;
-        } else {
-          break;
-        }
+        continue;
       }
 
       // cur_file needs to change temperature
-      if (compaction_target_temp == Temperature::kLastTemperature) {
-        assert(inputs[0].empty());
-        compaction_target_temp = cur_target_temp;
-      } else if (cur_target_temp != compaction_target_temp) {
-        assert(!inputs[0].empty());
-        break;
-      }
-      if (inputs[0].empty() || compaction_size + cur_file->fd.GetFileSize() <=
-                                   mutable_cf_options.max_compaction_bytes) {
-        inputs[0].files.push_back(cur_file);
-        compaction_size += cur_file->fd.GetFileSize();
-        ROCKS_LOG_BUFFER(
-            log_buffer,
-            "[%s] FIFO compaction: picking file %" PRIu64
-            " with next file's oldest time %" PRIu64 " for temperature %s.",
-            cf_name.c_str(), cur_file->fd.GetNumber(), oldest_ancestor_time,
-            temperature_to_string[cur_target_temp].c_str());
-      }
-      if (compaction_size > mutable_cf_options.max_compaction_bytes) {
-        break;
-      }
+      assert(compaction_target_temp == Temperature::kLastTemperature);
+      compaction_target_temp = cur_target_temp;
+      inputs[0].files.push_back(cur_file);
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] FIFO compaction: picking file %" PRIu64
+          " with next file's oldest time %" PRIu64 " for temperature %s.",
+          cf_name.c_str(), cur_file->fd.GetNumber(), oldest_ancestor_time,
+          temperature_to_string[cur_target_temp].c_str());
+      break;
     }
   }
 
@@ -418,7 +401,9 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
     return nullptr;
   }
   assert(compaction_target_temp != Temperature::kLastTemperature);
-
+  // Only compact one file at a time.
+  assert(inputs.size() == 1);
+  assert(inputs[0].size() == 1);
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
       std::move(inputs), 0, 0 /* output file size limit */,
