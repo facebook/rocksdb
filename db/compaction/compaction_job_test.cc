@@ -545,15 +545,14 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(s);
     db_options_.info_log = info_log;
 
-    versions_.reset(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
-        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       test::kUnitTestDbId, /*db_session_id=*/"",
+                       /*daily_offpeak_time_utc=*/"",
+                       /*error_handler=*/nullptr, /*read_only=*/false));
     compaction_job_stats_.Reset();
-    ASSERT_OK(
-        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);

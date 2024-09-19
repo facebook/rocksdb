@@ -953,59 +953,60 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
 }
 
 void DBImpl::SetDBId(std::string&& id, bool read_only,
-                     RecoveryContext* recovery_ctx) {
+                     VersionEdit* version_edit) {
   assert(db_id_.empty());
   assert(!id.empty());
   db_id_ = std::move(id);
-  if (!read_only && immutable_db_options_.write_dbid_to_manifest) {
-    assert(recovery_ctx != nullptr);
+  if (!read_only && version_edit) {
+    assert(version_edit != nullptr);
     assert(versions_->GetColumnFamilySet() != nullptr);
-    VersionEdit edit;
-    edit.SetDBId(db_id_);
+    version_edit->SetDBId(db_id_);
     versions_->db_id_ = db_id_;
-    recovery_ctx->UpdateVersionEdits(
-        versions_->GetColumnFamilySet()->GetDefault(), edit);
   }
 }
 
 Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
-                         RecoveryContext* recovery_ctx) {
+                         bool is_new_db, VersionEdit* version_edit) {
   Status s;
-  // Check for the IDENTITY file and create it if not there or
-  // broken or not matching manifest
-  std::string db_id_in_file;
-  s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
-  if (s.ok()) {
-    s = GetDbIdentityFromIdentityFile(&db_id_in_file);
-    if (s.ok() && !db_id_in_file.empty()) {
-      if (db_id_.empty()) {
-        // Loaded from file and wasn't already known from manifest
-        SetDBId(std::move(db_id_in_file), read_only, recovery_ctx);
-        return s;
-      } else if (db_id_ == db_id_in_file) {
-        // Loaded from file and matches manifest
-        return s;
+  if (!is_new_db) {
+    // Check for the IDENTITY file and create it if not there or
+    // broken or not matching manifest
+    std::string db_id_in_file;
+    s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
+    if (s.ok()) {
+      s = GetDbIdentityFromIdentityFile(&db_id_in_file);
+      if (s.ok() && !db_id_in_file.empty()) {
+        if (db_id_.empty()) {
+          // Loaded from file and wasn't already known from manifest
+          SetDBId(std::move(db_id_in_file), read_only, version_edit);
+          return s;
+        } else if (db_id_ == db_id_in_file) {
+          // Loaded from file and matches manifest
+          return s;
+        }
       }
     }
-  }
-  if (s.IsNotFound()) {
-    s = Status::OK();
-  }
-  if (!s.ok()) {
-    assert(s.IsIOError());
-    return s;
+    if (s.IsNotFound()) {
+      s = Status::OK();
+    }
+    if (!s.ok()) {
+      assert(s.IsIOError());
+      return s;
+    }
   }
   // Otherwise IDENTITY file is missing or no good.
   // Generate new id if needed
   if (db_id_.empty()) {
-    SetDBId(env_->GenerateUniqueId(), read_only, recovery_ctx);
+    SetDBId(env_->GenerateUniqueId(), read_only, version_edit);
   }
   // Persist it to IDENTITY file if allowed
-  if (!read_only) {
+  if (!read_only && immutable_db_options_.write_identity_file) {
     s = SetIdentityFile(write_options, env_, dbname_,
                         immutable_db_options_.metadata_write_temperature,
                         db_id_);
   }
+  // NOTE: an obsolete IDENTITY file with write_identity_file=false is handled
+  // elsewhere, so that it's only deleted after successful recovery
   return s;
 }
 

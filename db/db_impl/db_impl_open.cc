@@ -289,28 +289,25 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
           "start_time and end_time cannot be the same");
     }
   }
+
+  if (!db_options.write_dbid_to_manifest && !db_options.write_identity_file) {
+    return Status::InvalidArgument(
+        "write_dbid_to_manifest and write_identity_file cannot both be false");
+  }
   return Status::OK();
 }
 
 Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
-  VersionEdit new_db;
+  VersionEdit new_db_edit;
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
-  Status s = SetIdentityFile(write_options, env_, dbname_,
-                             immutable_db_options_.metadata_write_temperature);
+  Status s = SetupDBId(write_options, /*read_only=*/false, /*is_new_db=*/true,
+                       &new_db_edit);
   if (!s.ok()) {
     return s;
   }
-  if (immutable_db_options_.write_dbid_to_manifest) {
-    std::string temp_db_id;
-    s = GetDbIdentityFromIdentityFile(&temp_db_id);
-    if (!s.ok()) {
-      return s;
-    }
-    new_db.SetDBId(temp_db_id);
-  }
-  new_db.SetLogNumber(0);
-  new_db.SetNextFile(2);
-  new_db.SetLastSequence(0);
+  new_db_edit.SetLogNumber(0);
+  new_db_edit.SetNextFile(2);
+  new_db_edit.SetLastSequence(0);
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
@@ -342,7 +339,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
         tmp_set.Contains(FileType::kDescriptorFile)));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
-    new_db.EncodeTo(&record);
+    new_db_edit.EncodeTo(&record);
     s = log.AddRecord(write_options, record);
     if (s.ok()) {
       s = SyncManifest(&immutable_db_options_, write_options, log.file());
@@ -528,7 +525,7 @@ Status DBImpl::Recover(
     }
     assert(s.ok());
   }
-  assert(db_id_.empty());
+  assert(is_new_db || db_id_.empty());
   Status s;
   bool missing_table_file = false;
   if (!immutable_db_options_.best_efforts_recovery) {
@@ -674,7 +671,17 @@ Status DBImpl::Recover(
       }
     }
   }
-  s = SetupDBId(write_options, read_only, recovery_ctx);
+  if (is_new_db) {
+    // Already set up DB ID in NewDB
+  } else if (immutable_db_options_.write_dbid_to_manifest && recovery_ctx) {
+    VersionEdit edit;
+    s = SetupDBId(write_options, read_only, is_new_db, &edit);
+    recovery_ctx->UpdateVersionEdits(
+        versions_->GetColumnFamilySet()->GetDefault(), edit);
+  } else {
+    s = SetupDBId(write_options, read_only, is_new_db, nullptr);
+  }
+  assert(!s.ok() || !db_id_.empty());
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
     s = MaybeUpdateNextFileNumber(recovery_ctx);
@@ -2130,6 +2137,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   if (s.ok()) {
     s = impl->LogAndApplyForRecovery(recovery_ctx);
+  }
+
+  if (s.ok() && !impl->immutable_db_options_.write_identity_file) {
+    // On successful recovery, delete an obsolete IDENTITY file to avoid DB ID
+    // inconsistency
+    impl->env_->DeleteFile(IdentityFileName(impl->dbname_))
+        .PermitUncheckedError();
   }
 
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {

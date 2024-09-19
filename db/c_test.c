@@ -772,6 +772,8 @@ int main(int argc, char** argv) {
   rocksdb_options_set_write_buffer_size(options, 100000);
   rocksdb_options_set_paranoid_checks(options, 1);
   rocksdb_options_set_max_open_files(options, 10);
+  /* Compatibility with how test was written */
+  rocksdb_options_set_write_dbid_to_manifest(options, 0);
 
   table_options = rocksdb_block_based_options_create();
   rocksdb_block_based_options_set_block_cache(table_options, cache);
@@ -962,14 +964,23 @@ int main(int argc, char** argv) {
     rocksdb_options_t* options_dbid_in_manifest = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(options_dbid_in_manifest, 1);
 
+    rocksdb_options_set_write_dbid_to_manifest(options_dbid_in_manifest, false);
     unsigned char write_to_manifest =
         rocksdb_options_get_write_dbid_to_manifest(options_dbid_in_manifest);
     CheckCondition(!write_to_manifest);
     rocksdb_options_set_write_dbid_to_manifest(options_dbid_in_manifest, true);
-    CheckCondition(!write_to_manifest);
     write_to_manifest =
         rocksdb_options_get_write_dbid_to_manifest(options_dbid_in_manifest);
     CheckCondition(write_to_manifest);
+
+    rocksdb_options_set_write_identity_file(options_dbid_in_manifest, true);
+    unsigned char write_identity_file =
+        rocksdb_options_get_write_identity_file(options_dbid_in_manifest);
+    CheckCondition(write_identity_file);
+    rocksdb_options_set_write_identity_file(options_dbid_in_manifest, false);
+    write_identity_file =
+        rocksdb_options_get_write_identity_file(options_dbid_in_manifest);
+    CheckCondition(!write_identity_file);
 
     db = rocksdb_open(options_dbid_in_manifest, dbbackupname, &err);
     CheckNoError(err);
