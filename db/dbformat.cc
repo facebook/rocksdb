@@ -279,4 +279,16 @@ void IterKey::EnlargeBuffer(size_t key_size) {
   buf_ = new char[key_size];
   buf_size_ = key_size;
 }
+
+void IterKey::EnlargeSecondaryBufferIfNeeded(size_t key_size) {
+  // If size is smaller than buffer size, continue using current buffer,
+  // or the static allocated one, as default
+  if (key_size <= secondary_buf_size_) {
+    return;
+  }
+  // Need to enlarge the secondary buffer.
+  ResetSecondaryBuffer();
+  secondary_buf_ = new char[key_size];
+  secondary_buf_size_ = key_size;
+}
 }  // namespace ROCKSDB_NAMESPACE
