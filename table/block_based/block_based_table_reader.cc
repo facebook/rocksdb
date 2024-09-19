@@ -2321,6 +2321,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
     size_t ts_sz =
         rep_->internal_comparator.user_comparator()->timestamp_size();
+    Slice point_lookup_optimize_key = key;
+    std::string key_buffer;
+    if (ts_sz > 0 && !rep_->user_defined_timestamps_persisted) {
+      ReplaceInternalKeyWithMinTimestamp(&key_buffer, key, ts_sz);
+      point_lookup_optimize_key = key_buffer;
+    }
     bool matched = false;  // if such user key matched a key in SST
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
@@ -2363,15 +2369,18 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         s = biter.status();
         break;
       }
-
-      bool may_exist = biter.SeekForGet(key);
-      // If user-specified timestamp is supported, we cannot end the search
-      // just because hash index lookup indicates the key+ts does not exist.
-      if (!may_exist && ts_sz == 0) {
+      bool may_exist = biter.SeekForGet(point_lookup_optimize_key);
+      if (!may_exist &&
+          (ts_sz == 0 || !rep_->user_defined_timestamps_persisted)) {
         // HashSeek cannot find the key this block and the the iter is not
         // the end of the block, i.e. cannot be in the following blocks
         // either. In this case, the seek_key cannot be found, so we break
         // from the top level for-loop.
+        // When SST files don't have timestamps, we use min timestamp in the
+        // point_lookup_optimize_key. In that case when may_exist returns false.
+        // It means we don't have exact match of point_lookup_optimize_key and
+        // block's largest user key is already bigger. Which is also sufficient
+        // for us to end the search.
         done = true;
       } else {
         // Call the *saver function on each entry/block until it returns false
