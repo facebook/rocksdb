@@ -12,7 +12,8 @@
 #include "logging/auto_roll_logger.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "rocksdb/configurable.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/utilities/options_util.h"
 #include "util/cast_util.h"
 #include "util/write_batch_util.h"
 
@@ -938,69 +939,103 @@ Status DB::OpenAndCompact(
     const std::string& output_directory, const std::string& input,
     std::string* output,
     const CompactionServiceOptionsOverride& override_options) {
+  // Check for cancellation
   if (options.canceled && options.canceled->load(std::memory_order_acquire)) {
     return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
+
+  // 1. Deserialize Compaction Input
   CompactionServiceInput compaction_input;
   Status s = CompactionServiceInput::Read(input, &compaction_input);
   if (!s.ok()) {
     return s;
   }
 
-  compaction_input.db_options.max_open_files = -1;
-  compaction_input.db_options.compaction_service = nullptr;
-  if (compaction_input.db_options.statistics) {
-    compaction_input.db_options.statistics.reset();
+  // 2. Load the options from latest OPTIONS file
+  DBOptions db_options;
+  ConfigOptions config_options;
+  config_options.env = override_options.env;
+  std::vector<ColumnFamilyDescriptor> all_column_families;
+  s = LoadLatestOptions(config_options, name, &db_options,
+                        &all_column_families);
+  // In a very rare scenario, loading options may fail if the options changed by
+  // the primary host at the same time. Just retry once for now.
+  if (!s.ok()) {
+    s = LoadLatestOptions(config_options, name, &db_options,
+                          &all_column_families);
+    if (!s.ok()) {
+      return s;
+    }
   }
-  compaction_input.db_options.env = override_options.env;
-  compaction_input.db_options.file_checksum_gen_factory =
+
+  // 3. Override pointer configurations in DBOptions with
+  // CompactionServiceOptionsOverride
+  db_options.env = override_options.env;
+  db_options.file_checksum_gen_factory =
       override_options.file_checksum_gen_factory;
-  compaction_input.db_options.statistics = override_options.statistics;
-  compaction_input.column_family.options.comparator =
-      override_options.comparator;
-  compaction_input.column_family.options.merge_operator =
-      override_options.merge_operator;
-  compaction_input.column_family.options.compaction_filter =
-      override_options.compaction_filter;
-  compaction_input.column_family.options.compaction_filter_factory =
-      override_options.compaction_filter_factory;
-  compaction_input.column_family.options.prefix_extractor =
-      override_options.prefix_extractor;
-  compaction_input.column_family.options.table_factory =
-      override_options.table_factory;
-  compaction_input.column_family.options.sst_partitioner_factory =
-      override_options.sst_partitioner_factory;
-  compaction_input.column_family.options.table_properties_collector_factories =
-      override_options.table_properties_collector_factories;
-  compaction_input.db_options.listeners = override_options.listeners;
+  db_options.statistics = override_options.statistics;
+  db_options.listeners = override_options.listeners;
+  db_options.compaction_service = nullptr;
+  // We will close the DB after the compaction anyway.
+  // Open as many files as needed for the compaction.
+  db_options.max_open_files = -1;
 
+  // 4. Filter CFs that are needed for OpenAndCompact()
+  // We do not need to open all column families for the remote compaction.
+  // Only open default CF + target CF. If target CF == default CF, we will open
+  // just the default CF (Due to current limitation, DB cannot open without the
+  // default CF)
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(compaction_input.column_family);
-  // TODO: we have to open default CF, because of an implementation limitation,
-  // currently we just use the same CF option from input, which is not collect
-  // and open may fail.
-  if (compaction_input.column_family.name != kDefaultColumnFamilyName) {
-    column_families.emplace_back(kDefaultColumnFamilyName,
-                                 compaction_input.column_family.options);
+  for (auto& cf : all_column_families) {
+    if (cf.name == compaction_input.cf_name) {
+      cf.options.comparator = override_options.comparator;
+      cf.options.merge_operator = override_options.merge_operator;
+      cf.options.compaction_filter = override_options.compaction_filter;
+      cf.options.compaction_filter_factory =
+          override_options.compaction_filter_factory;
+      cf.options.prefix_extractor = override_options.prefix_extractor;
+      cf.options.table_factory = override_options.table_factory;
+      cf.options.sst_partitioner_factory =
+          override_options.sst_partitioner_factory;
+      cf.options.table_properties_collector_factories =
+          override_options.table_properties_collector_factories;
+      column_families.emplace_back(cf);
+    } else if (cf.name == kDefaultColumnFamilyName) {
+      column_families.emplace_back(cf);
+    }
   }
 
+  // 5. Open db As Secondary
   DB* db;
   std::vector<ColumnFamilyHandle*> handles;
-
-  s = DB::OpenAsSecondary(compaction_input.db_options, name, output_directory,
-                          column_families, &handles, &db);
+  s = DB::OpenAsSecondary(db_options, name, output_directory, column_families,
+                          &handles, &db);
   if (!s.ok()) {
     return s;
   }
+  assert(db);
 
+  // 6. Find the handle of the Column Family that this will compact
+  ColumnFamilyHandle* cfh = nullptr;
+  for (auto* handle : handles) {
+    if (compaction_input.cf_name == handle->GetName()) {
+      cfh = handle;
+      break;
+    }
+  }
+  assert(cfh);
+
+  // 7. Run the compaction without installation.
+  // Output will be stored in the directory specified by output_directory
   CompactionServiceResult compaction_result;
   DBImplSecondary* db_secondary = static_cast_with_check<DBImplSecondary>(db);
-  assert(handles.size() > 0);
-  s = db_secondary->CompactWithoutInstallation(
-      options, handles[0], compaction_input, &compaction_result);
+  s = db_secondary->CompactWithoutInstallation(options, cfh, compaction_input,
+                                               &compaction_result);
 
+  // 8. Serialize the result
   Status serialization_status = compaction_result.Write(output);
 
+  // 9. Close the db and return
   for (auto& handle : handles) {
     delete handle;
   }

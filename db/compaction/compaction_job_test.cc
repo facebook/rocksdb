@@ -1568,17 +1568,7 @@ TEST_F(CompactionJobTest, InputSerialization) {
   const int kStrMaxLen = 1000;
   Random rnd(static_cast<uint32_t>(time(nullptr)));
   Random64 rnd64(time(nullptr));
-  input.column_family.name = rnd.RandomString(rnd.Uniform(kStrMaxLen));
-  input.column_family.options.comparator = ReverseBytewiseComparator();
-  input.column_family.options.max_bytes_for_level_base =
-      rnd64.Uniform(UINT64_MAX);
-  input.column_family.options.disable_auto_compactions = rnd.OneIn(2);
-  input.column_family.options.compression = kZSTD;
-  input.column_family.options.compression_opts.level = 4;
-  input.db_options.max_background_flushes = 10;
-  input.db_options.paranoid_checks = rnd.OneIn(2);
-  input.db_options.statistics = CreateDBStatistics();
-  input.db_options.env = env_;
+  input.cf_name = rnd.RandomString(rnd.Uniform(kStrMaxLen));
   while (!rnd.OneIn(10)) {
     input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
   }
@@ -1606,10 +1596,10 @@ TEST_F(CompactionJobTest, InputSerialization) {
   ASSERT_TRUE(deserialized1.TEST_Equals(&input));
 
   // Test mismatch
-  deserialized1.db_options.max_background_flushes += 10;
+  deserialized1.output_level += 10;
   std::string mismatch;
   ASSERT_FALSE(deserialized1.TEST_Equals(&input, &mismatch));
-  ASSERT_EQ(mismatch, "db_options.max_background_flushes");
+  ASSERT_EQ(mismatch, "output_level");
 
   // Test unknown field
   CompactionServiceInput deserialized2;
