@@ -5597,6 +5597,7 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
   DestroyAndReopen(options);
 
   // Construct two L1 files with keys:
@@ -5987,6 +5988,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     // create a DB with block prefix index
     BlockBasedTableOptions table_options;
     Options options = CurrentOptions();
+    options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
 
     // Sometimes filter is checked based on upper bound. Assert counters
     // for that case. Otherwise, only check data correctness.

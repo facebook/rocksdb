@@ -421,8 +421,8 @@ Status FlushJob::MemPurge() {
   std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
       range_del_iters;
   for (MemTable* m : mems_) {
-    memtables.push_back(
-        m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
+    memtables.push_back(m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr,
+                                       &arena, /*prefix_extractor=*/nullptr));
     auto* range_del_iter = m->NewRangeTombstoneIterator(
         ro, kMaxSequenceNumber, true /* immutable_memtable */);
     if (range_del_iter != nullptr) {
@@ -893,8 +893,8 @@ Status FlushJob::WriteLevel0Table() {
           db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
-      memtables.push_back(
-          m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
+      memtables.push_back(m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr,
+                                         &arena, /*prefix_extractor=*/nullptr));
       auto* range_del_iter = m->NewRangeTombstoneIterator(
           ro, kMaxSequenceNumber, true /* immutable_memtable */);
       if (range_del_iter != nullptr) {

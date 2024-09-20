@@ -832,6 +832,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
 
 TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLessThanKey) {
   Options options = CurrentOptions();
+  options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
   options.env = env_;
   options.create_if_missing = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
@@ -1009,6 +1010,7 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   DestroyAndReopen(options);
   const std::vector<std::string> timestamps = {Timestamp(1, 1), Timestamp(0, 2),

@@ -1201,10 +1201,12 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(super_version->mem->NewIterator(
-      read_opts, /*seqno_to_time_mapping=*/nullptr, &arena));
-  super_version->imm->AddIterators(read_opts, /*seqno_to_time_mapping=*/nullptr,
-                                   &merge_iter_builder,
-                                   false /* add_range_tombstone_iter */);
+      read_opts, /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr));
+  super_version->imm->AddIterators(
+      read_opts, /*seqno_to_time_mapping=*/nullptr,
+      super_version->mutable_cf_options.prefix_extractor.get(),
+      &merge_iter_builder, false /* add_range_tombstone_iter */);
   ScopedArenaPtr<InternalIterator> memtable_iter(merge_iter_builder.Finish());
 
   auto read_seq = super_version->current->version_set()->LastSequence();

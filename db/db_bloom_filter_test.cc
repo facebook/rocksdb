@@ -171,7 +171,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "a", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "a", &value));
 
     ASSERT_OK(Put(1, "a", "b"));
     bool value_found = false;
@@ -187,7 +187,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     uint64_t cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     ASSERT_TRUE(
         db_->KeyMayExist(ropts, handles_[1], "a", &value, &value_found));
-    ASSERT_TRUE(!value_found);
+    ASSERT_FALSE(value_found);
     // assert that no new files were opened and no new blocks were
     // read into block cache.
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
@@ -197,7 +197,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
 
     numopen = TestGetTickerCount(options, NO_FILE_OPENS);
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "a", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "a", &value));
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
@@ -207,7 +207,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
 
     numopen = TestGetTickerCount(options, NO_FILE_OPENS);
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "a", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "a", &value));
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
@@ -215,7 +215,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
 
     numopen = TestGetTickerCount(options, NO_FILE_OPENS);
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "c", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "c", &value));
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
@@ -2177,24 +2177,130 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
 
   db_->ReleaseSnapshot(snapshot);
 }
+namespace {
+std::pair<uint64_t, uint64_t> GetBloomStat(const Options& options, bool sst) {
+  if (sst) {
+    return {options.statistics->getAndResetTickerCount(
+                NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+            options.statistics->getAndResetTickerCount(
+                NON_LAST_LEVEL_SEEK_FILTERED)};
+  } else {
+    auto hit = std::exchange(get_perf_context()->bloom_memtable_hit_count, 0);
+    auto miss = std::exchange(get_perf_context()->bloom_memtable_miss_count, 0);
+    return {hit, miss};
+  }
+}
 
-TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
-  constexpr size_t kPrefixSize = 8;
-  const std::string kKey = "key";
-  assert(kKey.size() < kPrefixSize);
+std::pair<uint64_t, uint64_t> HitAndMiss(uint64_t hits, uint64_t misses) {
+  return {hits, misses};
+}
+}  // namespace
+
+TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
   Options options = CurrentOptions();
-  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixSize));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
   options.memtable_prefix_bloom_size_ratio = 0.25;
   Reopen(options);
-  ASSERT_OK(Put(kKey, "v"));
-  ASSERT_EQ("v", Get(kKey));
-  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
-  iter->Seek(kKey);
+  ASSERT_FALSE(options.prefix_extractor->InDomain("key"));
+  ASSERT_OK(Put("key", "v"));
+  ASSERT_OK(Put("goat1", "g1"));
+  ASSERT_OK(Put("goat2", "g2"));
+
+  GetBloomStat(options, false);  // Reset
+
+  // Out of domain
+  ASSERT_EQ("v", Get("key"));
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+
+  // In domain
+  ASSERT_EQ("g1", Get("goat1"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goat9"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goan1"));
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+
+  ReadOptions ropts;
+  if (options.prefix_seek_opt_in_only) {
+    ropts.prefix_same_as_start = true;
+  }
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
+  // Out of domain
+  iter->Seek("ke");
+  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(kKey, iter->key());
-  iter->SeekForPrev(kKey);
+  ASSERT_EQ("key", iter->key());
+  iter->SeekForPrev("kez");
+  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(kKey, iter->key());
+  ASSERT_EQ("key", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+
+  // In domain
+  iter->Seek("goan");
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+  iter->Seek("goat");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat1", iter->key());
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+
+  // Changing prefix extractor should affect prefix query semantics
+  // and bypass the existing memtable Bloom filter
+  ASSERT_OK(db_->SetOptions({{"prefix_extractor", "fixed:5"}}));
+  iter.reset(db_->NewIterator(ropts));
+  // Now out of domain
+  iter->Seek("goan");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat1", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  // In domain
+  iter->Seek("goat2");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat2", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  // In domain
+  if (ropts.prefix_same_as_start) {
+    iter->Seek("goat0");
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  } else {
+    // NOTE: legacy prefix Seek may return keys outside of prefix
+  }
+
+  // Start a fresh new memtable, using new prefix extractor
+  ASSERT_OK(SingleDelete("key"));
+  ASSERT_OK(SingleDelete("goat1"));
+  ASSERT_OK(SingleDelete("goat2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("goat1", "g1"));
+  ASSERT_OK(Put("goat2", "g2"));
+
+  iter.reset(db_->NewIterator(ropts));
+
+  // Now out of domain
+  iter->Seek("goan");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat1", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  // In domain
+  iter->Seek("goat2");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat2", iter->key());
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  // In domain
+  iter->Seek("goat0");
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
 }
 
 class DBBloomFilterTestVaryPrefixAndFormatVer
@@ -2507,7 +2613,11 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(Put(key1, value1, WriteOptions()));
   ASSERT_OK(Put(key3, value3, WriteOptions()));
 
-  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  ReadOptions ropts;
+  if (options_.prefix_seek_opt_in_only) {
+    ropts.prefix_same_as_start = true;
+  }
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
 
   // check memtable bloom stats
   iter->Seek(key1);
@@ -2526,13 +2636,13 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
-  ASSERT_TRUE(!iter->Valid());
+  ASSERT_FALSE(iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
   ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
 
   ASSERT_OK(Flush());
 
-  iter.reset(dbfull()->NewIterator(ReadOptions()));
+  iter.reset(dbfull()->NewIterator(ropts));
 
   // Check SST bloom stats
   iter->Seek(key1);
@@ -2550,7 +2660,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
-  ASSERT_TRUE(!iter->Valid());
+  ASSERT_FALSE(iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
   ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
@@ -2659,9 +2769,14 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
     PrefixScanInit(this);
     count = 0;
     env_->random_read_counter_.Reset();
-    iter = db_->NewIterator(ReadOptions());
+    ReadOptions ropts;
+    if (options.prefix_seek_opt_in_only) {
+      ropts.prefix_same_as_start = true;
+    }
+    iter = db_->NewIterator(ropts);
     for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
       if (!iter->key().starts_with(prefix)) {
+        ASSERT_FALSE(ropts.prefix_same_as_start);
         break;
       }
       count++;
@@ -3397,23 +3512,6 @@ class FixedSuffix4Transform : public SliceTransform {
 
   bool InDomain(const Slice& src) const override { return src.size() >= 4; }
 };
-
-std::pair<uint64_t, uint64_t> GetBloomStat(const Options& options, bool sst) {
-  if (sst) {
-    return {options.statistics->getAndResetTickerCount(
-                NON_LAST_LEVEL_SEEK_FILTER_MATCH),
-            options.statistics->getAndResetTickerCount(
-                NON_LAST_LEVEL_SEEK_FILTERED)};
-  } else {
-    auto hit = std::exchange(get_perf_context()->bloom_memtable_hit_count, 0);
-    auto miss = std::exchange(get_perf_context()->bloom_memtable_miss_count, 0);
-    return {hit, miss};
-  }
-}
-
-std::pair<uint64_t, uint64_t> HitAndMiss(uint64_t hits, uint64_t misses) {
-  return {hits, misses};
-}
 }  // anonymous namespace
 
 // This uses a prefix_extractor + comparator combination that violates
@@ -3447,9 +3545,7 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter1) {
       ASSERT_OK(Flush());
     }
     ReadOptions read_options;
-    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
-      read_options.auto_prefix_mode = true;
-    }
+    read_options.auto_prefix_mode = true;
     EXPECT_EQ(GetBloomStat(options, flushed), HitAndMiss(0, 0));
     {
       Slice ub("999aaaa");
@@ -3517,9 +3613,8 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter2) {
       ASSERT_OK(Flush());
     }
     ReadOptions read_options;
-    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
-      read_options.auto_prefix_mode = true;
-    } else {
+    read_options.auto_prefix_mode = true;
+    if (!flushed) {
       // TODO: why needed?
       get_perf_context()->bloom_memtable_hit_count = 0;
       get_perf_context()->bloom_memtable_miss_count = 0;
@@ -3661,9 +3756,8 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
         ASSERT_OK(Flush());
       }
       ReadOptions read_options;
-      if (flushed) {  // TODO: support auto_prefix_mode in memtable?
-        read_options.auto_prefix_mode = true;
-      } else {
+      read_options.auto_prefix_mode = true;
+      if (!flushed) {
         // TODO: why needed?
         get_perf_context()->bloom_memtable_hit_count = 0;
         get_perf_context()->bloom_memtable_miss_count = 0;

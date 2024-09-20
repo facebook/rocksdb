@@ -2063,7 +2063,9 @@ InternalIterator* BlockBasedTable::NewIterator(
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters && !read_options.total_order_seek &&
+        !skip_filters &&
+            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+             read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size, allow_unprepared_value);
@@ -2071,7 +2073,9 @@ InternalIterator* BlockBasedTable::NewIterator(
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters && !read_options.total_order_seek &&
+        !skip_filters &&
+            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+             read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size, allow_unprepared_value);
