@@ -15,6 +15,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/utilities/options_type.h"
+#include "rocksdb/utilities/options_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
@@ -28,6 +29,13 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   const Compaction* compaction = sub_compact->compaction;
   CompactionServiceInput compaction_input;
+  Status s = GetLatestOptionsFileName(dbname_, db_options_.env,
+                                      &compaction_input.options_file);
+  if (!s.ok()) {
+    sub_compact->status = s;
+    return CompactionServiceJobStatus::kFailure;
+  }
+
   compaction_input.output_level = compaction->output_level();
   compaction_input.db_id = db_id_;
 
@@ -39,12 +47,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
           MakeTableFileName(file->fd.GetNumber()));
     }
   }
-  compaction_input.column_family.name =
-      compaction->column_family_data()->GetName();
-  compaction_input.column_family.options =
-      compaction->column_family_data()->GetLatestCFOptions();
-  compaction_input.db_options =
-      BuildDBOptions(db_options_, mutable_db_options_copy_);
+
+  compaction_input.cf_name = compaction->column_family_data()->GetName();
   compaction_input.snapshots = existing_snapshots_;
   compaction_input.has_begin = sub_compact->start.has_value();
   compaction_input.begin =
@@ -54,7 +58,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       compaction_input.has_end ? sub_compact->end->ToString() : "";
 
   std::string compaction_input_binary;
-  Status s = compaction_input.Write(&compaction_input_binary);
+  s = compaction_input.Write(&compaction_input_binary);
   if (!s.ok()) {
     sub_compact->status = s;
     return CompactionServiceJobStatus::kFailure;
@@ -70,7 +74,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
-      compaction_input.column_family.name.c_str(), job_id_,
+      compaction->column_family_data()->GetName().c_str(), job_id_,
       compaction_input.output_level, input_files_oss.str().c_str());
   CompactionServiceJobInfo info(dbname_, db_id_, db_session_id_,
                                 GetCompactionId(sub_compact), thread_pri_);
@@ -84,13 +88,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
           "CompactionService failed to schedule a remote compaction job.");
       ROCKS_LOG_WARN(db_options_.info_log,
                      "[%s] [JOB %d] Remote compaction failed to start.",
-                     compaction_input.column_family.name.c_str(), job_id_);
+                     compaction->column_family_data()->GetName().c_str(),
+                     job_id_);
       return response.status;
     case CompactionServiceJobStatus::kUseLocal:
       ROCKS_LOG_INFO(
           db_options_.info_log,
           "[%s] [JOB %d] Remote compaction fallback to local by API (Schedule)",
-          compaction_input.column_family.name.c_str(), job_id_);
+          compaction->column_family_data()->GetName().c_str(), job_id_);
       return response.status;
     default:
       assert(false);  // unknown status
@@ -99,7 +104,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Waiting for remote compaction...",
-                 compaction_input.column_family.name.c_str(), job_id_);
+                 compaction->column_family_data()->GetName().c_str(), job_id_);
   std::string compaction_result_binary;
   CompactionServiceJobStatus compaction_status =
       db_options_.compaction_service->Wait(response.scheduled_job_id,
@@ -109,7 +114,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     ROCKS_LOG_INFO(
         db_options_.info_log,
         "[%s] [JOB %d] Remote compaction fallback to local by API (Wait)",
-        compaction_input.column_family.name.c_str(), job_id_);
+        compaction->column_family_data()->GetName().c_str(), job_id_);
     return compaction_status;
   }
 
@@ -134,9 +139,9 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
           "result is returned).");
       compaction_result.status.PermitUncheckedError();
     }
-    ROCKS_LOG_WARN(db_options_.info_log,
-                   "[%s] [JOB %d] Remote compaction failed.",
-                   compaction_input.column_family.name.c_str(), job_id_);
+    ROCKS_LOG_WARN(
+        db_options_.info_log, "[%s] [JOB %d] Remote compaction failed.",
+        compaction->column_family_data()->GetName().c_str(), job_id_);
     return compaction_status;
   }
 
@@ -162,7 +167,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       db_options_.info_log,
       "[%s] [JOB %d] Received remote compaction result, output path: "
       "%s, files: %s",
-      compaction_input.column_family.name.c_str(), job_id_,
+      compaction->column_family_data()->GetName().c_str(), job_id_,
       compaction_result.output_path.c_str(), output_files_oss.str().c_str());
 
   // Installation Starts
@@ -264,8 +269,8 @@ Status CompactionServiceCompactionJob::Run() {
   const VersionStorageInfo* storage_info = c->input_version()->storage_info();
   assert(storage_info);
   assert(storage_info->NumLevelFiles(compact_->compaction->level()) > 0);
-
   write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
+
   bottommost_level_ = c->bottommost_level();
 
   Slice begin = compaction_input_.begin;
@@ -404,42 +409,12 @@ static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
-    {"column_family",
-     OptionTypeInfo::Struct(
-         "column_family", &cfd_type_info,
-         offsetof(struct CompactionServiceInput, column_family),
-         OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
-    {"db_options",
-     {offsetof(struct CompactionServiceInput, db_options),
-      OptionType::kConfigurable, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone,
-      [](const ConfigOptions& opts, const std::string& /*name*/,
-         const std::string& value, void* addr) {
-        auto options = static_cast<DBOptions*>(addr);
-        return GetDBOptionsFromString(opts, DBOptions(), value, options);
-      },
-      [](const ConfigOptions& opts, const std::string& /*name*/,
-         const void* addr, std::string* value) {
-        const auto options = static_cast<const DBOptions*>(addr);
-        std::string result;
-        auto status = GetStringFromDBOptions(opts, *options, &result);
-        *value = "{" + result + "}";
-        return status;
-      },
-      [](const ConfigOptions& opts, const std::string& name, const void* addr1,
-         const void* addr2, std::string* mismatch) {
-        const auto this_one = static_cast<const DBOptions*>(addr1);
-        const auto that_one = static_cast<const DBOptions*>(addr2);
-        auto this_conf = DBOptionsAsConfigurable(*this_one);
-        auto that_conf = DBOptionsAsConfigurable(*that_one);
-        std::string mismatch_opt;
-        bool result =
-            this_conf->AreEquivalent(opts, that_conf.get(), &mismatch_opt);
-        if (!result) {
-          *mismatch = name + "." + mismatch_opt;
-        }
-        return result;
-      }}},
+    {"options_file",
+     {offsetof(struct CompactionServiceInput, options_file),
+      OptionType::kEncodedString}},
+    {"cf_name",
+     {offsetof(struct CompactionServiceInput, cf_name),
+      OptionType::kEncodedString}},
     {"snapshots", OptionTypeInfo::Vector<uint64_t>(
                       offsetof(struct CompactionServiceInput, snapshots),
                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,

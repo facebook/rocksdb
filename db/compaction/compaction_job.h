@@ -377,9 +377,8 @@ class CompactionJob {
 // doesn't contain the LSM tree information, which is passed though MANIFEST
 // file.
 struct CompactionServiceInput {
-  ColumnFamilyDescriptor column_family;
-
-  DBOptions db_options;
+  std::string options_file;
+  std::string cf_name;
 
   std::vector<SequenceNumber> snapshots;
 
@@ -402,8 +401,7 @@ struct CompactionServiceInput {
   static Status Read(const std::string& data_str, CompactionServiceInput* obj);
   Status Write(std::string* output);
 
-  // Initialize a dummy ColumnFamilyDescriptor
-  CompactionServiceInput() : column_family("", ColumnFamilyOptions()) {}
+  CompactionServiceInput() {}
 
 #ifndef NDEBUG
   bool TEST_Equals(CompactionServiceInput* other);
