@@ -1569,7 +1569,6 @@ TEST_F(CompactionJobTest, InputSerialization) {
   Random rnd(static_cast<uint32_t>(time(nullptr)));
   Random64 rnd64(time(nullptr));
   input.cf_name = rnd.RandomString(rnd.Uniform(kStrMaxLen));
-  input.options_file = "OPTIONS-007";
   while (!rnd.OneIn(10)) {
     input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
   }

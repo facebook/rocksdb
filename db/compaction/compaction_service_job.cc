@@ -29,12 +29,6 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   const Compaction* compaction = sub_compact->compaction;
   CompactionServiceInput compaction_input;
-  Status s = GetLatestOptionsFileName(dbname_, db_options_.env,
-                                      &compaction_input.options_file);
-  if (!s.ok()) {
-    sub_compact->status = s;
-    return CompactionServiceJobStatus::kFailure;
-  }
 
   compaction_input.output_level = compaction->output_level();
   compaction_input.db_id = db_id_;
@@ -58,7 +52,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       compaction_input.has_end ? sub_compact->end->ToString() : "";
 
   std::string compaction_input_binary;
-  s = compaction_input.Write(&compaction_input_binary);
+  Status s = compaction_input.Write(&compaction_input_binary);
   if (!s.ok()) {
     sub_compact->status = s;
     return CompactionServiceJobStatus::kFailure;
@@ -409,9 +403,6 @@ static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
-    {"options_file",
-     {offsetof(struct CompactionServiceInput, options_file),
-      OptionType::kEncodedString}},
     {"cf_name",
      {offsetof(struct CompactionServiceInput, cf_name),
       OptionType::kEncodedString}},

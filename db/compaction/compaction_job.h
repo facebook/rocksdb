@@ -377,7 +377,6 @@ class CompactionJob {
 // doesn't contain the LSM tree information, which is passed though MANIFEST
 // file.
 struct CompactionServiceInput {
-  std::string options_file;
   std::string cf_name;
 
   std::vector<SequenceNumber> snapshots;
