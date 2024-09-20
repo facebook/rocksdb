@@ -45,22 +45,14 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
 include(FetchContent)
-set(FETCHCONTENT_QUIET false)
-
-function(do_fetch_photon)
-    set(BUILD_TESTING OFF)  # cmake variable has its own copy inside a function (scope)
-    set(ENABLE_URING ON CACHE INTERNAL "Enable iouring")
-    FetchContent_Declare(
-            photon
-            GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
-            GIT_TAG release/0.4
-    )
-    FetchContent_MakeAvailable(photon)
-endfunction()
-
-do_fetch_photon()
+set(PHOTON_ENABLE_URING ON CACHE INTERNAL "Enable iouring")
+FetchContent_Declare(
+        photon
+        GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
+        GIT_TAG release/0.8
+)
+FetchContent_MakeAvailable(photon)
 set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
-message(WARNING ${PHOTON_INCLUDE_DIR})
 
 option(INIT_PHOTON_IN_ROCKSDB "INIT PHOTON IN ROCKSDB" OFF)
 if(INIT_PHOTON_IN_ROCKSDB)
@@ -766,7 +758,7 @@ else()
 
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
   target_link_libraries(${ROCKSDB_SHARED_LIB}
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} -Wl,--whole-archive $<BUILD_INTERFACE:photon_static> -Wl,--no-whole-archive)
+    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} $<BUILD_INTERFACE:photon_static>)
   set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
                         LINKER_LANGUAGE CXX
                         VERSION ${ROCKSDB_VERSION}

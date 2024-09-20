@@ -1,3 +1,7 @@
+// Photon版本RocksDB server，在接收RPC的vCPU直接查询DB
+// 原生多线程版本RocksDB server，使用WorkPool派发任务到多线程
+
+#include <unistd.h>
 #include <thread>
 #include <atomic>
 #include <vector>
@@ -5,6 +9,7 @@
 
 #include <gflags/gflags.h>
 #include <photon/common/alog.h>
+#include <photon/common/alog-stdstring.h>
 #include <photon/common/utility.h>
 #include <photon/net/socket.h>
 #include <photon/photon.h>
@@ -15,294 +20,193 @@
 #include <rocksdb/db.h>
 #include <rocksdb/env.h>
 #include <rocksdb/options.h>
-#include <unistd.h>
 
 #include "protocol.h"
 
 DEFINE_int32(port, 9527, "Server listen port");
-DEFINE_int32(show_qps_interval, 10, "interval seconds to show qps");
-DEFINE_int32(vcpu_num, 8, "vcpu number");
-DEFINE_bool(create_new_db, false, "create new db");
+DEFINE_int32(show_qps_interval, 1, "Interval seconds to show qps");
+DEFINE_int32(vcpu_num, 8, "vCPU number");
+DEFINE_bool(use_photon, false, "Use photon rocksdb instead of the native");
+DEFINE_string(db_dir, "perf-db", "DB dir");
+DEFINE_bool(clean_db, false, "Clean db before tests");
 
 static std::atomic<uint64_t> qps{0};
 
 static void show_qps_loop() {
-  while (true) {
-    photon::thread_sleep(FLAGS_show_qps_interval);
-    LOG_INFO("QPS: `", qps.load() / FLAGS_show_qps_interval);
-    qps = 0;
-  }
+    while (true) {
+        photon::thread_sleep(FLAGS_show_qps_interval);
+        LOG_INFO("QPS: `", qps.load() / FLAGS_show_qps_interval);
+        qps = 0;
+    }
 }
+
+class IOHandler {
+public:
+    IOHandler(rocksdb::DB* db, rocksdb::WriteOptions* writeOptions,
+              rocksdb::ReadOptions* readOptions, photon::WorkPool* work_pool) :
+            skeleton_(photon::rpc::new_skeleton(65536U)),
+            socket_server_(photon::net::new_tcp_socket_server()),
+            db_(db),
+            writeOptions_(writeOptions),
+            readOptions_(readOptions),
+            work_pool_(work_pool) {
+        skeleton_->register_service<KvGet, KvPut>(this);
+    }
+
+    int serve(photon::net::ISocketStream* stream) {
+        return skeleton_->serve(stream);
+    }
+
+    int run() {
+        socket_server_->set_handler({this, &IOHandler::serve});
+        socket_server_->setsockopt<int>(SOL_SOCKET, SO_REUSEPORT, 1);
+        if (socket_server_->bind(FLAGS_port) < 0) {
+            LOG_ERRNO_RETURN(0, -1, "Failed to bind port `", FLAGS_port)
+        }
+        if (socket_server_->listen() < 0) {
+            LOG_ERRNO_RETURN(0, -1, "Failed to listen");
+        }
+        LOG_INFO("Started rpc server at `", socket_server_->getsockname());
+        return socket_server_->start_loop(true);
+    }
+
+    int do_rpc_service(KvPut::Request* req, KvPut::Response* resp, IOVector*, IStream*) {
+        if (FLAGS_use_photon) {
+            do_put(req);
+        } else {
+            photon::semaphore sem;
+            auto func = new auto([&]() {
+                do_put(req);
+                sem.signal(1);
+            });
+            work_pool_->async_call(func);
+            sem.wait(1);
+        }
+        resp->ret = 0;
+        qps++;
+        return 0;
+    }
+
+    int do_rpc_service(KvGet::Request* req, KvGet::Response* resp, IOVector*, IStream*) {
+        std::string val;
+        if (FLAGS_use_photon) {
+            do_get(req, &val);
+        } else {
+            photon::semaphore sem;
+            auto func = new auto([&]() {
+                do_get(req, &val);
+                sem.signal(1);
+            });
+            work_pool_->async_call(func);
+            sem.wait(1);
+        }
+        resp->ret = 0;
+        resp->value.assign(val);
+        qps++;
+        return 0;
+    }
+
+private:
+    std::unique_ptr<photon::rpc::Skeleton> skeleton_;
+    std::unique_ptr<photon::net::ISocketServer> socket_server_;
+    rocksdb::DB* db_;                     // Owned by others
+    rocksdb::WriteOptions* writeOptions_; // Owned by others
+    rocksdb::ReadOptions* readOptions_;   // Owned by others
+    photon::WorkPool* work_pool_;         // Owned by others
+
+    void do_put(KvPut::Request* req) {
+        rocksdb::Slice key(req->key.c_str(), req->key.size());
+        rocksdb::Slice val(req->value.c_str(), req->value.size());
+        rocksdb::Status s = db_->Put(*writeOptions_, key, val);
+        if (!s.ok()) {
+            LOG_ERROR("db write error");
+            abort();
+        }
+    }
+
+    void do_get(KvGet::Request* req, std::string* val) {
+        rocksdb::Slice key(req->key.c_str(), req->key.size());
+        rocksdb::Status s = db_->Get(*readOptions_, key, val);
+        if (!s.ok()) {
+            LOG_ERROR("db read error");
+            abort();
+        }
+    }
+};
 
 class ExampleServer {
- public:
-  // 协程池对性能影响巨大，如果这里将thread_pool_size降为0，即关闭协程池，则性能变为原先1/3 ~ 1/2
-  explicit ExampleServer(int db_num = 1, int thread_pool_size = 65536)
-      : skeleton(photon::rpc::new_skeleton(true, thread_pool_size)),
-        server(photon::net::new_tcp_socket_server()),
-        m_db_num(db_num) {
-    skeleton->register_service<Echo>(this);
-    writeOptions.sync = true;
-    db_sharding.resize(db_num);
-    LOG_INFO(VALUE(m_db_num));
-  }
-
-  virtual int do_rpc_service(Echo::Request* req, Echo::Response* resp,
-                             IOVector*, IStream*) {
-    photon_std::this_thread::migrate();
-    rocksdb::Status s;
-    std::string val;
-    rocksdb::DB* db = db_sharding[std::stoi(req->key.to_std()) % m_db_num];
-    if (req->write) {
-      s = db->Put(writeOptions,
-                  rocksdb::Slice(req->key.c_str(), req->key.size()), "1");
-    } else {
-      s = db->Get(readOptions,
-                  rocksdb::Slice(req->key.c_str(), req->key.size()), &val);
-      if (val != "1") {
-        LOG_ERROR("read value error");
-        abort();
-      }
+public:
+    ExampleServer() {
+        writeOptions.sync = false;
+        pool = new photon::WorkPool(FLAGS_vcpu_num, photon::INIT_EVENT_IOURING, 0);
     }
-    if (!s.ok()) {
-      LOG_ERROR("db error");
-      abort();
+
+    int run() {
+        // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
+        options.IncreaseParallelism();
+        options.OptimizeLevelStyleCompaction();
+
+        options.stats_dump_period_sec = 0;
+        options.stats_persist_period_sec = 0;
+        options.enable_pipelined_write = true;
+        options.compression = rocksdb::CompressionType::kNoCompression;
+        // create the DB if it's not already present
+        options.create_if_missing = true;
+
+        if (open_db()) {
+            return -1;
+        }
+
+        for (int i = 0; i < FLAGS_vcpu_num; ++i) {
+            std::thread([&] {
+                int ret = photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+                if (ret) {
+                    abort();
+                }
+                DEFER(photon::fini());
+                IOHandler handler(db, &writeOptions, &readOptions, pool);
+                handler.run();
+            }).detach();
+        }
+        return 0;
     }
-    resp->ret = 0;
-    qps++;
-    return 0;
-  }
 
-  int serve(photon::net::ISocketStream* stream) {
-    return skeleton->serve(stream, false);
-  }
+private:
+    rocksdb::DB* db = nullptr;
+    rocksdb::Options options;
+    rocksdb::WriteOptions writeOptions;
+    rocksdb::ReadOptions readOptions;
+    photon::WorkPool* pool = nullptr;
 
-  int run(int port) {
-    // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
-    options.IncreaseParallelism();
-    options.OptimizeLevelStyleCompaction();
-
-    options.stats_dump_period_sec = 0;
-    options.stats_persist_period_sec = 0;
-    options.enable_pipelined_write = true;
-    options.compression = rocksdb::CompressionType::kLZ4Compression;
-    // create the DB if it's not already present
-    options.create_if_missing = true;
-
-    if (open_db()) return -1;
-
-    server->set_handler({this, &ExampleServer::serve});
-    server->setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
-    if (server->bind(port) < 0)
-      LOG_ERRNO_RETURN(0, -1, "Failed to bind port `", port)
-    if (server->listen() < 0) LOG_ERRNO_RETURN(0, -1, "Failed to listen");
-    LOG_INFO("Started rpc server at `", server->getsockname());
-    return server->start_loop(true);
-  }
-
- protected:
-  static constexpr const char* db_dir = "perf-db";
-
-  std::unique_ptr<photon::rpc::Skeleton> skeleton{};
-  std::unique_ptr<photon::net::ISocketServer> server{};
-  std::vector<rocksdb::DB*> db_sharding{};  // 在一个server里open多个db
-  rocksdb::Options options;
-  rocksdb::WriteOptions writeOptions;
-  rocksdb::ReadOptions readOptions;
-  int m_db_num;
-
-  virtual int open_db() {
-    for (int i = 0; i < m_db_num; ++i) {
-      if (open_db_at_index(i))
-        abort();
+    int open_db() {
+        auto path = std::string(get_current_dir_name()) + "/" + FLAGS_db_dir;
+        if (FLAGS_clean_db) {
+            system((std::string("rm -rf ") + path).c_str());
+            LOG_INFO("Create new db at `", path.c_str());
+        } else {
+            LOG_INFO("Open db at `", path.c_str());
+        }
+        rocksdb::Status s = rocksdb::DB::Open(options, path, &db);
+        if (!s.ok()) {
+            LOG_ERROR_RETURN(0, -1, "open db failed:`", s.ToString());
+        }
+        return 0;
     }
-    return 0;
-  }
-
-  virtual int open_db_at_index(int index) {
-    std::string path = std::string(get_current_dir_name()) + "/" +
-                       std::string(db_dir) + "-" + std::to_string(index);
-    if (FLAGS_create_new_db) {
-      system((std::string("rm -rf ") + path).c_str());
-      LOG_INFO("Create new db at `", path.c_str());
-    } else {
-      LOG_INFO("Open db at `", path.c_str());
-    }
-    rocksdb::Status s = rocksdb::DB::Open(options, path, &db_sharding[index]);
-    if (!s.ok()) {
-      LOG_ERROR_RETURN(0, -1, "open db ` failed:`", index, s.ToString().c_str());
-    }
-    return 0;
-  }
 };
-
-class ExampleServerWithNativeRocksdb : public ExampleServer {
- public:
-  // 同步线程模式下，线程数量需要设置大一点。可以用taskset限制程序的cpu数量等于协程的vcpu数
-  explicit ExampleServerWithNativeRocksdb()
-      : pool(new photon::WorkPool(256, photon::INIT_EVENT_IOURING, 0)),
-        ExampleServer() {
-
-  }
-  int do_rpc_service(Echo::Request* req, Echo::Response* resp, IOVector*,
-                     IStream*) override {
-    // 使用work pool进行同步线程调用
-    pool->call([&] {
-      rocksdb::Status s;
-      std::string val;
-      rocksdb::DB* db = db_sharding[std::stoi(req->key.to_std()) % m_db_num];
-      if (req->write) {
-        s = db->Put(writeOptions,
-                    rocksdb::Slice(req->key.c_str(), req->key.size()), "1");
-      } else {
-        s = db->Get(readOptions,
-                    rocksdb::Slice(req->key.c_str(), req->key.size()), &val);
-        if (val != "1") abort();
-      }
-    });
-    resp->ret = 0;
-    qps++;
-    return 0;
-  }
-
- private:
-  photon::WorkPool* pool;
-};
-
-class MultiExampleServer : public ExampleServer {
- public:
-  explicit MultiExampleServer(int index)
-      : m_index(index), ExampleServer() {
-  }
-
-  int do_rpc_service(Echo::Request* req, Echo::Response* resp, IOVector*,
-                     IStream*) override {
-    rocksdb::Status s;
-    std::string val;
-    if (req->write) {
-      s = db_alone->Put(writeOptions,
-                  rocksdb::Slice(req->key.c_str(), req->key.size()), "1");
-    } else {
-      s = db_alone->Get(readOptions,
-                  rocksdb::Slice(req->key.c_str(), req->key.size()), &val);
-      if (val != "1") abort();
-    }
-    resp->ret = 0;
-    qps++;
-    return 0;
-  }
-
- private:
-  int m_index;
-  rocksdb::DB* db_alone = nullptr;      // 每个server配一个db
-
-  int open_db() override {
-    std::string path = std::string(get_current_dir_name()) + "/" +
-                       std::string(db_dir) + "-" + std::to_string(m_index);
-    system((std::string("rm -rf ") + path).c_str());
-    LOG_INFO("Create new db at `", path.c_str());
-    rocksdb::Status s = rocksdb::DB::Open(options, path, &db_alone);
-    if (!s.ok()) {
-      LOG_ERROR_RETURN(0, -1, "open db failed");
-    }
-    return 0;
-  }
-};
-
-class MultiDBExampleServer : public ExampleServer {
- public:
-  explicit MultiDBExampleServer(int db_num) : ExampleServer(db_num) {}
-
-  int do_rpc_service(Echo::Request* req, Echo::Response* resp, IOVector*,
-                     IStream*) override {
-    rocksdb::Status s;
-    std::string val;
-    size_t index = std::stoi(req->key.to_std()) % m_db_num;
-
-    // TODO: modify photon
-    // photon_std::this_thread::migrate(index);
-
-    rocksdb::DB* db = db_sharding[index];
-    if (req->write) {
-      s = db->Put(writeOptions,
-                  rocksdb::Slice(req->key.c_str(), req->key.size()), "1");
-    } else {
-      s = db->Get(readOptions,
-                  rocksdb::Slice(req->key.c_str(), req->key.size()), &val);
-      if (val != "1") {
-        LOG_ERROR("read value error");
-        abort();
-      }
-    }
-    if (!s.ok()) {
-      LOG_ERROR("db error");
-      abort();
-    }
-    resp->ret = 0;
-    qps++;
-    return 0;
-  }
-
- private:
-  int open_db() override {
-    for (int i = 0; i < m_db_num; ++i) {
-      photon::thread_create11(&MultiDBExampleServer::open_db_at_index, this, i);
-    }
-    return 0;
-  }
-
-  int open_db_at_index(int index) override {
-    // TODO modify photon
-    // photon_std::this_thread::migrate(index);
-    LOG_INFO("Open db ` in vcpu `", index, photon::get_vcpu());
-    return ExampleServer::open_db_at_index(index);
-  }
-};
-
-// 单server，用thread_migrate迁移到多vcpu
-void test_single_server() {
-  photon_std::work_pool_init(FLAGS_vcpu_num, photon::INIT_EVENT_IOURING, 0);
-  auto server = new ExampleServer();
-  server->run(FLAGS_port);
-}
-
-// 单server，原生多线程版本db
-void test_single_server_with_native_rocksdb() {
-  auto server = new ExampleServerWithNativeRocksdb();
-  server->run(FLAGS_port);
-}
-
-// 多server监听同一端口，让内核来分发连接，每个vcpu有一个server，每个server一个db实例
-// 需要修改std-compat.h，让rocksdb内部的thread不会自动迁移
-void test_multiple_servers() {
-  for (int i = 0; i < FLAGS_vcpu_num; ++i) {
-    new std::thread([i] {
-      photon::init(photon::INIT_EVENT_IOURING, 0);
-      auto server = new MultiExampleServer(i);
-      server->run(FLAGS_port);
-      photon::thread_sleep(-1);
-    });
-  }
-  photon::thread_sleep(-1);
-}
-
-// 一个server，open多个db。每个db只处理自己vcpu上的读请求，不跨vcpu
-void test_multi_db_server() {
-  photon_std::work_pool_init(FLAGS_vcpu_num, photon::INIT_EVENT_IOURING, 0);
-  auto server = new MultiDBExampleServer(FLAGS_vcpu_num);
-  server->run(FLAGS_port);
-}
 
 int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  if (photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE))
-    LOG_ERROR_RETURN(0, -1, "fail to init photon");
-  DEFER(photon::fini());
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+    set_log_output_level(ALOG_INFO);
+    if (photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE)) {
+        LOG_ERROR_RETURN(0, -1, "fail to init photon");
+    }
+    DEFER(photon::fini());
 
-  photon::thread_create11(show_qps_loop);
+    photon::thread_create11(show_qps_loop);
 
-  test_single_server();
-  // test_single_server_with_native_rocksdb();
-  // test_multiple_servers();
-  // test_multi_db_server();
+    auto server = new ExampleServer();
+    if (server->run()) {
+        return -1;
+    }
+    photon::thread_sleep(-1UL);
 }

@@ -6,9 +6,11 @@ cp ../tools/benchmark.sh .
 export DB_DIR=`pwd`/test-db
 export WAL_DIR=$DB_DIR
 export OUTPUT_DIR=$DB_DIR
-export COMPRESSION_TYPE=lz4
-export NUM_THREADS=64
-export NUM_KEYS=100000000    # Require 14 GB disk space
+export COMPRESSION_TYPE=none
+export NUM_THREADS=16
+export KEY_SIZE=75
+export NUM_KEYS=10000000    # Require 10 GB disk space
+export VALUE_SIZE=1024
 
 # For large number of threads, you may edit benchmark.sh, and add `taskset -c 1-8` before the ./db_bench command.
 # This would limit the CPU number for both thread and coroutine, in order to make a fair comparison.
