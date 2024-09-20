@@ -15,7 +15,6 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/utilities/options_type.h"
-#include "rocksdb/utilities/options_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
@@ -29,7 +28,6 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   const Compaction* compaction = sub_compact->compaction;
   CompactionServiceInput compaction_input;
-
   compaction_input.output_level = compaction->output_level();
   compaction_input.db_id = db_id_;
 
