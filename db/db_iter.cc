@@ -92,6 +92,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
   status_.PermitUncheckedError();
   assert(timestamp_size_ ==
          user_comparator_.user_comparator()->timestamp_size());
+  // prefix_seek_opt_in_only should force total_order_seek whereever the caller
+  // is duplicating the original ReadOptions
+  assert(!ioptions.prefix_seek_opt_in_only || read_options.total_order_seek);
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
