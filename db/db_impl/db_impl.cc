@@ -2066,15 +2066,19 @@ InternalIterator* DBImpl::NewInternalIterator(
     bool allow_unprepared_value, ArenaWrappedDBIter* db_iter) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
+  auto prefix_extractor =
+      super_version->mutable_cf_options.prefix_extractor.get();
   // Need to create internal iterator from the arena.
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
-      !read_options.total_order_seek &&
-          super_version->mutable_cf_options.prefix_extractor != nullptr,
+      // FIXME? It's not clear what interpretation of prefix seek is needed
+      // here, and no unit test cares about the value provided here.
+      !read_options.total_order_seek && prefix_extractor != nullptr,
       read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(
-      read_options, super_version->GetSeqnoToTimeMapping(), arena);
+      read_options, super_version->GetSeqnoToTimeMapping(), arena,
+      super_version->mutable_cf_options.prefix_extractor.get());
   Status s;
   if (!read_options.ignore_range_deletions) {
     std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
@@ -2098,6 +2102,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   if (s.ok()) {
     super_version->imm->AddIterators(
         read_options, super_version->GetSeqnoToTimeMapping(),
+        super_version->mutable_cf_options.prefix_extractor.get(),
         &merge_iter_builder, !read_options.ignore_range_deletions);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
@@ -3843,6 +3848,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     }
   }
   if (read_options.tailing) {
+    read_options.total_order_seek |=
+        immutable_db_options_.prefix_seek_opt_in_only;
+
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
@@ -4044,6 +4052,9 @@ Status DBImpl::NewIterators(
 
   assert(cf_sv_pairs.size() == column_families.size());
   if (read_options.tailing) {
+    read_options.total_order_seek |=
+        immutable_db_options_.prefix_seek_opt_in_only;
+
     for (const auto& cf_sv_pair : cf_sv_pairs) {
       auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,
                                       cf_sv_pair.super_version,

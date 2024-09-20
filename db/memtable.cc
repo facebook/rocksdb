@@ -365,9 +365,12 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator : public InternalIterator {
  public:
-  MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
-                   UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
-                   Arena* arena, bool use_range_del_table = false)
+  enum Kind { kPointEntries, kRangeDelEntries };
+  MemTableIterator(
+      Kind kind, const MemTable& mem, const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping = nullptr,
+      Arena* arena = nullptr,
+      const SliceTransform* cf_prefix_extractor = nullptr)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         comparator_(mem.comparator_),
@@ -382,14 +385,21 @@ class MemTableIterator : public InternalIterator {
         arena_mode_(arena != nullptr),
         paranoid_memory_checks_(mem.moptions_.paranoid_memory_checks),
         allow_data_in_error(mem.moptions_.allow_data_in_errors) {
-    if (use_range_del_table) {
+    if (kind == kRangeDelEntries) {
       iter_ = mem.range_del_table_->GetIterator(arena);
-    } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek &&
-               !read_options.auto_prefix_mode) {
+    } else if (prefix_extractor_ != nullptr &&
+               // NOTE: checking extractor equivalence when not pointer
+               // equivalent is arguably too expensive for memtable
+               prefix_extractor_ == cf_prefix_extractor &&
+               (read_options.prefix_same_as_start ||
+                (!read_options.total_order_seek &&
+                 !read_options.auto_prefix_mode))) {
       // Auto prefix mode is not implemented in memtable yet.
+      assert(kind == kPointEntries);
       bloom_ = mem.bloom_filter_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
     } else {
+      assert(kind == kPointEntries);
       iter_ = mem.table_->GetIterator(arena);
     }
     status_.PermitUncheckedError();
@@ -433,8 +443,8 @@ class MemTableIterator : public InternalIterator {
       // iterator should only use prefix bloom filter
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
-        if (!bloom_->MayContain(
-                prefix_extractor_->Transform(user_k_without_ts))) {
+        Slice prefix = prefix_extractor_->Transform(user_k_without_ts);
+        if (!bloom_->MayContain(prefix)) {
           PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
           valid_ = false;
           return;
@@ -594,11 +604,13 @@ class MemTableIterator : public InternalIterator {
 
 InternalIterator* MemTable::NewIterator(
     const ReadOptions& read_options,
-    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena) {
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+    const SliceTransform* prefix_extractor) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
   return new (mem)
-      MemTableIterator(*this, read_options, seqno_to_time_mapping, arena);
+      MemTableIterator(MemTableIterator::kPointEntries, *this, read_options,
+                       seqno_to_time_mapping, arena, prefix_extractor);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
@@ -633,8 +645,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
     cache->reader_mutex.lock();
     if (!cache->tombstones) {
       auto* unfragmented_iter = new MemTableIterator(
-          *this, read_options, nullptr /* seqno_to_time_mapping= */,
-          nullptr /* arena */, true /* use_range_del_table */);
+          MemTableIterator::kRangeDelEntries, *this, read_options);
       cache->tombstones.reset(new FragmentedRangeTombstoneList(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
           comparator_.comparator));
@@ -655,8 +666,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     // TODO: plumb Env::IOActivity, Env::IOPriority
     auto* unfragmented_iter = new MemTableIterator(
-        *this, ReadOptions(), nullptr /*seqno_to_time_mapping=*/,
-        nullptr /* arena */, true /* use_range_del_table */);
+        MemTableIterator::kRangeDelEntries, *this, ReadOptions());
 
     fragmented_range_tombstone_list_ =
         std::make_unique<FragmentedRangeTombstoneList>(

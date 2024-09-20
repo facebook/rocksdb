@@ -1399,6 +1399,17 @@ struct DBOptions {
   // eventually be obsolete and removed as Identity files are phased out.
   bool write_identity_file = true;
 
+  // Historically, when prefix_extractor != nullptr, iterators have an
+  // unfortunate default semantics of *possibly* only returning data
+  // within the same prefix. To avoid "spooky action at a distance," iterator
+  // bounds should come from the instantiation or seeking of the iterator,
+  // not from a mutable column family option.
+  //
+  // When set to true, it is as if every iterator is created with
+  // total_order_seek=true and only auto_prefix_mode=true and
+  // prefix_same_as_start=true can take advantage of prefix seek optimizations.
+  bool prefix_seek_opt_in_only = false;
+
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
   // round-trips. If 0, then the prefetching is disabled.
@@ -1848,10 +1859,10 @@ struct ReadOptions {
   bool auto_prefix_mode = false;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
-  // This option is effective only for prefix seeks, i.e. prefix_extractor is
-  // non-null for the column family and total_order_seek is false.  Unlike
-  // iterate_upper_bound, prefix_same_as_start only works within a prefix
-  // but in both directions.
+  // This makes the iterator bounds dependent on the column family's current
+  // prefix_extractor, which is mutable. When SST files have been built with
+  // the same prefix extractor, prefix filtering optimizations will be used
+  // for both Seek and SeekForPrev.
   bool prefix_same_as_start = false;
 
   // Keep the blocks loaded by the iterator pinned in memory as long as the

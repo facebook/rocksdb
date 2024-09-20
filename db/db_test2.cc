@@ -5597,32 +5597,45 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyAndReopen(options);
 
-  // Construct two L1 files with keys:
-  // f1:[aaa1 ccc1] f2:[ddd0]
-  ASSERT_OK(Put("aaa1", ""));
-  ASSERT_OK(Put("ccc1", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("ddd0", ""));
-  ASSERT_OK(Flush());
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  // This test is also the primary test for prefix_seek_opt_in_only
+  for (bool opt_in : {false, true}) {
+    options.prefix_seek_opt_in_only = opt_in;
+    DestroyAndReopen(options);
 
-  Iterator* iter = db_->NewIterator(ReadOptions());
-  ASSERT_OK(iter->status());
+    // Construct two L1 files with keys:
+    // f1:[aaa1 ccc1] f2:[ddd0]
+    ASSERT_OK(Put("aaa1", ""));
+    ASSERT_OK(Put("ccc1", ""));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("ddd0", ""));
+    ASSERT_OK(Flush());
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  // Bloom filter is filterd out by f1.
-  // This is just one of several valid position following the contract.
-  // Postioning to ccc1 or ddd0 is also valid. This is just to validate
-  // the behavior of the current implementation. If underlying implementation
-  // changes, the test might fail here.
-  iter->Seek("bbb1");
-  ASSERT_OK(iter->status());
-  ASSERT_FALSE(iter->Valid());
+    ReadOptions ropts;
+    for (bool same : {false, true}) {
+      ropts.prefix_same_as_start = same;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
+      ASSERT_OK(iter->status());
 
-  delete iter;
+      iter->Seek("bbb1");
+      ASSERT_OK(iter->status());
+      if (opt_in && !same) {
+        // Unbounded total order seek
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key(), "ccc1");
+      } else {
+        // Bloom filter is filterd out by f1. When same == false, this is just
+        // one valid position following the contract. Postioning to ccc1 or ddd0
+        // is also valid. This is just to validate the behavior of the current
+        // implementation. If underlying implementation changes, the test might
+        // fail here.
+        ASSERT_FALSE(iter->Valid());
+      }
+    }
+  }
 }
 
 TEST_F(DBTest2, RowCacheSnapshot) {
@@ -5987,6 +6000,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     // create a DB with block prefix index
     BlockBasedTableOptions table_options;
     Options options = CurrentOptions();
+    options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
 
     // Sometimes filter is checked based on upper bound. Assert counters
     // for that case. Otherwise, only check data correctness.
