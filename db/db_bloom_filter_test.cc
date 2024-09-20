@@ -2209,11 +2209,11 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
   // Reset from other tests
   GetBloomStat(options, false);
 
-  // Out of domain
+  // Out of domain (Get)
   ASSERT_EQ("v", Get("key"));
   ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
 
-  // In domain
+  // In domain (Get)
   ASSERT_EQ("g1", Get("goat1"));
   ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
   ASSERT_EQ("NOT_FOUND", Get("goat9"));
@@ -2226,7 +2226,7 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
     ropts.prefix_same_as_start = true;
   }
   std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
-  // Out of domain
+  // Out of domain (scan)
   iter->Seek("ke");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -2237,7 +2237,7 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
   ASSERT_EQ("key", iter->key());
   ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
 
-  // In domain
+  // In domain (scan)
   iter->Seek("goan");
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid());
@@ -2252,19 +2252,19 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
   // and bypass the existing memtable Bloom filter
   ASSERT_OK(db_->SetOptions({{"prefix_extractor", "fixed:5"}}));
   iter.reset(db_->NewIterator(ropts));
-  // Now out of domain
+  // Now out of domain (scan)
   iter->Seek("goan");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("goat1", iter->key());
   ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
-  // In domain
+  // In domain (scan)
   iter->Seek("goat2");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("goat2", iter->key());
   ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
-  // In domain
+  // In domain (scan)
   if (ropts.prefix_same_as_start) {
     iter->Seek("goat0");
     ASSERT_OK(iter->status());
@@ -2280,24 +2280,39 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
   ASSERT_OK(SingleDelete("goat2"));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(Put("goat1", "g1"));
-  ASSERT_OK(Put("goat2", "g2"));
+  ASSERT_OK(Put("key", "_v"));
+  ASSERT_OK(Put("goat1", "_g1"));
+  ASSERT_OK(Put("goat2", "_g2"));
 
   iter.reset(db_->NewIterator(ropts));
 
-  // Now out of domain
+  // Still out of domain (Get)
+  ASSERT_EQ("_v", Get("key"));
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+
+  // Still in domain (Get)
+  ASSERT_EQ("_g1", Get("goat1"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goat11"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goat9"));
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goan1"));
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+
+  // Now out of domain (scan)
   iter->Seek("goan");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("goat1", iter->key());
   ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
-  // In domain
+  // In domain (scan)
   iter->Seek("goat2");
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("goat2", iter->key());
   ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
-  // In domain
+  // In domain (scan)
   iter->Seek("goat0");
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid());
