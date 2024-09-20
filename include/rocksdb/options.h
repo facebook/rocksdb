@@ -2295,9 +2295,6 @@ struct SizeApproximationOptions {
 };
 
 struct CompactionServiceOptionsOverride {
-  // Currently pointer configurations are not passed to compaction service
-  // compaction so the user needs to set it. It will be removed once pointer
-  // configuration passing is supported.
   Env* env = Env::Default();
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 

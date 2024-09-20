@@ -12,7 +12,6 @@
 #include "logging/auto_roll_logger.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "rocksdb/configurable.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/options_util.h"
 #include "util/cast_util.h"
