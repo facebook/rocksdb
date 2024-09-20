@@ -149,7 +149,7 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
       result->swap(cache);
     }
   } else {
-    return LoadSharedObject<Cache>(config_options, value, result);
+    status = LoadSharedObject<Cache>(config_options, value, result);
   }
   return status;
 }
