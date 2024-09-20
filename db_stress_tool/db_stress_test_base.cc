@@ -1592,7 +1592,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     ro.total_order_seek = true;
     expect_total_order = true;
   } else if (thread->rand.OneIn(4)) {
-    ro.total_order_seek = false;
+    ro.total_order_seek = thread->rand.OneIn(2);
     ro.auto_prefix_mode = true;
     expect_total_order = true;
   } else if (options_.prefix_extractor.get() == nullptr) {

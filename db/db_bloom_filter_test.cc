@@ -2206,7 +2206,8 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
   ASSERT_OK(Put("goat1", "g1"));
   ASSERT_OK(Put("goat2", "g2"));
 
-  GetBloomStat(options, false);  // Reset
+  // Reset from other tests
+  GetBloomStat(options, false);
 
   // Out of domain
   ASSERT_EQ("v", Get("key"));
@@ -3545,7 +3546,9 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter1) {
       ASSERT_OK(Flush());
     }
     ReadOptions read_options;
-    read_options.auto_prefix_mode = true;
+    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+      read_options.auto_prefix_mode = true;
+    }
     EXPECT_EQ(GetBloomStat(options, flushed), HitAndMiss(0, 0));
     {
       Slice ub("999aaaa");
@@ -3613,11 +3616,11 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter2) {
       ASSERT_OK(Flush());
     }
     ReadOptions read_options;
-    read_options.auto_prefix_mode = true;
-    if (!flushed) {
-      // TODO: why needed?
-      get_perf_context()->bloom_memtable_hit_count = 0;
-      get_perf_context()->bloom_memtable_miss_count = 0;
+    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+      read_options.auto_prefix_mode = true;
+    } else {
+      // Reset from other tests
+      GetBloomStat(options, flushed);
     }
     EXPECT_EQ(GetBloomStat(options, flushed), HitAndMiss(0, 0));
     {
@@ -3756,11 +3759,11 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
         ASSERT_OK(Flush());
       }
       ReadOptions read_options;
-      read_options.auto_prefix_mode = true;
-      if (!flushed) {
-        // TODO: why needed?
-        get_perf_context()->bloom_memtable_hit_count = 0;
-        get_perf_context()->bloom_memtable_miss_count = 0;
+      if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+        read_options.auto_prefix_mode = true;
+      } else {
+        // Reset from other tests
+        GetBloomStat(options, flushed);
       }
       EXPECT_EQ(GetBloomStat(options, flushed), HitAndMiss(0, 0));
       {

@@ -377,7 +377,6 @@ class MemTableIterator : public InternalIterator {
         seqno_to_time_mapping_(seqno_to_time_mapping),
         status_(Status::OK()),
         logger_(mem.moptions_.info_log),
-        auto_prefix_upper_bound_(nullptr),
         ts_sz_(mem.ts_sz_),
         protection_bytes_per_key_(mem.moptions_.protection_bytes_per_key),
         valid_(false),
@@ -393,14 +392,12 @@ class MemTableIterator : public InternalIterator {
                // equivalent is arguably too expensive for memtable
                prefix_extractor_ == cf_prefix_extractor &&
                (read_options.prefix_same_as_start ||
-                read_options.auto_prefix_mode ||
-                !read_options.total_order_seek)) {
+                (!read_options.total_order_seek &&
+                 !read_options.auto_prefix_mode))) {
+      // Auto prefix mode is not implemented in memtable yet.
       assert(kind == kPointEntries);
       bloom_ = mem.bloom_filter_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
-      if (read_options.auto_prefix_mode) {
-        auto_prefix_upper_bound_ = read_options.iterate_upper_bound;
-      }
     } else {
       assert(kind == kPointEntries);
       iter_ = mem.table_->GetIterator(arena);
@@ -447,19 +444,12 @@ class MemTableIterator : public InternalIterator {
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
         Slice prefix = prefix_extractor_->Transform(user_k_without_ts);
-        // NOTE: have to re-read upper bound for each Seek because the
-        // pointed-to Slice from ReadOptions is considered mutable. :(
-        if (!auto_prefix_upper_bound_ ||
-            (prefix_extractor_->InDomain(*auto_prefix_upper_bound_) &&
-             prefix_extractor_->Transform(*auto_prefix_upper_bound_)
-                     .compare(prefix) == 0)) {
-          if (!bloom_->MayContain(prefix)) {
-            PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-            valid_ = false;
-            return;
-          } else {
-            PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-          }
+        if (!bloom_->MayContain(prefix)) {
+          PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+          valid_ = false;
+          return;
+        } else {
+          PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
         }
       }
     }
@@ -477,9 +467,7 @@ class MemTableIterator : public InternalIterator {
     status_ = Status::OK();
     if (bloom_) {
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
-      // NOTE: auto_prefix_mode ineffective for SeekForPrev
-      if (!auto_prefix_upper_bound_ &&
-          prefix_extractor_->InDomain(user_k_without_ts)) {
+      if (prefix_extractor_->InDomain(user_k_without_ts)) {
         if (!bloom_->MayContain(
                 prefix_extractor_->Transform(user_k_without_ts))) {
           PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
@@ -595,7 +583,6 @@ class MemTableIterator : public InternalIterator {
   UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping_;
   Status status_;
   Logger* logger_;
-  const Slice* auto_prefix_upper_bound_;
   size_t ts_sz_;
   uint32_t protection_bytes_per_key_;
   bool valid_;
