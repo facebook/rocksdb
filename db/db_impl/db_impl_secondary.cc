@@ -1012,7 +1012,7 @@ Status DB::OpenAndCompact(
   assert(db);
 
   // 6. Find the handle of the Column Family that this will compact
-  ColumnFamilyHandle* cfh;
+  ColumnFamilyHandle* cfh = nullptr;
   for (auto* handle : handles) {
     if (compaction_input.cf_name == handle->GetName()) {
       cfh = handle;
