@@ -2073,8 +2073,7 @@ InternalIterator* DBImpl::NewInternalIterator(
       &cfd->internal_comparator(), arena,
       // FIXME? It's not clear what interpretation of prefix seek is needed
       // here, and no unit test cares about the value provided here.
-      !read_options.total_order_seek &&
-          prefix_extractor != nullptr,
+      !read_options.total_order_seek && prefix_extractor != nullptr,
       read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(
