@@ -1,1 +1,0 @@
-* Fix a bug with manual_wal_flush and auto error recovery from WAL failure that may cause CFs to be inconsistent (#12995). The fix will set potential WAL write failure as fatal error when manual_wal_flush is true, and disables auto error recovery from these errors.   
