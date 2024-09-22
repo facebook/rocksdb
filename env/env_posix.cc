@@ -1092,24 +1092,26 @@ std::string Env::GenerateUniqueId() {
   return uuid2;
 }
 
-PhotonEnv::PhotonEnv() {
-  int ret = photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+PhotonEnv::PhotonEnv(int vcpu_num, int ev_engine) {
+  LOG_INFO("Begin init Photon Env");
+  int ret = photon::init(ev_engine, photon::INIT_IO_NONE);
   if (ret != 0) {
-    LOG_FATAL("photon init failed");
+    LOG_FATAL("Photon init failed");
     abort();
   }
-  // Max 8 vcpu. Hardcoded for now.
-  ret = photon_std::work_pool_init(8, photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+  ret = photon_std::work_pool_init(vcpu_num, ev_engine, photon::INIT_IO_NONE);
   if (ret != 0) {
-    LOG_FATAL("work pool init failed");
+    LOG_FATAL("Work-pool init failed");
     abort();
   }
+  LOG_INFO("End init Photon Env");
 }
 
 PhotonEnv::~PhotonEnv() {
+  LOG_INFO("Begin destruct Photon Env");
   photon_std::work_pool_fini();
   photon::fini();
-  LOG_INFO("PhotonEnv finished");
+  LOG_INFO("End destruct Photon Env");
 }
 
 //

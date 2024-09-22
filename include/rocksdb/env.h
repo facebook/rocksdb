@@ -25,6 +25,7 @@
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
+#include "port/port.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -1455,20 +1456,21 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 Env* NewTimedEnv(Env* base_env);
 
 class PhotonEnv {
- public:
-  static PhotonEnv& Singleton() {
-    static PhotonEnv instance;
-    return instance;
-  }
+public:
+    static PhotonEnv& Singleton() {
+        // 8 vCPU. Hardcoded for now.
+        static PhotonEnv instance(8, photon::INIT_EVENT_IOURING);
+        return instance;
+    }
 
-  PhotonEnv(PhotonEnv const&) = delete;
-  PhotonEnv(PhotonEnv&&) = delete;
-  PhotonEnv& operator=(PhotonEnv const&) = delete;
-  PhotonEnv& operator=(PhotonEnv&&) = delete;
+    PhotonEnv(PhotonEnv const&) = delete;
+    PhotonEnv(PhotonEnv&&) = delete;
+    PhotonEnv& operator=(PhotonEnv const&) = delete;
+    PhotonEnv& operator=(PhotonEnv&&) = delete;
 
- private:
-  PhotonEnv();
-  ~PhotonEnv();
+private:
+    PhotonEnv(int vcpu_num, int ev_engine);
+    ~PhotonEnv();
 };
 
 }  // namespace rocksdb
