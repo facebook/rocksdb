@@ -21,4 +21,6 @@ cmake --build build -t db_bench -j 32
 ./photon-auto-convert.sh
 cmake -B build -D WITH_TESTS=on -D INIT_PHOTON_IN_ROCKSDB=on -D FAIL_ON_WARNINGS=off -D WITH_LZ4=on -D WITH_SNAPPY=on -D CMAKE_BUILD_TYPE=Debug
 cmake --build build -j 32
+ulimit -n 100000
+cd build && ctest .
 ```

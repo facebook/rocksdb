@@ -1093,25 +1093,26 @@ std::string Env::GenerateUniqueId() {
 }
 
 PhotonEnv::PhotonEnv(int vcpu_num, int ev_engine) {
-  LOG_INFO("Begin init Photon Env");
-  int ret = photon::init(ev_engine, photon::INIT_IO_NONE);
-  if (ret != 0) {
-    LOG_FATAL("Photon init failed");
-    abort();
-  }
-  ret = photon_std::work_pool_init(vcpu_num, ev_engine, photon::INIT_IO_NONE);
-  if (ret != 0) {
-    LOG_FATAL("Work-pool init failed");
-    abort();
-  }
-  LOG_INFO("End init Photon Env");
+    LOG_INFO("Begin init Photon Env");
+    set_log_output_level(ALOG_INFO);
+    int ret = photon::init(ev_engine, photon::INIT_IO_NONE);
+    if (ret != 0) {
+        LOG_FATAL("Photon init failed");
+        abort();
+    }
+    ret = photon_std::work_pool_init(vcpu_num, ev_engine, photon::INIT_IO_NONE);
+    if (ret != 0) {
+        LOG_FATAL("Work-pool init failed");
+        abort();
+    }
+    LOG_INFO("End init Photon Env");
 }
 
 PhotonEnv::~PhotonEnv() {
-  LOG_INFO("Begin destruct Photon Env");
-  photon_std::work_pool_fini();
-  photon::fini();
-  LOG_INFO("End destruct Photon Env");
+    LOG_INFO("Begin destruct Photon Env");
+    photon_std::work_pool_fini();
+    photon::fini();
+    LOG_INFO("End destruct Photon Env");
 }
 
 //

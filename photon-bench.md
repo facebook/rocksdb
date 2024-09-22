@@ -1,4 +1,4 @@
-## Run db_bench
+## Standalone db_bench tests
 
 ```bash
 cd build
@@ -8,7 +8,7 @@ export WAL_DIR=$DB_DIR
 export OUTPUT_DIR=$DB_DIR
 export COMPRESSION_TYPE=none
 export NUM_THREADS=16
-export KEY_SIZE=75
+export KEY_SIZE=100
 export NUM_KEYS=10000000    # Require 10 GB disk space
 export VALUE_SIZE=1024
 
