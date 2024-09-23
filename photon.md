@@ -1,6 +1,9 @@
 ## Build
 
 ```bash
+# Install dependencies
+apt install libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
+
 # Build performance test on RPC client/server (Photon RocksDB)
 ./photon-auto-convert.sh
 cmake -B build -D INIT_PHOTON_IN_ROCKSDB=off -D FAIL_ON_WARNINGS=off -D WITH_LZ4=on -D WITH_SNAPPY=on -D CMAKE_BUILD_TYPE=Release
