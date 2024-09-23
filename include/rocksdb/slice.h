@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <cstdio>
+#include <cstdint>
 #include <string>
 
 #ifdef __cpp_lib_string_view

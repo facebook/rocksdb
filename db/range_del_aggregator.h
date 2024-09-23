@@ -12,6 +12,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #include "db/compaction_iteration_stats.h"
 #include "db/dbformat.h"
