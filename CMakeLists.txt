@@ -45,7 +45,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
 include(FetchContent)
-set(PHOTON_ENABLE_URING ON CACHE INTERNAL "Enable iouring")
+set(PHOTON_ENABLE_URING OFF CACHE INTERNAL "Enable iouring")
 FetchContent_Declare(
         photon
         GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
@@ -53,6 +53,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(photon)
 set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
+
+if (PHOTON_ENABLE_URING)
+    add_compile_definitions("PHOTON_ENABLE_URING")
+endif ()
 
 option(INIT_PHOTON_IN_ROCKSDB "INIT PHOTON IN ROCKSDB" OFF)
 if(INIT_PHOTON_IN_ROCKSDB)
