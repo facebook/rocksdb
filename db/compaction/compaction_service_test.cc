@@ -99,8 +99,14 @@ class MyTestCompactionService : public CompactionService {
     Status s =
         DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
                            compaction_input, result, options_override);
-    if (is_override_wait_result_) {
-      *result = override_wait_result_;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      if (is_override_wait_result_) {
+        *result = override_wait_result_;
+      } else {
+        CompactionServiceResult::Read(*result, &deserialized_result_)
+            .PermitUncheckedError();
+      }
     }
     compaction_num_.fetch_add(1);
     if (s.ok()) {
@@ -143,6 +149,8 @@ class MyTestCompactionService : public CompactionService {
 
   void SetCanceled(bool canceled) { canceled_ = canceled; }
 
+  CompactionServiceResult GetResult() { return deserialized_result_; }
+
   CompactionServiceJobStatus GetFinalCompactionServiceJobStatus() {
     return final_updated_status_.load();
   }
@@ -164,6 +172,7 @@ class MyTestCompactionService : public CompactionService {
   CompactionServiceJobStatus override_wait_status_ =
       CompactionServiceJobStatus::kFailure;
   bool is_override_wait_result_ = false;
+  CompactionServiceResult deserialized_result_;
   std::string override_wait_result_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
@@ -333,6 +342,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
                            options);
   ASSERT_GT(verify_passed, 0);
+  ASSERT_TRUE(my_cs->GetResult().stats.is_remote_compaction);
   Close();
 }
 
@@ -371,6 +381,9 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   VerifyTestData();
+
+  ASSERT_TRUE(my_cs->GetResult().stats.is_manual_compaction);
+  ASSERT_TRUE(my_cs->GetResult().stats.is_remote_compaction);
 }
 
 TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {

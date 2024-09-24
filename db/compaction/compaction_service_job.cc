@@ -336,6 +336,7 @@ Status CompactionServiceCompactionJob::Run() {
   // Build compaction result
   compaction_result_->output_level = compact_->compaction->output_level();
   compaction_result_->output_path = output_path_;
+  compaction_result_->stats.is_remote_compaction = true;
   for (const auto& output_file : sub_compact->GetOutputs()) {
     auto& meta = output_file.meta;
     compaction_result_->output_files.emplace_back(
@@ -528,6 +529,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"is_manual_compaction",
          {offsetof(struct CompactionJobStats, is_manual_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"is_remote_compaction",
+         {offsetof(struct CompactionJobStats, is_remote_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"total_input_bytes",

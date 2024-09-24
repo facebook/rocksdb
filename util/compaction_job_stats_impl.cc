@@ -24,6 +24,7 @@ void CompactionJobStats::Reset() {
 
   is_full_compaction = false;
   is_manual_compaction = false;
+  is_remote_compaction = false;
 
   total_input_bytes = 0;
   total_blob_bytes_read = 0;
