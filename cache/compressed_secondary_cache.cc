@@ -70,6 +70,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   } else {
     uint32_t type_32 = static_cast<uint32_t>(type);
     uint32_t source_32 = static_cast<uint32_t>(source);
+    uint64_t data_size;
     ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
     handle_value_charge = cache_->GetCharge(lru_handle);
     data_ptr = ptr->get();
@@ -79,7 +80,9 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     data_ptr = GetVarint32Ptr(data_ptr, data_ptr + 1,
                               static_cast<uint32_t*>(&source_32));
     source = static_cast<CacheTier>(source_32);
-    handle_value_charge -= (data_ptr - ptr->get());
+    data_size = DecodeFixed64(data_ptr);
+    data_ptr += sizeof(uint64_t);
+    handle_value_charge = data_size;
   }
   MemoryAllocator* allocator = cache_options_.memory_allocator.get();
 
@@ -169,14 +172,16 @@ Status CompressedSecondaryCache::InsertInternal(
   }
 
   auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
-  char header[10];
+  char header[20];
   char* payload = header;
   payload = EncodeVarint32(payload, static_cast<uint32_t>(type));
   payload = EncodeVarint32(payload, static_cast<uint32_t>(source));
+  size_t data_size = (*helper->size_cb)(value);
+  payload += sizeof(uint64_t);
 
   size_t header_size = payload - header;
-  size_t data_size = (*helper->size_cb)(value);
   size_t total_size = data_size + header_size;
+  size_t charge = 0;
   CacheAllocationPtr ptr =
       AllocateBlock(total_size, cache_options_.memory_allocator.get());
   char* data_ptr = ptr.get() + header_size;
@@ -222,14 +227,22 @@ Status CompressedSecondaryCache::InsertInternal(
 
   PERF_COUNTER_ADD(compressed_sec_cache_insert_real_count, 1);
   if (cache_options_.enable_custom_split_merge) {
-    size_t charge{0};
-    CacheValueChunk* value_chunks_head =
-        SplitValueIntoChunks(val, cache_options_.compression_type, charge);
-    return cache_->Insert(key, value_chunks_head, internal_helper, charge);
+    size_t split_charge{0};
+    CacheValueChunk* value_chunks_head = SplitValueIntoChunks(
+        val, cache_options_.compression_type, split_charge);
+    return cache_->Insert(key, value_chunks_head, internal_helper,
+                          split_charge);
   } else {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    charge = malloc_usable_size(ptr.get());
+#else
+    charge = total_size;
+#endif
+    EncodeFixed64(payload - sizeof(uint64_t), data_size);
     std::memcpy(ptr.get(), header, header_size);
     CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
-    return cache_->Insert(key, buf, internal_helper, total_size);
+    charge += sizeof(CacheAllocationPtr);
+    return cache_->Insert(key, buf, internal_helper, charge);
   }
 }
 
@@ -396,6 +409,21 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
         }};
     return &kHelper;
   }
+}
+
+size_t CompressedSecondaryCache::TEST_GetCharge(const Slice& key) {
+  Cache::Handle* lru_handle = cache_->Lookup(key);
+  if (lru_handle == nullptr) {
+    return 0;
+  }
+
+  size_t charge = cache_->GetCharge(lru_handle);
+  if (cache_->Value(lru_handle) != nullptr &&
+      !cache_options_.enable_custom_split_merge) {
+    charge -= 10;
+  }
+  cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  return charge;
 }
 
 std::shared_ptr<SecondaryCache>
