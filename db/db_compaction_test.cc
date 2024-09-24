@@ -4349,7 +4349,6 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  rocksdb::PhotonEnv::Singleton();
 #if !defined(ROCKSDB_LITE)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);

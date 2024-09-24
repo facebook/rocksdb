@@ -1014,6 +1014,7 @@ PosixEnv::PosixEnv()
       page_size_(getpagesize()),
       thread_pools_(Priority::TOTAL),
       allow_non_owner_access_(true) {
+  LOG_INFO("global PosixEnv construct: Create thread pools");
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(
         static_cast<Env::Priority>(pool_id));
