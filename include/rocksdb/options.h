@@ -466,14 +466,27 @@ struct CompactionServiceJobInfo {
 
   Env::Priority priority;
 
+  // Additional Compaction Details that can be useful in the CompactionService
+  CompactionReason compaction_reason;
+  bool is_full_compaction;
+  bool is_manual_compaction;
+  bool bottommost_level;
+
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint64_t job_id_,
-                           Env::Priority priority_)
+                           Env::Priority priority_,
+                           CompactionReason compaction_reason_,
+                           bool is_full_compaction_, bool is_manual_compaction_,
+                           bool bottommost_level_)
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
         job_id(job_id_),
-        priority(priority_) {}
+        priority(priority_),
+        compaction_reason(compaction_reason_),
+        is_full_compaction(is_full_compaction_),
+        is_manual_compaction(is_manual_compaction_),
+        bottommost_level(bottommost_level_) {}
 };
 
 struct CompactionServiceScheduleResponse {

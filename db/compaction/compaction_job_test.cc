@@ -50,7 +50,8 @@ void VerifyInitializationOfCompactionJobStats(
   ASSERT_EQ(compaction_job_stats.num_output_records, 0U);
   ASSERT_EQ(compaction_job_stats.num_output_files, 0U);
 
-  ASSERT_EQ(compaction_job_stats.is_manual_compaction, true);
+  ASSERT_TRUE(compaction_job_stats.is_manual_compaction);
+  ASSERT_FALSE(compaction_job_stats.is_remote_compaction);
 
   ASSERT_EQ(compaction_job_stats.total_input_bytes, 0U);
   ASSERT_EQ(compaction_job_stats.total_output_bytes, 0U);
