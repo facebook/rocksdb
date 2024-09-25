@@ -58,7 +58,6 @@ struct CompactionJobStats {
   uint64_t total_output_bytes = 0;
   // the total size of blob files in the compaction output
   uint64_t total_output_bytes_blob = 0;
-  ;
 
   // number of records being replaced by newer record associated with same key.
   // this could be a new value or a deletion entry for that key so this field
