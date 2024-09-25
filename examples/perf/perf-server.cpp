@@ -145,6 +145,8 @@ public:
         // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
         options.IncreaseParallelism();
         options.OptimizeLevelStyleCompaction();
+        options.allow_concurrent_memtable_write = false;
+        options.enable_pipelined_write = false;
 
         options.stats_dump_period_sec = 0;
         options.stats_persist_period_sec = 0;

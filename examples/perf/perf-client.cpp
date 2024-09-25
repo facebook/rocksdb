@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
                                     FLAGS_port);
 
     auto pool = photon::rpc::new_stub_pool(-1, -1, -1);
+    DEFER(delete pool);
 
     if (FLAGS_type == "fill") {
         run_fill(ep, pool);
