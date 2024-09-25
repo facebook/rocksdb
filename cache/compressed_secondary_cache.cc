@@ -70,7 +70,6 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   } else {
     uint32_t type_32 = static_cast<uint32_t>(type);
     uint32_t source_32 = static_cast<uint32_t>(source);
-    uint64_t data_size;
     ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
     handle_value_charge = cache_->GetCharge(lru_handle);
     data_ptr = ptr->get();
@@ -80,9 +79,10 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     data_ptr = GetVarint32Ptr(data_ptr, data_ptr + 1,
                               static_cast<uint32_t*>(&source_32));
     source = static_cast<CacheTier>(source_32);
-    data_size = DecodeFixed64(data_ptr);
+    uint64_t data_size;
+    data_ptr = GetVarint64Ptr(data_ptr, ptr->get() + handle_value_charge,
+                              static_cast<uint64_t*>(&data_size));
     assert(handle_value_charge > data_size);
-    data_ptr += sizeof(uint64_t);
     handle_value_charge = data_size;
   }
   MemoryAllocator* allocator = cache_options_.memory_allocator.get();
@@ -178,11 +178,11 @@ Status CompressedSecondaryCache::InsertInternal(
   payload = EncodeVarint32(payload, static_cast<uint32_t>(type));
   payload = EncodeVarint32(payload, static_cast<uint32_t>(source));
   size_t data_size = (*helper->size_cb)(value);
-  payload += sizeof(uint64_t);
+  char* data_size_ptr = payload;
+  payload = EncodeVarint64(payload, data_size);
 
   size_t header_size = payload - header;
   size_t total_size = data_size + header_size;
-  size_t charge = 0;
   CacheAllocationPtr ptr =
       AllocateBlock(total_size, cache_options_.memory_allocator.get());
   char* data_ptr = ptr.get() + header_size;
@@ -216,6 +216,8 @@ Status CompressedSecondaryCache::InsertInternal(
 
     val = Slice(compressed_val);
     data_size = compressed_val.size();
+    payload = EncodeVarint64(data_size_ptr, data_size);
+    header_size = payload - header;
     total_size = header_size + data_size;
     PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes, data_size);
 
@@ -235,11 +237,10 @@ Status CompressedSecondaryCache::InsertInternal(
                           split_charge);
   } else {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    charge = malloc_usable_size(ptr.get());
+    size_t charge = malloc_usable_size(ptr.get());
 #else
-    charge = total_size;
+    size_t charge = total_size;
 #endif
-    EncodeFixed64(payload - sizeof(uint64_t), data_size);
     std::memcpy(ptr.get(), header, header_size);
     CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
     charge += sizeof(CacheAllocationPtr);

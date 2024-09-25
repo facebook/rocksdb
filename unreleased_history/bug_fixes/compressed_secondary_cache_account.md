@@ -1,1 +1,1 @@
-Fix under counting of allocated memory in the compressed secondary cache due to looking at actual block size rather than usable memory.
+Fix under counting of allocated memory in the compressed secondary cache due to looking at the compressed block size rather than the actual memory allocated, which could be larger due to internal fragmentation.
