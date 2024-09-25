@@ -27,3 +27,8 @@ cmake --build build -j `nproc`
 ulimit -n 100000
 cd build && ctest .
 ```
+
+```bash
+# TODO
+-D PHOTON_ENABLE_URING=on
+```
