@@ -43,13 +43,17 @@ DEFINE_uint64(num_locks, 10001, "number of locks");
 DEFINE_bool(random_prefix, false, "randomize prefix");
 DEFINE_uint64(total_prefixes, 100000, "total number of prefixes");
 DEFINE_uint64(items_per_prefix, 1, "total number of values per prefix");
-DEFINE_int64(write_buffer_size, 33554432, "");
-DEFINE_int32(max_write_buffer_number, 2, "");
-DEFINE_int32(min_write_buffer_number_to_merge, 1, "");
+// DEFINE_int64(write_buffer_size, 33554432, "");
+DECLARE_int64(write_buffer_size);
+// DEFINE_int32(max_write_buffer_number, 2, "");
+DECLARE_int32(max_write_buffer_number);
+// DEFINE_int32(min_write_buffer_number_to_merge, 1, "");
+DECLARE_int32(min_write_buffer_number_to_merge);
 DEFINE_int32(skiplist_height, 4, "");
 DEFINE_double(memtable_prefix_bloom_size_ratio, 0.1, "");
 DEFINE_int32(memtable_huge_page_size, 2 * 1024 * 1024, "");
-DEFINE_int32(value_size, 40, "");
+// DEFINE_int32(value_size, 40, "");
+DECLARE_int32(value_size);
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 // Path to the database on file system
@@ -876,6 +880,10 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
+  FLAGS_write_buffer_size = 33554432;
+  FLAGS_max_write_buffer_number = 2;
+  FLAGS_min_write_buffer_number_to_merge = 1;
+  FLAGS_value_size = 40;
   return RUN_ALL_TESTS();
 }
 
