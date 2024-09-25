@@ -68,8 +68,11 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
       compaction->column_family_data()->GetName().c_str(), job_id_,
       compaction_input.output_level, input_files_oss.str().c_str());
-  CompactionServiceJobInfo info(dbname_, db_id_, db_session_id_,
-                                GetCompactionId(sub_compact), thread_pri_);
+  CompactionServiceJobInfo info(
+      dbname_, db_id_, db_session_id_, GetCompactionId(sub_compact),
+      thread_pri_, compaction->compaction_reason(),
+      compaction->is_full_compaction(), compaction->is_manual_compaction(),
+      compaction->bottommost_level());
   CompactionServiceScheduleResponse response =
       db_options_.compaction_service->Schedule(info, compaction_input_binary);
   switch (response.status) {
@@ -333,6 +336,7 @@ Status CompactionServiceCompactionJob::Run() {
   // Build compaction result
   compaction_result_->output_level = compact_->compaction->output_level();
   compaction_result_->output_path = output_path_;
+  compaction_result_->stats.is_remote_compaction = true;
   for (const auto& output_file : sub_compact->GetOutputs()) {
     auto& meta = output_file.meta;
     compaction_result_->output_files.emplace_back(
@@ -525,6 +529,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"is_manual_compaction",
          {offsetof(struct CompactionJobStats, is_manual_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"is_remote_compaction",
+         {offsetof(struct CompactionJobStats, is_remote_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"total_input_bytes",

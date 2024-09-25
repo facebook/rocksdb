@@ -21,8 +21,10 @@ class MyTestCompactionService : public CompactionService {
       : db_path_(std::move(db_path)),
         options_(options),
         statistics_(statistics),
-        start_info_("na", "na", "na", 0, Env::TOTAL),
-        wait_info_("na", "na", "na", 0, Env::TOTAL),
+        start_info_("na", "na", "na", 0, Env::TOTAL, CompactionReason::kUnknown,
+                    false, false, false),
+        wait_info_("na", "na", "na", 0, Env::TOTAL, CompactionReason::kUnknown,
+                   false, false, false),
         listeners_(listeners),
         table_properties_collector_factories_(
             std::move(table_properties_collector_factories)) {}
@@ -97,8 +99,12 @@ class MyTestCompactionService : public CompactionService {
     Status s =
         DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
                            compaction_input, result, options_override);
-    if (is_override_wait_result_) {
-      *result = override_wait_result_;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      if (is_override_wait_result_) {
+        *result = override_wait_result_;
+      }
+      result_ = *result;
     }
     compaction_num_.fetch_add(1);
     if (s.ok()) {
@@ -141,6 +147,10 @@ class MyTestCompactionService : public CompactionService {
 
   void SetCanceled(bool canceled) { canceled_ = canceled; }
 
+  void GetResult(CompactionServiceResult* deserialized) {
+    CompactionServiceResult::Read(result_, deserialized).PermitUncheckedError();
+  }
+
   CompactionServiceJobStatus GetFinalCompactionServiceJobStatus() {
     return final_updated_status_.load();
   }
@@ -162,6 +172,7 @@ class MyTestCompactionService : public CompactionService {
   CompactionServiceJobStatus override_wait_status_ =
       CompactionServiceJobStatus::kFailure;
   bool is_override_wait_result_ = false;
+  std::string result_;
   std::string override_wait_result_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
@@ -331,6 +342,14 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
                            options);
   ASSERT_GT(verify_passed, 0);
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  if (s.IsAborted()) {
+    ASSERT_NOK(result.status);
+  } else {
+    ASSERT_OK(result.status);
+  }
+  ASSERT_TRUE(result.stats.is_remote_compaction);
   Close();
 }
 
@@ -369,6 +388,12 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   VerifyTestData();
+
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_TRUE(result.stats.is_manual_compaction);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
 }
 
 TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
@@ -601,11 +626,20 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
                               {file.db_path + "/" + file.name}, 2));
   info = my_cs->GetCompactionInfoForStart();
   ASSERT_EQ(Env::USER, info.priority);
+  ASSERT_EQ(CompactionReason::kManualCompaction, info.compaction_reason);
+  ASSERT_EQ(true, info.is_manual_compaction);
+  ASSERT_EQ(false, info.is_full_compaction);
+  ASSERT_EQ(true, info.bottommost_level);
   info = my_cs->GetCompactionInfoForWait();
   ASSERT_EQ(Env::USER, info.priority);
+  ASSERT_EQ(CompactionReason::kManualCompaction, info.compaction_reason);
+  ASSERT_EQ(true, info.is_manual_compaction);
+  ASSERT_EQ(false, info.is_full_compaction);
+  ASSERT_EQ(true, info.bottommost_level);
 
   // Test priority BOTTOM
   env_->SetBackgroundThreads(1, Env::BOTTOM);
+  // This will set bottommost_level = true but is_full_compaction = false
   options.num_levels = 2;
   ReopenWithCompactionService(&options);
   my_cs =
@@ -628,9 +662,71 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   info = my_cs->GetCompactionInfoForStart();
+  ASSERT_EQ(CompactionReason::kLevelL0FilesNum, info.compaction_reason);
+  ASSERT_EQ(false, info.is_manual_compaction);
+  ASSERT_EQ(false, info.is_full_compaction);
+  ASSERT_EQ(true, info.bottommost_level);
   ASSERT_EQ(Env::BOTTOM, info.priority);
   info = my_cs->GetCompactionInfoForWait();
   ASSERT_EQ(Env::BOTTOM, info.priority);
+  ASSERT_EQ(CompactionReason::kLevelL0FilesNum, info.compaction_reason);
+  ASSERT_EQ(false, info.is_manual_compaction);
+  ASSERT_EQ(false, info.is_full_compaction);
+  ASSERT_EQ(true, info.bottommost_level);
+
+  // Test Non-Bottommost Level
+  options.num_levels = 4;
+  ReopenWithCompactionService(&options);
+  my_cs =
+      static_cast_with_check<MyTestCompactionService>(GetCompactionService());
+
+  for (int i = 0; i < options.level0_file_num_compaction_trigger; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 10 + j;
+      ASSERT_OK(Put(Key(key_id), "value_new_new" + std::to_string(key_id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  info = my_cs->GetCompactionInfoForStart();
+  ASSERT_EQ(false, info.is_manual_compaction);
+  ASSERT_EQ(false, info.is_full_compaction);
+  ASSERT_EQ(false, info.bottommost_level);
+  info = my_cs->GetCompactionInfoForWait();
+  ASSERT_EQ(false, info.is_manual_compaction);
+  ASSERT_EQ(false, info.is_full_compaction);
+  ASSERT_EQ(false, info.bottommost_level);
+
+  // Test Full Compaction + Bottommost Level
+  options.num_levels = 6;
+  ReopenWithCompactionService(&options);
+  my_cs =
+      static_cast_with_check<MyTestCompactionService>(GetCompactionService());
+
+  for (int i = 0; i < 20; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 10 + j;
+      ASSERT_OK(Put(Key(key_id), "value_new_new" + std::to_string(key_id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  info = my_cs->GetCompactionInfoForStart();
+  ASSERT_EQ(true, info.is_manual_compaction);
+  ASSERT_EQ(true, info.is_full_compaction);
+  ASSERT_EQ(true, info.bottommost_level);
+  ASSERT_EQ(CompactionReason::kManualCompaction, info.compaction_reason);
+  info = my_cs->GetCompactionInfoForWait();
+  ASSERT_EQ(true, info.is_manual_compaction);
+  ASSERT_EQ(true, info.is_full_compaction);
+  ASSERT_EQ(true, info.bottommost_level);
+  ASSERT_EQ(CompactionReason::kManualCompaction, info.compaction_reason);
 }
 
 TEST_F(CompactionServiceTest, FallbackLocalAuto) {
