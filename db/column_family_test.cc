@@ -24,6 +24,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -3866,6 +3867,48 @@ TEST_F(ManualFlushSkipRetainUDTTest, ManualFlush) {
   ASSERT_OK(Flush(0));
   CheckEffectiveCutoffTime(2);
   CheckAutomaticFlushRetainUDT(3);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, FlushRemovesStaleEntries) {
+  column_family_options_.max_write_buffer_number = 4;
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+  ColumnFamilyData* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+  for (int version = 0; version < 100; version++) {
+    if (version == 50) {
+      ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable(cfd));
+    }
+    ASSERT_OK(
+        Put(0, "foo", EncodeAsUint64(version), "v" + std::to_string(version)));
+  }
+
+  ASSERT_OK(Flush(0));
+  std::vector<LiveFileMetaData> live_files;
+  db_->GetLiveFilesMetaData(&live_files);
+  ASSERT_EQ(1, live_files.size());
+  std::string filename = live_files[0].directory + kFilePathSeparator +
+                         live_files[0].relative_filename;
+  Options options(db_options_, column_family_options_);
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(filename));
+  ASSERT_OK(reader.VerifyChecksum());
+  {
+    std::unique_ptr<Iterator> table_iterator = reader.NewTableIterator();
+    int num_entries = 0;
+    table_iterator->SeekToFirst();
+    while (table_iterator->Valid()) {
+      num_entries += 1;
+      table_iterator->Next();
+    }
+    ASSERT_EQ(1, num_entries);
+  }
+  CheckEffectiveCutoffTime(100);
+  CheckAutomaticFlushRetainUDT(101);
 
   Close();
 }

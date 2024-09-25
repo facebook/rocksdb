@@ -213,6 +213,14 @@ class MemTable {
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
       const SliceTransform* prefix_extractor);
 
+  // Returns an iterator that wraps a MemTableIterator and logically strips the
+  // user-defined timestamp of each key. This API is only used by flush when
+  // user-defined timestamps in MemTable only feature is enabled.
+  InternalIterator* NewTimestampStrippingIterator(
+      const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+      const SliceTransform* prefix_extractor, size_t ts_sz);
+
   // Returns an iterator that yields the range tombstones of the memtable.
   // The caller must ensure that the underlying MemTable remains live
   // while the returned iterator is live.

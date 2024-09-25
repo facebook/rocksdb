@@ -613,6 +613,111 @@ InternalIterator* MemTable::NewIterator(
                        seqno_to_time_mapping, arena, prefix_extractor);
 }
 
+// An iterator wrapper that wraps a MemTableIterator and logically strips each
+// key's user-defined timestamp.
+class TimestampStrippingIterator : public InternalIterator {
+ public:
+  TimestampStrippingIterator(
+      MemTableIterator::Kind kind, const MemTable& memtable,
+      const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+      const SliceTransform* cf_prefix_extractor, size_t ts_sz)
+      : ts_sz_(ts_sz) {
+    assert(arena != nullptr);
+    assert(ts_sz_ != 0);
+    void* mem = arena ? arena->AllocateAligned(sizeof(MemTableIterator)) :
+                      operator new(sizeof(MemTableIterator));
+    iter_ = new (mem)
+        MemTableIterator(kind, memtable, read_options, seqno_to_time_mapping,
+                         arena, cf_prefix_extractor);
+  }
+
+  // No copying allowed
+  TimestampStrippingIterator(const TimestampStrippingIterator&) = delete;
+  void operator=(const TimestampStrippingIterator&) = delete;
+
+  ~TimestampStrippingIterator() override { iter_->~MemTableIterator(); }
+
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
+    iter_->SetPinnedItersMgr(pinned_iters_mgr);
+  }
+
+  bool Valid() const override { return iter_->Valid(); }
+  void Seek(const Slice& k) override {
+    iter_->Seek(k);
+    UpdateKeyBuffer();
+  }
+  void SeekForPrev(const Slice& k) override {
+    iter_->SeekForPrev(k);
+    UpdateKeyBuffer();
+  }
+  void SeekToFirst() override {
+    iter_->SeekToFirst();
+    UpdateKeyBuffer();
+  }
+  void SeekToLast() override {
+    iter_->SeekToLast();
+    UpdateKeyBuffer();
+  }
+  void Next() override {
+    iter_->Next();
+    UpdateKeyBuffer();
+  }
+  bool NextAndGetResult(IterateResult* result) override {
+    iter_->Next();
+    UpdateKeyBuffer();
+    bool is_valid = Valid();
+    if (is_valid) {
+      result->key = key();
+      result->bound_check_result = IterBoundCheck::kUnknown;
+      result->value_prepared = true;
+    }
+    return is_valid;
+  }
+  void Prev() override {
+    iter_->Prev();
+    UpdateKeyBuffer();
+  }
+  Slice key() const override {
+    assert(Valid());
+    return key_buf_;
+  }
+
+  uint64_t write_unix_time() const override { return iter_->write_unix_time(); }
+  Slice value() const override { return iter_->value(); }
+  Status status() const override { return iter_->status(); }
+  bool IsKeyPinned() const override {
+    // Key is only in a buffer that is updated in each iteration.
+    return false;
+  }
+  bool IsValuePinned() const override { return iter_->IsValuePinned(); }
+
+ private:
+  void UpdateKeyBuffer() {
+    key_buf_.clear();
+    if (!Valid()) {
+      return;
+    }
+    Slice original_key = iter_->key();
+    ReplaceInternalKeyWithMinTimestamp(&key_buf_, original_key, ts_sz_);
+  }
+
+  size_t ts_sz_;
+  MemTableIterator* iter_;
+  std::string key_buf_;
+};
+
+InternalIterator* MemTable::NewTimestampStrippingIterator(
+    const ReadOptions& read_options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+    const SliceTransform* prefix_extractor, size_t ts_sz) {
+  assert(arena != nullptr);
+  auto mem = arena->AllocateAligned(sizeof(TimestampStrippingIterator));
+  return new (mem) TimestampStrippingIterator(
+      MemTableIterator::kPointEntries, *this, read_options,
+      seqno_to_time_mapping, arena, prefix_extractor, ts_sz);
+}
+
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options, SequenceNumber read_seq,
     bool immutable_memtable) {

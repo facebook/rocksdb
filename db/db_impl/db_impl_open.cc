@@ -1667,10 +1667,19 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   Arena arena;
   Status s;
   TableProperties table_properties;
+  const auto* ucmp = cfd->internal_comparator().user_comparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+  const bool logical_strip_timestamp =
+      ts_sz > 0 && !cfd->ioptions()->persist_user_defined_timestamps;
   {
     ScopedArenaPtr<InternalIterator> iter(
-        mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
-                         /*prefix_extractor=*/nullptr));
+        logical_strip_timestamp
+            ? mem->NewTimestampStrippingIterator(
+                  ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+                  /*prefix_extractor=*/nullptr, ts_sz)
+            : mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+                               /*prefix_extractor=*/nullptr));
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] [WriteLevel0TableForRecovery]"
                     " Level-0 table #%" PRIu64 ": started",
@@ -1795,9 +1804,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
     // For UDT in memtable only feature, move up the cutoff timestamp whenever
     // a flush happens.
-    const Comparator* ucmp = cfd->user_comparator();
-    size_t ts_sz = ucmp->timestamp_size();
-    if (ts_sz > 0 && !cfd->ioptions()->persist_user_defined_timestamps) {
+    if (logical_strip_timestamp) {
       Slice mem_newest_udt = mem->GetNewestUDT();
       std::string full_history_ts_low = cfd->GetFullHistoryTsLow();
       if (full_history_ts_low.empty() ||
