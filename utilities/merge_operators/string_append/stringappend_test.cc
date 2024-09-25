@@ -579,7 +579,6 @@ TEST_F(StringAppendOperatorTest, SimpleTestNullDelimiter) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  rocksdb::PhotonEnv::Singleton();
   // Run with regular database
   int result;
   {
