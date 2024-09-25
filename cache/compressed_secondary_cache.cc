@@ -81,6 +81,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
                               static_cast<uint32_t*>(&source_32));
     source = static_cast<CacheTier>(source_32);
     data_size = DecodeFixed64(data_ptr);
+    assert(handle_value_charge > data_size);
     data_ptr += sizeof(uint64_t);
     handle_value_charge = data_size;
   }
