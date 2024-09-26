@@ -271,6 +271,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   ASSERT_GT(unset_bytes_base, 0);
   options->~DBOptions();
 
+  // Now also check that BuildDBOptions populates everything
+  FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
+  BuildDBOptions({}, {}, *options);
+  ASSERT_EQ(unset_bytes_base,
+            NumUnsetBytes(options_ptr, sizeof(DBOptions), kDBOptionsExcluded));
+
   options = new (options_ptr) DBOptions();
   FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
 
@@ -372,7 +378,11 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "follower_catchup_retry_count=456;"
                              "follower_catchup_retry_wait_ms=789;"
                              "metadata_write_temperature=kCold;"
-                             "wal_write_temperature=kHot;",
+                             "wal_write_temperature=kHot;"
+                             "background_close_inactive_wals=true;"
+                             "write_dbid_to_manifest=true;"
+                             "write_identity_file=true;"
+                             "prefix_seek_opt_in_only=true;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
