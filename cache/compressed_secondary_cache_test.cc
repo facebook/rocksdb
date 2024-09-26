@@ -39,6 +39,8 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
  protected:
   void BasicTestHelper(std::shared_ptr<SecondaryCache> sec_cache,
                        bool sec_cache_is_compressed) {
+    CompressedSecondaryCache* comp_sec_cache =
+        static_cast<CompressedSecondaryCache*>(sec_cache.get());
     get_perf_context()->Reset();
     bool kept_in_sec_cache{true};
     // Lookup an non-existent key.
@@ -65,6 +67,8 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     // Insert and Lookup the item k1 for the second time and advise erasing it.
     ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
+
+    ASSERT_GT(comp_sec_cache->TEST_GetCharge(key1), 1000);
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_2 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/true,
