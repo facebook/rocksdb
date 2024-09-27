@@ -11,6 +11,7 @@
 #ifdef GFLAGS
 #include "tools/io_tracer_parser_tool.h"
 #endif
+#include "rocksdb/flush_block_policy.h"
 #include "util/random.h"
 
 namespace {
@@ -120,6 +121,80 @@ class PrefetchTest
     table_options.metadata_block_size = 1024;
     table_options.index_type =
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
+
+  void VerifyScan(ReadOptions& iter_ro, ReadOptions& cmp_iter_ro,
+                  const Slice* seek_key, const Slice* iterate_upper_bound,
+                  bool prefix_same_as_start) const {
+    assert(!(seek_key == nullptr));
+    iter_ro.iterate_upper_bound = cmp_iter_ro.iterate_upper_bound =
+        iterate_upper_bound;
+    iter_ro.prefix_same_as_start = cmp_iter_ro.prefix_same_as_start =
+        prefix_same_as_start;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(iter_ro));
+    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_iter_ro));
+
+    iter->Seek(*seek_key);
+    cmp_iter->Seek(*seek_key);
+
+    while (iter->Valid() && cmp_iter->Valid()) {
+      if (iter->key() != cmp_iter->key()) {
+        // Error
+        ASSERT_TRUE(false);
+      }
+      iter->Next();
+      cmp_iter->Next();
+    }
+
+    ASSERT_OK(cmp_iter->status());
+    ASSERT_OK(iter->status());
+  }
+
+  void VerifySeekPrevSeek(ReadOptions& iter_ro, ReadOptions& cmp_iter_ro,
+                          const Slice* seek_key,
+                          const Slice* iterate_upper_bound,
+                          bool prefix_same_as_start) {
+    assert(!(seek_key == nullptr));
+    iter_ro.iterate_upper_bound = cmp_iter_ro.iterate_upper_bound =
+        iterate_upper_bound;
+    iter_ro.prefix_same_as_start = cmp_iter_ro.prefix_same_as_start =
+        prefix_same_as_start;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(iter_ro));
+    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_iter_ro));
+
+    // Seek
+    cmp_iter->Seek(*seek_key);
+    ASSERT_TRUE(cmp_iter->Valid());
+    ASSERT_OK(cmp_iter->status());
+
+    iter->Seek(*seek_key);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    ASSERT_EQ(iter->key(), cmp_iter->key());
+
+    // Prev op should pass
+    cmp_iter->Prev();
+    ASSERT_TRUE(cmp_iter->Valid());
+    ASSERT_OK(cmp_iter->status());
+
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+
+    ASSERT_EQ(iter->key(), cmp_iter->key());
+
+    // Reseek would follow as usual
+    cmp_iter->Seek(*seek_key);
+    ASSERT_TRUE(cmp_iter->Valid());
+    ASSERT_OK(cmp_iter->status());
+
+    iter->Seek(*seek_key);
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), cmp_iter->key());
   }
 };
 
@@ -1262,6 +1337,8 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   Options options;
   SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
   options.statistics = CreateDBStatistics();
+  const std::string prefix = "my_key_";
+  options.prefix_extractor.reset(NewFixedPrefixTransform(prefix.size()));
   BlockBasedTableOptions table_options;
   SetBlockBasedTableOptions(table_options);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1272,8 +1349,9 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   Random rnd(309);
   WriteBatch batch;
 
+  // Create the DB with keys from "my_key_aaaaaaaaaa" to "my_key_zzzzzzzzzz"
   for (int i = 0; i < 26; i++) {
-    std::string key = "my_key_";
+    std::string key = prefix;
 
     for (int j = 0; j < 10; j++) {
       key += char('a' + i);
@@ -1282,9 +1360,9 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
-  std::string start_key = "my_key_a";
+  std::string start_key = prefix + "a";
 
-  std::string end_key = "my_key_";
+  std::string end_key = prefix;
   for (int j = 0; j < 10; j++) {
     end_key += char('a' + 25);
   }
@@ -1309,32 +1387,30 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
     {
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
 
-      iter->Seek("my_key_bbb");
+      iter->Seek(prefix + "bbb");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_ccccccccc");
+      iter->Seek(prefix + "ccccccccc");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_ddd");
+      iter->Seek(prefix + "ddd");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_ddddddd");
+      iter->Seek(prefix + "ddddddd");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_e");
+      iter->Seek(prefix + "e");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_eeeee");
+      iter->Seek(prefix + "eeeee");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_eeeeeeeee");
+      iter->Seek(prefix + "eeeeeeeee");
       ASSERT_TRUE(iter->Valid());
     }
 
     ReadOptions ropts;
-    ropts.auto_readahead_size = true;
     ReadOptions cmp_ro;
-    cmp_ro.auto_readahead_size = false;
 
     if (std::get<0>(GetParam())) {
       ropts.readahead_size = cmp_ro.readahead_size = 32768;
@@ -1345,61 +1421,31 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
     }
 
     // With and without tuning readahead_size.
-    {
-      ASSERT_OK(options.statistics->Reset());
-      // Seek.
-      {
-        Slice ub = Slice("my_key_uuu");
-        Slice* ub_ptr = &ub;
-        cmp_ro.iterate_upper_bound = ub_ptr;
-        ropts.iterate_upper_bound = ub_ptr;
+    ropts.auto_readahead_size = true;
+    cmp_ro.auto_readahead_size = false;
+    ASSERT_OK(options.statistics->Reset());
+    // Seek with a upper bound
+    const std::string seek_key_str = prefix + "aaa";
+    const Slice seek_key(seek_key_str);
+    const std::string ub_str = prefix + "uuu";
+    const Slice ub(ub_str);
+    VerifyScan(ropts /* iter_ro */, cmp_ro /* cmp_iter_ro */,
+               &seek_key /* seek_key */, &ub /* iterate_upper_bound */,
+               false /* prefix_same_as_start */);
 
-        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
+    // Seek with a new seek key and upper bound
+    const std::string seek_key_new_str = prefix + "v";
+    const Slice seek_key_new(seek_key_new_str);
+    const std::string ub_new_str = prefix + "y";
+    const Slice ub_new(ub_new_str);
+    VerifyScan(ropts /* iter_ro */, cmp_ro /* cmp_iter_ro */,
+               &seek_key_new /* seek_key */, &ub_new /* iterate_upper_bound */,
+               false /* prefix_same_as_start */);
 
-        Slice seek_key = Slice("my_key_aaa");
-        iter->Seek(seek_key);
-        cmp_iter->Seek(seek_key);
-
-        while (iter->Valid() && cmp_iter->Valid()) {
-          if (iter->key() != cmp_iter->key()) {
-            // Error
-            ASSERT_TRUE(false);
-          }
-          iter->Next();
-          cmp_iter->Next();
-        }
-
-        ASSERT_OK(cmp_iter->status());
-        ASSERT_OK(iter->status());
-      }
-
-      // Reseek with new upper_bound_iterator.
-      {
-        Slice ub = Slice("my_key_y");
-        ropts.iterate_upper_bound = &ub;
-        cmp_ro.iterate_upper_bound = &ub;
-
-        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
-
-        Slice reseek_key = Slice("my_key_v");
-        iter->Seek(reseek_key);
-        cmp_iter->Seek(reseek_key);
-
-        while (iter->Valid() && cmp_iter->Valid()) {
-          if (iter->key() != cmp_iter->key()) {
-            // Error
-            ASSERT_TRUE(false);
-          }
-          iter->Next();
-          cmp_iter->Next();
-        }
-
-        ASSERT_OK(cmp_iter->status());
-        ASSERT_OK(iter->status());
-      }
-    }
+    // Seek with no upper bound, prefix_same_as_start = true
+    VerifyScan(ropts /* iter_ro */, cmp_ro /* cmp_iter_ro */,
+               &seek_key /* seek_key */, nullptr /* iterate_upper_bound */,
+               true /* prefix_same_as_start */);
     Close();
   }
 }
@@ -1418,6 +1464,8 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   Options options;
   SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
   options.statistics = CreateDBStatistics();
+  const std::string prefix = "my_key_";
+  options.prefix_extractor.reset(NewFixedPrefixTransform(prefix.size()));
   BlockBasedTableOptions table_options;
   SetBlockBasedTableOptions(table_options);
   std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 2);
@@ -1432,7 +1480,7 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   WriteBatch batch;
 
   for (int i = 0; i < 26; i++) {
-    std::string key = "my_key_";
+    std::string key = prefix;
 
     for (int j = 0; j < 10; j++) {
       key += char('a' + i);
@@ -1441,9 +1489,9 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
-  std::string start_key = "my_key_a";
+  std::string start_key = prefix + "a";
 
-  std::string end_key = "my_key_";
+  std::string end_key = prefix;
   for (int j = 0; j < 10; j++) {
     end_key += char('a' + 25);
   }
@@ -1455,58 +1503,118 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
 
   ReadOptions ropts;
   ropts.auto_readahead_size = true;
+  ReadOptions cmp_readopts = ropts;
+  cmp_readopts.auto_readahead_size = false;
 
-  {
-    // Seek.
-    Slice ub = Slice("my_key_uuu");
-    Slice* ub_ptr = &ub;
-    ropts.iterate_upper_bound = ub_ptr;
-    ropts.auto_readahead_size = true;
+  const std::string seek_key_str = prefix + "bbb";
+  const Slice seek_key(seek_key_str);
+  const std::string ub_key = prefix + "uuu";
+  const Slice ub(ub_key);
 
-    ReadOptions cmp_readopts = ropts;
-    cmp_readopts.auto_readahead_size = false;
+  VerifySeekPrevSeek(ropts /* iter_ro */, cmp_readopts /* cmp_iter_ro */,
+                     &seek_key /* seek_key */, &ub /* iterate_upper_bound */,
+                     false /* prefix_same_as_start */);
 
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_readopts));
+  VerifySeekPrevSeek(ropts /* iter_ro */, cmp_readopts /* cmp_iter_ro */,
+                     &seek_key /* seek_key */,
+                     nullptr /* iterate_upper_bound */,
+                     true /* prefix_same_as_start */);
+  Close();
+}
 
-    Slice seek_key = Slice("my_key_bbb");
-    {
-      cmp_iter->Seek(seek_key);
-      ASSERT_TRUE(cmp_iter->Valid());
-      ASSERT_OK(cmp_iter->status());
+TEST_F(PrefetchTest, TrimReadaheadSizeForPrefixSameAsStart) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
 
-      iter->Seek(seek_key);
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_OK(iter->status());
+  // First param is if the mockFS support_prefetch or not
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(FileSystem::Default(), false);
 
-      ASSERT_EQ(iter->key(), cmp_iter->key());
-    }
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  Options options;
+  SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
+  options.statistics = CreateDBStatistics();
+  options.write_buffer_size = 1024 * 1024 * 1024;
 
-    // Prev op should pass with auto tuning of readahead_size.
-    {
-      cmp_iter->Prev();
-      ASSERT_TRUE(cmp_iter->Valid());
-      ASSERT_OK(cmp_iter->status());
+  const std::string prefix_1 = "a_prefix";
+  const std::string prefix_2 = "b_prefix";
+  assert(prefix_1.size() == prefix_2.size());
+  options.prefix_extractor.reset(NewFixedPrefixTransform(prefix_1.size()));
 
-      iter->Prev();
-      ASSERT_OK(iter->status());
-      ASSERT_TRUE(iter->Valid());
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  table_options.no_block_cache = false;
+  // To force keys with different prefixes are in different data blocks of the
+  // file for testing purpose
+  table_options.block_size = 1;
+  table_options.flush_block_policy_factory.reset(
+      new FlushBlockBySizePolicyFactory());
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-      ASSERT_EQ(iter->key(), cmp_iter->key());
-    }
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
 
-    // Reseek would follow as usual.
-    {
-      cmp_iter->Seek(seek_key);
-      ASSERT_TRUE(cmp_iter->Valid());
-      ASSERT_OK(cmp_iter->status());
+  // To create a DB with data block layout (denoted as "[...]" below ) as the
+  // following: [prefix_1 + "a": random value] [prefix_1 + "aa": random value]
+  // ....
+  // [prefix_1 + "z.....z": random value]
+  // [prefix_2 + "a": random value]
+  // ...
+  // [prefix_2 + "z.....z": random value]
+  //
+  // We want to verify readahead is trimmed so no data block containing keys of
+  // prefix_2 is prefetched
+  WriteBatch prefix_1_batch;
+  Random rnd(309);
+  for (int i = 0; i < 26; i++) {
+    std::string key = prefix_1;
 
-      iter->Seek(seek_key);
-      ASSERT_OK(iter->status());
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ(iter->key(), cmp_iter->key());
+    for (int j = 0; j < 10; j++) {
+      key += char('a' + i);
+      ASSERT_OK(prefix_1_batch.Put(key, rnd.RandomString(1000)));
     }
   }
+  ASSERT_OK(db_->Write(WriteOptions(), &prefix_1_batch));
+
+  WriteBatch prefix_2_batch;
+  for (int i = 0; i < 26; i++) {
+    std::string key = "prefix_2";
+
+    for (int j = 0; j < 10; j++) {
+      key += char('a' + i);
+      ASSERT_OK(prefix_2_batch.Put(key, rnd.RandomString(1000)));
+    }
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &prefix_2_batch));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // To verify readahead is trimmed based on prefix by ratio between
+  // PREFETCH_BYTES_USEFUL and PREFETCH_BYTES
+  ReadOptions ro;
+  ro.prefix_same_as_start = true;
+  ro.auto_readahead_size = true;
+  // Set a large readahead size to introduce readahead waste if without trimming
+  // based on prefix
+  ro.readahead_size = 1024 * 1024 * 1024;
+
+  ASSERT_OK(options.statistics->Reset());
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->Seek(prefix_1); iter->Valid(); iter->Next()) {
+    }
+  }
+
+  auto prefetch_bytes = options.statistics->getTickerCount(PREFETCH_BYTES);
+  ASSERT_TRUE(prefetch_bytes > 0);
+  auto prefetch_bytes_useful =
+      options.statistics->getTickerCount(PREFETCH_BYTES_USEFUL);
+  ASSERT_TRUE(prefetch_bytes_useful > 0);
+
+  // Without trimming based on prefix, below ratio will be a lot smaller than
+  // 0.9 due to readahead waste
+  ASSERT_TRUE(prefetch_bytes_useful * 1.0 / (prefetch_bytes * 1.0) > 0.9);
   Close();
 }
 
