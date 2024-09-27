@@ -11,6 +11,8 @@ export NUM_THREADS=16
 export KEY_SIZE=100
 export NUM_KEYS=10000000    # Require 10 GB disk space
 export VALUE_SIZE=1024
+export DURATION=300
+# export CACHE_SIZE=0
 
 # For large number of threads, you may edit benchmark.sh, and add `taskset -c 1-8` before the ./db_bench command.
 # This would limit the CPU number for both thread and coroutine, in order to make a fair comparison.
